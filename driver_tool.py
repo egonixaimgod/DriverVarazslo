@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 83
+BUILD_NUMBER = 84
 
 try:
     import webview
@@ -724,7 +724,7 @@ class DriverToolApi:
 
                 pnp_data = []
                 try:
-                    cmd_pnp = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-WmiObject Win32_PnPEntity | Select-Object Name, PNPClass, PNPDeviceID | ConvertTo-Json -Compress"
+                    cmd_pnp = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $true } | Select-Object Name, PNPClass, PNPDeviceID | ConvertTo-Json -Compress"
                     res = self._run(["powershell", "-NoProfile", "-Command", cmd_pnp], encoding='utf-8')
                     if res.stdout:
                         out = json.loads(res.stdout)
