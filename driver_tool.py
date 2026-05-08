@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 94
+BUILD_NUMBER = 95
 
 try:
     import webview
@@ -3032,7 +3032,7 @@ class CliApi:
     # ================================================================
     # WINDOWS UPDATE
     # ================================================================
-    def check_wu_status(self):
+    def check_wu_status_cli(self):
         """WU driver frissítés állapota."""
         policy_disabled = False
         search_disabled = False
@@ -3466,7 +3466,7 @@ def run_cli_mode():
     def wu_menu():
         while True:
             print_header()
-            status = api.check_wu_status()
+            status = api.check_wu_status_cli()
             print(f"""
   🔄 WINDOWS UPDATE BEÁLLÍTÁSOK
   
