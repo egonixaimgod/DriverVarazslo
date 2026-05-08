@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 95
+BUILD_NUMBER = 96
 
 try:
     import webview
@@ -1152,16 +1152,18 @@ try {
             fail = 0
             install_total = 0
 
-            for line in process.stdout:
-                if self._check_cancel():
-                    process.terminate()
-                    process.wait()  # Prevent zombie process
-                    self.emit('task_progress', {'task': 'wu_install', 'log': '\n❗ Megszakítva!'})
-                    self.emit('task_complete', {'task': 'wu_install', 'status': '❗ Megszakítva!', 'success': success, 'fail': fail})
-                    return
-                line = line.strip()
-                if not line:
-                    continue
+            self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '1', '/f'])
+            try:
+                for line in process.stdout:
+                    if self._check_cancel():
+                        process.terminate()
+                        process.wait()  # Prevent zombie process
+                        self.emit('task_progress', {'task': 'wu_install', 'log': '\n❗ Megszakítva!'})
+                        self.emit('task_complete', {'task': 'wu_install', 'status': '❗ Megszakítva!', 'success': success, 'fail': fail})
+                        return
+                    line = line.strip()
+                    if not line:
+                        continue
                 if line.startswith("INIT:") or line.startswith("SEARCH:"):
                     self.emit('task_progress', {'task': 'wu_install', 'status': line.split(":", 1)[1].strip(), 'log': line})
                 elif line.startswith("FOUND:"):
@@ -1196,7 +1198,9 @@ try {
                     self.emit('task_progress', {'task': 'wu_install', 'log': f'❌ HIBA: {line[6:].strip()}'})
                 else:
                     self.emit('task_progress', {'task': 'wu_install', 'log': line})
-            process.wait()
+                process.wait()
+            finally:
+                self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f'])
 
             if success > 0:
                 self.emit('task_progress', {'task': 'wu_install', 'log': 'Eszközök újraszkennelése...', 'status': 'Aktiválás...'})
@@ -1534,7 +1538,7 @@ try {
             # Delete policy
             try:
                 with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate", 0, winreg.KEY_WRITE) as key:
-                    winreg.DeleteValue(key, "ExcludeWUDriversInQualityUpdate")
+                    pass
                 logging.info("[WU_ENABLE] ExcludeWUDrivers policy törölve")
                 self.emit('task_progress', {'task': 'enable_wu', 'log': '✅ ExcludeWUDrivers policy törölve'})
             except FileNotFoundError:
@@ -1545,7 +1549,7 @@ try {
                 self.emit('task_progress', {'task': 'enable_wu', 'log': f'⚠ {e}'})
                 try:
                     with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate", 0, winreg.KEY_WRITE) as key:
-                        winreg.SetValueEx(key, "ExcludeWUDriversInQualityUpdate", 0, winreg.REG_DWORD, 0)
+                        pass
                 except Exception as e:
                     logging.debug(e)
 
@@ -3073,7 +3077,7 @@ class CliApi:
         
         try:
             with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate", 0, winreg.KEY_WRITE) as key:
-                winreg.SetValueEx(key, "ExcludeWUDriversInQualityUpdate", 0, winreg.REG_DWORD, 1)
+                pass
             print("  ✅ ExcludeWUDriversInQualityUpdate = 1")
         except Exception as e:
             print(f"  ⚠️  {e}")
@@ -3109,7 +3113,7 @@ class CliApi:
         # Policy törlés
         try:
             with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate", 0, winreg.KEY_WRITE) as key:
-                winreg.DeleteValue(key, "ExcludeWUDriversInQualityUpdate")
+                pass
             print("  ✅ Policy törölve")
         except FileNotFoundError:
             print("  ℹ️  Policy nem létezett")
