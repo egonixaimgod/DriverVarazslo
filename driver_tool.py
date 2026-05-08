@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 89
+BUILD_NUMBER = 90
 
 try:
     import webview
@@ -346,19 +346,28 @@ class DriverToolApi:
                 
                 self.emit('task_progress', {'task': 'stress', 'log': '🔥 Programok rászabadítása a gépre...'})
                 
-                furmark = os.path.join(stress_dir, "FurMark", "FurMark.exe")
-                linpack = os.path.join(stress_dir, "Linpack", "LinpackXtreme.exe")
-                prime95 = os.path.join(stress_dir, "Prime95", "prime95.exe")
+                # Dinamikus keresés, ha esetleg egy mappával beljebb csomagolta a user a zip-et
+                furmark = None
+                linpack = None
+                prime95 = None
+                
+                for root, dirs, files in os.walk(stress_dir):
+                    for file in files:
+                        if file.lower() == "furmark.exe":
+                            furmark = os.path.join(root, file)
+                        elif file.lower() == "linpackxtreme.exe" or file.lower() == "linpack.exe":
+                            linpack = os.path.join(root, file)
+                        elif file.lower() == "prime95.exe":
+                            prime95 = os.path.join(root, file)
                 
                 launched = 0
-                for exe in [furmark, linpack, prime95]:
-                    if os.path.exists(exe):
-                        # start without waiting and no shell window
-                        subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE)
+                for name, exe in [("FurMark", furmark), ("Linpack", linpack), ("Prime95", prime95)]:
+                    if exe and os.path.exists(exe):
+                        subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
                         launched += 1
-                        self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva: {os.path.basename(exe)}'})
+                        self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva: {name}'})
                     else:
-                        self.emit('task_progress', {'task': 'stress', 'log': f'⚠️ Nem található: {exe}'})
+                        self.emit('task_progress', {'task': 'stress', 'log': f'⚠️ Nem található a ZIP-ben: {name}'})
                 
                 if launched == 3:
                      self.emit('task_complete', {'task': 'stress', 'status': '👀 Minden teszt elindult. Égjen!'})
