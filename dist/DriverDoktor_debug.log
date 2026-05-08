@@ -430,3 +430,21 @@ The operation completed successfully.
 2026-05-01 01:53:15 [INFO] [RESTORE_POINT] Sikeresen létrehozva: DriverDoktor_Backup_20260501_015307
 2026-05-01 01:53:15 [INFO] [EMIT:task_complete] ✅ Visszaállítási pont létrehozva: DriverDoktor_Backup_20260501_015307
 2026-05-01 01:53:15 [INFO] [THREAD:rp] Befejezve (8.1s)
+2026-05-08 13:30:25 [INFO] ==================================================
+2026-05-08 13:30:25 [INFO] DriverDoktor ELINDITVA
+2026-05-08 13:30:25 [INFO] Futtatasi konyvtar: C:\Users\user\Desktop\asdasd\DriverDoktor\dist
+2026-05-08 13:30:25 [INFO] ==================================================
+2026-05-08 13:30:25 [INFO] [INIT] WebView2 Runtime OK: v147.0.3912.98
+2026-05-08 13:30:25 [INFO] [INIT] DriverToolApi inicializálás...
+2026-05-08 13:30:25 [INFO] [INIT] sys_drive=C:\
+2026-05-08 13:30:25 [INFO] [INIT] DriverToolApi kész.
+2026-05-08 13:30:25 [INFO] [MAIN] webview.start() hívása...
+2026-05-08 13:30:25 [INFO] [WINDOW] WebView ablak beállítása...
+2026-05-08 13:30:27 [INFO] [API] get_init_data() hívás - build=84, target=None
+2026-05-08 13:30:27 [INFO] [WINDOW] WebView2 DOM kész (1 próba után, 0.1s)
+2026-05-08 13:30:27 [INFO] [API] load_drivers(all_drivers=False)
+2026-05-08 13:30:27 [DEBUG] [EMIT:drivers_loading] data=None
+2026-05-08 13:30:27 [INFO] [DRIVERS] Third-party driverek lekérdezés
+2026-05-08 13:30:27 [DEBUG] [DRIVERS] dism /English /Online /Get-Drivers futtatása...
+2026-05-08 13:30:27 [DEBUG] [CMD] Futtatás: dism /English /Online /Get-Drivers
+2026-05-08 13:30:27 [INFO] [WATCHDOG] WebView2 sikeresen elindult

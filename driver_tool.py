@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 84
+BUILD_NUMBER = 86
 
 try:
     import webview
@@ -799,7 +799,7 @@ class DriverToolApi:
                                     "wu_title": wu_title, "pnp_id": dev.get('pnp_id', '')
                                 })
                                 break
-                    # Unmatched WU updates
+                    # Unmatched WU updates kihagyása a ghost eszközök miatt
                     for wu in wu_results:
                         wu_hwid_raw = (wu.get('HardwareID') or '').upper()
                         if not wu_hwid_raw:
@@ -807,11 +807,8 @@ class DriverToolApi:
                         already = any(dev['id'].upper() in wu_hwid_raw or wu_hwid_raw in dev.get('pnp_id', '').upper()
                                       for dev in devices_to_check)
                         if not already:
-                            self.hw_updates_pool.append({
-                                "name": wu.get('DriverModel', wu.get('Title', 'Ismeretlen')),
-                                "cat": "🔄 WU Driver", "hwid": wu_hwid_raw,
-                                "wu_title": wu.get('Title', ''), "pnp_id": ''
-                            })
+                            logging.debug(f"[WU_API] Ghost / Unmatched eszköz kihagyva: {wu.get('Title')}")
+                            # Eltávolítva: self.hw_updates_pool.append(...)
 
                 self._hw_installed_devs = [dev for dev in devices_to_check if dev['id'] not in matched_hwids]
 
@@ -1341,6 +1338,12 @@ try {
                 ps_script = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 try {
+    $PresentHWIDs = @()
+    Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $true } | ForEach-Object {
+        if ($_.HardwareID) { foreach ($hid in $_.HardwareID) { $PresentHWIDs += $hid.ToUpper() } }
+        if ($_.PNPDeviceID) { $PresentHWIDs += $_.PNPDeviceID.ToUpper() }
+    }
+
     $Session = New-Object -ComObject Microsoft.Update.Session
     $Searcher = $Session.CreateUpdateSearcher()
     try { $SM = New-Object -ComObject Microsoft.Update.ServiceManager; $SM.AddService2("7971f918-a847-4430-9279-4a52d1efe18d", 7, "") | Out-Null } catch {}
@@ -1349,14 +1352,33 @@ try {
     
     Write-Output "--- KERESÉS ---"
     $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
-    if ($Result.Updates.Count -eq 0) { Write-Output "✅ Szerveren nincs újabb illesztőprogram ehhez a géphez."; exit }
     
-    $Count = $Result.Updates.Count
+    $ToInstall = New-Object -ComObject Microsoft.Update.UpdateColl
+    foreach ($U in $Result.Updates) {
+        $matchFound = $false
+        foreach ($hwid in $U.DriverHardwareID) {
+            $hUpper = $hwid.ToUpper()
+            foreach ($target in $PresentHWIDs) {
+                if ($hUpper.Contains($target) -or $target.Contains($hUpper)) { $matchFound = $true; break }
+            }
+            if ($matchFound) { break }
+        }
+        if ($matchFound) {
+            if (-not $U.EulaAccepted) { $U.AcceptEula() }
+            $ToInstall.Add($U) | Out-Null
+        } else {
+            Write-Output "❌ GHOST ESZKÖZ KIHAGYVA: $($U.Title)"
+        }
+    }
+
+    if ($ToInstall.Count -eq 0) { Write-Output "✅ Szerveren nincs újabb valós illesztőprogram ehhez a géphez."; exit }
+    
+    $Count = $ToInstall.Count
     Write-Output "✅ Telepítendő driverek száma: $Count"
     
     Write-Output "--- LETÖLTÉS ---"
     $Downloader = $Session.CreateUpdateDownloader()
-    $Downloader.Updates = $Result.Updates
+    $Downloader.Updates = $ToInstall
     $Downloader.Download() | Out-Null
     
     Write-Output "--- TELEPÍTÉS ---"
@@ -1364,7 +1386,7 @@ try {
     
     $s = 0; $f = 0
     for ($i = 0; $i -lt $Count; $i++) {
-        $U = $Result.Updates.Item($i)
+        $U = $ToInstall.Item($i)
         $Title = $U.Title
         Write-Output "▶ Telepítés alatt: $Title"
         
