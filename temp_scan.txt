@@ -1,0 +1,252 @@
+﻿
+>     def start_hw_scan(self):
+          logging.info("[API] start_hw_scan() hĂ­vĂˇs")
+          if self.target_os_path:
+              self.emit('toast', {'message': 'âťŚ Hiba: Hardver keresĂ©s csak Ă
+‰lĹ‘ rendszeren mĹ±kĂ¶dik!', 'type': 'error'})
+              self.emit('hw_scan_result', {'pool': [], 'installed': [], 'sys_in
+fo': 'âťŚ Offline mĂłdban nem elĂ©rhetĹ‘', 'time': ''})
+              return
+  
+          if self._hw_scanning:
+              logging.warning("[HW_SCAN] MĂˇr fut egy scan!")
+              return
+          self._hw_scanning = True
+          logging.info("[HW_SCAN] Hardver scan indĂ­tĂˇsa...")
+  
+          def worker():
+              try:
+                  _start = time.time()
+                  
+                  # Hardver vĂˇltozĂˇsok frissĂ­tĂ©se szkennelĂ©s elĹ‘tt
+                  logging.info("[HW_SCAN] EszkĂ¶zĂ¶k Ăşjra-szkennelĂ©se (PnP)..
+.")
+                  self.emit('hw_scan_progress', {'status': 'âŹł Hardver vĂˇltoz
+Ăˇsok keresĂ©se...'})
+                  self._run(['pnputil', '/scan-devices'])
+                  time.sleep(2)
+                  
+                  sys_info_text = "Ismeretlen PC / Laptop"
+                  logging.info("[HW_SCAN] Rendszer info lekĂ©rdezĂ©se...")
+                  self.emit('hw_scan_progress', {'status': 'âŹł Rendszer inform
+ĂˇciĂłk lekĂ©rdezĂ©se...'})
+  
+                  # System info
+                  try:
+                      ps_cmd = (
+                          "[Console]::OutputEncoding = [System.Text.Encoding]::
+UTF8; "
+                          "$cs = Get-WmiObject Win32_ComputerSystem | Select-Ob
+ject Manufacturer, Model, PCSystemType; "
+                          "$bb = Get-WmiObject Win32_BaseBoard | Select-Object 
+Manufacturer, Product; "
+                          "$enc = Get-WmiObject Win32_SystemEnclosure | Select-
+Object ChassisTypes; "
+                          "@{CS=$cs; BB=$bb; ENC=$enc} | ConvertTo-Json -Depth 
+3"
+                      )
+                      res = self._run(["powershell", "-NoProfile", "-Command", 
+ps_cmd], encoding='utf-8')
+                      if res.stdout.strip():
+                          data = json.loads(res.stdout.strip())
+                          cs = data.get("CS", {}) or {}
+                          bb = data.get("BB", {}) or {}
+                          enc = data.get("ENC", {}) or {}
+  
+                          man = (cs.get("Manufacturer") or "").strip()
+                          mod = (cs.get("Model") or "").strip()
+                          pct = cs.get("PCSystemType", -1)
+  
+                          # Fallback: ha OEM placeholder, hasznĂˇljuk az alapla
+p infĂłt
+                          oem_junk = {"to be filled by o.e.m.", "default string
+", "system manufacturer",
+                                      "system product name", "not applicable", 
+""}
+                          if man.lower() in oem_junk:
+                              man = (bb.get("Manufacturer") or "").strip()
+                          if mod.lower() in oem_junk:
+                              mod = (bb.get("Product") or "").strip()
+                          if man.lower() in oem_junk:
+                              man = "Ismeretlen gyĂˇrtĂł"
+                          if mod.lower() in oem_junk:
+                              mod = "Ismeretlen modell"
+  
+                          # Chassis-alapĂş laptop/desktop detekciĂł (pontosabb 
+mint PCSystemType)
+                          chassis = enc.get("ChassisTypes", []) or []
+                          if isinstance(chassis, int):
+                              chassis = [chassis]
+                          laptop_chassis = {8, 9, 10, 11, 14, 30, 31, 32}  # Po
+rtable, Laptop, Notebook, Sub Notebook, etc.
+                          is_laptop = pct == 2 or any(c in laptop_chassis for c
+ in chassis)
+                          prefix = "đź’» Laptop" if is_laptop else "đź–Ąď¸Ź Asz
+tali (Desktop)"
+  
+                          sys_info_text = f"{prefix} | {man} - {mod}"
+                  except Exception as e:
+                      logging.debug(e)
+                  self.emit('hw_scan_progress', {'sys_info': sys_info_text, 'st
+atus': 'âŹł PnP eszkĂ¶zĂ¶k lekĂ©rdezĂ©se...'})
+  
+                  # PnP devices
+                  ignored_classes = ['Volume', 'VolumeSnapshot', 'DiskDrive', '
+CDROM', 'Monitor', 'Battery',
+                                     'SoftwareDevice', 'SoftwareComponent', 'Pr
+ocessor', 'Computer',
+                                     'LegacyDriver', 'Endpoint', 'AudioEndpoint
+', 'PrintQueue', 'Printer', 'WPD']
+  
+                  pnp_data = []
+                  try:
+                      cmd_pnp = "[Console]::OutputEncoding = [System.Text.Encod
+ing]::UTF8; Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $true
+ } | Select-Object Name, PNPClass, PNPDeviceID | ConvertTo-Json -Compress"
+                      res = self._run(["powershell", "-NoProfile", "-Command", 
+cmd_pnp], encoding='utf-8')
+                      if res.stdout:
+                          out = json.loads(res.stdout)
+                          pnp_data = out if isinstance(out, list) else [out]
+                  except Exception as ex:
+                      logging.error(f"PNP Query error: {ex}")
+  
+                  self.emit('hw_scan_progress', {'status': f'đź“‹ {len(pnp_data
+)} PnP eszkĂ¶z szĹ±rĂ©se...'})
+  
+                  seen_hwids = set()
+                  devices_to_check = []
+                  for d in pnp_data:
+                      n = d.get("Name") or "Ismeretlen EszkĂ¶z"
+                      pid = d.get("PNPDeviceID") or ""
+                      pclass = d.get("PNPClass") or ""
+                      if not pid:
+                          continue
+                      if "virtual" in n.lower() or "pseudo" in n.lower() or "vm
+ware" in n.lower():
+                          continue
+                      if pid.upper().startswith("ROOT\\"):
+                          continue
+                      if pclass in ignored_classes:
+                          continue
+                      hwid_clean = self._extract_hwid(pid)
+                      if not hwid_clean:
+                          continue
+                      if hwid_clean in seen_hwids:
+                          continue
+                      seen_hwids.add(hwid_clean)
+                      if pclass == "Display": cat = "đźŽ® VideĂłkĂˇrtya (VGA)"
+                      elif pclass == "Media": cat = "đźŽµ HangkĂˇrtya (Audio)"
+                      elif pclass == "Net": cat = "đźŚ HĂˇlĂłzat (LAN/Wi-Fi)"
+                      elif pclass == "Bluetooth": cat = "đź”µ Bluetooth"
+                      elif pclass == "System": cat = "âš™ď¸Ź RendszereszkĂ¶z"
+                      elif pclass == "USB": cat = "đź”Ś USB VezĂ©rlĹ‘"
+                      elif pclass in ("Camera", "Image"): cat = "đź“· Webkamera
+"
+                      elif pclass in ("Mouse", "Keyboard", "HIDClass"): cat = "
+đź–±ď¸Ź PerifĂ©ria"
+                      elif pclass == "Biometric": cat = "đź”’ Ujjlenyomat / Bio
+metria"
+                      else: cat = f"đź”§ EgyĂ©b ({pclass})"
+                      devices_to_check.append({"cat": cat, "name": n, "id": hwi
+d_clean, "pnp_id": pid})
+  
+                  logging.info(f"PnP szĂĽrĂ©s: {len(devices_to_check)} eszkĂ¶z 
+Ăˇtment")
+                  total_devs = len(devices_to_check)
+                  self.emit('hw_scan_progress', {'status': f'âś… {total_devs} e
+szkĂ¶z azonosĂ­tva, WU keresĂ©s indul...',
+                                                 'sys_info': f'{sys_info_text} 
+| âŹł Driver keresĂ©s...'})
+  
+                  # WU COM API search
+                  self.hw_updates_pool = []
+                  self._hw_installed_devs = []
+                  self.wu_api_mode = True
+                  wu_results = self._search_wu_api()
+                  wu_api_success = wu_results is not None
+                  if wu_results is None:
+                      wu_results = []
+  
+                  self.emit('hw_scan_progress', {'status': 'đź“‹ EredmĂ©nyek fe
+ldolgozĂˇsa...'})
+  
+                  matched_hwids = set()
+                  if wu_results:
+                      for wu in wu_results:
+                          wu_hwid_raw = (wu.get('HardwareID') or '').upper()
+                          wu_title = wu.get('Title', '')
+                          for dev in devices_to_check:
+                              if dev['id'] in matched_hwids:
+                                  continue
+                              dev_hwid = dev['id'].upper()
+                              dev_pnp = dev.get('pnp_id', '').upper()
+                              if (dev_hwid and dev_hwid in wu_hwid_raw) or (wu_
+hwid_raw and wu_hwid_raw in dev_pnp):
+                                  matched_hwids.add(dev['id'])
+                                  self.hw_updates_pool.append({
+                                      "name": dev['name'], "cat": dev['cat'], "
+hwid": dev['id'],
+                                      "wu_title": wu_title, "pnp_id": dev.get('
+pnp_id', '')
+                                  })
+                                  break
+                      # Unmatched WU updates kihagyĂˇsa a ghost eszkĂ¶zĂ¶k miat
+t
+                      for wu in wu_results:
+                          wu_hwid_raw = (wu.get('HardwareID') or '').upper()
+                          if not wu_hwid_raw:
+                              continue
+                          already = any(dev['id'].upper() in wu_hwid_raw or wu_
+hwid_raw in dev.get('pnp_id', '').upper()
+                                        for dev in devices_to_check)
+                          if not already:
+                              logging.debug(f"[WU_API] Ghost / Unmatched eszkĂ¶
+z kihagyva: {wu.get('Title')}")
+                              # EltĂˇvolĂ­tva: self.hw_updates_pool.append(...)
+  
+                  self._hw_installed_devs = [dev for dev in devices_to_check if
+ dev['id'] not in matched_hwids]
+  
+                  # Catalog fallback if WU API failed
+                  if not self.hw_updates_pool and not wu_api_success:
+                      self.wu_api_mode = False
+                      self.emit('hw_scan_progress', {'status': f'đźŚ WU API hi
+ba, katalĂłgus keresĂ©s ({total_devs} eszkĂ¶z)...'})
+                      self._catalog_search(devices_to_check)
+  
+                  elapsed = int(time.time() - _start)
+                  _m, _s = divmod(elapsed, 60)
+                  time_str = f"{_m} perc {_s} mp" if _m else f"{_s} mp"
+                  mode = "WU API" if self.wu_api_mode else "KatalĂłgus"
+                  found = len(self.hw_updates_pool)
+                  final_sys = f"{sys_info_text} | âś… KĂ©sz ({mode})! {found} f
+rissĂ­tĂ©s ({total_devs} eszkĂ¶z)"
+  
+                  self.emit('hw_scan_result', {
+                      'pool': self.hw_updates_pool, 'installed': self._hw_insta
+lled_devs,
+                      'sys_info': final_sys, 'time': time_str
+                  })
+                  self._hw_loaded = True
+              except Exception as e:
+                  logging.error(f"hw_scan crash: {e}")
+                  logging.error(traceback.format_exc())
+                  self.emit('hw_scan_progress', {'status': 'âťŚ Hiba tĂ¶rtĂ©nt!
+'})
+                  self.emit('hw_scan_result', {'pool': [], 'installed': [], 'sy
+s_info': 'âťŚ Scan hiba', 'time': ''})
+              finally:
+                  self._hw_scanning = False
+  
+          try:
+              threading.Thread(target=worker, daemon=True).start()
+          except Exception as e:
+              logging.error(f"[HW_SCAN] Thread indĂ­tĂˇsi hiba: {e}")
+              self._hw_scanning = False
+              self.emit('hw_scan_result', {'pool': [], 'installed': [], 'sys_in
+fo': 'âťŚ Thread hiba', 'time': ''})
+  
+      def _extract_hwid(self, pnp_id):
+
+

@@ -1,0 +1,45 @@
+﻿
+>     def disable_wu(self):
+          logging.info("[API] disable_wu()")
+          if self.target_os_path:
+              self.emit('toast', {'message': 'âťŚ Hiba: A Windows Update beĂˇll
+Ă­tĂˇsok csak Ă‰lĹ‘ rendszeren mĂłdosĂ­thatĂłk!', 'type': 'error'})
+              return
+          def worker():
+              logging.info("[WU] WU driver letiltĂˇs indĂ­tĂˇsa...")
+              self.emit('task_start', {'task': 'disable_wu', 'title': 'WU Drive
+r LetiltĂˇs'})
+              self.emit('task_progress', {'task': 'disable_wu', 'log': 'WU driv
+er letiltĂˇs...', 'indeterminate': True})
+              try:
+                  with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE
+\Policies\Microsoft\Windows\WindowsUpdate", 0, winreg.KEY_WRITE) as key:
+                      winreg.SetValueEx(key, "ExcludeWUDriversInQualityUpdate",
+ 0, winreg.REG_DWORD, 1)
+                  self.emit('task_progress', {'task': 'disable_wu', 'log': 'âś…
+ ExcludeWUDriversInQualityUpdate = 1'})
+              except Exception as e:
+                  self.emit('task_progress', {'task': 'disable_wu', 'log': f'âš
+  {e}'})
+              self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windo
+ws\WindowsUpdate',
+                         '/v', 'ExcludeWUDriversInQualityUpdate', '/t', 'REG_DW
+ORD', '/d', '1', '/f'])
+              try:
+                  with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE
+\Microsoft\Windows\CurrentVersion\DriverSearching", 0, winreg.KEY_WRITE) as key
+:
+                      winreg.SetValueEx(key, "SearchOrderConfig", 0, winreg.REG
+_DWORD, 0)
+                  self.emit('task_progress', {'task': 'disable_wu', 'log': 'âś…
+ SearchOrderConfig = 0'})
+              except Exception as e:
+                  self.emit('task_progress', {'task': 'disable_wu', 'log': f'âš
+  {e}'})
+              self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\Curren
+tVersion\DriverSearching',
+                         '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0
+', '/f'])
+              self._run('net stop wuauserv & net start wuauserv', shell=True)
+
+

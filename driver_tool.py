@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 86
+BUILD_NUMBER = 89
 
 try:
     import webview
@@ -308,6 +308,70 @@ class DriverToolApi:
         self._cancel_flag = True
         self.emit('toast', {'message': '⚠️ Megszakítás kérve...', 'type': 'warning'})
         return True
+
+    def start_stress_tests(self):
+        logging.info("[API] start_stress_tests()")
+        
+        def worker():
+            import tempfile
+            import urllib.request
+            import zipfile
+            import os
+            
+            temp_dir = tempfile.gettempdir()
+            stress_dir = os.path.join(temp_dir, "DriverDoktor_Stress")
+            zip_path = os.path.join(temp_dir, "stresstools.zip")
+            
+            # A pontos GitHub közvetlen letöltési link:
+            download_url = "https://github.com/egonixaimgod/DriverDoktor/releases/download/stresstools.zip/stresstools.zip"
+            
+            try:
+                self.emit('task_start', {'task': 'stress', 'title': 'Stabilitás Teszt Indítása'})
+                self.emit('task_progress', {'task': 'stress', 'log': '🌐 Tesztprogramok letöltése a háttérben...', 'indeterminate': True})
+                
+                if not os.path.exists(stress_dir):
+                    os.makedirs(stress_dir, exist_ok=True)
+                    
+                    logging.info(f"[STRESS] Letöltés INNEN: {download_url}")
+                    urllib.request.urlretrieve(download_url, zip_path)
+                    
+                    self.emit('task_progress', {'task': 'stress', 'log': '📦 Fájlok kicsomagolása...'})
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(stress_dir)
+                    
+                    try:
+                        os.remove(zip_path)
+                    except:
+                        pass
+                
+                self.emit('task_progress', {'task': 'stress', 'log': '🔥 Programok rászabadítása a gépre...'})
+                
+                furmark = os.path.join(stress_dir, "FurMark", "FurMark.exe")
+                linpack = os.path.join(stress_dir, "Linpack", "LinpackXtreme.exe")
+                prime95 = os.path.join(stress_dir, "Prime95", "prime95.exe")
+                
+                launched = 0
+                for exe in [furmark, linpack, prime95]:
+                    if os.path.exists(exe):
+                        # start without waiting and no shell window
+                        subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE)
+                        launched += 1
+                        self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva: {os.path.basename(exe)}'})
+                    else:
+                        self.emit('task_progress', {'task': 'stress', 'log': f'⚠️ Nem található: {exe}'})
+                
+                if launched == 3:
+                     self.emit('task_complete', {'task': 'stress', 'status': '👀 Minden teszt elindult. Égjen!'})
+                else:
+                     self.emit('task_complete', {'task': 'stress', 'status': f'⚠️ Csak {launched}/3 program indult el.'})
+
+            except urllib.error.URLError:
+                self.emit('task_error', {'task': 'stress', 'error': 'Hiba: Nem elérhető a letöltési link! Van net?'})
+            except Exception as e:
+                logging.error(f"Stressz teszt hiba: {e}")
+                self.emit('task_error', {'task': 'stress', 'error': f'Hiba: {str(e)}'})
+
+        self._safe_thread('stress', worker)
 
     def _check_cancel(self):
         """Ellenőrzi, hogy a felhasználó megszakította-e a műveletet."""
@@ -668,6 +732,13 @@ class DriverToolApi:
         def worker():
             try:
                 _start = time.time()
+                
+                # Hardver változások frissítése szkennelés előtt
+                logging.info("[HW_SCAN] Eszközök újra-szkennelése (PnP)...")
+                self.emit('hw_scan_progress', {'status': '⏳ Hardver változások keresése...'})
+                self._run(['pnputil', '/scan-devices'])
+                time.sleep(2)
+                
                 sys_info_text = "Ismeretlen PC / Laptop"
                 logging.info("[HW_SCAN] Rendszer info lekérdezése...")
                 self.emit('hw_scan_progress', {'status': '⏳ Rendszer információk lekérdezése...'})
@@ -1246,96 +1317,46 @@ try {
             logging.error(f"[WU_STATUS] Hiba: {e}")
             return {'status': 'Ismeretlen', 'color': 'unknown'}
 
-    def run_autofix(self):
-        logging.info("[API] run_autofix() indítása")
-        if self.target_os_path:
-            self.emit('toast', {'message': 'Az 1 kattintásos fix csak az Élő (jelenlegi) rendszeren futtatható le biztonságosan!', 'type': 'error'})
-            return
+    def _create_restore_point_sync(self, task_id='autofix'):
+        desc = "DriverDoktor AutoFix - " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        self.emit('task_progress', {'task': task_id, 'log': 'Registry Mentés (Restore Point) készítése folyamatban...', 'indeterminate': True})
+        self._run(["powershell", "-NoProfile", "-Command", 'Enable-ComputerRestore -Drive "$($env:SystemDrive)\\" -ErrorAction SilentlyContinue'])
+        self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore', '/v', 'SystemRestorePointCreationFrequency', '/t', 'REG_DWORD', '/d', '0', '/f'])
+        ps_cmd = f'Checkpoint-Computer -Description "{desc}" -RestorePointType "MODIFY_SETTINGS" -ErrorAction SilentlyContinue'
+        res1 = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd], encoding='utf-8')
+        if res1.returncode == 0:
+            self.emit('task_progress', {'task': task_id, 'log': '✅ Registry mentés / Visszaállítási pont elkészült.\n'})
+        else:
+            self.emit('task_progress', {'task': task_id, 'log': '⚠️ Visszaállítási pont elutasítva a rendszer által. - FOLYTATÁS...\n'})
 
-        def worker():
-            import ctypes
-            import sys
-            
-            # --- KONZOL ALLOKALASA ---
-            try:
-                ctypes.windll.kernel32.AllocConsole()
-                sys.stdout = open("CONOUT$", "w", encoding="utf-8")
-                sys.stderr = open("CONOUT$", "w", encoding="utf-8")
-                print("==================================================")
-                print(" DRIVERDOKTOR 1-KATTINTASOS FIX (KONZOL)")
-                print("==================================================")
-                print("FIGYELEM: Ha az ablak kifeheredik a videokartya driver torlesekor,")
-                print("a folyamat itt a hatterben zavartalanul tavabb fut!\n")
-            except Exception as alloc_e:
-                logging.error(f"[AUTOFIX] Konzol hiba: {alloc_e}")
+    def _disable_wu_sync(self, task_id='autofix'):
+        self.emit('task_progress', {'task': task_id, 'log': 'Windows automata driver frissítések letiltása a Registryben...', 'indeterminate': True})
+        reg_cmd = ['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f']
+        self._run(reg_cmd)
+        self.emit('task_progress', {'task': task_id, 'log': '✅ Automatikus driver telepítés letiltva.\n'})
 
-            def c_print(msg, p_type='log', **kwargs):
-                # Prints to console
-                try:
-                    clean_msg = msg.replace('✅', '[OK]').replace('⚠️', '[FIGYELMEZTETES]').replace('🗑', '[TORLES]').replace('🎉', '[KESZ]')
-                    print(clean_msg)
-                except:
-                    pass
-                
-                # Emits to UI
-                kwargs[p_type] = msg
-                kwargs['task'] = 'autofix'
-                self.emit('task_progress', kwargs)
-
-            self.emit('task_start', {'task': 'autofix', 'title': '1 Kattintásos Driver Javítás és Frissítés'})
-            try:
-                import datetime
-                
-                # 1. Rendszer visszaállítása
-                desc = "DriverDoktor AutoFix - " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                c_print('[1/4] Registry Mentés (Restore Point) készítése folyamatban...', phase='Registry/Rendszer Mentés', indeterminate=True)
-                
-                self._run(["powershell", "-NoProfile", "-Command", 'Enable-ComputerRestore -Drive "$($env:SystemDrive)\\" -ErrorAction SilentlyContinue'])
-                self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore', '/v', 'SystemRestorePointCreationFrequency', '/t', 'REG_DWORD', '/d', '0', '/f'])
-                ps_cmd = f'Checkpoint-Computer -Description "{desc}" -RestorePointType "MODIFY_SETTINGS" -ErrorAction SilentlyContinue'
-                res1 = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd], encoding='utf-8')
-                if res1.returncode == 0:
-                    c_print('✅ Registry mentés / Visszaállítási pont elkészült.\n')
-                else:
-                    c_print('⚠️ Visszaállítási pont elutasítva a rendszer által. (Rendszervédelem talán nincs bekapcsolva a C: meghajtón) - FOLYTATÁS...\n')
-                
+    def _delete_third_party_sync(self, task_id='autofix'):
+        self.emit('task_progress', {'task': task_id, 'log': 'Third-party driverek összegyűjtése és törlése...', 'indeterminate': True})
+        drivers = self._get_third_party_drivers()
+        total = len(drivers)
+        if total > 0:
+            self.emit('task_progress', {'task': task_id, 'log': f'{total} db third-party driver eltávolítása...\n'})
+            for i, drv in enumerate(drivers):
                 if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
+                name = drv.get('published', '')
+                if not name: continue
+                self.emit('task_progress', {'task': task_id, 'log': f'🗑 Törlés ({i+1}/{total}): {name}', 'current': i+1, 'total': total})
+                self._run(['pnputil', '/delete-driver', name, '/uninstall', '/force'])
+            self.emit('task_progress', {'task': task_id, 'log': '✅ Driverek eltávolítva.\n'})
+        else:
+            self.emit('task_progress', {'task': task_id, 'log': '✅ Nincs third-party driver a rendszerben.\n'})
 
-                # 2. WU Letiltása
-                c_print('[2/4] Windows automata driver frissítések letiltása a Registryben...', phase='Windows Update Letiltása', indeterminate=True)
-                reg_cmd = ['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f']
-                self._run(reg_cmd)
-                c_print('✅ Automatikus driver telepítés letiltva.\n')
-                
-                if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
-
-                # 3. Third party driverek törlése
-                c_print('[3/4] Third-party driverek összegyűjtése és törlése...', phase='Driverek Eltávolítása', indeterminate=True)
-                drivers = self._get_third_party_drivers()
-                total = len(drivers)
-                if total > 0:
-                    c_print(f'{total} db third-party driver eltávolítása...\n')
-                    for i, drv in enumerate(drivers):
-                        if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
-                        
-                        name = drv.get('published', '')
-                        if not name: continue
-                        
-                        c_print(f'🗑 Törlés ({i+1}/{total}): {name}', current=i+1, total=total)
-                        self._run(['pnputil', '/delete-driver', name, '/uninstall', '/force'])
-                    c_print('✅ Driverek eltávolítva.\n')
-                else:
-                    c_print('✅ Nincs third-party driver a rendszerben.\n')
-                
-                if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
-
-                # 4. Keresés és visszaépítés
-                c_print('[4/4] Új eszközök szkennelése PnP Util-lal...', phase='Új Driverek Keresése', indeterminate=True)
-                self._run(['pnputil', '/scan-devices'])
-                time.sleep(3)
-                
-                c_print('Hivatalos driverek keresése és telepítése (Windows Update). Ez percekig is eltarthat...')
-                ps_script = r"""
+    def _scan_and_install_wu_sync(self, task_id='autofix'):
+        self.emit('task_progress', {'task': task_id, 'log': 'Új eszközök szkennelése PnP Util-lal...', 'indeterminate': True})
+        self._run(['pnputil', '/scan-devices'])
+        time.sleep(3)
+        self.emit('task_progress', {'task': task_id, 'log': 'Hivatalos driverek keresése és telepítése (Windows Update). Ez percekig is eltarthat...'})
+        ps_script = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 try {
     $PresentHWIDs = @()
@@ -1413,27 +1434,41 @@ try {
     Write-Output "Összesen telepítve: $s sikeres, $f hibás."
 } catch { Write-Output "⚠️ Nem sikerült a WU szinkronizálása $_" }
 """
-                res_wu = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script], encoding='utf-8')
-                for line in res_wu.stdout.splitlines():
-                    if line.strip():
-                        c_print(line.strip())
+        res_wu = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script], encoding='utf-8')
+        for line in res_wu.stdout.splitlines():
+            if line.strip():
+                clean_msg = line.strip().replace('✅', '[OK]').replace('⚠️', '[FIGYELMEZTETES]').replace('❌', '[HIBA]').replace('▶', '[TELEPITES]')
+                self.emit('task_progress', {'task': task_id, 'log': clean_msg})
+
+    def run_autofix(self):
+        logging.info("[API] run_autofix() indítása")
+        if self.target_os_path:
+            self.emit('toast', {'message': 'Az 1 kattintásos fix csak az Élő (jelenlegi) rendszeren futtatható le biztonságosan!', 'type': 'error'})
+            return
+
+        def worker():
+            import datetime
+            self.emit('task_start', {'task': 'autofix', 'title': '1 Kattintásos Driver Javítás és Frissítés'})
+            try:
+                # 1. Rendszer visszaállítása
+                self._create_restore_point_sync()
+                if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
+
+                # 2. WU Letiltása
+                self._disable_wu_sync()
+                if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
+
+                # 3. Third party driverek törlése
+                self._delete_third_party_sync()
+                if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
+
+                # 4. Keresés és visszaépítés
+                self._scan_and_install_wu_sync()
                 
-                c_print('\n🎉 MINDEN LÉPÉS KÉSZ!')
+                self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 MINDEN LÉPÉS KÉSZ!'})
                 
                 try:
-                    print("\n==================================================")
-                    print(" A FOLYAMAT SIKERESEN BEFEJEZŐDÖTT!")
-                    print("==================================================")
-                    
-                    import os
-                    for cd in range(20, 0, -1):
-                        sys.stdout.write(f"\rA gep {cd} masodperc mulva ujraindul... (Megszakitashoz zard be ezt az ablakot)")
-                        sys.stdout.flush()
-                        time.sleep(1)
-                    print("\nUjrainditas inditasa...")
-                    
-                    os.system("shutdown /r /t 0 /f")
-                    ctypes.windll.kernel32.FreeConsole()
+                    self.emit('task_progress', {'task': 'autofix', 'log': '\nA FOLYAMAT SIKERESEN BEFEJEZŐDÖTT!'})
                 except:
                     pass
 
@@ -1458,23 +1493,7 @@ try {
         def worker():
             logging.info("[WU] WU driver letiltás indítása...")
             self.emit('task_start', {'task': 'disable_wu', 'title': 'WU Driver Letiltás'})
-            self.emit('task_progress', {'task': 'disable_wu', 'log': 'WU driver letiltás...', 'indeterminate': True})
-            try:
-                with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate", 0, winreg.KEY_WRITE) as key:
-                    winreg.SetValueEx(key, "ExcludeWUDriversInQualityUpdate", 0, winreg.REG_DWORD, 1)
-                self.emit('task_progress', {'task': 'disable_wu', 'log': '✅ ExcludeWUDriversInQualityUpdate = 1'})
-            except Exception as e:
-                self.emit('task_progress', {'task': 'disable_wu', 'log': f'⚠ {e}'})
-            self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate',
-                       '/v', 'ExcludeWUDriversInQualityUpdate', '/t', 'REG_DWORD', '/d', '1', '/f'])
-            try:
-                with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching", 0, winreg.KEY_WRITE) as key:
-                    winreg.SetValueEx(key, "SearchOrderConfig", 0, winreg.REG_DWORD, 0)
-                self.emit('task_progress', {'task': 'disable_wu', 'log': '✅ SearchOrderConfig = 0'})
-            except Exception as e:
-                self.emit('task_progress', {'task': 'disable_wu', 'log': f'⚠ {e}'})
-            self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching',
-                       '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f'])
+            self._disable_wu_sync()
             self._run('net stop wuauserv & net start wuauserv', shell=True)
             self.emit('task_progress', {'task': 'disable_wu', 'log': '✅ WU szolgáltatás újraindítva'})
             self.emit('task_complete', {'task': 'disable_wu', 'status': '✅ WU driver letiltás kész!'})

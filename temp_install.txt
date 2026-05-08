@@ -1,0 +1,68 @@
+﻿
+>     def _install_wu_api(self, selected_pool):
+          logging.info(f"[WU_API] WU API telepĂ­tĂ©s indĂ­tĂˇsa: {len(selected_
+pool)} driver")
+          def worker():
+              self.emit('task_start', {'task': 'wu_install', 'title': f'Driver 
+TelepĂ­tĂ©s WU SzerverekrĹ‘l ({len(selected_pool)} db)'})
+              self.emit('task_progress', {'task': 'wu_install', 'log': 'Windows
+ Update szervereirĹ‘l tĂ¶rtĂ©nĹ‘ telepĂ­tĂ©s indĂ­tĂˇsa...', 'indeterminate': T
+rue})
+  
+              pool_hwids = [drv.get('hwid', '').upper() for drv in selected_poo
+l if drv.get('hwid')]
+              hwid_list_ps = ','.join(f'"{h}"' for h in pool_hwids)
+  
+              ps_script = '$TargetHWIDs = @(' + hwid_list_ps + ')\n' + r"""
+  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+  try {
+      Write-Output "INIT: Windows Update Session lĂ©trehozĂˇsa..."
+      $Session = New-Object -ComObject Microsoft.Update.Session
+      $Searcher = $Session.CreateUpdateSearcher()
+      try { $SM = New-Object -ComObject Microsoft.Update.ServiceManager; $SM.Ad
+dService2("7971f918-a847-4430-9279-4a52d1efe18d", 7, "") | Out-Null } catch {}
+      $Searcher.ServerSelection = 3
+      $Searcher.ServiceID = "7971f918-a847-4430-9279-4a52d1efe18d"
+      Write-Output "SEARCH: Driver frissĂ­tĂ©sek keresĂ©se..."
+      $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
+      if ($Result.Updates.Count -eq 0) { Write-Output "EMPTY: Nem talĂˇlhatĂł e
+lĂ©rhetĹ‘ driver frissĂ­tĂ©s."; return }
+      $ToInstall = New-Object -ComObject Microsoft.Update.UpdateColl
+      foreach ($U in $Result.Updates) {
+          $matchFound = $false
+          if ($TargetHWIDs.Count -eq 0) { $matchFound = $true } else {
+              foreach ($hwid in $U.DriverHardwareID) {
+                  $hUpper = $hwid.ToUpper()
+                  foreach ($target in $TargetHWIDs) { if ($hUpper.Contains($tar
+get) -or $target.Contains($hUpper)) { $matchFound = $true; break } }
+                  if ($matchFound) { break }
+              }
+          }
+          if (-not $matchFound) { Write-Output "SKIP: $($U.Title)"; continue }
+          if (-not $U.EulaAccepted) { $U.AcceptEula() }
+          $ToInstall.Add($U) | Out-Null
+          Write-Output "FOUND: $($U.Title)"
+      }
+      if ($ToInstall.Count -eq 0) { Write-Output "EMPTY: Nem talĂˇlhatĂł egyezĹ
+‘ driver."; return }
+      $total = $ToInstall.Count; Write-Output "TOTAL: $total"
+      $s = 0; $f = 0
+      for ($i = 0; $i -lt $total; $i++) {
+          $U = $ToInstall.Item($i); $t = $U.Title; $idx = $i + 1
+          Write-Output "DLONE: $idx/$total $t"
+          $SC = New-Object -ComObject Microsoft.Update.UpdateColl; $SC.Add($U) 
+| Out-Null
+          $DL = $Session.CreateUpdateDownloader(); $DL.Updates = $SC
+          try { $DR = $DL.Download() } catch { Write-Output "FAIL: [LETĂ–LTĂ‰S 
+HIBA] $t"; $f++; continue }
+          if ($DR.ResultCode -ne 2 -and $DR.ResultCode -ne 3) { Write-Output "F
+AIL: [LETĂ–LTĂ‰S HIBA kĂłd=$($DR.ResultCode)] $t"; $f++; continue }
+          Write-Output "INSTONE: $idx/$total $t"
+          $Inst = $Session.CreateUpdateInstaller(); $Inst.Updates = $SC
+          try { $IR = $Inst.Install() } catch { Write-Output "FAIL: [TELEPĂŤTĂ‰
+S HIBA] $t"; $f++; continue }
+          $rc = $IR.GetUpdateResult(0).ResultCode
+          switch ($rc) { 2 { Write-Output "OK: $t"; $s++ } 3 { Write-Output "OK
+: $t"; $s++ } default { Write-Output "FAIL: [kĂłd=$rc] $t"; $f++ } }
+
+

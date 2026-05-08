@@ -1,0 +1,33 @@
+﻿
+>     def install_selected_wu(self, selected_indices):
+          logging.info(f"[API] install_selected_wu() - {len(selected_indices)} 
+index kivĂˇlasztva")
+          logging.debug(f"[WU_INSTALL] Indexek: {selected_indices}")
+          self._cancel_flag = False  # Reset cancel flag
+          selected_pool = [self.hw_updates_pool[i] for i in selected_indices if
+ 0 <= i < len(self.hw_updates_pool)]
+          if not selected_pool:
+              logging.warning("[WU_INSTALL] Nincs Ă©rvĂ©nyes driver kivĂˇlasztv
+a!")
+              self.emit('toast', {'message': 'âš ď¸Ź Nincs Ă©rvĂ©nyes driver ki
+vĂˇlasztva!', 'type': 'warning'})
+              return
+          logging.info(f"[WU_INSTALL] {len(selected_pool)} driver telepĂ­tĂ©se,
+ mĂłd={'WU API' if self.wu_api_mode else 'KatalĂłgus'}")
+  
+          if self.wu_api_mode:
+              self._install_wu_api(selected_pool)
+          else:
+              self._install_catalog(selected_pool)
+  
+      def _install_wu_api(self, selected_pool):
+          logging.info(f"[WU_API] WU API telepĂ­tĂ©s indĂ­tĂˇsa: {len(selected_
+pool)} driver")
+          def worker():
+              self.emit('task_start', {'task': 'wu_install', 'title': f'Driver 
+TelepĂ­tĂ©s WU SzerverekrĹ‘l ({len(selected_pool)} db)'})
+              self.emit('task_progress', {'task': 'wu_install', 'log': 'Windows
+ Update szervereirĹ‘l tĂ¶rtĂ©nĹ‘ telepĂ­tĂ©s indĂ­tĂˇsa...', 'indeterminate': T
+rue})
+
+

@@ -1,0 +1,79 @@
+﻿
+>     def start_hw_scan(self):
+          logging.info("[API] start_hw_scan() hĂ­vĂˇs")
+          if self.target_os_path:
+              self.emit('toast', {'message': 'âťŚ Hiba: Hardver keresĂ©s csak Ă
+‰lĹ‘ rendszeren mĹ±kĂ¶dik!', 'type': 'error'})
+              self.emit('hw_scan_result', {'pool': [], 'installed': [], 'sys_in
+fo': 'âťŚ Offline mĂłdban nem elĂ©rhetĹ‘', 'time': ''})
+              return
+  
+          if self._hw_scanning:
+              logging.warning("[HW_SCAN] MĂˇr fut egy scan!")
+              return
+          self._hw_scanning = True
+          logging.info("[HW_SCAN] Hardver scan indĂ­tĂˇsa...")
+  
+          def worker():
+              try:
+                  _start = time.time()
+                  
+                  # Hardver vĂˇltozĂˇsok frissĂ­tĂ©se szkennelĂ©s elĹ‘tt
+                  logging.info("[HW_SCAN] EszkĂ¶zĂ¶k Ăşjra-szkennelĂ©se (PnP)..
+.")
+                  self.emit('hw_scan_progress', {'status': 'âŹł Hardver vĂˇltoz
+Ăˇsok keresĂ©se...'})
+                  self._run(['pnputil', '/scan-devices'])
+                  time.sleep(2)
+                  
+                  sys_info_text = "Ismeretlen PC / Laptop"
+                  logging.info("[HW_SCAN] Rendszer info lekĂ©rdezĂ©se...")
+                  self.emit('hw_scan_progress', {'status': 'âŹł Rendszer inform
+ĂˇciĂłk lekĂ©rdezĂ©se...'})
+  
+                  # System info
+                  try:
+                      ps_cmd = (
+                          "[Console]::OutputEncoding = [System.Text.Encoding]::
+UTF8; "
+                          "$cs = Get-WmiObject Win32_ComputerSystem | Select-Ob
+ject Manufacturer, Model, PCSystemType; "
+                          "$bb = Get-WmiObject Win32_BaseBoard | Select-Object 
+Manufacturer, Product; "
+                          "$enc = Get-WmiObject Win32_SystemEnclosure | Select-
+Object ChassisTypes; "
+                          "@{CS=$cs; BB=$bb; ENC=$enc} | ConvertTo-Json -Depth 
+3"
+                      )
+                      res = self._run(["powershell", "-NoProfile", "-Command", 
+ps_cmd], encoding='utf-8')
+                      if res.stdout.strip():
+                          data = json.loads(res.stdout.strip())
+                          cs = data.get("CS", {}) or {}
+                          bb = data.get("BB", {}) or {}
+                          enc = data.get("ENC", {}) or {}
+  
+                          man = (cs.get("Manufacturer") or "").strip()
+                          mod = (cs.get("Model") or "").strip()
+                          pct = cs.get("PCSystemType", -1)
+  
+                          # Fallback: ha OEM placeholder, hasznĂˇljuk az alapla
+p infĂłt
+                          oem_junk = {"to be filled by o.e.m.", "default string
+", "system manufacturer",
+                                      "system product name", "not applicable", 
+""}
+                          if man.lower() in oem_junk:
+                              man = (bb.get("Manufacturer") or "").strip()
+                          if mod.lower() in oem_junk:
+                              mod = (bb.get("Product") or "").strip()
+                          if man.lower() in oem_junk:
+                              man = "Ismeretlen gyĂˇrtĂł"
+                          if mod.lower() in oem_junk:
+                              mod = "Ismeretlen modell"
+  
+                          # Chassis-alapĂş laptop/desktop detekciĂł (pontosabb 
+mint PCSystemType)
+                          chassis = enc.get("ChassisTypes", []) or []
+
+

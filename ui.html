@@ -207,6 +207,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
     <button class="nav-btn" onclick="switchView('wu')" data-view="wu"><span class="icon">🔄</span>Windows Update</button>
     <button class="nav-btn" onclick="switchView('hw')" data-view="hw"><span class="icon">🖥️</span>Hardver Info & Telepítés</button>
     <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Fix</button>
+    <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stabilitás Teszt</button>
     <div class="sidebar-bottom" id="build-label">Build ---</div>
   </nav>
 
@@ -324,6 +325,15 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
           <div class="panel-title"><span class="emoji">🚀</span> 1 Kattintásos Driver Fix</div>
           <p style="margin-bottom: 16px; color: var(--text3);">Ez a funkció automatikusan elkészíti a registry mentést (Restore Point), letiltja az automata WU driver frissítést, törli a third-party drivereket, majd frissíti őket a legújabbakra (automatikus letöltés WU-ról), és végül újraindítja a gépet.</p>
           <button class="btn btn-big btn-primary" onclick="startAutoFix()" id="btn-autofix">🚀 FIX INDÍTÁSA</button>
+        </div>
+      </div>
+
+      <!-- VIEW: Stress Test -->
+      <div class="view" id="view-stress">
+        <div class="panel glass">
+          <div class="panel-title"><span class="emoji">🔥</span> Stabilitás Teszt (3 az 1-ben)</div>
+          <p style="margin-bottom: 16px; color: var(--text3);">Letölti és %TEMP%-ből elindítja a FurMark, Linpack Xtreme és Prime95 teszteket. Használd stabilitás és hőmérséklet tesztelésre javítás után!</p>
+          <button class="btn btn-big btn-danger" onclick="startStressTests()" id="btn-stresstest">🔥 MINDEN TESZT INDÍTÁSA</button>
         </div>
       </div>
 
@@ -885,6 +895,13 @@ async function extractWim() {
   } catch (e) {
     toast('WIM kinyerési hiba: ' + e, 'error');
   }
+}
+
+function startStressTests() {
+  if(!window.pywebview) return;
+  showProgressModal('Stabilitás Teszt', '🚀 Indítás');
+  currentTask = 'stress';
+  api().start_stress_tests();
 }
 
 /* ========== PROGRESS MODAL ========== */
