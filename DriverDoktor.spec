@@ -30,11 +30,11 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
-    icon='icon_driverdoktor.ico',
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
     uac_admin=True,
+    icon=['icon_driverdoktor.ico'],
 )
