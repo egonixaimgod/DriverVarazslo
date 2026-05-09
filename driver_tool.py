@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 96
+BUILD_NUMBER = 97
 
 try:
     import webview
@@ -863,8 +863,9 @@ class DriverToolApi:
                 wu_api_success = wu_results is not None
 
                 # Végső WU letiltás, ha így akarjuk az offline módot szimulálni, 
-                # de biztonságosabb, ha ezt a _disable_wu_sync hívással csináljuk csak (most visszazárjuk).
+                # visszazárjuk mindkét módosítást a szkennelés után.
                 self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f'])
+                self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate', '/v', 'ExcludeWUDriversInQualityUpdate', '/t', 'REG_DWORD', '/d', '1', '/f'])
 
                 if wu_results is None:
                     wu_results = []
@@ -874,14 +875,23 @@ class DriverToolApi:
                 matched_hwids = set()
                 if wu_results:
                     for wu in wu_results:
-                        wu_hwid_raw = (wu.get('HardwareID') or '').upper()
+                        hwids = wu.get('HardwareID') or []
+                        if isinstance(hwids, str): hwids = [hwids]
+                        hwids_upper = [str(h).upper() for h in hwids]
                         wu_title = wu.get('Title', '')
                         for dev in devices_to_check:
                             if dev['id'] in matched_hwids:
                                 continue
                             dev_hwid = dev['id'].upper()
                             dev_pnp = dev.get('pnp_id', '').upper()
-                            if (dev_hwid and dev_hwid in wu_hwid_raw) or (wu_hwid_raw and wu_hwid_raw in dev_pnp):
+                            
+                            match = False
+                            for h in hwids_upper:
+                                if (dev_hwid and dev_hwid in h) or (h and h in dev_pnp):
+                                    match = True
+                                    break
+                                    
+                            if match:
                                 matched_hwids.add(dev['id'])
                                 self.hw_updates_pool.append({
                                     "name": dev['name'], "cat": dev['cat'], "hwid": dev['id'],
@@ -890,11 +900,18 @@ class DriverToolApi:
                                 break
                     # Unmatched WU updates kihagyása a ghost eszközök miatt
                     for wu in wu_results:
-                        wu_hwid_raw = (wu.get('HardwareID') or '').upper()
-                        if not wu_hwid_raw:
+                        hwids = wu.get('HardwareID') or []
+                        if isinstance(hwids, str): hwids = [hwids]
+                        hwids_upper = [str(h).upper() for h in hwids]
+                        if not hwids_upper:
                             continue
-                        already = any(dev['id'].upper() in wu_hwid_raw or wu_hwid_raw in dev.get('pnp_id', '').upper()
-                                      for dev in devices_to_check)
+                        
+                        already = False
+                        for h in hwids_upper:
+                            if any(dev['id'].upper() in h or h in dev.get('pnp_id', '').upper() for dev in devices_to_check):
+                                already = True
+                                break
+                                
                         if not already:
                             logging.debug(f"[WU_API] Ghost / Unmatched eszköz kihagyva: {wu.get('Title')}")
                             # Eltávolítva: self.hw_updates_pool.append(...)
@@ -1153,6 +1170,7 @@ try {
             install_total = 0
 
             self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '1', '/f'])
+            self._run(['reg', 'delete', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate', '/v', 'ExcludeWUDriversInQualityUpdate', '/f'])
             try:
                 for line in process.stdout:
                     if self._check_cancel():
@@ -1201,6 +1219,7 @@ try {
                 process.wait()
             finally:
                 self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f'])
+                self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate', '/v', 'ExcludeWUDriversInQualityUpdate', '/t', 'REG_DWORD', '/d', '1', '/f'])
 
             if success > 0:
                 self.emit('task_progress', {'task': 'wu_install', 'log': 'Eszközök újraszkennelése...', 'status': 'Aktiválás...'})
@@ -1355,6 +1374,10 @@ try {
         self.emit('task_progress', {'task': task_id, 'log': 'Windows automata driver frissítések letiltása a Registryben...', 'indeterminate': True})
         reg_cmd = ['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f']
         self._run(reg_cmd)
+        
+        # Ez a registry kulcs megakadályozza, hogy a "Frissítések keresése" gomb megnyomásakor a rendszer drivereket is lehúzzon
+        self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate', '/v', 'ExcludeWUDriversInQualityUpdate', '/t', 'REG_DWORD', '/d', '1', '/f'])
+        
         self.emit('task_progress', {'task': task_id, 'log': '✅ Automatikus driver telepítés letiltva.\n'})
 
     def _delete_third_party_sync(self, task_id='autofix'):
