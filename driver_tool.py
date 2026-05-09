@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 99
+BUILD_NUMBER = 100
 
 try:
     import webview
@@ -1397,11 +1397,16 @@ try {
             self.emit('task_progress', {'task': task_id, 'log': '✅ Nincs third-party driver a rendszerben.\n'})
 
     def _scan_and_install_wu_sync(self, task_id='autofix'):
-        self.emit('task_progress', {'task': task_id, 'log': 'Új eszközök szkennelése PnP Util-lal...', 'indeterminate': True})
-        self._run(['pnputil', '/scan-devices'])
-        time.sleep(3)
-        self.emit('task_progress', {'task': task_id, 'log': 'Hivatalos driverek keresése és telepítése (Windows Update). Ez percekig is eltarthat...'})
-        ps_script = r"""
+        max_loops = 4
+        for loop_idx in range(1, max_loops + 1):
+            if getattr(self, '_cancel_flag', False):
+                break
+            self.emit('task_progress', {'task': task_id, 'log': f'\n--- DRIVER KERESÉS KÖR: {loop_idx} / {max_loops} ---'})
+            self.emit('task_progress', {'task': task_id, 'log': 'Új eszközök szkennelése PnP Util-lal...', 'indeterminate': True})
+            self._run(['pnputil', '/scan-devices'])
+            time.sleep(3)
+            self.emit('task_progress', {'task': task_id, 'log': 'Hivatalos driverek keresése és telepítése (Windows Update). Ez percekig is eltarthat...'})
+            ps_script = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 try {
     $PresentHWIDs = @()
@@ -1479,11 +1484,19 @@ try {
     Write-Output "Összesen telepítve: $s sikeres, $f hibás."
 } catch { Write-Output "⚠️ Nem sikerült a WU szinkronizálása $_" }
 """
-        res_wu = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script], encoding='utf-8')
-        for line in res_wu.stdout.splitlines():
-            if line.strip():
-                clean_msg = line.strip().replace('✅', '[OK]').replace('⚠️', '[FIGYELMEZTETES]').replace('❌', '[HIBA]').replace('▶', '[TELEPITES]')
-                self.emit('task_progress', {'task': task_id, 'log': clean_msg})
+            res_wu = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script], encoding='utf-8')
+            
+            found_any = False
+            for line in res_wu.stdout.splitlines():
+                if line.strip():
+                    clean_msg = line.strip().replace('✅', '[OK]').replace('⚠️', '[FIGYELMEZTETES]').replace('❌', '[HIBA]').replace('▶', '[TELEPITES]')
+                    self.emit('task_progress', {'task': task_id, 'log': clean_msg})
+                    if "TELEPITES" in clean_msg or "Telepítendő driverek száma" in line:
+                        found_any = True
+                        
+            if not found_any or "Szerveren nincs újabb valós illesztőprogram" in res_wu.stdout:
+                self.emit('task_progress', {'task': task_id, 'log': 'Minden elérhető driver telepítve! Keresési lánc befejezve.'})
+                break
 
     def run_autofix(self):
         logging.info("[API] run_autofix() indítása")
