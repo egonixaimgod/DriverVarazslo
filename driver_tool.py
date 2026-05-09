@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 98
+BUILD_NUMBER = 99
 
 try:
     import webview
@@ -849,7 +849,7 @@ class DriverToolApi:
                 logging.info(f"PnP szürés: {len(devices_to_check)} eszköz átment")
                 total_devs = len(devices_to_check)
                 # WU COM API search
-                self.emit('hw_scan_progress', {'status': '✅ Hardverelemek azonosítva, WU keresés indul...',
+                self.emit('hw_scan_progress', {'status': f'✅ {total_devs} hardverelem azonosítva, WU keresés indul...',
                                                'sys_info': f'{sys_info_text} | ⏳ Driver keresés...'})
 
                 # Ideiglenes WU engedélyezés a hardver szkennelés erejéig
