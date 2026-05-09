@@ -450,6 +450,12 @@ window.addEventListener('pywebviewready', async () => {
     document.getElementById('build-label').textContent = 'Build ' + String(data.build).padStart(3, '0');
     updateTargetLabel(data.target_os, data.sys_drive);
     loadDrivers();
+    
+    if (data.resume_mode) {
+      setTimeout(() => {
+        startAutofix();
+      }, 1000);
+    }
   } catch(e) { console.error('init error', e); }
 });
 

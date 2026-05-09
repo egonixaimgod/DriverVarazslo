@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 101
+BUILD_NUMBER = 102
 
 try:
     import webview
@@ -178,6 +178,7 @@ class DriverToolApi:
         self._hw_loaded = False
         self.wu_api_mode = True
         self._cancel_flag = False  # Flag for cancelling long-running tasks
+        self.resume_mode = '--resume-autofix' in sys.argv
         self._si = subprocess.STARTUPINFO()
         self._si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         self._nw = subprocess.CREATE_NO_WINDOW
@@ -295,7 +296,7 @@ class DriverToolApi:
 
     def get_init_data(self):
         logging.info(f"[API] get_init_data() hívás - build={BUILD_NUMBER}, target={self.target_os_path}")
-        return {'build': BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path}
+        return {'build': BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path, 'resume_mode': getattr(self, 'resume_mode', False)}
 
     def reboot_system(self):
         logging.info("[API] reboot_system() - Felhasználó újraindítást kért")
@@ -1398,6 +1399,7 @@ try {
 
     def _scan_and_install_wu_sync(self, task_id='autofix'):
         max_loops = 4
+        total_installed_in_session = 0
         for loop_idx in range(1, max_loops + 1):
             if getattr(self, '_cancel_flag', False):
                 break
@@ -1493,10 +1495,13 @@ try {
                     self.emit('task_progress', {'task': task_id, 'log': clean_msg})
                     if "TELEPITES" in clean_msg or "Telepítendő driverek száma" in line:
                         found_any = True
+                    if "[OK] SIKERES:" in clean_msg:
+                        total_installed_in_session += 1
                         
             if not found_any or "Szerveren nincs újabb valós illesztőprogram" in res_wu.stdout:
                 self.emit('task_progress', {'task': task_id, 'log': 'Minden elérhető driver telepítve! Keresési lánc befejezve.'})
                 break
+        return total_installed_in_session
 
     def run_autofix(self):
         logging.info("[API] run_autofix() indítása")
@@ -1506,15 +1511,19 @@ try {
 
         def worker():
             import datetime
-            self.emit('task_start', {'task': 'autofix', 'title': '1 Kattintásos Driver Javítás és Frissítés'})
+            task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if getattr(self, 'resume_mode', False) else '1 Kattintásos Driver Javítás és Frissítés'
+            self.emit('task_start', {'task': 'autofix', 'title': task_title})
             try:
-                # 1. Rendszer visszaállítása
-                self._create_restore_point_sync()
-                if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
+                if not getattr(self, 'resume_mode', False):
+                    # 1. Rendszer visszaállítása
+                    self._create_restore_point_sync()
+                    if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
 
-                # 2. Third party driverek törlése
-                self._delete_third_party_sync()
-                if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
+                    # 2. Third party driverek törlése
+                    self._delete_third_party_sync()
+                    if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
+                else:
+                    self.emit('task_progress', {'task': 'autofix', 'log': 'Láncolt folytatás gépújraindítás után. Régi driverek törlése kihagyva, hogy ne töröljünk friss drivereket.\n'})
 
                 # 3. Átmenetileg engedélyezzük a WU-t a driverkereséshez
                 self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update ideiglenes engedélyezése a szükséges driverek lekéréséhez...', 'indeterminate': True})
@@ -1522,21 +1531,42 @@ try {
                 self._run(['reg', 'delete', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate', '/v', 'ExcludeWUDriversInQualityUpdate', '/f'])
 
                 # 4. Keresés és visszaépítés
-                self._scan_and_install_wu_sync()
+                installed_count = self._scan_and_install_wu_sync()
                 
                 # 5. Végső WU letiltás, ahogy a user / program kérte eredetileg
                 self._disable_wu_sync()
 
                 self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 MINDEN LÉPÉS KÉSZ!'})
                 
-                try:
-                    self.emit('task_progress', {'task': 'autofix', 'log': '\nA FOLYAMAT SIKERESEN BEFEJEZŐDÖTT!'})
-                except:
-                    pass
-
-                self.emit('task_complete', {'task': 'autofix', 'status': 'Befejezve (Újraindítás Vár)'})
-                time.sleep(1)
-                self.emit('ask_reboot', None)
+                if installed_count > 0:
+                    self.emit('task_progress', {'task': 'autofix', 'log': f'\n🔄 EBBEN A KÖRBEN {installed_count} DRIVER TELEPÜLT!\nTovább láncolt hardverek aktiválásához újabb automatikus újraindítás szükséges!\nA rendszer az újraindulás után folytatja a szkennelést!'})
+                    # Set RunOnce
+                    exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+                    if getattr(sys, 'frozen', False):
+                        cmd_str = f'"{exe_path}" --resume-autofix'
+                    else:
+                        cmd_str = f'"{sys.executable}" "{exe_path}" --resume-autofix'
+                    self._run(['reg', 'add', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverDoktorResume', '/t', 'REG_SZ', '/d', cmd_str, '/f'])
+                    
+                    self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve...'})
+                    time.sleep(5)
+                    self._run(['shutdown', '/r', '/t', '0'])
+                    return
+                else:
+                    self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 KÉSZ! Nulla újonnan fellelt driver, a konfiguráció végigért.'})
+                    # Clear RunOnce just in case
+                    self._run(['reg', 'delete', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverDoktorResume', '/f'])
+                    try:
+                        self.emit('task_progress', {'task': 'autofix', 'log': '\nA FOLYAMAT SIKERESEN BEFEJEZŐDÖTT!'})
+                    except:
+                        pass
+                    
+                    # If we were in resume mode, it means this was an automated post-boot check that found nothing.
+                    # We can close the app or leave it open. Let's just finish the task.
+                    self.emit('task_complete', {'task': 'autofix', 'status': 'Teljesen befejezve'})
+                    if not getattr(self, 'resume_mode', False):
+                        time.sleep(1)
+                        self.emit('ask_reboot', None)
 
             except Exception as e:
                 if str(e) == "Magyar_Megszakit_Flag":
