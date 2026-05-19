@@ -342,7 +342,7 @@ class DriverToolApi:
                     
                     try:
                         os.remove(zip_path)
-                    except:
+                    except OSError:
                         pass
                 
                 self.emit('task_progress', {'task': 'stress', 'log': '🔥 Programok rászabadítása a gépre...'})
@@ -855,7 +855,6 @@ class DriverToolApi:
 
                 # Ideiglenes WU engedélyezés a hardver szkennelés erejéig
                 self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '1', '/f'])
-                self._run(['reg', 'delete', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate', '/v', 'ExcludeWUDriversInQualityUpdate', '/f'])
 
                 self.hw_updates_pool = []
                 self._hw_installed_devs = []
@@ -866,7 +865,6 @@ class DriverToolApi:
                 # Végső WU letiltás, ha így akarjuk az offline módot szimulálni, 
                 # visszazárjuk mindkét módosítást a szkennelés után.
                 self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f'])
-                self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate', '/v', 'ExcludeWUDriversInQualityUpdate', '/t', 'REG_DWORD', '/d', '1', '/f'])
 
                 if wu_results is None:
                     wu_results = []
@@ -1171,7 +1169,6 @@ try {
             install_total = 0
 
             self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '1', '/f'])
-            self._run(['reg', 'delete', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate', '/v', 'ExcludeWUDriversInQualityUpdate', '/f'])
             try:
                 for line in process.stdout:
                     if self._check_cancel():
@@ -1183,44 +1180,43 @@ try {
                     line = line.strip()
                     if not line:
                         continue
-                if line.startswith("INIT:") or line.startswith("SEARCH:"):
-                    self.emit('task_progress', {'task': 'wu_install', 'status': line.split(":", 1)[1].strip(), 'log': line})
-                elif line.startswith("FOUND:"):
-                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  📦 {line[6:].strip()}'})
-                elif line.startswith("SKIP:"):
-                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  ⏭ {line[5:].strip()}'})
-                elif line.startswith("TOTAL:"):
-                    m = re.search(r'(\d+)', line)
-                    if m:
-                        install_total = int(m.group(1))
-                    self.emit('task_progress', {'task': 'wu_install', 'log': f'Összesen {install_total} driver telepítése...',
-                                                'total': install_total, 'current': 0, 'counter': f'0 / {install_total}'})
-                elif line.startswith("DLONE:"):
-                    self.emit('task_progress', {'task': 'wu_install', 'status': f'⬇ Letöltés: {line[6:].strip()}', 'log': f'  ⬇ {line[6:].strip()}'})
-                elif line.startswith("INSTONE:"):
-                    self.emit('task_progress', {'task': 'wu_install', 'status': f'⚙ Telepítés: {line[8:].strip()}', 'log': f'  ⚙ {line[8:].strip()}'})
-                elif line.startswith("OK:"):
-                    success += 1
-                    done = success + fail
-                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  ✅ {line[3:].strip()}',
-                                                'current': done, 'total': install_total, 'counter': f'{done}/{install_total} (✅{success} ❌{fail})'})
-                elif line.startswith("FAIL:"):
-                    fail += 1
-                    done = success + fail
-                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  ❌ {line[5:].strip()}',
-                                                'current': done, 'total': install_total, 'counter': f'{done}/{install_total} (✅{success} ❌{fail})'})
-                elif line.startswith("DONE:"):
-                    self.emit('task_progress', {'task': 'wu_install', 'log': f'\n--- {line[5:].strip()} ---'})
-                elif line.startswith("EMPTY:"):
-                    self.emit('task_progress', {'task': 'wu_install', 'log': line[6:].strip()})
-                elif line.startswith("ERROR:"):
-                    self.emit('task_progress', {'task': 'wu_install', 'log': f'❌ HIBA: {line[6:].strip()}'})
-                else:
-                    self.emit('task_progress', {'task': 'wu_install', 'log': line})
+                    if line.startswith("INIT:") or line.startswith("SEARCH:"):
+                        self.emit('task_progress', {'task': 'wu_install', 'status': line.split(":", 1)[1].strip(), 'log': line})
+                    elif line.startswith("FOUND:"):
+                        self.emit('task_progress', {'task': 'wu_install', 'log': f'  📦 {line[6:].strip()}'})
+                    elif line.startswith("SKIP:"):
+                        self.emit('task_progress', {'task': 'wu_install', 'log': f'  ⏭ {line[5:].strip()}'})
+                    elif line.startswith("TOTAL:"):
+                        m = re.search(r'(\d+)', line)
+                        if m:
+                            install_total = int(m.group(1))
+                        self.emit('task_progress', {'task': 'wu_install', 'log': f'Összesen {install_total} driver telepítése...',
+                                                    'total': install_total, 'current': 0, 'counter': f'0 / {install_total}'})
+                    elif line.startswith("DLONE:"):
+                        self.emit('task_progress', {'task': 'wu_install', 'status': f'⬇ Letöltés: {line[6:].strip()}', 'log': f'  ⬇ {line[6:].strip()}'})
+                    elif line.startswith("INSTONE:"):
+                        self.emit('task_progress', {'task': 'wu_install', 'status': f'⚙ Telepítés: {line[8:].strip()}', 'log': f'  ⚙ {line[8:].strip()}'})
+                    elif line.startswith("OK:"):
+                        success += 1
+                        done = success + fail
+                        self.emit('task_progress', {'task': 'wu_install', 'log': f'  ✅ {line[3:].strip()}',
+                                                    'current': done, 'total': install_total, 'counter': f'{done}/{install_total} (✅{success} ❌{fail})'})
+                    elif line.startswith("FAIL:"):
+                        fail += 1
+                        done = success + fail
+                        self.emit('task_progress', {'task': 'wu_install', 'log': f'  ❌ {line[5:].strip()}',
+                                                    'current': done, 'total': install_total, 'counter': f'{done}/{install_total} (✅{success} ❌{fail})'})
+                    elif line.startswith("DONE:"):
+                        self.emit('task_progress', {'task': 'wu_install', 'log': f'\n--- {line[5:].strip()} ---'})
+                    elif line.startswith("EMPTY:"):
+                        self.emit('task_progress', {'task': 'wu_install', 'log': line[6:].strip()})
+                    elif line.startswith("ERROR:"):
+                        self.emit('task_progress', {'task': 'wu_install', 'log': f'❌ HIBA: {line[6:].strip()}'})
+                    else:
+                        self.emit('task_progress', {'task': 'wu_install', 'log': line})
                 process.wait()
             finally:
                 self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f'])
-                self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate', '/v', 'ExcludeWUDriversInQualityUpdate', '/t', 'REG_DWORD', '/d', '1', '/f'])
 
             if success > 0:
                 self.emit('task_progress', {'task': 'wu_install', 'log': 'Eszközök újraszkennelése...', 'status': 'Aktiválás...'})
@@ -1377,7 +1373,6 @@ try {
         self._run(reg_cmd)
         
         # Ez a registry kulcs megakadályozza, hogy a "Frissítések keresése" gomb megnyomásakor a rendszer drivereket is lehúzzon
-        self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate', '/v', 'ExcludeWUDriversInQualityUpdate', '/t', 'REG_DWORD', '/d', '1', '/f'])
         
         self.emit('task_progress', {'task': task_id, 'log': '✅ Automatikus driver telepítés letiltva.\n'})
 
@@ -1525,13 +1520,23 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
     }} catch {{ Write-Output "  ⚠️ HIBA: $($U.Title)" }}
 }}
 """
-            res_install = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", install_ps], encoding='utf-8')
-            for line in res_install.stdout.splitlines():
+            process = subprocess.Popen(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", install_ps],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace',
+                startupinfo=self._si, creationflags=self._nw)
+            
+            for line in process.stdout:
+                if getattr(self, '_cancel_flag', False):
+                    process.terminate()
+                    process.wait()
+                    self.emit('task_progress', {'task': task_id, 'log': '\n❗ Megszakítva!'})
+                    raise Exception("Magyar_Megszakit_Flag")
                 if line.strip():
                     clean_msg = line.strip().replace('✅', '[OK]').replace('⚠️', '[FIGYELMEZTETES]').replace('❌', '[HIBA]').replace('▶', '[TELEPITES]')
                     self.emit('task_progress', {'task': task_id, 'log': clean_msg})
                     if "[OK] SIKERES:" in clean_msg:
                         total_installed_in_session += 1
+            process.wait()
                         
         return total_installed_in_session
 
@@ -1542,7 +1547,6 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             return
 
         def worker():
-            import datetime
             task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if getattr(self, 'resume_mode', False) else '1 Kattintásos Driver Javítás és Frissítés'
             self.emit('task_start', {'task': 'autofix', 'title': task_title})
             try:
@@ -1560,7 +1564,6 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                 # 3. Átmenetileg engedélyezzük a WU-t a driverkereséshez
                 self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update ideiglenes engedélyezése a szükséges driverek lekéréséhez...', 'indeterminate': True})
                 self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '1', '/f'])
-                self._run(['reg', 'delete', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate', '/v', 'ExcludeWUDriversInQualityUpdate', '/f'])
 
                 # 4. Keresés és visszaépítés
                 installed_count = self._scan_and_install_wu_sync()
@@ -1590,7 +1593,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     self._run(['reg', 'delete', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverDoktorResume', '/f'])
                     try:
                         self.emit('task_progress', {'task': 'autofix', 'log': '\nA FOLYAMAT SIKERESEN BEFEJEZŐDÖTT!'})
-                    except:
+                    except Exception:
                         pass
                     
                     # If we were in resume mode, it means this was an automated post-boot check that found nothing.
@@ -1636,7 +1639,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             # Delete policy
             try:
                 with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate", 0, winreg.KEY_WRITE) as key:
-                    pass
+                    winreg.DeleteValue(key, "ExcludeWUDriversInQualityUpdate")
                 logging.info("[WU_ENABLE] ExcludeWUDrivers policy törölve")
                 self.emit('task_progress', {'task': 'enable_wu', 'log': '✅ ExcludeWUDrivers policy törölve'})
             except FileNotFoundError:
@@ -1645,11 +1648,6 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             except Exception as e:
                 logging.warning(f"[WU_ENABLE] Policy törlés hiba: {e}")
                 self.emit('task_progress', {'task': 'enable_wu', 'log': f'⚠ {e}'})
-                try:
-                    with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate", 0, winreg.KEY_WRITE) as key:
-                        pass
-                except Exception as e:
-                    logging.debug(e)
 
             # SearchOrderConfig = 1
             try:
@@ -1663,8 +1661,6 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
 
             self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching',
                        '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '1', '/f'])
-            self._run(['reg', 'delete', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate',
-                       '/v', 'ExcludeWUDriversInQualityUpdate', '/f'])
 
             # Stop services
             logging.info("[WU_ENABLE] Szolgáltatások leállítása...")
@@ -3174,16 +3170,6 @@ class CliApi:
         print("-" * 50)
         
         try:
-            with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate", 0, winreg.KEY_WRITE) as key:
-                pass
-            print("  ✅ ExcludeWUDriversInQualityUpdate = 1")
-        except Exception as e:
-            print(f"  ⚠️  {e}")
-        
-        self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate',
-                   '/v', 'ExcludeWUDriversInQualityUpdate', '/t', 'REG_DWORD', '/d', '1', '/f'])
-        
-        try:
             with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching", 0, winreg.KEY_WRITE) as key:
                 winreg.SetValueEx(key, "SearchOrderConfig", 0, winreg.REG_DWORD, 0)
             print("  ✅ SearchOrderConfig = 0")
@@ -3211,7 +3197,7 @@ class CliApi:
         # Policy törlés
         try:
             with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate", 0, winreg.KEY_WRITE) as key:
-                pass
+                winreg.DeleteValue(key, "ExcludeWUDriversInQualityUpdate")
             print("  ✅ Policy törölve")
         except FileNotFoundError:
             print("  ℹ️  Policy nem létezett")
@@ -3656,12 +3642,6 @@ if __name__ == "__main__":
                 sys.stderr = open("CONOUT$", "w", encoding="utf-8")
                 sys.stdin = open("CONIN$", "r", encoding="utf-8")
 
-    # Ha --progress argumentummal indítottuk, csak a progress ablakot nyitjuk meg
-    if len(sys.argv) >= 3 and sys.argv[1] == '--progress':
-        log_path = sys.argv[2]
-        run_progress_window(log_path)
-        sys.exit(0)
-    
     # CLI mód
     if '--cli' in sys.argv:
         if not is_admin():
