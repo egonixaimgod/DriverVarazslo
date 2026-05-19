@@ -1,6 +1,6 @@
-# DriverDoktor 🩺
+# DriverVarázsló 🧙‍♂️
 
-A DriverDoktor egy átfogó, nyílt forráskódú Windows driverkezelő segédprogram, amely Pythonban készült. Modern webes felhasználói felülettel rendelkezik (`pywebview` / WebView2 technológiát használva), és egy minden az egyben eszköztárként szolgál rendszergazdák, IT technikusok és haladó felhasználók számára, akiknek Windows illesztőprogramok (driverek) kezelésére, mentésére, visszaállítására és automatikus javítására van szükségük.
+A DriverVarázsló egy átfogó, nyílt forráskódú Windows driverkezelő segédprogram, amely Pythonban készült. Modern webes felhasználói felülettel rendelkezik (`pywebview` / WebView2 technológiát használva), és egy minden az egyben eszköztárként szolgál rendszergazdák, IT technikusok és haladó felhasználók számára, akiknek Windows illesztőprogramok (driverek) kezelésére, mentésére, visszaállítására és automatikus javítására van szükségük.
 
 ## 🌟 Fő Funkciók
 
@@ -41,14 +41,14 @@ Azon AI-k vagy fejlesztők számára, akik ezt a kódbázist olvassák, íme egy
     *   **Registry (`winreg`)**: Intenzíven használva a Windows Update viselkedésének módosítására (`ExcludeWUDriversInQualityUpdate`, `SearchOrderConfig`, `SystemRestorePointCreationFrequency`).
     *   **PowerShell & WMI**: Erősen támaszkodik rá (`subprocess.Popen`) a `Win32_PnPEntity` lekérdezésénél, a Hardver ID-k (HWID) elemzésénél, és a `Microsoft.Update.Session` COM objektummal való interakció során a Microsoft szerverekről történő csendes driver letöltésekhez.
     *   **Rendszereszközök (System Tools)**: A `dism.exe`, `pnputil.exe`, `robocopy` és `diskpart` programokat használja a háttérben (például a bootloader UEFI partíció hozzárendelésekhez).
-*   **Csomagolás (Packaging)**: A `pyinstaller` kezeli a `DriverDoktor.spec` fájlon keresztül. Rendszergazdai (`uac_admin=True`) jogosultság szükséges a futtatásához.
+*   **Csomagolás (Packaging)**: A `pyinstaller` kezeli a `DriverVarázsló.spec` fájlon keresztül. Rendszergazdai (`uac_admin=True`) jogosultság szükséges a futtatásához.
 
 ## 📦 Fordítás Forráskódból (Build)
 
 Ha a programot egy önálló Windows futtatható fájllá (`.exe`) szeretnéd fordítani:
 
 1. Telepítsd a függőségeket: `pip install pywebview pyinstaller`
-2. Futtasd a build parancsot: `pyinstaller --clean DriverDoktor.spec`
+2. Futtasd a build parancsot: `pyinstaller --clean DriverVarázsló.spec`
 3. A lefordított exe fájl a `dist/` mappában fog megjelenni.
 
 ## ⚠️ Jogi Nyilatkozat (Disclaimer)

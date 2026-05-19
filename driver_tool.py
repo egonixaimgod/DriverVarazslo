@@ -134,7 +134,7 @@ def show_webview2_error(message):
         result = ctypes.windll.user32.MessageBoxW(
             None,
             message + "\n\nMegnyissam a letöltési oldalt?",
-            "DriverDoktor - WebView2 hiba",
+            "DriverVarázsló - WebView2 hiba",
             0x4 | MB_ICONERROR | MB_TOPMOST  # MB_YESNO
         )
         if result == 6:  # IDYES
@@ -320,7 +320,7 @@ class DriverToolApi:
             import os
             
             temp_dir = tempfile.gettempdir()
-            stress_dir = os.path.join(temp_dir, "DriverDoktor_Stress")
+            stress_dir = os.path.join(temp_dir, "DriverVarázsló_Stress")
             zip_path = os.path.join(temp_dir, "stresstools.zip")
             
             # A pontos GitHub közvetlen letöltési link:
@@ -1356,7 +1356,7 @@ try {
             return {'status': 'Ismeretlen', 'color': 'unknown'}
 
     def _create_restore_point_sync(self, task_id='autofix'):
-        desc = "DriverDoktor AutoFix - " + datetime.now().strftime("%Y-%m-%d %H:%M")
+        desc = "DriverVarázsló AutoFix - " + datetime.now().strftime("%Y-%m-%d %H:%M")
         self.emit('task_progress', {'task': task_id, 'log': 'Registry Mentés (Restore Point) készítése folyamatban...', 'indeterminate': True})
         self._run(["powershell", "-NoProfile", "-Command", 'Enable-ComputerRestore -Drive "$($env:SystemDrive)\\" -ErrorAction SilentlyContinue'])
         self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore', '/v', 'SystemRestorePointCreationFrequency', '/t', 'REG_DWORD', '/d', '0', '/f'])
@@ -1551,6 +1551,20 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             self.emit('task_start', {'task': 'autofix', 'title': task_title})
             try:
                 if not getattr(self, 'resume_mode', False):
+                    # 0. Alvó mód és képernyő kikapcsolás letiltása
+                    self.emit('task_progress', {'task': 'autofix', 'log': 'Alvó mód és képernyő kikapcsolás letiltása (hogy ne szakadjon meg a folyamat)...'})
+                    power_cmds = [
+                        ['powercfg', '/change', 'monitor-timeout-ac', '0'],
+                        ['powercfg', '/change', 'monitor-timeout-dc', '0'],
+                        ['powercfg', '/change', 'standby-timeout-ac', '0'],
+                        ['powercfg', '/change', 'standby-timeout-dc', '0'],
+                        ['powercfg', '/change', 'hibernate-timeout-ac', '0'],
+                        ['powercfg', '/change', 'hibernate-timeout-dc', '0']
+                    ]
+                    for cmd in power_cmds:
+                        self._run(cmd)
+                    self.emit('task_progress', {'task': 'autofix', 'log': '✅ Energiagazdálkodás beállítva.\n'})
+                    
                     # 1. Rendszer visszaállítása
                     self._create_restore_point_sync()
                     if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
@@ -1581,7 +1595,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                         cmd_str = f'"{exe_path}" --resume-autofix'
                     else:
                         cmd_str = f'"{sys.executable}" "{exe_path}" --resume-autofix'
-                    self._run(['reg', 'add', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverDoktorResume', '/t', 'REG_SZ', '/d', cmd_str, '/f'])
+                    self._run(['reg', 'add', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverVarázslóResume', '/t', 'REG_SZ', '/d', cmd_str, '/f'])
                     
                     self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve...'})
                     time.sleep(5)
@@ -1590,7 +1604,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                 else:
                     self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 KÉSZ! Nulla újonnan fellelt driver, a konfiguráció végigért.'})
                     # Clear RunOnce just in case
-                    self._run(['reg', 'delete', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverDoktorResume', '/f'])
+                    self._run(['reg', 'delete', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverVarázslóResume', '/f'])
                     try:
                         self.emit('task_progress', {'task': 'autofix', 'log': '\nA FOLYAMAT SIKERESEN BEFEJEZŐDÖTT!'})
                     except Exception:
@@ -1773,7 +1787,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
         self._cancel_flag = False
 
         def worker():
-            folder = os.path.join(dest, f"DriverDoktor_Export_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+            folder = os.path.join(dest, f"DriverVarázsló_Export_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
             logging.info(f"[BACKUP] Célmappa létrehozása: {folder}")
             os.makedirs(folder, exist_ok=True)
             self.emit('task_start', {'task': 'backup', 'title': 'Driver Exportálás'})
@@ -1825,7 +1839,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
         self._cancel_flag = False
 
         def worker():
-            folder = os.path.join(dest, f"DriverDoktor_FullExport_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+            folder = os.path.join(dest, f"DriverVarázsló_FullExport_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
             os.makedirs(folder, exist_ok=True)
             self.emit('task_start', {'task': 'backup', 'title': 'ÖSSZES Driver Exportálása'})
             self.emit('task_progress', {'task': 'backup', 'log': 'Driver lista lekérdezése...', 'indeterminate': True})
@@ -1900,7 +1914,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             return
         def worker():
             logging.info("[RESTORE_POINT] Worker indult - visszaállítási pont létrehozása...")
-            desc = f"DriverDoktor_Backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            desc = f"DriverVarázsló_Backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             logging.info(f"[RESTORE_POINT] Név: {desc}")
             self.emit('task_start', {'task': 'rp', 'title': 'Visszaállítási Pont'})
             self.emit('task_progress', {'task': 'rp', 'log': 'Rendszervédelem engedélyezése...', 'indeterminate': True})
@@ -2286,8 +2300,8 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                 self.emit('task_progress', {'task': 'restore', 'log': '✅ A fizikai másolás + DISM regisztrálás kész. Az inbox driverek a másolásnak köszönhetően elérhetőek.'})
 
             elif has_inbox_subfolder:
-                # DriverDoktor_FullExport / ALL_Driver_Backup formátum: _Windows_Inbox_Drivers + oem almappák
-                self.emit('task_progress', {'task': 'restore', 'log': 'Teljes export formátum észlelve (DriverDoktor_FullExport / ALL_Driver_Backup).\n'
+                # DriverVarázsló_FullExport / ALL_Driver_Backup formátum: _Windows_Inbox_Drivers + oem almappák
+                self.emit('task_progress', {'task': 'restore', 'log': 'Teljes export formátum észlelve (DriverVarázsló_FullExport / ALL_Driver_Backup).\n'
                                             'Az inbox drivereket fizikailag másoljuk (DISM nem tudja telepíteni őket),\n'
                                             'az OEM drivereket DISM-mel regisztráljuk.\n'})
 
@@ -2360,7 +2374,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     self.emit('task_progress', {'task': 'restore', 'log': '\nNincs OEM driver mappa a backup-ban.'})
 
             else:
-                # Egyéb mappa (pl. DriverDoktor_Export / Driver_Backup third-party export) — tisztán DISM
+                # Egyéb mappa (pl. DriverVarázsló_Export / Driver_Backup third-party export) — tisztán DISM
                 _, dism_cancelled = run_dism_add_driver(norm_source, "")
                 if dism_cancelled:
                     self.emit('task_complete', {'task': 'restore', 'status': '❗ Megszakítva!'})
@@ -2762,7 +2776,7 @@ class CliApi:
     # ================================================================
     def backup_third_party(self, dest_folder):
         """Third-party driverek mentése."""
-        folder = os.path.join(dest_folder, f"DriverDoktor_Export_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        folder = os.path.join(dest_folder, f"DriverVarázsló_Export_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
         os.makedirs(folder, exist_ok=True)
         print("\n💾 Third-party driverek mentése...")
         print(f"   Cél: {folder}")
@@ -2782,7 +2796,7 @@ class CliApi:
     
     def backup_all(self, dest_folder):
         """Összes driver mentése (OEM + inbox)."""
-        folder = os.path.join(dest_folder, f"DriverDoktor_FullExport_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        folder = os.path.join(dest_folder, f"DriverVarázsló_FullExport_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
         os.makedirs(folder, exist_ok=True)
         print("\n💾 ÖSSZES driver mentése...")
         print(f"   Cél: {folder}")
@@ -3082,7 +3096,7 @@ class CliApi:
             print("\n❌ Hiba: Visszaállítási pont csak Élő rendszeren készíthető!")
             return False
             
-        desc = f"DriverDoktor_Backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        desc = f"DriverVarázsló_Backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         print("\n🛡️  Visszaállítási pont létrehozása...")
         print(f"   Név: {desc}")
         print("-" * 50)
@@ -3274,6 +3288,7 @@ class CliApi:
         print("=" * 60)
         print("""
 Lépések:
+  0️⃣  Alvó mód kikapcsolása
   1️⃣  Windows Update driver keresés LETILTÁSA
   2️⃣  Összes third-party driver TÖRLÉSE
   3️⃣  Hardver újraszkennelés
@@ -3287,6 +3302,22 @@ Lépések:
             return
         
         start_time = time.time()
+        
+        # FÁZIS 0: Alvó mód letiltása
+        print("\n" + "=" * 50)
+        print("  FÁZIS 0: Alvó mód és képernyő kikapcsolás letiltása")
+        print("=" * 50)
+        power_cmds = [
+            ['powercfg', '/change', 'monitor-timeout-ac', '0'],
+            ['powercfg', '/change', 'monitor-timeout-dc', '0'],
+            ['powercfg', '/change', 'standby-timeout-ac', '0'],
+            ['powercfg', '/change', 'standby-timeout-dc', '0'],
+            ['powercfg', '/change', 'hibernate-timeout-ac', '0'],
+            ['powercfg', '/change', 'hibernate-timeout-dc', '0']
+        ]
+        for cmd in power_cmds:
+            self._run(cmd)
+        print("  ✅ Energiagazdálkodás beállítva.")
         
         # FÁZIS 1: WU letiltás
         print("\n" + "=" * 50)
@@ -3425,7 +3456,7 @@ def run_cli_mode():
     def print_header():
         clear_screen()
         print("=" * 60)
-        print("  ♻️  DRIVERDOKTOR - CLI MÓD")
+        print("  ♻️  DRIVERVARÁZSLÓ - CLI MÓD")
         print("  🖥️  Tiszta rendszer (Build " + str(BUILD_NUMBER) + ")")
         print("=" * 60)
         if api.target_os_path:
@@ -3662,7 +3693,7 @@ if __name__ == "__main__":
         sys.exit()
 
     # Logging
-    log_filename = os.path.join(os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)), "DriverDoktor_debug.log")
+    log_filename = os.path.join(os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)), "DriverVarázsló_debug.log")
     try:
         logging.basicConfig(filename=log_filename, level=logging.DEBUG,
                             format='%(asctime)s [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S', encoding='utf-8')
@@ -3687,7 +3718,7 @@ if __name__ == "__main__":
     threading.excepthook = thread_exception_handler
 
     logging.info("=" * 50)
-    logging.info("DriverDoktor ELINDITVA")
+    logging.info("DriverVarázsló ELINDITVA")
     logging.info(f"Futtatasi konyvtar: {os.getcwd()}")
     logging.info("=" * 50)
 
@@ -3708,10 +3739,10 @@ if __name__ == "__main__":
         result = ctypes.windll.user32.MessageBoxW(
             None,
             "A WebView2 Runtime hiányzik vagy túl régi!\n\n"
-            "A DriverDoktor GUI-hoz WebView2 v109+ szükséges.\n\n"
+            "A DriverVarázsló GUI-hoz WebView2 v109+ szükséges.\n\n"
             "Telepítsem automatikusan?\n"
             "(~2MB letöltés, pár másodperc)",
-            "DriverDoktor - WebView2 telepítés",
+            "DriverVarázsló - WebView2 telepítés",
             MB_YESNO | MB_ICONQUESTION | MB_TOPMOST
         )
         
@@ -3735,7 +3766,7 @@ if __name__ == "__main__":
                     "WebView2 telepítése folyamatban...\n\n"
                     "Ez pár másodpercet vesz igénybe.\n"
                     "Kattints OK-ra és várd meg!",
-                    "DriverDoktor",
+                    "DriverVarázsló",
                     0x40 | MB_TOPMOST  # MB_ICONINFORMATION
                 )
                 
@@ -3770,7 +3801,7 @@ if __name__ == "__main__":
                         None,
                         f"WebView2 sikeresen telepítve!\n\nVerzió: {wv2_info2}\n\n"
                         "A program most újraindul a GUI-val.",
-                        "DriverDoktor - Siker",
+                        "DriverVarázsló - Siker",
                         0x40 | MB_TOPMOST
                     )
                     # Program újraindítása
@@ -3783,7 +3814,7 @@ if __name__ == "__main__":
                         "Próbáld meg manuálisan:\n"
                         "https://go.microsoft.com/fwlink/p/?LinkId=2124703\n\n"
                         "Vagy használd a CLI módot.",
-                        "DriverDoktor - Hiba",
+                        "DriverVarázsló - Hiba",
                         0x10 | MB_TOPMOST  # MB_ICONERROR
                     )
                     
@@ -3795,7 +3826,7 @@ if __name__ == "__main__":
                     "Próbáld meg manuálisan:\n"
                     "https://go.microsoft.com/fwlink/p/?LinkId=2124703\n\n"
                     "Vagy használd a CLI módot.",
-                    "DriverDoktor - Hiba",
+                    "DriverVarázsló - Hiba",
                     0x10 | MB_TOPMOST
                 )
         else:
@@ -3814,7 +3845,7 @@ if __name__ == "__main__":
             logging.debug(e)
         
         print("\n" + "=" * 60)
-        print("  📋 DRIVERDOKTOR - CLI MÓD")
+        print("  📋 DRIVERVARÁZSLÓ - CLI MÓD")
         print("=" * 60)
         
         run_cli_mode()
@@ -3826,7 +3857,7 @@ if __name__ == "__main__":
     html_path = resource_path('ui.html')
 
     window = webview.create_window(
-        'DriverDoktor',
+        'DriverVarázsló',
         url=html_path,
         js_api=api,
         width=1200, height=780,
