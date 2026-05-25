@@ -1,4 +1,4 @@
-import ctypes
+ve import ctypes
 import os
 import sys
 import subprocess
@@ -324,7 +324,7 @@ class DriverToolApi:
             zip_path = os.path.join(temp_dir, "stresstools.zip")
             
             # A pontos GitHub közvetlen letöltési link:
-            download_url = "https://github.com/egonixaimgod/DriverDoktor/releases/download/stresstools.zip/stresstools.zip"
+            download_url = "https://github.com/egonixaimgod/DriverVarazslo/releases/download/stresstools.zip/stresstools.zip"
             
             try:
                 self.emit('task_start', {'task': 'stress', 'title': 'Stabilitás Teszt Indítása'})
@@ -1564,6 +1564,10 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     for cmd in power_cmds:
                         self._run(cmd)
                     self.emit('task_progress', {'task': 'autofix', 'log': '✅ Energiagazdálkodás beállítva.\n'})
+                    
+                    # 0.5 Windows automata driver frissítés letiltása a törlések előtt
+                    self._disable_wu_sync()
+                    if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
                     
                     # 1. Rendszer visszaállítása
                     self._create_restore_point_sync()
