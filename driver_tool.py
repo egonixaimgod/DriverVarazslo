@@ -179,7 +179,6 @@ class DriverToolApi:
         self.wu_api_mode = True
         self._cancel_flag = False  # Flag for cancelling long-running tasks
         self.resume_mode = '--resume-autofix' in sys.argv
-        self.resume_step1 = '--resume-autofix-step1' in sys.argv
         self._si = subprocess.STARTUPINFO()
         self._si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         self._nw = subprocess.CREATE_NO_WINDOW
@@ -297,7 +296,7 @@ class DriverToolApi:
 
     def get_init_data(self):
         logging.info(f"[API] get_init_data() hívás - build={BUILD_NUMBER}, target={self.target_os_path}")
-        return {'build': BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path, 'resume_mode': getattr(self, 'resume_mode', False), 'resume_step1': getattr(self, 'resume_step1', False)}
+        return {'build': BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path, 'resume_mode': getattr(self, 'resume_mode', False), }
 
     def reboot_system(self):
         logging.info("[API] reboot_system() - Felhasználó újraindítást kért")
@@ -1469,6 +1468,20 @@ try {
         else:
             self.emit('task_progress', {'task': task_id, 'log': '⚠️ Visszaállítási pont elutasítva a rendszer által. - FOLYTATÁS...\n'})
 
+    def _disable_sleep_sync(self, task_id='autofix'):
+        self.emit('task_progress', {'task': task_id, 'log': 'Alvó mód és képernyő kikapcsolás letiltása (hogy ne szakadjon meg a folyamat)...'})
+        power_cmds = [
+            ['powercfg', '/change', 'monitor-timeout-ac', '0'],
+            ['powercfg', '/change', 'monitor-timeout-dc', '0'],
+            ['powercfg', '/change', 'standby-timeout-ac', '0'],
+            ['powercfg', '/change', 'standby-timeout-dc', '0'],
+            ['powercfg', '/change', 'hibernate-timeout-ac', '0'],
+            ['powercfg', '/change', 'hibernate-timeout-dc', '0']
+        ]
+        for cmd in power_cmds:
+            self._run(cmd)
+        self.emit('task_progress', {'task': task_id, 'log': '✅ Energiagazdálkodás beállítva.\n'})
+
     def _disable_wu_sync(self, task_id='autofix'):
         self.emit('task_progress', {'task': task_id, 'log': 'Windows automata driver frissítések letiltása a Registryben...', 'indeterminate': True})
         reg_cmd = ['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f']
@@ -1502,6 +1515,7 @@ foreach ($dev in $ghosts) {
 }
 Write-Output "DONE: Törölve: $count / $total"
 """
+        logging.debug(f"[CMD] Popen futtatása: {ps_script[:300]}...")
         process = subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace',
@@ -1669,6 +1683,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
     }} catch {{ Write-Output "  ⚠️ HIBA: $($U.Title)" }}
 }}
 """
+            logging.debug(f"[CMD] Popen futtatása: {install_ps[:300]}...")
             process = subprocess.Popen(
                 ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", install_ps],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace',
@@ -1696,14 +1711,27 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             return
 
         def worker():
-            task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if (getattr(self, 'resume_mode', False) or getattr(self, 'resume_step1', False)) else '1 Kattintásos Driver Javítás és Frissítés'
+            task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if getattr(self, 'resume_mode', False) else '1 Kattintásos Driver Javítás és Frissítés'
             self.emit('task_start', {'task': 'autofix', 'title': task_title})
             try:
-                if not getattr(self, 'resume_mode', False) and not getattr(self, 'resume_step1', False):
-                    # 0. LÉPÉS: Windows Update letiltás 1 hétre és újraindítás
-                    self.emit('task_progress', {'task': 'autofix', 'log': '0. LÉPÉS: Beragadt frissítések törlése és WU szüneteltetése 1 hétre...'})
+                if not getattr(self, 'resume_mode', False):
+                    self.emit('task_progress', {'task': 'autofix', 'log': '0. LÉPÉS: Rendszer előkészítése és régi driverek törlése...'})
                     
-                    # 1. Clear SoftwareDistribution (stops services, deletes cache)
+                    self._disable_sleep_sync()
+                    
+                    self._disable_wu_sync()
+                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
+                    
+                    self._create_restore_point_sync()
+                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
+
+                    self._delete_ghost_devices_sync()
+                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
+
+                    self._delete_third_party_sync()
+                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
+                    
+                    self.emit('task_progress', {'task': 'autofix', 'log': 'Beragadt frissítések törlése és WU szüneteltetése 1 hétre...'})
                     clear_cache = r"""
                     Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
                     Stop-Service bits -Force -ErrorAction SilentlyContinue
@@ -1725,58 +1753,23 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_pause])
                     self.emit('task_progress', {'task': 'autofix', 'log': '✅ WU gyorsítótár ürítve és szüneteltetve 1 hétre.\n'})
                     
-                    self.emit('task_progress', {'task': 'autofix', 'log': '🔄 A számítógép újraindul, majd a folyamat automatikusan folytatódik (1. lépéssel)!'})
+                    self.emit('task_progress', {'task': 'autofix', 'log': '🔄 A számítógép újraindul, majd a folyamat automatikusan a TELEPÍTÉSSEL folytatódik!'})
                     
-                    # Set RunOnce for step 1
                     exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
                     if getattr(sys, 'frozen', False):
-                        cmd_str = f'"{exe_path}" --resume-autofix-step1'
+                        cmd_str = f'"{exe_path}" --resume-autofix'
                     else:
-                        cmd_str = f'"{sys.executable}" "{exe_path}" --resume-autofix-step1'
+                        cmd_str = f'"{sys.executable}" "{exe_path}" --resume-autofix'
                     self._run(['reg', 'add', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverVarázslóResume', '/t', 'REG_SZ', '/d', cmd_str, '/f'])
                     
                     self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve...'})
                     time.sleep(5)
                     self._run(['shutdown', '/r', '/t', '0', '/f'])
                     return
-                
-                if getattr(self, 'resume_step1', False):
-                    # Clear RunOnce just in case
-                    self._run(['reg', 'delete', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverVarázslóResume', '/f'])
-                    
-                    self.emit('task_progress', {'task': 'autofix', 'log': 'Láncolt folytatás gépújraindítás után (0. lépés befejezve).\n'})
-
-                    # 1. Alvó mód és képernyő kikapcsolás letiltása
-                    self.emit('task_progress', {'task': 'autofix', 'log': 'Alvó mód és képernyő kikapcsolás letiltása (hogy ne szakadjon meg a folyamat)...'})
-                    power_cmds = [
-                        ['powercfg', '/change', 'monitor-timeout-ac', '0'],
-                        ['powercfg', '/change', 'monitor-timeout-dc', '0'],
-                        ['powercfg', '/change', 'standby-timeout-ac', '0'],
-                        ['powercfg', '/change', 'standby-timeout-dc', '0'],
-                        ['powercfg', '/change', 'hibernate-timeout-ac', '0'],
-                        ['powercfg', '/change', 'hibernate-timeout-dc', '0']
-                    ]
-                    for cmd in power_cmds:
-                        self._run(cmd)
-                    self.emit('task_progress', {'task': 'autofix', 'log': '✅ Energiagazdálkodás beállítva.\n'})
-                    
-                    # 1.5 Windows automata driver frissítés letiltása a törlések előtt
-                    self._disable_wu_sync()
-                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
-                    
-                    # 2. Rendszer visszaállítása
-                    self._create_restore_point_sync()
-                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
-
-                    # 2.5 Szellemeszközök törlése
-                    self._delete_ghost_devices_sync()
-                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
-
-                    # 3. Third party driverek törlése
-                    self._delete_third_party_sync()
-                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
                 else:
+                    self._run(['reg', 'delete', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverVarázslóResume', '/f'])
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Láncolt folytatás gépújraindítás után. Régi driverek törlése kihagyva, hogy ne töröljünk friss drivereket.\n'})
+                    self._disable_sleep_sync()
 
                 # 4. Átmenetileg engedélyezzük a WU-t és unpause a driverkereséshez
                 self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update ideiglenes felébresztése a szükséges driverek lekéréséhez...', 'indeterminate': True})
@@ -2002,6 +1995,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
 
             logging.info("[BACKUP] DISM export-driver futtatása...")
             dism_cmd = ['dism', f'/Image:{self.target_os_path}', '/export-driver', f'/destination:{folder}'] if self.target_os_path else ['dism', '/online', '/export-driver', f'/destination:{folder}']
+            logging.debug(f"[CMD] Popen futtatása: {' '.join(dism_cmd)}")
             process = subprocess.Popen(
                 dism_cmd,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -3549,6 +3543,7 @@ try {
     Write-Output "DONE: s=$s f=$f"
 } catch { Write-Output "ERROR: $($_.Exception.Message)" }
 """
+        logging.debug(f"[CMD] Popen futtatása: {ps_script[:300]}...")
         process = subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace',
