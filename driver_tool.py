@@ -772,7 +772,7 @@ Write-Output "DONE: Törölve: $count / $total"
             
             for line in process.stdout:
                 if self._check_cancel():
-                    process.terminate()
+                    self._run(['taskkill', '/F', '/T', '/PID', str(process.pid)])
                     process.wait()
                     self.emit('task_progress', {'task': 'ghost', 'log': '\n❗ Megszakítva!'})
                     self.emit('task_complete', {'task': 'ghost', 'status': '❗ Megszakítva!', 'success': success, 'fail': total-success})
@@ -1058,7 +1058,7 @@ Write-Output "DONE: Törölve: $count / $total"
 
     def _set_wu_pause(self, pause=True):
         if pause:
-            ps = r"""
+            ps = r'''
             $pauseDate = (Get-Date).AddDays(7).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
             $nowDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
             if (!(Test-Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings')) { New-Item -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Force | Out-Null }
@@ -1068,17 +1068,24 @@ Write-Output "DONE: Törölve: $count / $total"
             Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
             Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseFeatureUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
             Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseQualityUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
-            """
+            '''
+            self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps])
+            self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f'])
+            self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate', '/v', 'ExcludeWUDriversInQualityUpdate', '/t', 'REG_DWORD', '/d', '1', '/f'])
         else:
-            ps = r"""
+            ps = r'''
             Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseUpdatesExpiryTime' -ErrorAction SilentlyContinue
             Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseFeatureUpdatesEndTime' -ErrorAction SilentlyContinue
             Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseQualityUpdatesEndTime' -ErrorAction SilentlyContinue
             Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseUpdatesStartTime' -ErrorAction SilentlyContinue
             Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseFeatureUpdatesStartTime' -ErrorAction SilentlyContinue
             Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseQualityUpdatesStartTime' -ErrorAction SilentlyContinue
-            """
-        self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps])
+            Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
+            Start-Service wuauserv -ErrorAction SilentlyContinue
+            '''
+            self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps])
+            self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '1', '/f'])
+            self._run(['reg', 'delete', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate', '/v', 'ExcludeWUDriversInQualityUpdate', '/f'])
 
     def _search_wu_api(self):
         logging.info("[WU_API] _search_wu_api() indult...")
@@ -1267,7 +1274,7 @@ try {
             try:
                 for line in process.stdout:
                     if self._check_cancel():
-                        process.terminate()
+                        self._run(['taskkill', '/F', '/T', '/PID', str(process.pid)])
                         process.wait()  # Prevent zombie process
                         self.emit('task_progress', {'task': 'wu_install', 'log': '\n❗ Megszakítva!'})
                         self.emit('task_complete', {'task': 'wu_install', 'status': '❗ Megszakítva!', 'success': success, 'fail': fail})
@@ -1502,7 +1509,7 @@ Write-Output "DONE: Törölve: $count / $total"
         
         for line in process.stdout:
             if getattr(self, '_cancel_flag', False):
-                process.terminate()
+                self._run(['taskkill', '/F', '/T', '/PID', str(process.pid)])
                 process.wait()
                 raise Exception("Magyar_Megszakit_Flag")
             line = line.strip()
@@ -1669,7 +1676,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             
             for line in process.stdout:
                 if getattr(self, '_cancel_flag', False):
-                    process.terminate()
+                    self._run(['taskkill', '/F', '/T', '/PID', str(process.pid)])
                     process.wait()
                     self.emit('task_progress', {'task': task_id, 'log': '\n❗ Megszakítva!'})
                     raise Exception("Magyar_Megszakit_Flag")
@@ -1775,7 +1782,6 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                 self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update ideiglenes felébresztése a szükséges driverek lekéréséhez...', 'indeterminate': True})
                 # BIZTOSÍTÉK: Teljesen letiltjuk a háttérben futó Automatikus Frissítéseket (Group Policy)
                 self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU', '/v', 'NoAutoUpdate', '/t', 'REG_DWORD', '/d', '1', '/f'])
-                self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '1', '/f'])
                 self._set_wu_pause(pause=False)
 
                 # 4. Keresés és visszaépítés
@@ -2004,7 +2010,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             cancelled = False
             for line in process.stdout:
                 if self._check_cancel():
-                    process.terminate()
+                    self._run(['taskkill', '/F', '/T', '/PID', str(process.pid)])
                     process.wait()  # Prevent zombie process
                     cancelled = True
                     break
@@ -2207,135 +2213,88 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
     def _repair_bcd_for_task(self, target_drive, task_name):
         """BCD javítás közös logika - használható restore-ból vagy önállóan is."""
         target_drive = target_drive.rstrip('\\') + '\\'
-        target_letter = target_drive[0].upper()
         
         self.emit('task_progress', {'task': task_name, 'log': '\n--- BOOT LOADER (BCD) JAVÍTÁS ---'})
         self.emit('task_progress', {'task': task_name, 'log': f'Cél Windows meghajtó: {target_drive}'})
-        self.emit('task_progress', {'task': task_name, 'log': 'A Windows meghajtó lemezének azonosítása...'})
+        self.emit('task_progress', {'task': task_name, 'log': 'A Windows meghajtó lemezének azonosítása (PowerShell)...'})
         
-        disk_number = None
+        ps_script = f"""
+$TargetDrive = "{target_drive[0]}"
+try {{
+    $winVol = Get-Partition | Where-Object {{ $_.DriveLetter -eq $TargetDrive }}
+    if (-not $winVol) {{ Write-Output "FAIL: Nem található a Windows partíció ($TargetDrive:)"; exit }}
+    
+    $diskNum = $winVol.DiskNumber
+    Write-Output "INFO: Lemez azonosítva: Disk $diskNum"
+    
+    $efiPart = Get-Partition -DiskNumber $diskNum | Where-Object {{ $_.Type -eq 'System' -or $_.GptType -eq '{{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}}' }}
+    if (-not $efiPart) {{ Write-Output "FAIL: Nem található EFI System partíció ezen a lemezen!"; exit }}
+    
+    Write-Output "INFO: EFI Partíció azonosítva: Partition $($efiPart.PartitionNumber)"
+    
+    $used = (Get-Volume).DriveLetter
+    $free = (65..90 | ForEach-Object {{ [char]$_ }}) | Where-Object {{ $used -notcontains $_ }} | Select-Object -First 1
+    if (-not $free) {{ Write-Output "FAIL: Nincs szabad betűjel!"; exit }}
+    
+    Set-Partition -DiskNumber $diskNum -PartitionNumber $efiPart.PartitionNumber -NewDriveLetter $free | Out-Null
+    Write-Output "EFI:$free"
+}} catch {{
+    Write-Output "ERROR: $($_.Exception.Message)"
+}}
+"""
+        res = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script], encoding='utf-8')
+        
+        success = False
         efi_letter = None
+        disk_number = None
         efi_partition = None
         
-        try:
-            # Volume-ok listázása
-            res = self._run(['diskpart'], input='list volume\n', timeout=30)
-            
-            if res.returncode == 0 and res.stdout:
-                lines = res.stdout.splitlines()
-                target_volume = None
-                
-                # Windows volume keresése
-                for line in lines:
-                    parts = line.split()
-                    if len(parts) >= 3:
-                        for i, p in enumerate(parts):
-                            if p.upper() == target_letter and i >= 1:
-                                try:
-                                    target_volume = int(parts[1])
-                                except (ValueError, IndexError):
-                                    pass
-                                break
-                
-                if target_volume is not None:
-                    self.emit('task_progress', {'task': task_name, 'log': f'Windows volume: {target_volume}'})
-                    
-                    # Disk azonosítása
-                    res2 = self._run(['diskpart'], input=f'select volume {target_volume}\ndetail volume\n', timeout=30)
-                    
-                    if res2.returncode == 0 and res2.stdout:
-                        for line in res2.stdout.splitlines():
-                            if 'Disk' in line and '#' not in line:
-                                parts = line.split()
-                                for p in parts:
-                                    if p.isdigit():
-                                        disk_number = int(p)
-                                        break
-                                if disk_number is not None:
-                                    break
-                    
-                    if disk_number is not None:
-                        self.emit('task_progress', {'task': task_name, 'log': f'Lemez: Disk {disk_number}'})
-                        
-                        # EFI partíció keresése ezen a lemezen
-                        res3 = self._run(['diskpart'], input=f'select disk {disk_number}\nlist partition\n', timeout=30)
-                        
-                        if res3.returncode == 0 and res3.stdout:
-                            for line in res3.stdout.splitlines():
-                                line_upper = line.upper()
-                                if 'SYSTEM' in line_upper or 'EFI' in line_upper:
-                                    parts = line.split()
-                                    for i, p in enumerate(parts):
-                                        if p.isdigit() and i >= 1:
-                                            efi_partition = int(p)
-                                            break
-                                    if efi_partition:
-                                        break
-                        
-                        if efi_partition:
-                            self.emit('task_progress', {'task': task_name, 'log': f'EFI partíció: Partition {efi_partition}'})
-                            
-                            # Szabad betűjel keresése
-                            used_letters = set()
-                            for line in lines:
-                                parts = line.split()
-                                for p in parts:
-                                    if len(p) == 1 and p.isalpha():
-                                        used_letters.add(p.upper())
-                            
-                            free_letter = None
-                            for c in 'STUVWXYZ':
-                                if c not in used_letters:
-                                    free_letter = c
-                                    break
-                            
-                            if free_letter:
-                                res4 = self._run(['diskpart'], 
-                                    input=f'select disk {disk_number}\nselect partition {efi_partition}\nassign letter={free_letter}\n',
-                                    timeout=30)
-                                if res4.returncode == 0:
-                                    efi_letter = free_letter + ':'
-                                    self.emit('task_progress', {'task': task_name, 'log': f'EFI betűjel hozzárendelve: {efi_letter}'})
-        except Exception as e:
-            logging.warning(f"[BCD] Diskpart hiba: {e}")
-            self.emit('task_progress', {'task': task_name, 'log': f'⚠️ Lemez azonosítási hiba: {e}'})
-        
-        # bcdboot futtatása
-        success = False
-        
+        if res.stdout:
+            for line in res.stdout.splitlines():
+                line = line.strip()
+                if line.startswith("INFO:"):
+                    self.emit('task_progress', {'task': task_name, 'log': line[6:]})
+                    if "Disk" in line:
+                        m = re.search(r'Disk (\d+)', line)
+                        if m: disk_number = m.group(1)
+                    if "Partition" in line:
+                        m = re.search(r'Partition (\d+)', line)
+                        if m: efi_partition = m.group(1)
+                elif line.startswith("EFI:"):
+                    efi_letter = line[4:].strip() + ":"
+                    self.emit('task_progress', {'task': task_name, 'log': f'EFI betűjel hozzárendelve: {efi_letter}'})
+                elif line.startswith("FAIL:") or line.startswith("ERROR:"):
+                    self.emit('task_progress', {'task': task_name, 'log': f'⚠️ {line}'})
+
         if efi_letter:
             self.emit('task_progress', {'task': task_name, 'log': f'bcdboot {target_drive}Windows /s {efi_letter} /f UEFI'})
-            res = self._run(['bcdboot', f'{target_drive}Windows', '/s', efi_letter, '/f', 'UEFI'])
-            if res.returncode == 0:
+            boot_res = self._run(['bcdboot', f'{target_drive}Windows', '/s', efi_letter, '/f', 'UEFI'])
+            if boot_res.returncode == 0:
                 success = True
                 self.emit('task_progress', {'task': task_name, 'log': '✅ BCD sikeresen újraépítve (UEFI)!'})
             else:
                 self.emit('task_progress', {'task': task_name, 'log': '⚠️ UEFI bcdboot hiba, fallback...'})
             
-            # EFI betűjel eltávolítása
-            try:
-                self._run(['diskpart'], 
-                    input=f'select disk {disk_number}\nselect partition {efi_partition}\nremove letter={efi_letter[0]}\n',
-                    timeout=30)
-            except Exception as e:
-                logging.debug(e)
-        
+            # EFI betűjel eltávolítása PowerShell-el
+            if disk_number and efi_partition:
+                rm_ps = f"Remove-PartitionAccessPath -DiskNumber {disk_number} -PartitionNumber {efi_partition} -AccessPath '{efi_letter}\\'"
+                self._run(["powershell", "-NoProfile", "-Command", rm_ps])
+                
         if not success:
-            # Fallback: bcdboot /s nélkül - automatikusan megkeresi a system partíciót
             self.emit('task_progress', {'task': task_name, 'log': f'bcdboot {target_drive}Windows /f ALL'})
-            res = self._run(['bcdboot', f'{target_drive}Windows', '/f', 'ALL'])
-            if res.returncode == 0:
+            res_fb = self._run(['bcdboot', f'{target_drive}Windows', '/f', 'ALL'])
+            if res_fb.returncode == 0:
                 success = True
-                self.emit('task_progress', {'task': task_name, 'log': '✅ BCD sikeresen újraépítve (ALL)!'})
+                self.emit('task_progress', {'task': task_name, 'log': '✅ BCD sikeresen újraépítve (ALL fallback)!'})
             else:
-                err_msg = res.stderr.strip() if res.stderr else res.stdout.strip() if res.stdout else f'Exit code: {res.returncode}'
-                self.emit('task_progress', {'task': task_name, 'log': f'⚠️ bcdboot hiba (0x{res.returncode:X}): {err_msg[:300]}'})
+                err_msg = res_fb.stderr.strip() if res_fb.stderr else res_fb.stdout.strip() if res_fb.stdout else f'Exit code: {res_fb.returncode}'
+                self.emit('task_progress', {'task': task_name, 'log': f'⚠️ bcdboot hiba (0x{res_fb.returncode:X}): {err_msg[:300]}'})
         
         if not success:
             self.emit('task_progress', {'task': task_name, 'log': 'bootrec parancsok futtatása...'})
             for cmd in ['/fixmbr', '/fixboot', '/rebuildbcd']:
-                res = self._run(['bootrec', cmd])
-                status = '✅' if res.returncode == 0 else '⚠️ (nem elérhető)'
+                br_res = self._run(['bootrec', cmd])
+                status = '✅' if br_res.returncode == 0 else '⚠️ (nem elérhető)'
                 self.emit('task_progress', {'task': task_name, 'log': f'  bootrec {cmd}: {status}'})
         
         return success
@@ -2430,7 +2389,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                 cancelled = False
                 for line in process.stdout:
                     if self._check_cancel():
-                        process.terminate()
+                        self._run(['taskkill', '/F', '/T', '/PID', str(process.pid)])
                         cancelled = True
                         break
                     stripped = line.strip()
@@ -2449,7 +2408,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                 cancelled = False
                 for line in process.stdout:
                     if self._check_cancel():
-                        process.terminate()
+                        self._run(['taskkill', '/F', '/T', '/PID', str(process.pid)])
                         cancelled = True
                         break
                     self.emit('task_progress', {'task': 'restore', 'log': line.strip()})
@@ -2695,6 +2654,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                 logging.info("[WIM] WIM leválasztása...")
                 self.emit('task_progress', {'task': 'wim', 'log': 'WIM leválasztása...', 'counter': '3/3', 'status': 'Takarítás...'})
                 self._run(["dism", "/Unmount-Image", f"/MountDir:{mount_dir}", "/Discard"])
+                self._run(["dism", "/Cleanup-Wim"])
                 shutil.rmtree(mount_dir, ignore_errors=True)
 
                 logging.info(f"[WIM] Kész! Kimenet: {target_folder}")
@@ -2704,6 +2664,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                 logging.error(f"[WIM] Hiba: {e}")
                 logging.error(traceback.format_exc())
                 self._run(["dism", "/Unmount-Image", f"/MountDir:{mount_dir}", "/Discard"])
+                self._run(["dism", "/Cleanup-Wim"])
                 shutil.rmtree(mount_dir, ignore_errors=True)
                 self.emit('task_error', {'task': 'wim', 'error': str(e)})
                 self.emit('task_complete', {'task': 'wim', 'status': f'❌ Hiba: {e}'})
@@ -3279,6 +3240,7 @@ class CliApi:
             
             print("3/3 WIM leválasztása...")
             self._run(["dism", "/Unmount-Image", f"/MountDir:{mount_dir}", "/Discard"])
+            self._run(["dism", "/Cleanup-Wim"])
             shutil.rmtree(mount_dir, ignore_errors=True)
             
             print("-" * 50)
@@ -3288,6 +3250,7 @@ class CliApi:
         except Exception as e:
             print(f"❌ Hiba: {e}")
             self._run(["dism", "/Unmount-Image", f"/MountDir:{mount_dir}", "/Discard"])
+            self._run(["dism", "/Cleanup-Wim"])
             shutil.rmtree(mount_dir, ignore_errors=True)
             return None
     
