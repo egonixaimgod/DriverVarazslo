@@ -451,7 +451,7 @@ window.addEventListener('pywebviewready', async () => {
     updateTargetLabel(data.target_os, data.sys_drive);
     loadDrivers();
     
-    if (data.resume_mode) {
+    if (data.resume_mode || data.resume_step1) {
       setTimeout(() => {
         startAutoFix(true);
       }, 1000);

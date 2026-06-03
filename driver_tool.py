@@ -1,4 +1,4 @@
-ve import ctypes
+import ctypes
 import os
 import sys
 import subprocess
@@ -179,6 +179,7 @@ class DriverToolApi:
         self.wu_api_mode = True
         self._cancel_flag = False  # Flag for cancelling long-running tasks
         self.resume_mode = '--resume-autofix' in sys.argv
+        self.resume_step1 = '--resume-autofix-step1' in sys.argv
         self._si = subprocess.STARTUPINFO()
         self._si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         self._nw = subprocess.CREATE_NO_WINDOW
@@ -296,7 +297,7 @@ class DriverToolApi:
 
     def get_init_data(self):
         logging.info(f"[API] get_init_data() hívás - build={BUILD_NUMBER}, target={self.target_os_path}")
-        return {'build': BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path, 'resume_mode': getattr(self, 'resume_mode', False)}
+        return {'build': BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path, 'resume_mode': getattr(self, 'resume_mode', False), 'resume_step1': getattr(self, 'resume_step1', False)}
 
     def reboot_system(self):
         logging.info("[API] reboot_system() - Felhasználó újraindítást kért")
@@ -853,18 +854,13 @@ class DriverToolApi:
                 self.emit('hw_scan_progress', {'status': f'✅ {total_devs} hardverelem azonosítva, WU keresés indul...',
                                                'sys_info': f'{sys_info_text} | ⏳ Driver keresés...'})
 
-                # Ideiglenes WU engedélyezés a hardver szkennelés erejéig
-                self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '1', '/f'])
-
                 self.hw_updates_pool = []
                 self._hw_installed_devs = []
                 self.wu_api_mode = True
+                
+                # Közvetlen WU API lekérdezés (a COM objektum ezen kulcs módosítása nélkül is látja a drivereket)
                 wu_results = self._search_wu_api()
                 wu_api_success = wu_results is not None
-
-                # Végső WU letiltás, ha így akarjuk az offline módot szimulálni, 
-                # visszazárjuk mindkét módosítást a szkennelés után.
-                self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f'])
 
                 if wu_results is None:
                     wu_results = []
@@ -1168,7 +1164,6 @@ try {
             fail = 0
             install_total = 0
 
-            self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '1', '/f'])
             try:
                 for line in process.stdout:
                     if self._check_cancel():
@@ -1216,7 +1211,7 @@ try {
                         self.emit('task_progress', {'task': 'wu_install', 'log': line})
                 process.wait()
             finally:
-                self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f'])
+                pass
 
             if success > 0:
                 self.emit('task_progress', {'task': 'wu_install', 'log': 'Eszközök újraszkennelése...', 'status': 'Aktiválás...'})
@@ -1547,11 +1542,57 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             return
 
         def worker():
-            task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if getattr(self, 'resume_mode', False) else '1 Kattintásos Driver Javítás és Frissítés'
+            task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if (getattr(self, 'resume_mode', False) or getattr(self, 'resume_step1', False)) else '1 Kattintásos Driver Javítás és Frissítés'
             self.emit('task_start', {'task': 'autofix', 'title': task_title})
             try:
-                if not getattr(self, 'resume_mode', False):
-                    # 0. Alvó mód és képernyő kikapcsolás letiltása
+                if not getattr(self, 'resume_mode', False) and not getattr(self, 'resume_step1', False):
+                    # 0. LÉPÉS: Windows Update letiltás 1 hétre és újraindítás
+                    self.emit('task_progress', {'task': 'autofix', 'log': '0. LÉPÉS: Beragadt frissítések törlése és WU szüneteltetése 1 hétre...'})
+                    
+                    # 1. Clear SoftwareDistribution (stops services, deletes cache)
+                    clear_cache = r"""
+                    Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
+                    Stop-Service bits -Force -ErrorAction SilentlyContinue
+                    Stop-Service cryptsvc -Force -ErrorAction SilentlyContinue
+                    Remove-Item -Path "$env:windir\SoftwareDistribution" -Recurse -Force -ErrorAction SilentlyContinue
+                    """
+                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", clear_cache])
+                    
+                    ps_pause = r"""
+                    $pauseDate = (Get-Date).AddDays(7).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    $nowDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseUpdatesExpiryTime' -Value $pauseDate -Type String -Force | Out-Null
+                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseFeatureUpdatesEndTime' -Value $pauseDate -Type String -Force | Out-Null
+                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseQualityUpdatesEndTime' -Value $pauseDate -Type String -Force | Out-Null
+                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
+                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseFeatureUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
+                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseQualityUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
+                    """
+                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_pause])
+                    self.emit('task_progress', {'task': 'autofix', 'log': '✅ WU gyorsítótár ürítve és szüneteltetve 1 hétre.\n'})
+                    
+                    self.emit('task_progress', {'task': 'autofix', 'log': '🔄 A számítógép újraindul, majd a folyamat automatikusan folytatódik (1. lépéssel)!'})
+                    
+                    # Set RunOnce for step 1
+                    exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+                    if getattr(sys, 'frozen', False):
+                        cmd_str = f'"{exe_path}" --resume-autofix-step1'
+                    else:
+                        cmd_str = f'"{sys.executable}" "{exe_path}" --resume-autofix-step1'
+                    self._run(['reg', 'add', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverVarázslóResume', '/t', 'REG_SZ', '/d', cmd_str, '/f'])
+                    
+                    self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve...'})
+                    time.sleep(5)
+                    self._run(['shutdown', '/r', '/t', '0', '/f'])
+                    return
+                
+                if getattr(self, 'resume_step1', False):
+                    # Clear RunOnce just in case
+                    self._run(['reg', 'delete', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverVarázslóResume', '/f'])
+                    
+                    self.emit('task_progress', {'task': 'autofix', 'log': 'Láncolt folytatás gépújraindítás után (0. lépés befejezve).\n'})
+
+                    # 1. Alvó mód és képernyő kikapcsolás letiltása
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Alvó mód és képernyő kikapcsolás letiltása (hogy ne szakadjon meg a folyamat)...'})
                     power_cmds = [
                         ['powercfg', '/change', 'monitor-timeout-ac', '0'],
@@ -1565,28 +1606,25 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                         self._run(cmd)
                     self.emit('task_progress', {'task': 'autofix', 'log': '✅ Energiagazdálkodás beállítva.\n'})
                     
-                    # 0.5 Windows automata driver frissítés letiltása a törlések előtt
+                    # 1.5 Windows automata driver frissítés letiltása a törlések előtt
                     self._disable_wu_sync()
-                    if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
+                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
                     
-                    # 1. Rendszer visszaállítása
+                    # 2. Rendszer visszaállítása
                     self._create_restore_point_sync()
-                    if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
+                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
 
-                    # 2. Third party driverek törlése
+                    # 3. Third party driverek törlése
                     self._delete_third_party_sync()
-                    if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
+                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
                 else:
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Láncolt folytatás gépújraindítás után. Régi driverek törlése kihagyva, hogy ne töröljünk friss drivereket.\n'})
 
-                # 3. Átmenetileg engedélyezzük a WU-t a driverkereséshez
-                self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update ideiglenes engedélyezése a szükséges driverek lekéréséhez...', 'indeterminate': True})
-                self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '1', '/f'])
-
-                # 4. Keresés és visszaépítés
+                # 4. Keresés és visszaépítés (Közvetlen COM API hívás, nincs szükség a WU visszakapcsolására!)
+                self.emit('task_progress', {'task': 'autofix', 'log': 'Driverek keresése és letöltése a Microsoft API-n keresztül...', 'indeterminate': True})
                 installed_count = self._scan_and_install_wu_sync()
                 
-                # 5. Végső WU letiltás, ahogy a user / program kérte eredetileg
+                # 5. Biztonsági WU letiltás megerősítése (csak a biztonság kedvéért)
                 self._disable_wu_sync()
 
                 self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 MINDEN LÉPÉS KÉSZ!'})
