@@ -206,6 +206,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
     <button class="nav-btn" onclick="switchView('backup')" data-view="backup"><span class="icon">💾</span>Mentés és Visszaállítás</button>
     <button class="nav-btn" onclick="switchView('wu')" data-view="wu"><span class="icon">🔄</span>Windows Update</button>
     <button class="nav-btn" onclick="switchView('hw')" data-view="hw"><span class="icon">🖥️</span>Hardver Info & Telepítés</button>
+    <button class="nav-btn" onclick="switchView('ghost')" data-view="ghost"><span class="icon">👻</span>Szellemeszközök</button>
     <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Fix</button>
     <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stabilitás Teszt</button>
     <div class="sidebar-bottom" id="build-label">Build ---</div>
@@ -316,6 +317,15 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
             <div id="hw-status" style="color:var(--text2);font-size:12px;margin-top:6px"></div>
           </div>
           <div class="hw-tree" id="hw-tree"></div>
+        </div>
+      </div>
+
+      <!-- VIEW: Ghost Devices -->
+      <div class="view" id="view-ghost">
+        <div class="panel glass">
+          <div class="panel-title"><span class="emoji">👻</span> Szellem- és Fantomeszközök Törlése</div>
+          <p style="margin-bottom: 16px; color: var(--text3);">Eltávolítja a Registry-ből és az Eszközkezelőből (Device Manager) mindazokat a hardvereket, amelyek korábban csatlakoztatva voltak, de fizikailag már nincsenek a gépben (pl. klónozott rendszereknél megmaradt régi hardverek). Tisztább lesz tőle a Windows és gyorsulhat a rendszer.</p>
+          <button class="btn btn-big btn-primary" onclick="deleteGhostDevices()" id="btn-ghost">👻 Szellemeszközök Törlése</button>
         </div>
       </div>
 
@@ -911,6 +921,17 @@ function startStressTests() {
   showProgressModal('Stabilitás Teszt', '🚀 Indítás');
   currentTask = 'stress';
   api().start_stress_tests();
+}
+
+async function deleteGhostDevices() {
+  const ok = await showConfirm('Szellemeszközök Törlése', 'Biztosan véglegesen törölni akarod az összes fizikailag nem csatlakoztatott (fantom) hardver bejegyzését a rendszerből?');
+  if (ok) {
+    try {
+      await api().delete_ghost_devices();
+    } catch (e) {
+      toast('Hiba a törlés során: ' + e, 'error');
+    }
+  }
 }
 
 /* ========== PROGRESS MODAL ========== */
