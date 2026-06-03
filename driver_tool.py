@@ -1472,6 +1472,52 @@ try {
         
         self.emit('task_progress', {'task': task_id, 'log': '✅ Automatikus driver telepítés letiltva.\n'})
 
+    def _delete_ghost_devices_sync(self, task_id='autofix'):
+        self.emit('task_progress', {'task': task_id, 'log': 'Nem csatlakoztatott (fantom) eszközök azonosítása és törlése...', 'indeterminate': True})
+        ps_script = r"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$ghosts = Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $false -and $_.PNPDeviceID -ne $null }
+$count = 0
+$total = @($ghosts).Count
+if ($total -eq 0) {
+    Write-Output "DONE: Nincs szellemeszköz a rendszerben."
+    exit
+}
+Write-Output "TOTAL: $total"
+foreach ($dev in $ghosts) {
+    $id = $dev.PNPDeviceID
+    $name = $dev.Name
+    if (-not $name) { $name = "Ismeretlen eszköz" }
+    $res = & pnputil /remove-device "$id" 2>&1
+    if ($LASTEXITCODE -eq 0 -or $res -match "deleted" -or $res -match "törölve" -or $res -match "successfully") {
+        $count++
+    }
+}
+Write-Output "DONE: Törölve: $count / $total"
+"""
+        process = subprocess.Popen(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace',
+            startupinfo=self._si, creationflags=self._nw)
+        
+        for line in process.stdout:
+            if getattr(self, '_cancel_flag', False):
+                process.terminate()
+                process.wait()
+                raise Exception("Magyar_Megszakit_Flag")
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("TOTAL:"):
+                m = re.search(r'TOTAL:\s*(\d+)', line)
+                if m:
+                    total = int(m.group(1))
+                self.emit('task_progress', {'task': task_id, 'log': f'{total} db szellemeszköz azonosítva. Törlés folyamatban...\n'})
+            elif line.startswith("DONE:"):
+                self.emit('task_progress', {'task': task_id, 'log': f'✅ {line[5:].strip()}\n'})
+        
+        process.wait()
+
     def _delete_third_party_sync(self, task_id='autofix'):
         self.emit('task_progress', {'task': task_id, 'log': 'Third-party driverek összegyűjtése és törlése...', 'indeterminate': True})
         drivers = self._get_third_party_drivers()
@@ -1713,6 +1759,10 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     
                     # 2. Rendszer visszaállítása
                     self._create_restore_point_sync()
+                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
+
+                    # 2.5 Szellemeszközök törlése
+                    self._delete_ghost_devices_sync()
                     if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
 
                     # 3. Third party driverek törlése
