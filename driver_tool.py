@@ -1644,12 +1644,20 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                 else:
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Láncolt folytatás gépújraindítás után. Régi driverek törlése kihagyva, hogy ne töröljünk friss drivereket.\n'})
 
-                # 4. Keresés és visszaépítés (Közvetlen COM API hívás, nincs szükség a WU visszakapcsolására!)
-                self.emit('task_progress', {'task': 'autofix', 'log': 'Driverek keresése és letöltése a Microsoft API-n keresztül...', 'indeterminate': True})
+                # 4. Átmenetileg engedélyezzük a WU-t és unpause a driverkereséshez
+                self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update ideiglenes felébresztése a szükséges driverek lekéréséhez...', 'indeterminate': True})
+                # BIZTOSÍTÉK: Teljesen letiltjuk a háttérben futó Automatikus Frissítéseket (Group Policy)
+                self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU', '/v', 'NoAutoUpdate', '/t', 'REG_DWORD', '/d', '1', '/f'])
+                self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '1', '/f'])
+                self._set_wu_pause(pause=False)
+
+                # 4. Keresés és visszaépítés
                 installed_count = self._scan_and_install_wu_sync()
                 
-                # 5. Biztonsági WU letiltás megerősítése (csak a biztonság kedvéért)
+                # 5. Végső WU letiltás és szüneteltetés visszaállítása
+                self._run(['reg', 'delete', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU', '/v', 'NoAutoUpdate', '/f'])
                 self._disable_wu_sync()
+                self._set_wu_pause(pause=True)
 
                 self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 MINDEN LÉPÉS KÉSZ!'})
                 
