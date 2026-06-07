@@ -738,7 +738,7 @@ class DriverToolApi:
 
             ps_script = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$ghosts = Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $false -and $_.PNPDeviceID -ne $null }
+$ghosts = Get-PnpDevice -PresentOnly:$false | Where-Object { $_.Present -eq $false -and $_.InstanceId -ne $null }
 $count = 0
 $total = @($ghosts).Count
 if ($total -eq 0) {
@@ -1496,7 +1496,7 @@ try {
         self.emit('task_progress', {'task': task_id, 'log': 'Nem csatlakoztatott (fantom) eszközök azonosítása és törlése...', 'indeterminate': True})
         ps_script = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$ghosts = Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $false -and $_.PNPDeviceID -ne $null }
+$ghosts = Get-PnpDevice -PresentOnly:$false | Where-Object { $_.Present -eq $false -and $_.InstanceId -ne $null }
 $count = 0
 $total = @($ghosts).Count
 if ($total -eq 0) {
