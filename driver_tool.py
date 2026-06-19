@@ -876,12 +876,12 @@ Write-Output "DONE: Törölve: $count / $total"
 
                 # PnP devices
                 ignored_classes = ['Volume', 'VolumeSnapshot', 'DiskDrive', 'CDROM', 'Monitor', 'Battery',
-                                   'SoftwareDevice', 'SoftwareComponent', 'Processor', 'Computer',
+                                   'Processor', 'Computer',
                                    'LegacyDriver', 'Endpoint', 'AudioEndpoint', 'PrintQueue', 'Printer', 'WPD']
 
                 pnp_data = []
                 try:
-                    cmd_pnp = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $true -and $_.ConfigManagerErrorCode -ne 45 } | Select-Object Name, PNPClass, PNPDeviceID | ConvertTo-Json -Compress"
+                    cmd_pnp = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $true -and $_.ConfigManagerErrorCode -ne 45 } | Select-Object Name, PNPClass, PNPDeviceID, HardwareID | ConvertTo-Json -Compress"
                     res = self._run(["powershell", "-NoProfile", "-Command", cmd_pnp], encoding='utf-8')
                     if res.stdout:
                         out = json.loads(res.stdout)
@@ -897,6 +897,9 @@ Write-Output "DONE: Törölve: $count / $total"
                     n = d.get("Name") or "Ismeretlen Eszköz"
                     pid = d.get("PNPDeviceID") or ""
                     pclass = d.get("PNPClass") or ""
+                    hwids_list = d.get("HardwareID") or []
+                    if isinstance(hwids_list, str): hwids_list = [hwids_list]
+                    
                     if not pid:
                         continue
                     if "virtual" in n.lower() or "pseudo" in n.lower() or "vmware" in n.lower():
@@ -905,7 +908,9 @@ Write-Output "DONE: Törölve: $count / $total"
                         continue
                     if pclass in ignored_classes:
                         continue
-                    hwid_clean = self._extract_hwid(pid)
+                    
+                    hwid_clean = hwids_list[0] if hwids_list else pid
+                    
                     if not hwid_clean:
                         continue
                     if hwid_clean in seen_hwids:
@@ -921,7 +926,7 @@ Write-Output "DONE: Törölve: $count / $total"
                     elif pclass in ("Mouse", "Keyboard", "HIDClass"): cat = "🖱️ Periféria"
                     elif pclass == "Biometric": cat = "🔒 Ujjlenyomat / Biometria"
                     else: cat = f"🔧 Egyéb ({pclass})"
-                    devices_to_check.append({"cat": cat, "name": n, "id": hwid_clean, "pnp_id": pid})
+                    devices_to_check.append({"cat": cat, "name": n, "id": hwid_clean, "pnp_id": pid, "all_hwids": hwids_list})
 
                 logging.info(f"PnP szürés: {len(devices_to_check)} eszköz átment")
                 total_devs = len(devices_to_check)
@@ -952,12 +957,17 @@ Write-Output "DONE: Törölve: $count / $total"
                         for dev in devices_to_check:
                             if dev['id'] in matched_hwids:
                                 continue
-                            dev_hwid = dev['id'].upper()
-                            dev_pnp = dev.get('pnp_id', '').upper()
+                            
+                            dev_hwids_upper = [str(dh).upper() for dh in dev.get('all_hwids', [])]
+                            dev_pnp_upper = dev.get('pnp_id', '').upper()
                             
                             match = False
-                            for h in hwids_upper:
-                                if (dev_hwid and dev_hwid in h) or (h and h in dev_pnp):
+                            for wu_h in hwids_upper:
+                                for dev_h in dev_hwids_upper:
+                                    if dev_h in wu_h or wu_h in dev_h:
+                                        match = True
+                                        break
+                                if match or (wu_h in dev_pnp_upper):
                                     match = True
                                     break
                                     
@@ -1024,31 +1034,35 @@ Write-Output "DONE: Törölve: $count / $total"
     def _extract_hwid(self, pnp_id):
         if not pnp_id:
             return None
-        m = re.search(r'(HDAUDIO\\FUNC_[0-9A-F]+&VEN_[0-9A-F]+&DEV_[0-9A-F]+)', pnp_id, re.I)
+        m = re.search(r'(HDAUDIO\\FUNC_[0-9A-Z]+&VEN_[0-9A-Z]+&DEV_[0-9A-Z]+)', pnp_id, re.I)
         if m:
             logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
             return m.group(1)
-        m = re.search(r'(VEN_[0-9A-F]+&DEV_[0-9A-F]+)', pnp_id, re.I)
+        m = re.search(r'(VEN_[0-9A-Z]+&DEV_[0-9A-Z]+)', pnp_id, re.I)
         if m:
             logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
             return m.group(1)
-        m = re.search(r'(HID\\VID_[0-9A-F]+&PID_[0-9A-F]+)', pnp_id, re.I)
+        m = re.search(r'(HID\\VID_[0-9A-Z]+&PID_[0-9A-Z]+)', pnp_id, re.I)
         if m:
             logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
             return m.group(1)
-        m = re.search(r'(USB\\VID_[0-9A-F]+&PID_[0-9A-F]+)', pnp_id, re.I)
+        m = re.search(r'(USB\\VID_[0-9A-Z]+&PID_[0-9A-Z]+)', pnp_id, re.I)
         if m:
             logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
             return m.group(1)
-        m = re.search(r'(VID_[0-9A-F]+&PID_[0-9A-F]+)', pnp_id, re.I)
+        m = re.search(r'(VID_[0-9A-Z]+&PID_[0-9A-Z]+)', pnp_id, re.I)
         if m:
             logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
             return m.group(1)
-        m = re.search(r'(ACPI\\[A-Z0-9_]+)', pnp_id, re.I)
+        m = re.search(r'(ACPI\\[A-Z0-9_&]+)', pnp_id, re.I)
         if m:
             logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
             return m.group(1)
-        m = re.search(r'(DISPLAY\\[A-Z0-9]+)', pnp_id, re.I)
+        m = re.search(r'(DISPLAY\\[A-Z0-9_&]+)', pnp_id, re.I)
+        if m:
+            logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
+            return m.group(1)
+        m = re.search(r'(SWC\\[A-Z0-9_&]+)', pnp_id, re.I)
         if m:
             logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
             return m.group(1)
@@ -1212,7 +1226,12 @@ try {
             self.emit('task_start', {'task': 'wu_install', 'title': f'Driver Telepítés WU Szerverekről ({len(selected_pool)} db)'})
             self.emit('task_progress', {'task': 'wu_install', 'log': 'Windows Update szervereiről történő telepítés indítása...', 'indeterminate': True})
 
-            pool_hwids = [drv.get('hwid', '').upper() for drv in selected_pool if drv.get('hwid')]
+            # Gyűjtsük össze az összes HWID-t a kiválasztott eszközökhöz
+            pool_hwids = []
+            for drv in selected_pool:
+                if drv.get('hwid'):
+                    pool_hwids.append(drv.get('hwid').upper())
+            
             hwid_list_ps = ','.join(f'"{h}"' for h in pool_hwids)
 
             ps_script = '$TargetHWIDs = @(' + hwid_list_ps + ')\n' + r"""
@@ -1233,7 +1252,11 @@ try {
         if ($TargetHWIDs.Count -eq 0) { $matchFound = $true } else {
             foreach ($hwid in $U.DriverHardwareID) {
                 $hUpper = $hwid.ToUpper()
-                foreach ($target in $TargetHWIDs) { if ($hUpper.Contains($target) -or $target.Contains($hUpper)) { $matchFound = $true; break } }
+                foreach ($target in $TargetHWIDs) { 
+                    if ($hUpper.Contains($target) -or $target.Contains($hUpper)) { 
+                        $matchFound = $true; break 
+                    } 
+                }
                 if ($matchFound) { break }
             }
         }
@@ -1560,7 +1583,7 @@ Write-Output "DONE: Törölve: $count / $total"
         total_installed_in_session = 0
         
         ignored_classes = ['Volume', 'VolumeSnapshot', 'DiskDrive', 'CDROM', 'Monitor', 'Battery',
-                           'SoftwareDevice', 'SoftwareComponent', 'Processor', 'Computer',
+                           'Processor', 'Computer',
                            'LegacyDriver', 'Endpoint', 'AudioEndpoint', 'PrintQueue', 'Printer', 'WPD']
                            
         for loop_idx in range(1, max_loops + 1):
@@ -1573,7 +1596,7 @@ Write-Output "DONE: Törölve: $count / $total"
             self.emit('task_progress', {'task': task_id, 'log': 'Hivatalos driverek keresése és egyeztetése (Windows Update). Ez percekig is eltarthat...'})
             
             # PnP Query and exactly the same match logic as manual scan
-            cmd_pnp = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $true -and $_.ConfigManagerErrorCode -ne 45 } | Select-Object Name, PNPClass, PNPDeviceID | ConvertTo-Json -Compress"
+            cmd_pnp = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $true -and $_.ConfigManagerErrorCode -ne 45 } | Select-Object Name, PNPClass, PNPDeviceID, HardwareID | ConvertTo-Json -Compress"
             res = self._run(["powershell", "-NoProfile", "-Command", cmd_pnp], encoding='utf-8')
             pnp_data = []
             if res.stdout:
@@ -1590,16 +1613,19 @@ Write-Output "DONE: Törölve: $count / $total"
                 n = d.get("Name") or "Ismeretlen Eszköz"
                 pid = d.get("PNPDeviceID") or ""
                 pclass = d.get("PNPClass") or ""
+                hwids_list = d.get("HardwareID") or []
+                if isinstance(hwids_list, str): hwids_list = [hwids_list]
+                
                 if not pid: continue
                 if "virtual" in n.lower() or "pseudo" in n.lower() or "vmware" in n.lower(): continue
                 if pid.upper().startswith("ROOT\\"): continue
                 if pclass in ignored_classes: continue
                 
-                hwid_clean = self._extract_hwid(pid)
+                hwid_clean = hwids_list[0] if hwids_list else pid
                 if not hwid_clean: continue
                 if hwid_clean in seen_hwids: continue
                 seen_hwids.add(hwid_clean)
-                devices_to_check.append({"name": n, "id": hwid_clean, "pnp_id": pid})
+                devices_to_check.append({"name": n, "id": hwid_clean, "pnp_id": pid, "all_hwids": hwids_list})
                 
             self.emit('task_progress', {'task': task_id, 'log': f'✅ {len(devices_to_check)} hardverelem azonosítva. Egyeztetés...'})
             wu_results = self._search_wu_api() or []
@@ -1613,12 +1639,17 @@ Write-Output "DONE: Törölve: $count / $total"
                 
                 match_found = False
                 # Hardver ID teszt
-                for hUpper in hwids_upper:
-                    if not hUpper: continue
+                for wu_h in hwids_upper:
+                    if not wu_h: continue
                     for pd in devices_to_check:
-                        tUpper = pd['id'].upper()
-                        tPnp = pd['pnp_id'].upper()
-                        if tUpper in hUpper or hUpper in tUpper or tPnp in hUpper or hUpper in tPnp:
+                        dev_hwids_upper = [str(dh).upper() for dh in pd.get('all_hwids', [])]
+                        dev_pnp_upper = pd.get('pnp_id', '').upper()
+                        
+                        for dev_h in dev_hwids_upper:
+                            if dev_h in wu_h or wu_h in dev_h:
+                                match_found = True
+                                break
+                        if match_found or (wu_h in dev_pnp_upper):
                             match_found = True
                             break
                     if match_found: break
@@ -3513,17 +3544,41 @@ Lépések:
         ps_script = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 try {
+    # 1. Rendszerben jelenlevo PNP eszkozok lekerdezese a teljes HardwareID listahoz
+    $pnpDevs = Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $true -and $_.ConfigManagerErrorCode -ne 45 }
+    $systemHWIDs = @()
+    foreach ($dev in $pnpDevs) {
+        if ($dev.HardwareID) {
+            foreach ($hid in $dev.HardwareID) { $systemHWIDs += $hid.ToUpper() }
+        }
+        if ($dev.PNPDeviceID) { $systemHWIDs += $dev.PNPDeviceID.ToUpper() }
+    }
+    
     $Session = New-Object -ComObject Microsoft.Update.Session
     $Searcher = $Session.CreateUpdateSearcher()
     try { $SM = New-Object -ComObject Microsoft.Update.ServiceManager; $SM.AddService2("7971f918-a847-4430-9279-4a52d1efe18d", 7, "") | Out-Null } catch {}
     $Searcher.ServerSelection = 3; $Searcher.ServiceID = "7971f918-a847-4430-9279-4a52d1efe18d"
     $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
     if ($Result.Updates.Count -eq 0) { Write-Output "EMPTY"; exit }
+    
     $ToInstall = New-Object -ComObject Microsoft.Update.UpdateColl
     foreach ($U in $Result.Updates) {
-        if (-not $U.EulaAccepted) { $U.AcceptEula() }
-        $ToInstall.Add($U) | Out-Null
-        Write-Output "FOUND: $($U.Title)"
+        $matchFound = $false
+        foreach ($hwid in $U.DriverHardwareID) {
+            $hUpper = $hwid.ToUpper()
+            foreach ($sys_hid in $systemHWIDs) {
+                if ($sys_hid.Contains($hUpper) -or $hUpper.Contains($sys_hid)) {
+                    $matchFound = $true; break
+                }
+            }
+            if ($matchFound) { break }
+        }
+        
+        if ($matchFound) {
+            if (-not $U.EulaAccepted) { $U.AcceptEula() }
+            $ToInstall.Add($U) | Out-Null
+            Write-Output "FOUND: $($U.Title)"
+        }
     }
     Write-Output "TOTAL: $($ToInstall.Count)"
     $s = 0; $f = 0
