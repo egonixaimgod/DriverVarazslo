@@ -802,6 +802,15 @@ Write-Output "DONE: Törölve: $count / $total"
 
         self._safe_thread('ghost', worker)
 
+    def _check_internet(self):
+        """Egyszerű ping alapú internet ellenőrzés."""
+        try:
+            # -n 1 = 1 ping, -w 1500 = 1.5 mp timeout
+            res = subprocess.run(['ping', '8.8.8.8', '-n', '1', '-w', '1500'], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            return res.returncode == 0
+        except Exception:
+            return False
+
     def start_hw_scan(self):
         logging.info("[API] start_hw_scan() hívás")
         if self.target_os_path:
@@ -818,6 +827,13 @@ Write-Output "DONE: Törölve: $count / $total"
         def worker():
             try:
                 _start = time.time()
+                
+                # Internet ellenőrzés
+                self.emit('hw_scan_progress', {'status': '⏳ Internetkapcsolat ellenőrzése...'})
+                if not self._check_internet():
+                    self.emit('toast', {'message': '❌ Nincs internetkapcsolat! Telepíts egy hálózati drivert!', 'type': 'error'})
+                    self.emit('hw_scan_result', {'pool': [], 'installed': [], 'sys_info': '❌ Nincs Internet!', 'time': ''})
+                    return
                 
                 # Hardver változások frissítése szkennelés előtt
                 logging.info("[HW_SCAN] Eszközök újra-szkennelése (PnP)...")
@@ -1114,7 +1130,8 @@ try {
     } catch {}
     $Searcher.ServerSelection = 3
     $Searcher.ServiceID = "7971f918-a847-4430-9279-4a52d1efe18d"
-    $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
+    # Szélesebb körű keresés: Software kategória (ahol a hálózati DCH driverek is lehetnek) vagy Driver kategória
+    $Result = $Searcher.Search("IsInstalled=0 and (Type='Software' or Type='Driver')")
     $updates = @()
     foreach ($U in $Result.Updates) {
         $updates += [PSCustomObject]@{
@@ -1139,7 +1156,34 @@ try {
                 logging.info(f"[WU_API] Talált frissítések: {len(data) if isinstance(data, list) else 0}")
                 return data if isinstance(data, list) else None
         except subprocess.TimeoutExpired:
-            logging.error("[WU_API] WU API timeout (300s)")
+            logging.error("[WU_API] WU API timeout (300s), megpróbáljuk újraindítani a szolgáltatást...")
+            self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ Windows Update API időtúllépés! Szolgáltatások újraindítása és újrapróbálkozás...'})
+            
+            # Restart WU services to recover from freeze
+            reset_ps = r"""
+            Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
+            Stop-Service bits -Force -ErrorAction SilentlyContinue
+            Stop-Service cryptsvc -Force -ErrorAction SilentlyContinue
+            Start-Service cryptsvc -ErrorAction SilentlyContinue
+            Start-Service bits -ErrorAction SilentlyContinue
+            Start-Service wuauserv -ErrorAction SilentlyContinue
+            """
+            self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", reset_ps])
+            time.sleep(5)
+            
+            # Retry once
+            try:
+                res = self._run(["powershell", "-NoProfile", "-Command", ps_cmd], timeout=300, encoding='utf-8')
+                out = res.stdout.strip()
+                if out:
+                    data = json.loads(out)
+                    if isinstance(data, dict):
+                        data = [data]
+                    logging.info(f"[WU_API] Újrapróbálás sikeres, talált frissítések: {len(data) if isinstance(data, list) else 0}")
+                    return data if isinstance(data, list) else None
+            except Exception as retry_e:
+                logging.error(f"[WU_API] Újrapróbálás is elbukott: {retry_e}")
+                
         except Exception as e:
             logging.error(f"[WU_API] WU API error: {e}")
         return None
@@ -1182,6 +1226,8 @@ try {
         for dev in devices_to_check:
             q.put(dev)
 
+        import concurrent.futures
+
         def cat_worker():
             while not q.empty():
                 try:
@@ -1191,7 +1237,7 @@ try {
                 check_one(dev)
                 q.task_done()
 
-        threads = [threading.Thread(target=cat_worker, daemon=True) for _ in range(5)]
+        threads = [threading.Thread(target=cat_worker, daemon=True) for _ in range(10)]
         for t in threads:
             t.start()
         for t in threads:
@@ -1412,6 +1458,30 @@ try {
                         fail += 1
                         continue
 
+                import concurrent.futures
+
+                def process_catalog_driver(idx, drv):
+                    nonlocal success, fail, skipped
+                    if self._check_cancel():
+                        return
+                    name = drv['name']
+                    url = drv.get('url', '')
+                    if not url:
+                        skipped += 1
+                        return
+
+                    cab_path = os.path.join(temp_dir, f"drv_{idx}.cab")
+                    ext_path = os.path.join(temp_dir, f"drv_ext_{idx}")
+                    
+                    self.emit('task_progress', {'task': 'wu_install', 'log': f'-> {name} letöltése aszinkron...'})
+                    try:
+                        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+                        with urllib.request.urlopen(req, context=ssl_ctx, timeout=60) as resp, open(cab_path, 'wb') as f:
+                            shutil.copyfileobj(resp, f)
+                    except Exception as e:
+                        fail += 1
+                        return
+
                     os.makedirs(ext_path, exist_ok=True)
                     self._run(['expand', cab_path, '-F:*', ext_path])
                     for inner_cab in glob.glob(os.path.join(ext_path, '*.cab')):
@@ -1419,7 +1489,7 @@ try {
                         os.makedirs(inner_ext, exist_ok=True)
                         self._run(['expand', inner_cab, '-F:*', inner_ext])
 
-                    self.emit('task_progress', {'task': 'wu_install', 'status': f'Telepítés: {name}', 'log': '  Telepítés...'})
+                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  Telepítés: {name}...'})
                     is_offline = bool(self.target_os_path)
                     if is_offline:
                         cmd = ['dism', f'/Image:{self.target_os_path}', '/Add-Driver', f'/Driver:{ext_path}', '/Recurse', '/ForceUnsigned']
@@ -1428,16 +1498,35 @@ try {
                     res = self._run(cmd)
                     if res.returncode == 0 or any(k in res.stdout for k in ["Added", "sikeres", "successfully"]):
                         success += 1
-                        logging.info(f"[CATALOG_INSTALL] ✅ {name} telepítve!")
                         self.emit('task_progress', {'task': 'wu_install', 'log': f'  ✅ {name} telepítve!'})
                     else:
                         fail += 1
-                        logging.error(f"[CATALOG_INSTALL] ❌ {name} hiba: {res.stdout[:100]}")
                         self.emit('task_progress', {'task': 'wu_install', 'log': f'  ❌ {name} hiba: {res.stdout[:100]}'})
 
+                with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                    futures = [executor.submit(process_catalog_driver, i, drv) for i, drv in enumerate(selected_pool)]
+                    concurrent.futures.wait(futures)
+
+                if self._check_cancel():
+                    self.emit('task_progress', {'task': 'wu_install', 'log': '\n❗ Megszakítva!'})
+                    self.emit('task_complete', {'task': 'wu_install', 'status': '❗ Megszakítva!', 'success': success, 'fail': fail})
+                    return
+
                 if success > 0 and not self.target_os_path:
-                    self.emit('task_progress', {'task': 'wu_install', 'log': 'Eszközök újraszkennelése...'})
+                    self.emit('task_progress', {'task': 'wu_install', 'log': 'Eszközök újraszkennelése és Code 14 újraindítások elvégzése...'})
                     self._run(['pnputil', '/scan-devices'])
+                    
+                    # Automatikus Eszközkezelő restart Code 14 (Restart Required) esetén
+                    code14_ps = r"""
+                    $devs = Get-PnpDevice | Where-Object { $_.ConfigManagerErrorCode -eq 14 }
+                    foreach ($d in $devs) {
+                        Write-Output "Restarting $($d.Name)..."
+                        Disable-PnpDevice -InstanceId $d.InstanceId -Confirm:$false -ErrorAction SilentlyContinue
+                        Enable-PnpDevice -InstanceId $d.InstanceId -Confirm:$false -ErrorAction SilentlyContinue
+                    }
+                    """
+                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", code14_ps])
+                    
             finally:
                 logging.debug(f"[CATALOG_INSTALL] Temp dir törlése: {temp_dir}")
                 shutil.rmtree(temp_dir, ignore_errors=True)
@@ -1690,11 +1779,11 @@ Write-Output "DONE: Törölve: $count / $total"
 $targetIDs = @({ids_str})
 $Session = New-Object -ComObject Microsoft.Update.Session
 $Searcher = $Session.CreateUpdateSearcher()
-$Searcher.ServerSelection = 3
-$Searcher.ServiceID = "7971f918-a847-4430-9279-4a52d1efe18d"
-$Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
+    $Searcher.ServerSelection = 3
+    $Searcher.ServiceID = "7971f918-a847-4430-9279-4a52d1efe18d"
+    $Result = $Searcher.Search("IsInstalled=0 and (Type='Software' or Type='Driver')")
 
-$ToInstall = New-Object -ComObject Microsoft.Update.UpdateColl
+    $ToInstall = New-Object -ComObject Microsoft.Update.UpdateColl
 foreach ($U in $Result.Updates) {{
     if ($targetIDs -contains $U.Identity.UpdateID) {{
         if (-not $U.EulaAccepted) {{ $U.AcceptEula() }}
@@ -1755,6 +1844,14 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if getattr(self, 'resume_mode', False) else '1 Kattintásos Driver Javítás és Frissítés'
             self.emit('task_start', {'task': 'autofix', 'title': task_title})
             try:
+                # Internet ellenőrzés autofix elején (ha nem resume mód)
+                if not getattr(self, 'resume_mode', False):
+                    self.emit('task_progress', {'task': 'autofix', 'log': '⏳ Internetkapcsolat ellenőrzése...'})
+                    if not self._check_internet():
+                        self.emit('toast', {'message': '❌ Nincs internetkapcsolat! Kérlek csatlakozz egy hálózathoz az Autofix előtt!', 'type': 'error'})
+                        self.emit('task_complete', {'task': 'autofix', 'status': '❌ Nincs Internetkapcsolat!'})
+                        return
+
                 if not getattr(self, 'resume_mode', False):
                     self.emit('task_progress', {'task': 'autofix', 'log': '0. LÉPÉS: Rendszer előkészítése és régi driverek törlése...'})
                     
@@ -1846,6 +1943,16 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 KÉSZ! Nulla újonnan fellelt driver, a konfiguráció végigért.'})
                     # Clear RunOnce just in case
                     self._run(['reg', 'delete', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverVarázslóResume', '/f'])
+                    
+                    self.emit('task_progress', {'task': 'autofix', 'log': 'DCH alkalmazások (Microsoft Store) frissítésének kényszerítése...'})
+                    try:
+                        # Ez aszinkron elindítja a Store App-ok (pl. Realtek Audio Console) szinkronizálását a háttérben
+                        ws_script = r"Get-CimInstance -Namespace 'Root\cimv2\mdm\dmmap' -ClassName 'MDM_EnterpriseModernAppManagement_AppManagement01' | Invoke-CimMethod -MethodName UpdateScanMethod"
+                        self._run(["powershell", "-WindowStyle", "Hidden", "-Command", ws_script])
+                        self.emit('task_progress', {'task': 'autofix', 'log': '✅ Store App-ok szinkronizálása a háttérben elindítva.'})
+                    except Exception as e:
+                        logging.debug(f"[AUTOFIX] Store App sync error: {e}")
+                    
                     try:
                         self.emit('task_progress', {'task': 'autofix', 'log': '\nA FOLYAMAT SIKERESEN BEFEJEZŐDÖTT!'})
                     except Exception:
@@ -3568,7 +3675,7 @@ try {
     $Searcher = $Session.CreateUpdateSearcher()
     try { $SM = New-Object -ComObject Microsoft.Update.ServiceManager; $SM.AddService2("7971f918-a847-4430-9279-4a52d1efe18d", 7, "") | Out-Null } catch {}
     $Searcher.ServerSelection = 3; $Searcher.ServiceID = "7971f918-a847-4430-9279-4a52d1efe18d"
-    $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
+    $Result = $Searcher.Search("IsInstalled=0 and (Type='Software' or Type='Driver')")
     if ($Result.Updates.Count -eq 0) { Write-Output "EMPTY"; exit }
     
     $ToInstall = New-Object -ComObject Microsoft.Update.UpdateColl
