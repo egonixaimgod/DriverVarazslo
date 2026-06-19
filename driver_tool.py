@@ -1246,16 +1246,26 @@ try {
     Write-Output "SEARCH: Driver frissítések keresése..."
     $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
     if ($Result.Updates.Count -eq 0) { Write-Output "EMPTY: Nem található elérhető driver frissítés."; return }
+    
+    $pnpDevs = Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $true -and $_.ConfigManagerErrorCode -ne 45 }
+    $systemHWIDs = @()
+    foreach ($dev in $pnpDevs) {
+        if ($dev.HardwareID) {
+            foreach ($hid in $dev.HardwareID) { $systemHWIDs += $hid.ToUpper() }
+        }
+        if ($dev.PNPDeviceID) { $systemHWIDs += $dev.PNPDeviceID.ToUpper() }
+    }
+
     $ToInstall = New-Object -ComObject Microsoft.Update.UpdateColl
     foreach ($U in $Result.Updates) {
         $matchFound = $false
         if ($TargetHWIDs.Count -eq 0) { $matchFound = $true } else {
             foreach ($hwid in $U.DriverHardwareID) {
                 $hUpper = $hwid.ToUpper()
-                foreach ($target in $TargetHWIDs) { 
-                    if ($hUpper.Contains($target) -or $target.Contains($hUpper)) { 
-                        $matchFound = $true; break 
-                    } 
+                foreach ($sys_hid in $systemHWIDs) {
+                    if ($sys_hid.Contains($hUpper) -or $hUpper.Contains($sys_hid)) {
+                        $matchFound = $true; break
+                    }
                 }
                 if ($matchFound) { break }
             }
