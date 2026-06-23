@@ -336,6 +336,9 @@ class DriverToolApi:
                     logging.info(f"[STRESS] Letöltés INNEN: {download_url}")
                     urllib.request.urlretrieve(download_url, zip_path)
                     
+                    if not zipfile.is_zipfile(zip_path):
+                        raise Exception("A letöltött fájl sérült (Helytelen ZIP / CRC hiba).")
+                        
                     self.emit('task_progress', {'task': 'stress', 'log': '📦 Fájlok kicsomagolása...'})
                     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                         zip_ref.extractall(stress_dir)
@@ -663,7 +666,7 @@ class DriverToolApi:
                             found_any = False
                             if dirs:
                                 for d in dirs:
-                                    self._run(f'takeown /f "{d}" /r /d y', shell=True)
+                                    self._run(f'takeown /f "{d}" /r /A', shell=True)
                                     self._run(f'icacls "{d}" /grant *S-1-5-32-544:F /t', shell=True)
                                     shutil.rmtree(d, ignore_errors=True)
                                     self._run(f'rmdir /s /q "{d}"', shell=True)
@@ -701,7 +704,7 @@ class DriverToolApi:
             if not is_offline and not is_pe and success > 0:
                 self.emit('task_progress', {'task': 'delete', 'log': 'Hardverek újraszkennelése...', 'status': 'Hardverek újraszkennelése...'})
                 self._run(['pnputil', '/scan-devices'])
-                time.sleep(3)
+                time.sleep(10)
                 self.emit('task_progress', {'task': 'delete', 'log': '✅ Hardverek frissítve!'})
 
             if cancelled:
@@ -738,7 +741,7 @@ class DriverToolApi:
 
             ps_script = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$ghosts = Get-PnpDevice -PresentOnly:$false | Where-Object { $_.Present -eq $false -and $_.InstanceId -ne $null }
+$ghosts = Get-PnpDevice -PresentOnly:$false | Where-Object { $_.Present -eq $false -and $_.InstanceId -ne $null -and $_.PNPClass -ne 'SoftwareDevice' -and $_.PNPClass -ne 'Net' -and $_.PNPClass -ne 'System' }
 $count = 0
 $total = @($ghosts).Count
 if ($total -eq 0) {
@@ -751,7 +754,7 @@ foreach ($dev in $ghosts) {
     $name = $dev.Name
     if (-not $name) { $name = "Ismeretlen eszköz" }
     Write-Output "RM: $name"
-    $res = & pnputil /remove-device "$id" 2>&1
+    $res = & pnputil /remove-device "$($id)" 2>&1
     if ($LASTEXITCODE -eq 0 -or $res -match "deleted" -or $res -match "törölve" -or $res -match "successfully") {
         Write-Output "OK: $name"
         $count++
@@ -803,13 +806,20 @@ Write-Output "DONE: Törölve: $count / $total"
         self._safe_thread('ghost', worker)
 
     def _check_internet(self):
-        """Egyszerű ping alapú internet ellenőrzés."""
+        """Megbízható TCP port alapú internet ellenőrzés."""
+        import socket
         try:
-            # -n 1 = 1 ping, -w 1500 = 1.5 mp timeout
-            res = subprocess.run(['ping', '8.8.8.8', '-n', '1', '-w', '1500'], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-            return res.returncode == 0
+            socket.setdefaulttimeout(3.0)
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect(("8.8.8.8", 53))
+            return True
         except Exception:
-            return False
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.connect(("www.microsoft.com", 80))
+                return True
+            except Exception:
+                return False
 
     def start_hw_scan(self):
         logging.info("[API] start_hw_scan() hívás")
@@ -980,10 +990,10 @@ Write-Output "DONE: Törölve: $count / $total"
                             match = False
                             for wu_h in hwids_upper:
                                 for dev_h in dev_hwids_upper:
-                                    if dev_h in wu_h or wu_h in dev_h:
+                                    if wu_h.startswith(dev_h) or dev_h.startswith(wu_h):
                                         match = True
                                         break
-                                if match or (wu_h in dev_pnp_upper):
+                                if match or dev_pnp_upper.startswith(wu_h) or wu_h.startswith(dev_pnp_upper):
                                     match = True
                                     break
                                     
@@ -1308,7 +1318,7 @@ try {
             foreach ($hwid in $U.DriverHardwareID) {
                 $hUpper = $hwid.ToUpper()
                 foreach ($sys_hid in $systemHWIDs) {
-                    if ($sys_hid.Contains($hUpper) -or $hUpper.Contains($sys_hid)) {
+                    if ($sys_hid.StartsWith($hUpper) -or $hUpper.StartsWith($sys_hid)) {
                         $matchFound = $true; break
                     }
                 }
@@ -1328,7 +1338,16 @@ try {
         Write-Output "DLONE: $idx/$total $t"
         $SC = New-Object -ComObject Microsoft.Update.UpdateColl; $SC.Add($U) | Out-Null
         $DL = $Session.CreateUpdateDownloader(); $DL.Updates = $SC
-        try { $DR = $DL.Download() } catch { Write-Output "FAIL: [LETÖLTÉS HIBA] $t"; $f++; continue }
+        $Job = $DL.BeginDownload($null, $null, $null)
+        $noProgressSec = 0; $lastPct = -1
+        while (-not $Job.IsCompleted) { 
+            Start-Sleep -Seconds 1
+            try { $pct = $DL.GetProgress().PercentComplete } catch { $pct = 0 }
+            if ($pct -ne $lastPct) { $lastPct = $pct; $noProgressSec = 0 } else { $noProgressSec++ }
+            if ($noProgressSec -gt 180) { break } 
+        }
+        if (-not $Job.IsCompleted) { try { $DL.EndDownload($Job) | Out-Null } catch {}; Write-Output "FAIL: [LETÖLTÉS FAGYÁS 3p] $t"; $f++; continue }
+        try { $DR = $DL.EndDownload($Job) } catch { Write-Output "FAIL: [LETÖLTÉS HIBA] $t"; $f++; continue }
         if ($DR.ResultCode -ne 2 -and $DR.ResultCode -ne 3) { Write-Output "FAIL: [LETÖLTÉS HIBA kód=$($DR.ResultCode)] $t"; $f++; continue }
         Write-Output "INSTONE: $idx/$total $t"
         $Inst = $Session.CreateUpdateInstaller(); $Inst.Updates = $SC
@@ -1417,7 +1436,7 @@ try {
             total = len(selected_pool)
             self.emit('task_start', {'task': 'wu_install', 'title': f'Katalógus Driver Telepítés ({total} db)'})
 
-            temp_dir = os.path.join(os.environ.get('TEMP', 'C:\\Temp'), 'driverdoktor_wu')
+            temp_dir = os.path.join(os.environ.get('SystemDrive', 'C:') + '\\DV_Temp', 'driverdoktor_wu')
             os.makedirs(temp_dir, exist_ok=True)
             logging.debug(f"[CATALOG_INSTALL] Temp dir: {temp_dir}")
             success = 0
@@ -1491,7 +1510,7 @@ try {
                     self.emit('task_progress', {'task': 'wu_install', 'log': f'  Telepítés: {name}...'})
                     is_offline = bool(self.target_os_path)
                     if is_offline:
-                        cmd = ['dism', f'/Image:{self.target_os_path}', '/Add-Driver', f'/Driver:{ext_path}', '/Recurse', '/ForceUnsigned']
+                        cmd = ['dism', f'/Image:{self.target_os_path}', '/Add-Driver', f'/Driver:{ext_path}', '/Recurse']
                     else:
                         cmd = ['pnputil', '/add-driver', f"{ext_path}\\*.inf", '/subdirs', '/install']
                     res = self._run(cmd)
@@ -1528,6 +1547,12 @@ try {
                     
             finally:
                 logging.debug(f"[CATALOG_INSTALL] Temp dir törlése: {temp_dir}")
+                for _ in range(3):
+                    try:
+                        shutil.rmtree(temp_dir, ignore_errors=False)
+                        break
+                    except Exception:
+                        time.sleep(2)
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
             logging.info(f"[CATALOG_INSTALL] Kész - Sikeres: {success}/{total}, Sikertelen: {fail}, Kihagyott: {skipped}")
@@ -1563,7 +1588,17 @@ try {
             except FileNotFoundError:
                 logging.debug("[WU_STATUS] SearchOrderConfig kulcs nem létezik")
 
-            if policy_disabled and search_disabled:
+            service_disabled = False
+            try:
+                res = self._run(['powershell', '-NoProfile', '-Command', '(Get-Service wuauserv).StartType'], encoding='utf-8')
+                if res.stdout and 'Disabled' in res.stdout:
+                    service_disabled = True
+            except Exception:
+                pass
+
+            if service_disabled:
+                result = {'status': 'Szolgáltatás LETILTVA (services.msc)', 'color': 'disabled'}
+            elif policy_disabled and search_disabled:
                 result = {'status': 'Teljesen LETILTVA', 'color': 'disabled'}
             elif policy_disabled:
                 result = {'status': 'Házirend által LETILTVA', 'color': 'disabled'}
@@ -1590,18 +1625,13 @@ try {
             self.emit('task_progress', {'task': task_id, 'log': '⚠️ Visszaállítási pont elutasítva a rendszer által. - FOLYTATÁS...\n'})
 
     def _disable_sleep_sync(self, task_id='autofix'):
-        self.emit('task_progress', {'task': task_id, 'log': 'Alvó mód és képernyő kikapcsolás letiltása (hogy ne szakadjon meg a folyamat)...'})
-        power_cmds = [
-            ['powercfg', '/change', 'monitor-timeout-ac', '0'],
-            ['powercfg', '/change', 'monitor-timeout-dc', '0'],
-            ['powercfg', '/change', 'standby-timeout-ac', '0'],
-            ['powercfg', '/change', 'standby-timeout-dc', '0'],
-            ['powercfg', '/change', 'hibernate-timeout-ac', '0'],
-            ['powercfg', '/change', 'hibernate-timeout-dc', '0']
-        ]
-        for cmd in power_cmds:
-            self._run(cmd)
-        self.emit('task_progress', {'task': task_id, 'log': '✅ Energiagazdálkodás beállítva.\n'})
+        self.emit('task_progress', {'task': task_id, 'log': 'Alvó mód ideiglenes blokkolása a folyamat végéig (Windows API)...'})
+        try:
+            # ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001 | 0x00000002)
+            self.emit('task_progress', {'task': task_id, 'log': '✅ Energiagazdálkodás felülbírálva.\n'})
+        except Exception as e:
+            self.emit('task_progress', {'task': task_id, 'log': f'⚠️ Alvás tiltása sikertelen: {e}\n'})
 
     def _disable_wu_sync(self, task_id='autofix'):
         self.emit('task_progress', {'task': task_id, 'log': 'Windows automata driver frissítések letiltása a Registryben...', 'indeterminate': True})
@@ -1617,7 +1647,7 @@ try {
         self.emit('task_progress', {'task': task_id, 'log': 'Nem csatlakoztatott (fantom) eszközök azonosítása és törlése...', 'indeterminate': True})
         ps_script = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$ghosts = Get-PnpDevice -PresentOnly:$false | Where-Object { $_.Present -eq $false -and $_.InstanceId -ne $null }
+$ghosts = Get-PnpDevice -PresentOnly:$false | Where-Object { $_.Present -eq $false -and $_.InstanceId -ne $null -and $_.PNPClass -ne 'SoftwareDevice' -and $_.PNPClass -ne 'Net' -and $_.PNPClass -ne 'System' }
 $count = 0
 $total = @($ghosts).Count
 if ($total -eq 0) {
@@ -1629,7 +1659,7 @@ foreach ($dev in $ghosts) {
     $id = $dev.PNPDeviceID
     $name = $dev.Name
     if (-not $name) { $name = "Ismeretlen eszköz" }
-    $res = & pnputil /remove-device "$id" 2>&1
+    $res = & pnputil /remove-device "$($id)" 2>&1
     if ($LASTEXITCODE -eq 0 -or $res -match "deleted" -or $res -match "törölve" -or $res -match "successfully") {
         $count++
     }
@@ -1690,7 +1720,7 @@ Write-Output "DONE: Törölve: $count / $total"
             self.emit('task_progress', {'task': task_id, 'log': f'\n--- DRIVER KERESÉS KÖR: {loop_idx} / {max_loops} ---'})
             self.emit('task_progress', {'task': task_id, 'log': 'Új eszközök szkennelése PnP Util-lal...', 'indeterminate': True})
             self._run(['pnputil', '/scan-devices'])
-            time.sleep(3)
+            time.sleep(10)
             self.emit('task_progress', {'task': task_id, 'log': 'Hivatalos driverek keresése és egyeztetése (Windows Update). Ez percekig is eltarthat...'})
             
             # PnP Query and exactly the same match logic as manual scan
@@ -1893,6 +1923,18 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     self.emit('task_progress', {'task': 'autofix', 'log': '🔄 A számítógép újraindul, majd a folyamat automatikusan a TELEPÍTÉSSEL folytatódik!'})
                     
                     exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+                    temp_env = os.environ.get('TEMP', '!!').lower()
+                    # Biztonsági másolat, ha temp könyvtárból fut a program
+                    if temp_env in exe_path.lower():
+                        try:
+                            public_dir = os.environ.get('PUBLIC', 'C:\\Users\\Public')
+                            safe_exe = os.path.join(public_dir, "DriverVarazslo_Resume.exe" if getattr(sys, 'frozen', False) else "DriverVarazslo_Resume.py")
+                            shutil.copy2(exe_path, safe_exe)
+                            exe_path = safe_exe
+                            self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ Temp mappából futás detektálva. Biztonsági másolat készítve a Public mappába.'})
+                        except Exception as e:
+                            logging.error(f"[AUTOFIX] Biztonsági másolat hiba: {e}")
+                    
                     if getattr(sys, 'frozen', False):
                         cmd_str = f'"{exe_path}" --resume-autofix'
                     else:
@@ -1928,6 +1970,18 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     self.emit('task_progress', {'task': 'autofix', 'log': f'\n🔄 EBBEN A KÖRBEN {installed_count} DRIVER TELEPÜLT!\nTovább láncolt hardverek aktiválásához újabb automatikus újraindítás szükséges!\nA rendszer az újraindulás után folytatja a szkennelést!'})
                     # Set RunOnce
                     exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+                    temp_env = os.environ.get('TEMP', '!!').lower()
+                    # Biztonsági másolat, ha temp könyvtárból fut a program
+                    if temp_env in exe_path.lower():
+                        try:
+                            public_dir = os.environ.get('PUBLIC', 'C:\\Users\\Public')
+                            safe_exe = os.path.join(public_dir, "DriverVarazslo_Resume.exe" if getattr(sys, 'frozen', False) else "DriverVarazslo_Resume.py")
+                            shutil.copy2(exe_path, safe_exe)
+                            exe_path = safe_exe
+                            self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ Temp mappából futás detektálva. Biztonsági másolat készítve a Public mappába.'})
+                        except Exception as e:
+                            logging.error(f"[AUTOFIX] Biztonsági másolat hiba: {e}")
+                    
                     if getattr(sys, 'frozen', False):
                         cmd_str = f'"{exe_path}" --resume-autofix'
                     else:
@@ -2196,31 +2250,15 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             fail = 0
             cancelled = False
 
-            if self.target_os_path:
-                self.emit('task_progress', {'task': 'backup', 'log': 'DISM export indítása a kiválasztott rendszerből...'})
-                res = self._run(['dism', f'/Image:{self.target_os_path}', '/export-driver', f'/destination:{folder}'])
-                if res.returncode == 0:
-                    success += 1
-                else:
-                    fail += 1
+            self.emit('task_progress', {'task': 'backup', 'log': 'DISM driver exportálás indítása... (Ez eltarthat egy ideig)', 'indeterminate': True})
+            dism_cmd = ['dism', f'/Image:{self.target_os_path}', '/export-driver', f'/destination:{folder}'] if self.target_os_path else ['dism', '/online', '/export-driver', f'/destination:{folder}']
+            res = self._run(dism_cmd)
+            if res.returncode == 0:
+                success += 1
+                self.emit('task_progress', {'task': 'backup', 'log': '✅ DISM exportálás sikeres!'})
             else:
-                enum_res = self._run(['pnputil', '/enum-drivers'])
-                all_infs = re.findall(r'(oem\d+\.inf)', enum_res.stdout, re.I)
-                self.emit('task_progress', {'task': 'backup', 'log': f'OEM driverek: {len(all_infs)} db'})
-
-                for i, inf in enumerate(all_infs):
-                    if self._check_cancel():
-                        cancelled = True
-                        break
-                    inf_folder = os.path.join(folder, inf.replace('.inf', ''))
-                    os.makedirs(inf_folder, exist_ok=True)
-                    res = self._run(['pnputil', '/export-driver', inf, inf_folder])
-                    if res.returncode == 0:
-                        success += 1
-                    else:
-                        fail += 1
-                    self.emit('task_progress', {'task': 'backup', 'current': i + 1, 'total': len(all_infs),
-                                                'counter': f'{i+1}/{len(all_infs)}', 'status': f'Export: {inf}'})
+                fail += 1
+                self.emit('task_progress', {'task': 'backup', 'log': f'❌ Hiba az exportálásnál: {res.stderr[:300]}'})
 
             if cancelled:
                 self.emit('task_complete', {'task': 'backup', 'status': f'❗ Megszakítva! OEM: {success} db exportálva',
@@ -2419,7 +2457,10 @@ try {{
             # EFI betűjel eltávolítása PowerShell-el
             if disk_number and efi_partition:
                 rm_ps = f"Remove-PartitionAccessPath -DiskNumber {disk_number} -PartitionNumber {efi_partition} -AccessPath '{efi_letter}\\'"
-                self._run(["powershell", "-NoProfile", "-Command", rm_ps])
+                self._run(["powershell", "-NoProfile", "-Command", f"for ($i=0; $i -lt 3; $i++) {{ try {{ Invoke-Expression \"{rm_ps}\"; break }} catch {{ Start-Sleep -Seconds 2 }} }}"])
+                # Fallback diskpart
+                dp_cmd = f"select disk {disk_number}\nselect partition {efi_partition}\nremove letter={efi_letter[0]}\n"
+                self._run(['diskpart'], input=dp_cmd, timeout=30)
                 
         if not success:
             self.emit('task_progress', {'task': task_name, 'log': f'bcdboot {target_drive}Windows /f ALL'})
@@ -2478,7 +2519,12 @@ try {{
             logging.debug(f"[RESTORE] norm_source={norm_source}, norm_target={norm_target}")
 
             # Detect source type
-            is_wim_extract = not online and "Windows_Gyari_Alap_Driverek" in norm_source
+            is_wim_extract = False
+            if not online:
+                repo_check = os.path.join(norm_source, "FileRepository")
+                inf_check = os.path.join(norm_source, "INF")
+                if os.path.isdir(repo_check) or os.path.isdir(inf_check):
+                    is_wim_extract = True
             inbox_subfolder = os.path.join(norm_source, "_Windows_Inbox_Drivers") if not online else None
             has_inbox_subfolder = inbox_subfolder and os.path.isdir(inbox_subfolder)
             logging.info(f"[RESTORE] Típus detektálás: is_wim_extract={is_wim_extract}, has_inbox_subfolder={has_inbox_subfolder}")
@@ -2523,15 +2569,16 @@ try {{
                 """Run DISM /Add-Driver on a folder with /Recurse. Returns (returncode, cancelled)."""
                 scratch = os.path.join(norm_target, "Scratch")
                 os.makedirs(scratch, exist_ok=True)
-                cmd = ['dism', f'/Image:{norm_target}', '/Add-Driver', f'/Driver:{driver_path}', '/Recurse', '/ForceUnsigned', f'/ScratchDir:{scratch}']
+                cmd = ['dism', f'/Image:{norm_target}', '/Add-Driver', f'/Driver:{driver_path}', '/Recurse', f'/ScratchDir:{scratch}']
                 self.emit('task_progress', {'task': 'restore', 'log': f'{label}Parancs: {" ".join(cmd)}'})
                 process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                            startupinfo=self._si, creationflags=self._nw, errors='replace')
                 cancelled = False
                 for line in process.stdout:
                     if self._check_cancel():
-                        self._run(['taskkill', '/F', '/T', '/PID', str(process.pid)])
+                        # Nem lőjük ki a processzt erőszakosan, hogy ne korrumpálódjon a Windows
                         cancelled = True
+                        self.emit('task_progress', {'task': 'restore', 'log': '⚠️ Megszakítás kérve, várakozás a biztonságos leállásra...'})
                         break
                     stripped = line.strip()
                     if stripped:
@@ -2549,8 +2596,9 @@ try {{
                 cancelled = False
                 for line in process.stdout:
                     if self._check_cancel():
-                        self._run(['taskkill', '/F', '/T', '/PID', str(process.pid)])
+                        # Nem lőjük ki a processzt erőszakosan, hogy ne korrumpálódjon a Windows
                         cancelled = True
+                        self.emit('task_progress', {'task': 'restore', 'log': '⚠️ Megszakítás kérve, várakozás a biztonságos leállásra...'})
                         break
                     self.emit('task_progress', {'task': 'restore', 'log': line.strip()})
                 process.wait()
@@ -2688,7 +2736,7 @@ try {{
                     self.emit('task_progress', {'task': 'restore', 'log': 'Hardverváltozások keresése...'})
                     time.sleep(1.5)
                     self._run(['pnputil', '/scan-devices'])
-                    time.sleep(3.5)
+                    time.sleep(10)
                     self.emit('task_progress', {'task': 'restore', 'log': '✅ Scan kész!'})
             else:
                 # === BCD JAVÍTÁS (boot loader) ===
@@ -2728,9 +2776,7 @@ try {{
             return
         logging.info(f"[WIM] WIM fájl: {wim_path}")
         if wim_path.lower().endswith(".esd"):
-            logging.error("[WIM] ESD fájl nem támogatott!")
-            self.emit('alert', {'title': 'Hiba', 'message': 'ESD fájl nem támogatott. Kérlek, használj install.wim fájlt!'})
-            return
+            logging.info("[WIM] ESD fájl konvertálása szükséges.")
         dest = self.select_directory('Válassz ideiglenes mappát a kicsomagoláshoz')
         if not dest:
             logging.info("[WIM] Mégse - nincs célmappa kiválasztva")
@@ -2743,8 +2789,12 @@ try {{
             self.emit('task_start', {'task': 'wim', 'title': 'WIM Driver Kinyerés'})
             wim = os.path.abspath(wim_path).replace("/", "\\")
             # A WIM csatolási mappának a C: meghajtón kell lennie (NTFS), mert a cserélhető meghajtókat (USB) a DISM visszautasítja
-            sys_temp = os.environ.get('TEMP', 'C:\\Temp')
-            mount_dir = os.path.join(sys_temp, f"WIM_Mount_Temp_{int(time.time())}")
+            is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
+            if is_pe and self.target_os_path:
+                sys_temp = os.path.join(self.target_os_path, 'DV_Temp')
+            else:
+                sys_temp = os.environ.get('SystemDrive', 'C:') + '\\DV_Temp'
+            mount_dir = os.path.join(sys_temp, f"WIM_{int(time.time())}")
             target_folder = os.path.join(dest, f"Windows_Gyari_Alap_Driverek_{datetime.now().strftime('%Y%m%d_%H%M')}")
             logging.info(f"[WIM] Mount dir: {mount_dir}")
             logging.info(f"[WIM] Target folder: {target_folder}")
@@ -2761,10 +2811,20 @@ try {{
                     self.emit('task_complete', {'task': 'wim', 'status': '❗ Megszakítva!'})
                     return
 
+                wim_to_mount = wim
+                if wim.lower().endswith('.esd'):
+                    self.emit('task_progress', {'task': 'wim', 'log': 'ESD -> WIM konvertálás (ez 10-15 percet is igénybe vehet!)...', 'indeterminate': True, 'counter': '1/4', 'status': 'Fájl konvertálása...'})
+                    temp_wim = os.path.join(sys_temp, f"converted_{int(time.time())}.wim")
+                    res_esd = self._run(["dism", "/Export-Image", f"/SourceImageFile:{wim}", "/SourceIndex:1", f"/DestinationImageFile:{temp_wim}", "/Compress:max", "/CheckIntegrity"])
+                    if res_esd.returncode != 0:
+                        raise Exception(f"ESD Konvertálási hiba: {res_esd.stderr}")
+                    wim_to_mount = temp_wim
+                    self.emit('task_progress', {'task': 'wim', 'counter': '2/4', 'status': 'Képfájl csatolása...'})
+                else:
+                    self.emit('task_progress', {'task': 'wim', 'log': 'WIM csatolás (ez 4-5 perc)...', 'indeterminate': True, 'counter': '1/3', 'status': 'Képfájl csatolása...'})
+
                 logging.info("[WIM] DISM Mount-Image futtatása...")
-                self.emit('task_progress', {'task': 'wim', 'log': 'WIM csatolás (ez 4-5 perc)...', 'indeterminate': True,
-                                            'counter': '1/3', 'status': 'Képfájl csatolása...'})
-                res = self._run(["dism", "/Mount-Image", f"/ImageFile:{wim}", "/Index:1", f"/MountDir:{mount_dir}", "/ReadOnly"])
+                res = self._run(["dism", "/Mount-Image", f"/ImageFile:{wim_to_mount}", "/Index:1", f"/MountDir:{mount_dir}", "/ReadOnly"])
                 if res.returncode != 0:
                     logging.error(f"[WIM] DISM Mount hiba: {res.stdout} {res.stderr}")
                     raise Exception(f"DISM Mount hiba: {res.stdout} {res.stderr}")
@@ -2796,7 +2856,16 @@ try {{
                 self.emit('task_progress', {'task': 'wim', 'log': 'WIM leválasztása...', 'counter': '3/3', 'status': 'Takarítás...'})
                 self._run(["dism", "/Unmount-Image", f"/MountDir:{mount_dir}", "/Discard"])
                 self._run(["dism", "/Cleanup-Wim"])
+                for _ in range(3):
+                    try:
+                        shutil.rmtree(mount_dir, ignore_errors=False)
+                        break
+                    except Exception:
+                        time.sleep(2)
                 shutil.rmtree(mount_dir, ignore_errors=True)
+                if wim.lower().endswith('.esd') and 'wim_to_mount' in locals() and os.path.exists(wim_to_mount):
+                    try: os.remove(wim_to_mount)
+                    except Exception: pass
 
                 logging.info(f"[WIM] Kész! Kimenet: {target_folder}")
                 self.emit('task_complete', {'task': 'wim', 'status': f'✅ Gyári driverek kimentve: {target_folder}',
@@ -3028,7 +3097,7 @@ class CliApi:
                     dirs = glob.glob(os.path.join(rep, f"{pub}_*"))
                     if dirs:
                         for d in dirs:
-                            self._run(f'takeown /f "{d}" /r /d y', shell=True)
+                            self._run(f'takeown /f "{d}" /r /A', shell=True)
                             self._run(f'icacls "{d}" /grant *S-1-5-32-544:F /t', shell=True)
                             shutil.rmtree(d, ignore_errors=True)
                             self._run(f'rmdir /s /q "{d}"', shell=True)
@@ -3108,29 +3177,13 @@ class CliApi:
         success = 0
         # OEM driverek
         print("1/3 OEM driverek exportálása...")
-        if self.target_os_path:
-            res = self._run(['dism', f'/Image:{self.target_os_path}', '/export-driver', f'/destination:{folder}'])
-            if res.returncode == 0:
-                print("   ✅ OEM export sikeres (DISM offline)")
-                success = 1
-            else:
-                print("   ❌ OEM export hiba")
+        dism_cmd = ['dism', f'/Image:{self.target_os_path}', '/export-driver', f'/destination:{folder}'] if self.target_os_path else ['dism', '/online', '/export-driver', f'/destination:{folder}']
+        res = self._run(dism_cmd)
+        if res.returncode == 0:
+            print("   ✅ DISM export sikeres")
+            success = 1
         else:
-            enum_res = self._run(['pnputil', '/enum-drivers'])
-            all_infs = re.findall(r'(oem\d+\.inf)', enum_res.stdout, re.I)
-            
-            for i, inf in enumerate(all_infs, 1):
-                print(f"  [{i}/{len(all_infs)}] {inf}... ", end="", flush=True)
-                inf_folder = os.path.join(folder, inf.replace('.inf', ''))
-                os.makedirs(inf_folder, exist_ok=True)
-                res = self._run(['pnputil', '/export-driver', inf, inf_folder])
-                if res.returncode == 0:
-                    print("✅")
-                    success += 1
-                else:
-                    print("❌")
-            
-            print(f"   OEM: {success}/{len(all_infs)} exportálva")
+            print(f"   ❌ DISM export hiba: {res.stderr[:200]}")
         
         # FileRepository (inbox)
         print("2/3 Windows inbox driverek (FileRepository) másolása...")
@@ -3175,7 +3228,7 @@ class CliApi:
             
             print("\n🔄 Hardverek újraszkennelése...")
             self._run(['pnputil', '/scan-devices'])
-            time.sleep(3)
+            time.sleep(10)
             print("✅ Kész!")
         else:
             # Offline mód - DISM
@@ -3353,7 +3406,7 @@ class CliApi:
         print(f"   Cél: {dest_folder}")
         print("-" * 50)
         
-        sys_temp = os.environ.get('TEMP', 'C:\\Temp')
+        sys_temp = os.environ.get('SystemDrive', 'C:') + '\\DV_Temp'
         mount_dir = os.path.join(sys_temp, f"WIM_Mount_Temp_{int(time.time())}")
         target_folder = os.path.join(dest_folder, f"Windows_Gyari_Alap_Driverek_{datetime.now().strftime('%Y%m%d_%H%M')}")
         
@@ -3703,7 +3756,16 @@ try {
         $SC = New-Object -ComObject Microsoft.Update.UpdateColl; $SC.Add($U) | Out-Null
         Write-Output "DL: $($U.Title)"
         $DL = $Session.CreateUpdateDownloader(); $DL.Updates = $SC
-        try { $DR = $DL.Download() } catch { Write-Output "FAIL: $($U.Title)"; $f++; continue }
+        $Job = $DL.BeginDownload($null, $null, $null)
+        $noProgressSec = 0; $lastPct = -1
+        while (-not $Job.IsCompleted) { 
+            Start-Sleep -Seconds 1
+            try { $pct = $DL.GetProgress().PercentComplete } catch { $pct = 0 }
+            if ($pct -ne $lastPct) { $lastPct = $pct; $noProgressSec = 0 } else { $noProgressSec++ }
+            if ($noProgressSec -gt 180) { break } 
+        }
+        if (-not $Job.IsCompleted) { try { $DL.EndDownload($Job) | Out-Null } catch {}; Write-Output "FAIL: $($U.Title) [FAGYÁS]"; $f++; continue }
+        try { $DR = $DL.EndDownload($Job) } catch { Write-Output "FAIL: $($U.Title)"; $f++; continue }
         if ($DR.ResultCode -ne 2 -and $DR.ResultCode -ne 3) { Write-Output "FAIL: $($U.Title)"; $f++; continue }
         Write-Output "INST: $($U.Title)"
         $Inst = $Session.CreateUpdateInstaller(); $Inst.Updates = $SC
@@ -4039,6 +4101,15 @@ if __name__ == "__main__":
             _webview_error.set()
     sys.excepthook = global_exception_handler
 
+    def cleanup_zombies():
+        try:
+            pid = os.getpid()
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(pid)], creationflags=subprocess.CREATE_NO_WINDOW)
+        except Exception:
+            pass
+    import atexit
+    atexit.register(cleanup_zombies)
+
     def thread_exception_handler(args):
         err_str = str(args.exc_value)
         logging.exception("HÁTTÉRSZÁL HIBA:", exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
@@ -4199,7 +4270,7 @@ if __name__ == "__main__":
 
     # Watchdog: ha 15mp alatt nem indul el a GUI, bezárja az ablakot és CLI-re vált
     def webview_watchdog():
-        TIMEOUT = 15  # seconds
+        TIMEOUT = 60  # seconds
         start = time.time()
         while time.time() - start < TIMEOUT:
             if _webview_ready.is_set():

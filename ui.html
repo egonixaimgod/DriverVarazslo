@@ -272,7 +272,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
             <button class="btn btn-success" onclick="restoreDrivers()">Visszaállítás</button>
           </div>
           <div class="card glass">
-            <div class="card-title">📀 ISO / WIM Alap Driver Kinyerés</div>
+            <div class="card-title">📀 ISO / WIM / ESD Alap Driver Kinyerés</div>
             <div class="card-desc">Egy hivatalos Windows ISO install.wim fájljából kibányássza a tiszta gyári drivereket (alap USB, PS/2, Touchpad, stb).</div>
             <button class="btn btn-warning" onclick="extractWim()">WIM Kinyerés</button>
           </div>
@@ -906,8 +906,8 @@ async function restoreDrivers() {
   }
 }
 async function extractWim() {
-  const ok = await showConfirm('ISO / WIM Alap Driver Kinyerés',
-    'Ezzel az opcióval egy hivatalos Windows ISO sources\\install.wim fájljából bányásszuk ki a TISZTA Windows drivereket.\n\nAkarod folytatni?');
+  const ok = await showConfirm('ISO / WIM / ESD Alap Driver Kinyerés',
+    'Ezzel az opcióval egy hivatalos Windows ISO sources\\install.wim vagy install.esd fájljából bányásszuk ki a TISZTA Windows drivereket.\n\nAkarod folytatni?');
   if (!ok) return;
   try {
     await api().extract_wim();
