@@ -1,2 +1,0 @@
-A pause_wu SIKERESEN HOZZÁADVA.
-HIBA: A check_wu_status nem módosult.
