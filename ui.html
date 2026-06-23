@@ -300,6 +300,16 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
             <button class="btn btn-warning" onclick="restartWu()">⚡ WU Szolgáltatások Újraindítása</button>
           </div>
         </div>
+        
+        <div class="panel glass" style="margin-top: 16px;">
+          <div class="panel-title"><span class="emoji">⏸️</span> Windows Update Frissítések Szüneteltetése</div>
+          <p style="margin-bottom: 16px; color: var(--text3);">Ezekkel a gombokkal a teljes Windows Update működését (a biztonsági frissítéseket is) elhalaszthatod a jövőbe. Az 1 hetet többször is megnyomhatod a hetek halmozásához!</p>
+          <div class="wu-actions">
+            <button class="btn btn-primary" onclick="pauseWu(7)">⏳ +1 Hét Szünet</button>
+            <button class="btn btn-danger" onclick="pauseWu(3650)">🛑 10 Év Szünet (Végleges)</button>
+            <button class="btn btn-success" onclick="resumeWu()">▶️ Szünetelés Feloldása</button>
+          </div>
+        </div>
       </div>
 
       <!-- VIEW: Hardware Info -->
@@ -838,6 +848,24 @@ async function restartWu() {
     await api().restart_wu();
   } catch (e) {
     toast('WU újraindítás hiba: ' + e, 'error');
+  }
+}
+
+async function pauseWu(days) {
+  try {
+    await api().pause_wu(days);
+    setTimeout(checkWuStatus, 1500); 
+  } catch (e) {
+    toast('Szüneteltetés hiba: ' + e, 'error');
+  }
+}
+
+async function resumeWu() {
+  try {
+    await api().resume_wu();
+    setTimeout(checkWuStatus, 1500);
+  } catch (e) {
+    toast('Feloldás hiba: ' + e, 'error');
   }
 }
 

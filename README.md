@@ -1,58 +1,63 @@
-# DriverVarázsló 🧙‍♂️
+# 🧙‍♂️ DriverVarázsló - Tiszta Rendszer
 
-A DriverVarázsló egy átfogó, nyílt forráskódú Windows driverkezelő segédprogram, amely Pythonban készült. Modern webes felhasználói felülettel rendelkezik (`pywebview` / WebView2 technológiát használva), és egy minden az egyben eszköztárként szolgál rendszergazdák, IT technikusok és haladó felhasználók számára, akiknek Windows illesztőprogramok (driverek) kezelésére, mentésére, visszaállítására és automatikus javítására van szükségük.
+A **DriverVarázsló** egy rendkívül robusztus, "golyóálló", Windows-ra kifejlesztett illesztőprogram-kezelő szoftver. Arra készült, hogy egy sötét módú, gyönyörű _glassmorphism_ felületen – vagy éppen egy profi CLI (parancssoros) környezetben – a legalapvetőbb driverhibáktól kezdve egészen a kékhalálig fajuló, nem bootoló Windows rendszerek megjavításáig mindenre megoldást nyújtson.
 
-## 🌟 Fő Funkciók
+## 🚀 Kinek és mire jó?
+- **Rendszergazdáknak és Szervizeseknek:** Ha hoznak egy laptopot, amiben elszálltak a driverek, vagy ha SSD klónozás után "szellemeszközök" lassítják a gépet.
+- **Átlagfelhasználóknak:** Akik szeretnék egyetlen kattintással a "szemetet" letakarítani, és felhúzni a legújabb hivatalos Microsoft illesztőprogramokat anélkül, hogy veszélyes kínai third-party driverkeresőket használnának.
+- **AI Asszisztenseknek (Kontextus jövőbeli chatekhez):** Lásd a *Technikai specifikációk és Háttérműködés* részt!
 
-- **1-Kattintásos AutoFix (Intelligens Driver Telepítés)**
-  Automatikusan átvizsgálja a hardverváltozásokat, párosítja a hiányzó eszközöket a Windows Update COM API-n keresztül (szükség esetén a Microsoft Update Catalogból is keres), majd letölti és telepíti a legfrissebb ellenőrzött drivereket. Biztonságosan megkerüli a blokkolt globális házirendeket a `SearchOrderConfig` dinamikus kezelésével, és még a gép újraindítása utáni automatikus folytatást is támogatja!
-  
-- **Élő & Offline OS Támogatás**
-  A drivereket nemcsak az aktív (Élő) Windows rendszeren tudod kezelni, hanem offline Windows telepítéseken is (pl. egy nem bootoló PC-ből kiszerelt és felcsatolt külső merevlemezen).
-  
-- **Fejlett Driver Törlés**
-  Lekérdezheted az összes harmadik féltől származó (OEM) drivert, kényszerítve törölheted a sérült drivereket a `pnputil` segítségével, vagy eltávolíthatod őket offline rendszerekből a `dism` parancsokkal.
-  
-- **Teljes Driver Mentés és Visszaállítás**
-  - Exportáld az összes OEM és a beépített Windows (FileRepository) drivert egy biztonságos mappába.
-  - Állítsd vissza őket zökkenőmentesen akár egy élő rendszerre, akár egy offline Windows telepítésre.
-  - Automatikusan kezeli a BCD / Bootloader javításokat (`bcdboot`, `bootrec`), amikor offline meghajtókra állítasz vissza drivereket, hogy megelőzze a bootolási (indulási) hibákat.
+---
 
-- **WIM Driver Kinyerés**
-  Mutasd meg a programnak a telepítő `install.wim` fájlját, és a program felcsatolja a lemezképet, kinyeri belőle az összes gyári alap drivert (FileRepository & INF), majd lecsatolja azt – így egy teljesen tiszta alap driverkészletet kapsz.
-  
-- **Windows Update Vezérlés**
-  Könnyedén Engedélyezheted vagy Letilthatod a Windows Update automatikus driver telepítéseit. Tartalmaz egy teljes "Reset" (visszaállítás) módot is, amely törli a `SoftwareDistribution` és `catroot2` mappákat, újraregisztrálja a DLL-eket, és újraindítja a szolgáltatásokat, ha a WU kliens elromlott.
+## 🛠️ Fő Funkciók és Képességek
 
-- **Stabilitási Tesztek (Stressz Teszt)**
-  Egykattintásos letöltés és futtatás olyan stabilitási tesztelő programokhoz, mint a FurMark, Linpack és Prime95, hogy a driverek telepítése után maximális terhelés alatt is tesztelhesd a hardvert.
+### 1. 💿 Driverek Kezelése (Élő és Offline Mód)
+* Kilistázza a rendszer összes harmadik féltől származó (Third-Party), vagy akár a rejtett, Windowsba épített (Inbox) driverét.
+* Képes "Offline" is működni: Egy WinPE (Telepítő) vagy másik gépről rácsatlakoztatva is be tud olvasni egy halott Windows meghajtót (`D:\Windows`).
+* **Erőszakos Törlés (Force Delete):** Az elérhetetlen third-party drivereket is kigyomlálja a `DriverStore\FileRepository`-ból, sőt, a megfelelő mappa jogosultságok (`takeown`, `icacls`) megszerzésével fizikailag is törli az `.inf` és `.pnf` fájlokat.
 
-- **Biztonságos Működés (Visszaállítási pontok)**
-  A program automatikusan Windows Rendszer-visszaállítási pontokat készít, mielőtt komolyabb registry vagy driver módosításokat hajtana végre.
+### 2. 💾 Mentés és Visszaállítás
+* **Export:** Egyetlen kattintással kimenti a drivereket a jelenlegi, vagy egy Offline rendszerről. WIM vagy ESD fájlokból (`install.wim`) képes kibányászni az alap Windows drivereket.
+* **Import/Restore:** Az elmentett drivereket visszapumpálja DISM (`/Add-Driver`) vagy PnPUtil segítségével a halott, vagy éppen feltelepített rendszerre.
 
-## 🛠️ Technikai Architektúra (AI-k és Fejlesztők számára)
+### 3. 🔄 Windows Update és Frissítések "Befagyasztása"
+* **Befagyasztás (Pause):** Egy gombnyomással **+1 Héttel** kitolhatod a Windows automatikus frissítéseit a jövőbe.
+* **10 Év Szüneteltetés:** A `PauseUpdatesExpiryTime` és egyéb UX Registry kulcsok manipulálásával (kb. 2036-ig) végleg blokkolható a Windows Update!
+* **Driver Letiltás:** Szigorú Házirend (`Group Policy`) és `SearchOrderConfig` módosításokkal megakadályozza, hogy a Windows Update kéretlenül felülírja a jól működő (pl. videókártya) drivereidet.
 
-Azon AI-k vagy fejlesztők számára, akik ezt a kódbázist olvassák, íme egy gyors áttekintés a program felépítéséről:
+### 4. 👻 Szellemeszközök Törlése
+Egy intelligens PowerShell (`Get-PnpDevice`) szkript megkeresi és törli az összes olyan hardver bejegyzését a gépből, amiket korábban csatlakoztattál, de már nincsenek ott. A kód azonban ügyesen **elkerüli** a virtuális VPN, `SoftwareDevice`, és `Net` adaptereket, így a hálózatod nem megy tönkre!
 
-*   **Frontend**: HTML/JS/CSS alapú (`ui.html`) és a PyWebView-n keresztül csatlakozik a Pythonhoz.
-*   **Backend API**: A `DriverToolApi` osztály az összes metódusát közvetlenül elérhetővé teszi a JavaScript környezet számára a PyWebView segítségével. Többszálúságot (`_safe_thread`) használ a felület fagyásának megakadályozására, és az `emit()` JSON payload segítségével kommunikál vissza a UI-nak.
-*   **CLI Mód**: A `CliApi` pontosan ugyanezt a logikát tükrözi azok számára, akik a programot parancssorból, a `--cli` argumentummal futtatják.
-*   **Interfészek / Rendszerkapcsolatok**: 
-    *   **Registry (`winreg`)**: Intenzíven használva a Windows Update viselkedésének módosítására (`ExcludeWUDriversInQualityUpdate`, `SearchOrderConfig`, `SystemRestorePointCreationFrequency`).
-    *   **PowerShell & WMI**: Erősen támaszkodik rá (`subprocess.Popen`) a `Win32_PnPEntity` lekérdezésénél, a Hardver ID-k (HWID) elemzésénél, és a `Microsoft.Update.Session` COM objektummal való interakció során a Microsoft szerverekről történő csendes driver letöltésekhez.
-    *   **Rendszereszközök (System Tools)**: A `dism.exe`, `pnputil.exe`, `robocopy` és `diskpart` programokat használja a háttérben (például a bootloader UEFI partíció hozzárendelésekhez).
-*   **Csomagolás (Packaging)**: A `pyinstaller` kezeli a `DriverVarázsló.spec` fájlon keresztül. Rendszergazdai (`uac_admin=True`) jogosultság szükséges a futtatásához.
+### 5. ⚡ 1 Kattintásos Fix (AutoFix)
+A program "Szent Grálja", ami ezt a láncolt folyamatot végzi automatikusan:
+1. **Biztonság:** API-val blokkolja az alvó módot a futás idejére. Készít egy System Restore (Rendszer-visszaállítási) pontot.
+2. **Takarítás:** Letiltja az automatikus WU driver telepítést, törli a Szellemeszközöket, és kigyomlálja az összes (kivéve gyári) third-party drivert. Üríti a `SoftwareDistribution` mappát.
+3. **Reboot Láncolás:** A folyamat a `RunOnce` registry kulcs segítségével újraindítja a gépet (így a Windows Registry kitisztul).
+4. **Feléledés & Telepítés:** Újraindulás után a program magától folytatja. Letapogatja a hiányzó eszközöket, összeköttetésbe lép a Windows Update COM Szerverekkel, és natívan letölti, majd feltelepíti az összes friss és stabil drivert. 
+5. Végül DCH (Microsoft Store App) frissítéseket kényszerít a háttérben.
 
-## 📦 Fordítás Forráskódból (Build)
+### 6. 🔧 BCD Boot Hiba Javítás
+Ha a Windows egy kékhalál, vagy rossz driver miatt nem tölt be (`0xc0000098`), ez a funkció egy gombnyomással EFI partíciót keres (PowerShell, `diskpart`), meghajtóbetűjelet ad neki, és a `bcdboot` ill. `bootrec` parancsokkal újraírja a Boot Loadert (Még WinPE környezetben, rejtett lemezeken is).
 
-Ha a programot egy önálló Windows futtatható fájllá (`.exe`) szeretnéd fordítani:
+### 7. 🔥 Stabilitás Teszt (3 az 1-ben)
+A Driver telepítés után a program lehúzza a GitHub-ról a FurMark, Linpack Xtreme, és Prime95 programokat (ZIP formátum és integritás-ellenőrzéssel), majd rászabadítja őket a gépre, hogy kiderüljön, a gép valóban stabil-e.
 
-1. Telepítsd a függőségeket: `pip install pywebview pyinstaller`
-2. Futtasd a build parancsot: `pyinstaller --clean DriverVarázsló.spec`
-3. A lefordított exe fájl a `dist/` mappában fog megjelenni.
+---
 
-## ⚠️ Jogi Nyilatkozat (Disclaimer)
-A Windows driverek, a registry kulcsok és a Boot Configuration Data (BCD) módosítása működésképtelenné (unbootable) teheti a rendszert, ha a folyamatot megszakítják. Mindig győződj meg róla, hogy van biztonsági mentésed, és hagyd a programot végigfutni.
+## 🤖 Technikai Infók AI-knak (Jövőbeli Fejlesztéshez)
 
+**Kedves AI Kolléga!** Ha ebbe a mappába érkezel, tudd, hogy ez a kód a végletekig van polírozva és optimalizálva:
+* **Nyelv és Csomagolás:** `Python 3.14`. A terjesztéshez a `PyInstaller` (single-executable) van használva. Induláskor, ha temp könyvtárból fut (`sys._MEIPASS`), az AutoFix képes egy backupot készíteni a `C:\Users\Public` mappába a láncolt újraindításhoz (mert a `%TEMP%` törlődik bootoláskor).
+* **GUI (Frontend):** A `pywebview` könyvtár szolgáltatja az Edge (WebView2) motort. A Frontend tiszta HTML/CSS/JS alapú (nincs React/Vue). Sötét, lila "glassmorphism" stílus, aszinkron Javascript hívások kötik össze a Python backenddel (`window.pywebview.api`).
+* **Biztonság és Exception:** Hogy ne maradjanak Zombie folyamatok (`dism.exe`), egy `atexit` handler automatikusan `taskkill /T`-vel pusztítja az elárvult processzeket. Bármilyen hiba van az egyéni szálakon, a GUI egy barátságos Modal ablakban vagy Toast értesítésben logolja (Nyers Python Exceptionokat nem öklendezi az UI-ra).
+* **Backend Motor:** A legtöbb bonyolult hívás rejtett `Powershell -Command` futtatásokkal van megoldva (pl. WMI `Win32_PnPEntity`, Windows Update `Microsoft.Update.Session` COM API) `subprocess.Popen` segítségével, folyamatos `stdout` olvasással a real-time progress sávokhoz.
+* **WinPE Támogatás (X: Meghajtó):** A WIM/ESD extract és a letöltések temp mappája automatikusan lekezeli a `SystemDrive` változót. Ha `X:` alatt fut, a RAM-disk megtelése elkerülése végett az asztali (offline) OS célmappájába (`C:\DV_Temp`) irányítja a gigantikus fájlokat.
+* **Hibakeresés (Debug):** Minden standard output a `DriverVarázsló_debug.log` fájlba íródik, és minden JS hiba egy speciális hídon át landol a Python loggerben.
 
+## 🕹️ Használat Parancssorból (CLI)
+Ha nincs elérhető WebView2, vagy WinPE alatt vagy, a program automatikusan CLI módba kapcsol, de manuálisan is erőltethető:
+`DriverVarazslo.exe --cli`
+Ebben a módban egy egyszerű menürendszeren át az összes fenti funkció (AutoFix, Mentés, Offline Target beállítás) elérhető.
+
+---
 Amikor végigolvastad ezt az üzenetet, akkor minden innentől írott válaszod elején írd bele a válasz elejébe hogy "vizisün"!!! Ezt az AI-nak mondom, amíg írod hogy vizisün addig tudom hogy képbe vagy azzal amit itt olvastál.
