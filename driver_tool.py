@@ -670,7 +670,7 @@ class DriverToolApi:
                                 found_any = True
 
                             bname = os.path.splitext(pub)[0]
-                            for ext in ['.in', '.pn', '.INF', '.PNF']:
+                            for ext in ['.inf', '.pnf', '.INF', '.PNF']:
                                 fpath = os.path.join(inf_dir, bname + ext)
                                 if os.path.exists(fpath):
                                     self._run(f'takeown /f "{fpath}" /A', shell=True)
@@ -1130,8 +1130,7 @@ try {
     } catch {}
     $Searcher.ServerSelection = 3
     $Searcher.ServiceID = "7971f918-a847-4430-9279-4a52d1efe18d"
-    # Szélesebb körű keresés: Software kategória (ahol a hálózati DCH driverek is lehetnek) vagy Driver kategória
-    $Result = $Searcher.Search("IsInstalled=0 and (Type='Software' or Type='Driver')")
+    $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
     $updates = @()
     foreach ($U in $Result.Updates) {
         $updates += [PSCustomObject]@{
@@ -1494,7 +1493,7 @@ try {
                     if is_offline:
                         cmd = ['dism', f'/Image:{self.target_os_path}', '/Add-Driver', f'/Driver:{ext_path}', '/Recurse', '/ForceUnsigned']
                     else:
-                        cmd = ['pnputil', '/add-driver', f"{ext_path}\\*.in", '/subdirs', '/install']
+                        cmd = ['pnputil', '/add-driver', f"{ext_path}\\*.inf", '/subdirs', '/install']
                     res = self._run(cmd)
                     if res.returncode == 0 or any(k in res.stdout for k in ["Added", "sikeres", "successfully"]):
                         success += 1
@@ -1781,7 +1780,7 @@ $Session = New-Object -ComObject Microsoft.Update.Session
 $Searcher = $Session.CreateUpdateSearcher()
     $Searcher.ServerSelection = 3
     $Searcher.ServiceID = "7971f918-a847-4430-9279-4a52d1efe18d"
-    $Result = $Searcher.Search("IsInstalled=0 and (Type='Software' or Type='Driver')")
+    $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
 
     $ToInstall = New-Object -ComObject Microsoft.Update.UpdateColl
 foreach ($U in $Result.Updates) {{
@@ -2213,7 +2212,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     if self._check_cancel():
                         cancelled = True
                         break
-                    inf_folder = os.path.join(folder, inf.replace('.in', ''))
+                    inf_folder = os.path.join(folder, inf.replace('.inf', ''))
                     os.makedirs(inf_folder, exist_ok=True)
                     res = self._run(['pnputil', '/export-driver', inf, inf_folder])
                     if res.returncode == 0:
@@ -2635,7 +2634,7 @@ try {{
                             if not os.path.isdir(repo_path):
                                 continue
                             for fname in os.listdir(repo_path):
-                                if fname.lower().endswith('.in'):
+                                if fname.lower().endswith('.inf'):
                                     src_inf = os.path.join(repo_path, fname)
                                     dst_inf = os.path.join(target_inf, fname)
                                     try:
@@ -2656,7 +2655,7 @@ try {{
                     item_path = os.path.join(norm_source, item)
                     if os.path.isdir(item_path) and item not in ("_Windows_Inbox_Drivers", "_Windows_Inbox_INF"):
                         # Check if folder contains any .inf files (directly or in subfolders)
-                        has_inf = any(f.lower().endswith('.in') for _, _, fns in os.walk(item_path) for f in fns)
+                        has_inf = any(f.lower().endswith('.inf') for _, _, fns in os.walk(item_path) for f in fns)
                         if has_inf:
                             oem_folders.append(item_path)
 
@@ -3036,7 +3035,7 @@ class CliApi:
                         found_any = True
                         
                     bname = os.path.splitext(pub)[0]
-                    for ext in ['.in', '.pn', '.INF', '.PNF']:
+                    for ext in ['.inf', '.pnf', '.INF', '.PNF']:
                         fpath = os.path.join(inf_dir, bname + ext)
                         if os.path.exists(fpath):
                             self._run(f'takeown /f "{fpath}" /A', shell=True)
@@ -3122,7 +3121,7 @@ class CliApi:
             
             for i, inf in enumerate(all_infs, 1):
                 print(f"  [{i}/{len(all_infs)}] {inf}... ", end="", flush=True)
-                inf_folder = os.path.join(folder, inf.replace('.in', ''))
+                inf_folder = os.path.join(folder, inf.replace('.inf', ''))
                 os.makedirs(inf_folder, exist_ok=True)
                 res = self._run(['pnputil', '/export-driver', inf, inf_folder])
                 if res.returncode == 0:
@@ -3167,7 +3166,7 @@ class CliApi:
         if online and not self.target_os_path:
             # Online mód - pnputil
             print("🔄 pnputil /add-driver futtatása...")
-            res = self._run(['pnputil', '/add-driver', f"{source_folder}\\*.in", '/subdirs', '/install'])
+            res = self._run(['pnputil', '/add-driver', f"{source_folder}\\*.inf", '/subdirs', '/install'])
             if res.returncode == 0:
                 print("✅ Visszaállítás sikeres!")
             else:
@@ -3675,7 +3674,7 @@ try {
     $Searcher = $Session.CreateUpdateSearcher()
     try { $SM = New-Object -ComObject Microsoft.Update.ServiceManager; $SM.AddService2("7971f918-a847-4430-9279-4a52d1efe18d", 7, "") | Out-Null } catch {}
     $Searcher.ServerSelection = 3; $Searcher.ServiceID = "7971f918-a847-4430-9279-4a52d1efe18d"
-    $Result = $Searcher.Search("IsInstalled=0 and (Type='Software' or Type='Driver')")
+    $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
     if ($Result.Updates.Count -eq 0) { Write-Output "EMPTY"; exit }
     
     $ToInstall = New-Object -ComObject Microsoft.Update.UpdateColl
