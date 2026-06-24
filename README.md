@@ -56,13 +56,15 @@ A Driver telepítés után a program lehúzza a GitHub-ról a FurMark, Linpack X
 * **Auto-Updater:** A program minden indításkor ellenőrzi a `driver_tool.py` fájlban lévő `BUILD_NUMBER` változót a GitHub repón. Ha az online szám nagyobb a beégetettnél, a szoftver felajánlja az önfrissítést.
 
 ### 🔄 Fejlesztés és Kiadás (Release) menete:
-Ha módosítasz a kódon, és ki akarsz adni egy új verziót, hogy a többi gép frissítse magát:
-1. Átírod a `BUILD_NUMBER` értékét a `driver_tool.py` legelején eggyel nagyobbra.
-2. Lefordítod az exe-t a konzolból a következő paranccsal:
-   `python -m PyInstaller --clean DriverVarazslo.spec`
-   *(Fontos: azért így, mert a sima `pyinstaller` parancsot a PowerShell sokszor nem ismeri fel útvonal hiba miatt)*
-3. Git Commit és Push a `main` ágra. 
-4. Az auto-updater a GitHubról a `dist/DriverVarazslo.exe`-t fogja lehúzni, és futás közben, egy PowerShell (`Move-Item`) script segítségével felülírni önmagát az összes többi gépen!
+Készítettem egy automatizált parancsfájlt, így az egész kiadási folyamat **1 kattintás**!
+Csak futtasd le a gyökérkönyvtárban lévő **`rebuild.bat`** fájlt.
+
+Ez a script automatikusan:
+1. Megkeresi a `BUILD_NUMBER`-t a `driver_tool.py`-ban, és hozzáad +1-et.
+2. Lefordítja a szoftvert a `PyInstaller` segítségével.
+3. Készít egy automatikus Git Commitot ("Release: Build XY (Auto-Build)"), és fel-pusholja a GitHubra, beleértve az új `.exe`-t is.
+
+Ezután a kint lévő régi programok induláskor észlelik az új Build számot, és maguktól frissítenek az újonnan lefordított verziódra!
 
 ## 🕹️ Használat Parancssorból (CLI)
 Ha nincs elérhető WebView2, vagy WinPE alatt vagy, a program automatikusan CLI módba kapcsol, de manuálisan is erőltethető:
