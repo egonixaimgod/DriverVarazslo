@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 122
+BUILD_NUMBER = 123
 
 try:
     import webview
@@ -4341,6 +4341,24 @@ def run_cli_mode():
 # MAIN
 # ================================================================
 if __name__ == "__main__":
+    import ctypes
+    
+    # --- SINGLE INSTANCE CHECK (Csak egyszer fusson) ---
+    ERROR_ALREADY_EXISTS = 183
+    mutex_name = "Global\\DriverVarazslo_App_Mutex_Lock"
+    hMutex = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
+    if ctypes.windll.kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+        try:
+            ctypes.windll.user32.MessageBoxW(
+                None,
+                "A DriverVarázsló már fut a rendszeren!\n\nKérjük, zárd be a másik ablakot, vagy ellenőrizd a tálcán.",
+                "DriverVarázsló - Figyelmeztetés",
+                0x30 | 0x40000  # MB_ICONWARNING | MB_TOPMOST
+            )
+        except Exception:
+            pass
+        sys.exit(0)
+
     import multiprocessing
     multiprocessing.freeze_support()
     
