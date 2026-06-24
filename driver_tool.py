@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 112
+BUILD_NUMBER = 113
 
 try:
     import webview
@@ -311,20 +311,28 @@ class DriverToolApi:
             import urllib.request
             import ssl
             ssl_ctx = ssl.create_default_context()
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
             # Bypassing GitHub cache with a timestamp
             url = f"https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t={int(time.time())}"
+            logging.info(f"[UPDATE] Update ellenőrzése erről a címről: {url}")
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-            with urllib.request.urlopen(req, context=ssl_ctx, timeout=5) as resp:
+            with urllib.request.urlopen(req, context=ssl_ctx, timeout=10) as resp:
                 content = resp.read().decode('utf-8')
             m = re.search(r'^BUILD_NUMBER\s*=\s*(\d+)', content, re.MULTILINE)
             if m:
                 new_build = int(m.group(1))
+                logging.info(f"[UPDATE] Letöltött BUILD_NUMBER: {new_build}, Helyi: {BUILD_NUMBER}")
                 if new_build > BUILD_NUMBER:
                     logging.info(f"[UPDATE] Új verzió elérhető: {new_build} (Jelenlegi: {BUILD_NUMBER})")
                     return {'has_update': True, 'new_version': new_build}
+                else:
+                    logging.info("[UPDATE] Nincs újabb verzió.")
+            else:
+                logging.error(f"[UPDATE] Nem található BUILD_NUMBER a letöltött fájlban!")
             return {'has_update': False}
         except Exception as e:
-            logging.debug(f"[UPDATE] Ellenőrzési hiba: {e}")
+            logging.error(f"[UPDATE] Ellenőrzési hiba:", exc_info=True)
             return {'has_update': False}
 
     def perform_update(self):
@@ -336,19 +344,32 @@ class DriverToolApi:
                 import tempfile
                 import urllib.request
                 import ssl
+                import shutil
                 ssl_ctx = ssl.create_default_context()
-                exe_url = "https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/dist/DriverVarazslo.exe"
+                ssl_ctx.check_hostname = False
+                ssl_ctx.verify_mode = ssl.CERT_NONE
+                
+                exe_url = f"https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/dist/DriverVarazslo.exe?t={int(time.time())}"
                 temp_dir = tempfile.gettempdir()
                 new_exe = os.path.join(temp_dir, f"DriverVarazslo_Update_{int(time.time())}.exe")
+                
+                logging.info(f"[UPDATE] EXE letöltése innen: {exe_url}")
+                logging.info(f"[UPDATE] Cél fájl: {new_exe}")
                 
                 req = urllib.request.Request(exe_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
                 with urllib.request.urlopen(req, context=ssl_ctx, timeout=60) as resp, open(new_exe, 'wb') as f:
                     shutil.copyfileobj(resp, f)
+                    
+                downloaded_size = os.path.getsize(new_exe)
+                logging.info(f"[UPDATE] EXE letöltve. Fájlméret: {downloaded_size} byte.")
+                if downloaded_size < 1000000: # Ha kevesebb mint 1 MB, valószínűleg nem jó a letöltés
+                    logging.warning("[UPDATE] A letöltött fájl gyanúsan kicsi! Lehet, hogy hiba történt vagy 404 oldalt töltött le.")
                 
                 self.emit('task_progress', {'task': 'update', 'log': '✅ Letöltés kész! A program frissítése és újraindítása következik...'})
                 time.sleep(2)
                 
                 current_exe = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+                logging.info(f"[UPDATE] Jelenlegi futtatható fájl: {current_exe}")
                 
                 bat_path = os.path.join(temp_dir, f"dv_update_{int(time.time())}.bat")
                 bat_content = f"""@echo off
@@ -361,6 +382,7 @@ move /y "{new_exe}" "{current_exe}" > nul 2>&1
 start "" "{current_exe}"
 del "%~f0"
 """
+                logging.info(f"[UPDATE] .bat fájl írása: {bat_path}")
                 with open(bat_path, 'w', encoding='utf-8') as f:
                     f.write(bat_content)
 
@@ -369,12 +391,13 @@ del "%~f0"
                 for k in keys_to_remove:
                     env.pop(k, None)
                 
+                logging.info("[UPDATE] .bat fájl elindítása és program bezárása...")
                 subprocess.Popen(["cmd.exe", "/c", bat_path],
                                  creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NO_WINDOW,
                                  env=env)
                 os._exit(0)
             except Exception as e:
-                logging.error(f"[UPDATE] Hiba: {e}")
+                logging.error(f"[UPDATE] Hiba a letöltés/frissítés során:", exc_info=True)
                 self.emit('task_error', {'task': 'update', 'error': str(e)})
         self._safe_thread('update', worker)
 
