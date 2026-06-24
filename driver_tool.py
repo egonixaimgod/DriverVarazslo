@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 106
+BUILD_NUMBER = 107
 
 try:
     import webview
@@ -349,13 +349,19 @@ class DriverToolApi:
                 
                 current_exe = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
                 ps_script = f"""
+[Environment]::SetEnvironmentVariable('_MEIPASS2', $null, 'Process')
+[Environment]::SetEnvironmentVariable('_MEIPASS', $null, 'Process')
 Start-Sleep -Seconds 2
 Move-Item -Path '{current_exe}' -Destination '{current_exe}.old' -Force -ErrorAction SilentlyContinue
 Move-Item -Path '{new_exe}' -Destination '{current_exe}' -Force
 Start-Process -FilePath '{current_exe}'
 """
+                env = os.environ.copy()
+                env.pop('_MEIPASS2', None)
+                env.pop('_MEIPASS', None)
+                
                 subprocess.Popen(["powershell", "-WindowStyle", "Hidden", "-NoProfile", "-Command", ps_script],
-                                 creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NO_WINDOW)
+                                 creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NO_WINDOW, env=env)
                 os._exit(0)
             except Exception as e:
                 logging.error(f"[UPDATE] Hiba: {e}")
