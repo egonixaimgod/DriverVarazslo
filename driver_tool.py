@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 110
+BUILD_NUMBER = 111
 
 try:
     import webview
@@ -349,20 +349,29 @@ class DriverToolApi:
                 time.sleep(2)
                 
                 current_exe = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
-                ps_script = f"""
-[Environment]::SetEnvironmentVariable('_MEIPASS2', $null, 'Process')
-[Environment]::SetEnvironmentVariable('_MEIPASS', $null, 'Process')
-Start-Sleep -Seconds 2
-Move-Item -Path '{current_exe}' -Destination '{current_exe}.old' -Force -ErrorAction SilentlyContinue
-Move-Item -Path '{new_exe}' -Destination '{current_exe}' -Force
-Start-Process -FilePath '{current_exe}'
-"""
-                env = os.environ.copy()
-                env.pop('_MEIPASS2', None)
-                env.pop('_MEIPASS', None)
                 
-                subprocess.Popen(["powershell", "-WindowStyle", "Hidden", "-NoProfile", "-Command", ps_script],
-                                 creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NO_WINDOW, env=env)
+                bat_path = os.path.join(temp_dir, f"dv_update_{int(time.time())}.bat")
+                bat_content = f"""@echo off
+set _MEIPASS2=
+set _MEIPASS=
+set _PYIBoot_Pkg_ID=
+timeout /t 3 /nobreak > nul
+move /y "{current_exe}" "{current_exe}.old" > nul 2>&1
+move /y "{new_exe}" "{current_exe}" > nul 2>&1
+start "" "{current_exe}"
+del "%~f0"
+"""
+                with open(bat_path, 'w', encoding='utf-8') as f:
+                    f.write(bat_content)
+
+                env = os.environ.copy()
+                keys_to_remove = [k for k in env.keys() if k.startswith('_MEI') or k.startswith('_PYI')]
+                for k in keys_to_remove:
+                    env.pop(k, None)
+                
+                subprocess.Popen(["cmd.exe", "/c", bat_path],
+                                 creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NO_WINDOW,
+                                 env=env)
                 os._exit(0)
             except Exception as e:
                 logging.error(f"[UPDATE] Hiba: {e}")
