@@ -183,6 +183,17 @@ class DriverToolApi:
         self._si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         self._nw = subprocess.CREATE_NO_WINDOW
         logging.info(f"[INIT] sys_drive={self.sys_drive}")
+        
+        # Takarítás: frissítés utáni régi .exe törlése
+        try:
+            exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+            old_path = exe_path + ".old"
+            if os.path.exists(old_path):
+                os.remove(old_path)
+                logging.info("[INIT] Régi verzió (update előtti) törölve.")
+        except Exception:
+            pass
+
         logging.info("[INIT] DriverToolApi kész.")
 
     def set_window(self, window):
@@ -293,6 +304,63 @@ class DriverToolApi:
         elif level == 'DEBUG': log_lvl = logging.DEBUG
         else: log_lvl = logging.INFO
         logging.log(log_lvl, f"[JS_UI] {msg}")
+
+    def check_for_updates(self):
+        logging.info("[UPDATE] check_for_updates()")
+        try:
+            import urllib.request
+            import ssl
+            ssl_ctx = ssl.create_default_context()
+            url = "https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+            with urllib.request.urlopen(req, context=ssl_ctx, timeout=5) as resp:
+                content = resp.read().decode('utf-8')
+            m = re.search(r'^BUILD_NUMBER\s*=\s*(\d+)', content, re.MULTILINE)
+            if m:
+                new_build = int(m.group(1))
+                if new_build > BUILD_NUMBER:
+                    logging.info(f"[UPDATE] Új verzió elérhető: {new_build} (Jelenlegi: {BUILD_NUMBER})")
+                    return {'has_update': True, 'new_version': new_build}
+            return {'has_update': False}
+        except Exception as e:
+            logging.debug(f"[UPDATE] Ellenőrzési hiba: {e}")
+            return {'has_update': False}
+
+    def perform_update(self):
+        logging.info("[UPDATE] perform_update indítása...")
+        def worker():
+            try:
+                self.emit('task_start', {'task': 'update', 'title': 'Program Frissítése'})
+                self.emit('task_progress', {'task': 'update', 'log': 'Új verzió letöltése GitHubról...', 'indeterminate': True})
+                import tempfile
+                import urllib.request
+                import ssl
+                ssl_ctx = ssl.create_default_context()
+                exe_url = "https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/dist/DriverVarazslo.exe"
+                temp_dir = tempfile.gettempdir()
+                new_exe = os.path.join(temp_dir, f"DriverVarazslo_Update_{int(time.time())}.exe")
+                
+                req = urllib.request.Request(exe_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+                with urllib.request.urlopen(req, context=ssl_ctx, timeout=60) as resp, open(new_exe, 'wb') as f:
+                    shutil.copyfileobj(resp, f)
+                
+                self.emit('task_progress', {'task': 'update', 'log': '✅ Letöltés kész! A program frissítése és újraindítása következik...'})
+                time.sleep(2)
+                
+                current_exe = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+                ps_script = f"""
+Start-Sleep -Seconds 2
+Move-Item -Path '{current_exe}' -Destination '{current_exe}.old' -Force -ErrorAction SilentlyContinue
+Move-Item -Path '{new_exe}' -Destination '{current_exe}' -Force
+Start-Process -FilePath '{current_exe}'
+"""
+                subprocess.Popen(["powershell", "-WindowStyle", "Hidden", "-NoProfile", "-Command", ps_script],
+                                 creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NO_WINDOW)
+                os._exit(0)
+            except Exception as e:
+                logging.error(f"[UPDATE] Hiba: {e}")
+                self.emit('task_error', {'task': 'update', 'error': str(e)})
+        self._safe_thread('update', worker)
 
     def get_init_data(self):
         logging.info(f"[API] get_init_data() hívás - build={BUILD_NUMBER}, target={self.target_os_path}")

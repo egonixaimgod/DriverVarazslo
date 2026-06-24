@@ -487,6 +487,15 @@ window.addEventListener('pywebviewready', async () => {
       setTimeout(() => {
         startAutoFix(true);
       }, 1000);
+    } else {
+      api().check_for_updates().then(async (upd) => {
+          if (upd && upd.has_update) {
+              const ok = await showConfirm('Frissítés Elérhető', `Egy új verzió (Build ${upd.new_version}) elérhető a GitHub-on!\nSzeretnéd most letölteni és telepíteni?\n\nA letöltés a háttérben történik, majd a program újraindul.`);
+              if (ok) {
+                  api().perform_update();
+              }
+          }
+      }).catch(e => console.log(e));
     }
   } catch(e) { console.error('init error', e); }
 });
