@@ -31,7 +31,7 @@ Egy intelligens PowerShell (`Get-PnpDevice`) szkript megkeresi és törli az ös
 ### 5. ⚡ 1 Kattintásos Fix (AutoFix)
 A program "Szent Grálja", ami ezt a láncolt folyamatot végzi automatikusan:
 1. **Biztonság:** API-val blokkolja az alvó módot a futás idejére. Készít egy System Restore (Rendszer-visszaállítási) pontot.
-2. **Takarítás:** Letiltja az automatikus WU driver telepítést, törli a Szellemeszközöket, és kigyomlálja az összes (kivéve gyári) third-party drivert. Üríti a `SoftwareDistribution` mappát.
+2. **Takarítás:** Letiltja a Windows Gyors Rendszerindítását (Fast Startup / `powercfg /h off`), letiltja az automatikus WU driver telepítést, törli a Szellemeszközöket, és kigyomlálja az összes (kivéve gyári) third-party drivert. Üríti a `SoftwareDistribution` mappát.
 3. **Reboot Láncolás:** A folyamat a `RunOnce` registry kulcs segítségével újraindítja a gépet (így a Windows Registry kitisztul).
 4. **Feléledés & Telepítés:** Újraindulás után a program magától folytatja. Letapogatja a hiányzó eszközöket, összeköttetésbe lép a Windows Update COM Szerverekkel, és natívan letölti, majd feltelepíti az összes friss és stabil drivert. 
 5. Végül DCH (Microsoft Store App) frissítéseket kényszerít a háttérben.
@@ -41,6 +41,12 @@ Ha a Windows egy kékhalál, vagy rossz driver miatt nem tölt be (`0xc0000098`)
 
 ### 7. 🔥 Stabilitás Teszt (3 az 1-ben)
 A Driver telepítés után a program lehúzza a GitHub-ról a FurMark, Linpack Xtreme, és Prime95 programokat (ZIP formátum és integritás-ellenőrzéssel), majd rászabadítja őket a gépre, hogy kiderüljön, a gép valóban stabil-e.
+
+### 8. 🔒 BitLocker Kezelő
+Ha egy gépen véletlenül bekapcsolva maradt a BitLocker, vagy zavarja a szervizes folyamatokat (pl. klónozás, adatmentés), ezzel a funkcióval egyetlen kattintással elindíthatod a rendszer meghajtó végleges dekódolását a háttérben. Az állapot valós időben lekérdezhető.
+
+### 9. 🔄 Automatikus Frissítés (Auto-Updater)
+A program minden indításkor intelligensen ellenőrzi a GitHub-on a legújabb kiadást, és ha talál, egy gombnyomásra a háttérben letölti, lecseréli a fájljait és újraindítja magát, így mindig a legfrissebb funkciókkal dolgozhatsz.
 
 ---
 

@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 116
+BUILD_NUMBER = 117
 
 try:
     import webview
@@ -371,15 +371,31 @@ class DriverToolApi:
                 current_exe = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
                 logging.info(f"[UPDATE] Jelenlegi futtatható fájl: {current_exe}")
                 
+                try:
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders") as key:
+                        desktop_dir, _ = winreg.QueryValueEx(key, "Desktop")
+                except Exception:
+                    desktop_dir = os.path.join(os.environ.get('USERPROFILE', 'C:\\'), 'Desktop')
+                    
+                desktop_exe = os.path.join(desktop_dir, "DriverVarazslo.exe")
+                logging.info(f"[UPDATE] Asztali elérési út: {desktop_exe}")
+                
                 bat_path = os.path.join(temp_dir, f"dv_update_{int(time.time())}.bat")
                 bat_content = f"""@echo off
 set _MEIPASS2=
 set _MEIPASS=
 set _PYIBoot_Pkg_ID=
 timeout /t 3 /nobreak > nul
-move /y "{current_exe}" "{current_exe}.old" > nul 2>&1
-move /y "{new_exe}" "{current_exe}" > nul 2>&1
-start "" "{current_exe}"
+
+if /I not "{current_exe}"=="{desktop_exe}" (
+    move /y "{current_exe}" "{current_exe}.old" > nul 2>&1
+    copy /y "{new_exe}" "{current_exe}" > nul 2>&1
+)
+
+move /y "{desktop_exe}" "{desktop_exe}.old" > nul 2>&1
+copy /y "{new_exe}" "{desktop_exe}" > nul 2>&1
+
+start "" "{desktop_exe}"
 del "%~f0"
 """
                 logging.info(f"[UPDATE] .bat fájl írása: {bat_path}")
