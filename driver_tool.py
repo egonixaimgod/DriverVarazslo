@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 125
+BUILD_NUMBER = 126
 
 try:
     import webview
@@ -1855,6 +1855,8 @@ Write-Output "DONE: Törölve: $count / $total"
                            'Processor', 'Computer',
                            'LegacyDriver', 'Endpoint', 'AudioEndpoint', 'PrintQueue', 'Printer', 'WPD']
                            
+        attempted_uids = set()
+        
         for loop_idx in range(1, max_loops + 1):
             if getattr(self, '_cancel_flag', False):
                 break
@@ -1933,8 +1935,11 @@ Write-Output "DONE: Törölve: $count / $total"
                             break
                             
                 if match_found:
-                    matched_updates.append(wu.get('UpdateID'))
-                    matched_titles.append(wu.get('Title'))
+                    uid = wu.get('UpdateID')
+                    if uid not in attempted_uids:
+                        matched_updates.append(uid)
+                        matched_titles.append(wu.get('Title'))
+                        attempted_uids.add(uid)
 
             if not matched_updates:
                 self.emit('task_progress', {'task': task_id, 'log': '✅ Szerveren nincs újabb valós illesztőprogram.'})
@@ -2042,15 +2047,38 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     self._delete_third_party_sync()
                     if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
                     
-                    self.emit('task_progress', {'task': 'autofix', 'log': 'Beragadt frissítések törlése és WU szüneteltetése 1 hétre...'})
+                    self.emit('task_progress', {'task': 'autofix', 'log': 'Szolgáltatások leállítása és újraindítási jelzések (Pending Reboot) törlése...'})
+                    self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'])
+
+                    self.emit('task_progress', {'task': 'autofix', 'log': 'Beragadt frissítések és WU gyorsítótár (SoftwareDistribution) ürítése...'})
                     clear_cache = r"""
                     Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
                     Stop-Service bits -Force -ErrorAction SilentlyContinue
                     Stop-Service cryptsvc -Force -ErrorAction SilentlyContinue
-                    Remove-Item -Path "$env:windir\SoftwareDistribution" -Recurse -Force -ErrorAction SilentlyContinue
+                    Stop-Service UsoSvc -Force -ErrorAction SilentlyContinue
                     """
                     self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", clear_cache])
                     
+                    sysroot = os.environ.get('SYSTEMROOT', r'C:\Windows')
+                    sw_dist = os.path.join(sysroot, 'SoftwareDistribution')
+                    deleted_cache = False
+                    for _ in range(4):
+                        try:
+                            if os.path.exists(sw_dist):
+                                shutil.rmtree(sw_dist, ignore_errors=False)
+                                deleted_cache = True
+                                break
+                            else:
+                                deleted_cache = True
+                                break
+                        except Exception as e:
+                            logging.warning(f"[AUTOFIX] Cache törlés újrapróbálás: {e}")
+                            time.sleep(3)
+                            
+                    if not deleted_cache:
+                        self._run(["powershell", "-NoProfile", "-Command", f'Remove-Item -Path "{sw_dist}" -Recurse -Force -ErrorAction SilentlyContinue'])
+                    
+                    self.emit('task_progress', {'task': 'autofix', 'log': 'WU szüneteltetése 1 hétre...'})
                     ps_pause = r"""
                     $pauseDate = (Get-Date).AddDays(7).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
                     $nowDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -2080,16 +2108,26 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                             logging.error(f"[AUTOFIX] Biztonsági másolat hiba: {e}")
                     
                     if getattr(sys, 'frozen', False):
-                        cmd_str = f'"{exe_path}" --resume-autofix'
+                        exec_path = exe_path
+                        args = '--resume-autofix'
                     else:
-                        cmd_str = f'"{sys.executable}" "{exe_path}" --resume-autofix'
-                    self._run(['reg', 'add', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverVarázslóResume', '/t', 'REG_SZ', '/d', cmd_str, '/f'])
+                        exec_path = sys.executable
+                        args = f'"{exe_path}" --resume-autofix'
+                    
+                    task_ps = f'''
+                    $action = New-ScheduledTaskAction -Execute '{exec_path}' -Argument '{args}'
+                    $trigger = New-ScheduledTaskTrigger -AtLogOn
+                    $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
+                    Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Force
+                    '''
+                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", task_ps])
                     
                     self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve...'})
                     time.sleep(5)
                     self._run(['shutdown', '/r', '/t', '0', '/f'])
                     return
                 else:
+                    self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'])
                     self._run(['reg', 'delete', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverVarázslóResume', '/f'])
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Láncolt folytatás gépújraindítás után. Régi driverek törlése kihagyva, hogy ne töröljünk friss drivereket.\n'})
                     self._disable_sleep_sync()
@@ -2127,10 +2165,19 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                             logging.error(f"[AUTOFIX] Biztonsági másolat hiba: {e}")
                     
                     if getattr(sys, 'frozen', False):
-                        cmd_str = f'"{exe_path}" --resume-autofix'
+                        exec_path = exe_path
+                        args = '--resume-autofix'
                     else:
-                        cmd_str = f'"{sys.executable}" "{exe_path}" --resume-autofix'
-                    self._run(['reg', 'add', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverVarázslóResume', '/t', 'REG_SZ', '/d', cmd_str, '/f'])
+                        exec_path = sys.executable
+                        args = f'"{exe_path}" --resume-autofix'
+                    
+                    task_ps = f'''
+                    $action = New-ScheduledTaskAction -Execute '{exec_path}' -Argument '{args}'
+                    $trigger = New-ScheduledTaskTrigger -AtLogOn
+                    $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
+                    Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Force
+                    '''
+                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", task_ps])
                     
                     self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve...'})
                     time.sleep(5)
@@ -2138,7 +2185,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     return
                 else:
                     self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 KÉSZ! Nulla újonnan fellelt driver, a konfiguráció végigért.'})
-                    # Clear RunOnce just in case
+                    self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'])
                     self._run(['reg', 'delete', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverVarázslóResume', '/f'])
                     
                     self.emit('task_progress', {'task': 'autofix', 'log': 'DCH alkalmazások (Microsoft Store) frissítésének kényszerítése...'})
@@ -2181,15 +2228,38 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             self.emit('task_start', {'task': 'disable_wu', 'title': 'WU Driver Letiltás'})
             self._disable_wu_sync()
             
-            self.emit('task_progress', {'task': 'disable_wu', 'log': 'Beragadt frissítések és WU gyorsítótár ürítése...'})
-            clear_cache = r"""
+            self.emit('task_progress', {'task': 'disable_wu', 'log': 'Szolgáltatások leállítása és újraindítási jelzések (Pending Reboot) törlése...'})
+            stop_svc = r"""
             Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
             Stop-Service bits -Force -ErrorAction SilentlyContinue
             Stop-Service cryptsvc -Force -ErrorAction SilentlyContinue
-            Remove-Item -Path "$env:windir\SoftwareDistribution" -Recurse -Force -ErrorAction SilentlyContinue
+            Stop-Service UsoSvc -Force -ErrorAction SilentlyContinue
             """
-            self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", clear_cache])
+            self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", stop_svc])
+            time.sleep(2)
+            self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'])
             
+            self.emit('task_progress', {'task': 'disable_wu', 'log': 'Beragadt frissítések és WU gyorsítótár (SoftwareDistribution) ürítése...'})
+            sysroot = os.environ.get('SYSTEMROOT', r'C:\Windows')
+            sw_dist = os.path.join(sysroot, 'SoftwareDistribution')
+            deleted_cache = False
+            for _ in range(4):
+                try:
+                    if os.path.exists(sw_dist):
+                        shutil.rmtree(sw_dist, ignore_errors=False)
+                        deleted_cache = True
+                        break
+                    else:
+                        deleted_cache = True
+                        break
+                except Exception as e:
+                    logging.warning(f"[WU_DISABLE] Cache törlés újrapróbálás: {e}")
+                    time.sleep(3)
+                    
+            if not deleted_cache:
+                self._run(["powershell", "-NoProfile", "-Command", f'Remove-Item -Path "{sw_dist}" -Recurse -Force -ErrorAction SilentlyContinue'])
+            
+            self.emit('task_progress', {'task': 'disable_wu', 'log': '✅ Gyorsítótár törölve.'})
             self._run('net start wuauserv', shell=True)
             self.emit('task_progress', {'task': 'disable_wu', 'log': '✅ WU szolgáltatás újraindítva'})
             self.emit('task_complete', {'task': 'disable_wu', 'status': '✅ WU driver letiltás kész (Cache ürítve)!'})
@@ -2385,17 +2455,37 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             Set-ItemProperty -Path $regPath -Name 'PauseFeatureUpdatesStartTime' -Value $startStr -Type String -Force | Out-Null
             Set-ItemProperty -Path $regPath -Name 'PauseQualityUpdatesStartTime' -Value $startStr -Type String -Force | Out-Null
             
-            Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
-            Stop-Service bits -Force -ErrorAction SilentlyContinue
-            Stop-Service cryptsvc -Force -ErrorAction SilentlyContinue
-            Remove-Item -Path "$env:windir\SoftwareDistribution" -Recurse -Force -ErrorAction SilentlyContinue
-            Start-Service wuauserv -ErrorAction SilentlyContinue
-            
             Write-Output $dateStr
             """
             res = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], encoding='utf-8')
-            
             new_date = res.stdout.strip()
+            
+            self.emit('task_progress', {'task': 'pause_wu', 'log': 'Szolgáltatások leállítása és újraindítási jelzések törlése...'})
+            stop_svc = r"""
+            Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
+            Stop-Service bits -Force -ErrorAction SilentlyContinue
+            Stop-Service cryptsvc -Force -ErrorAction SilentlyContinue
+            Stop-Service UsoSvc -Force -ErrorAction SilentlyContinue
+            """
+            self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", stop_svc])
+            time.sleep(2)
+            self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'])
+            
+            self.emit('task_progress', {'task': 'pause_wu', 'log': 'Beragadt frissítések és WU gyorsítótár ürítése...'})
+            sysroot = os.environ.get('SYSTEMROOT', r'C:\Windows')
+            sw_dist = os.path.join(sysroot, 'SoftwareDistribution')
+            for _ in range(4):
+                try:
+                    if os.path.exists(sw_dist):
+                        shutil.rmtree(sw_dist, ignore_errors=False)
+                        break
+                    else:
+                        break
+                except Exception:
+                    time.sleep(3)
+            self._run(["powershell", "-NoProfile", "-Command", f'Remove-Item -Path "{sw_dist}" -Recurse -Force -ErrorAction SilentlyContinue'])
+            self._run('net start wuauserv', shell=True)
+            
             self.emit('task_progress', {'task': 'pause_wu', 'log': f'✅ Frissítések sikeresen szüneteltetve idáig: {new_date}'})
             self.emit('task_complete', {'task': 'pause_wu', 'status': f'✅ Szüneteltetve idáig: {new_date}'})
             
