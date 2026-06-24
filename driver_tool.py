@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 118
+BUILD_NUMBER = 119
 
 try:
     import webview
