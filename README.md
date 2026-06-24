@@ -58,8 +58,11 @@ A Driver telepítés után a program lehúzza a GitHub-ról a FurMark, Linpack X
 ### 🔄 Fejlesztés és Kiadás (Release) menete:
 Ha módosítasz a kódon, és ki akarsz adni egy új verziót, hogy a többi gép frissítse magát:
 1. Átírod a `BUILD_NUMBER` értékét a `driver_tool.py` legelején eggyel nagyobbra.
-2. Lefordítod az exe-t a konzolból: `pyinstaller --clean DriverVarazslo.spec`
-3. Git Commit és Push a `main` ágra. Az auto-updater a `dist/DriverVarazslo.exe`-t fogja lehúzni és futás közben, PowerShell (`Move-Item`) segítségével felülírni önmagát!
+2. Lefordítod az exe-t a konzolból a következő paranccsal:
+   `python -m PyInstaller --clean DriverVarazslo.spec`
+   *(Fontos: azért így, mert a sima `pyinstaller` parancsot a PowerShell sokszor nem ismeri fel útvonal hiba miatt)*
+3. Git Commit és Push a `main` ágra. 
+4. Az auto-updater a GitHubról a `dist/DriverVarazslo.exe`-t fogja lehúzni, és futás közben, egy PowerShell (`Move-Item`) script segítségével felülírni önmagát az összes többi gépen!
 
 ## 🕹️ Használat Parancssorból (CLI)
 Ha nincs elérhető WebView2, vagy WinPE alatt vagy, a program automatikusan CLI módba kapcsol, de manuálisan is erőltethető:
