@@ -207,6 +207,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
     <button class="nav-btn" onclick="switchView('wu')" data-view="wu"><span class="icon">🔄</span>Windows Update</button>
     <button class="nav-btn" onclick="switchView('hw')" data-view="hw"><span class="icon">🖥️</span>Hardver Info & Telepítés</button>
     <button class="nav-btn" onclick="switchView('ghost')" data-view="ghost"><span class="icon">👻</span>Szellemeszközök</button>
+    <button class="nav-btn" onclick="switchView('bitlocker')" data-view="bitlocker"><span class="icon">🔒</span>BitLocker Kezelő</button>
     <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Fix</button>
     <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stabilitás Teszt</button>
     <div class="sidebar-bottom" id="build-label">Build ---</div>
@@ -339,11 +340,22 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
         </div>
       </div>
 
+      <!-- VIEW: BitLocker -->
+      <div class="view" id="view-bitlocker">
+        <div class="panel glass">
+          <div class="panel-title"><span class="emoji">🔒</span> BitLocker Kezelő (Végleges Dekódolás)</div>
+          <p style="margin-bottom: 16px; color: var(--text3);">Ezzel a funkcióval véglegesen kikapcsolhatod a BitLocker meghajtótitkosítást. FIGYELEM: A dekódolás a meghajtó méretétől és sebességétől függően akár órákig is eltarthat a háttérben. A gép közben használható, de sebességcsökkenés tapasztalható.</p>
+          <div class="wu-status unknown" id="bl-status">Állapot lekérdezése...</div>
+          <button class="btn btn-big btn-danger" onclick="disableBitlocker()" id="btn-bitlocker">🔓 BitLocker Végleges Kikapcsolása (Dekódolás)</button>
+          <button class="btn" onclick="checkBitlockerStatus()" style="margin-left: 10px;">🔄 Állapot Frissítése</button>
+        </div>
+      </div>
+
       <!-- VIEW: AutoFix -->
       <div class="view" id="view-autofix">
         <div class="panel glass">
           <div class="panel-title"><span class="emoji">🚀</span> 1 Kattintásos Driver Fix</div>
-          <p style="margin-bottom: 16px; color: var(--text3);">Ez a funkció automatikusan elkészíti a registry mentést (Restore Point), letiltja az automata WU driver frissítést, törli a third-party drivereket, majd frissíti őket a legújabbakra (automatikus letöltés WU-ról), és végül újraindítja a gépet.</p>
+          <p style="margin-bottom: 16px; color: var(--text3);">Ez a funkció automatikusan elkészíti a registry mentést (Restore Point), letiltja a Windows Gyors Rendszerindítását (Fast Startup) és az automata WU driver frissítést, törli a third-party drivereket, majd frissíti őket a legújabbakra (automatikus letöltés WU-ról), és végül újraindítja a gépet.</p>
           <button class="btn btn-big btn-primary" onclick="startAutoFix()" id="btn-autofix">🚀 FIX INDÍTÁSA</button>
         </div>
       </div>
@@ -522,6 +534,13 @@ window.handlePyEvent = function(payload) {
       break;
     case 'wu_status':
       updateWuStatus(data);
+      break;
+    case 'bitlocker_status':
+      const blEl = document.getElementById('bl-status');
+      if (blEl) {
+        blEl.textContent = 'Jelenlegi állapot: ' + (data.status || 'Ismeretlen');
+        blEl.className = 'wu-status ' + (data.color || 'unknown');
+      }
       break;
     case 'ask_reboot':
       showConfirm('Újraindítás Szükséges', 'A driverek telepítése sikeresen befejeződött.\n\nSzeretnéd most AZONNAL újraindítani a számítógépet a változások érvénybe lépéséhez?').then(res => {
