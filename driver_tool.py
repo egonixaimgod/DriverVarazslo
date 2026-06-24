@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 124
+BUILD_NUMBER = 125
 
 try:
     import webview
@@ -1730,18 +1730,23 @@ try {
             except Exception:
                 pass
 
+            drv_status = "ENGEDÉLYEZVE"
+            if policy_disabled and search_disabled:
+                drv_status = "Teljesen LETILTVA"
+            elif policy_disabled:
+                drv_status = "Házirend által LETILTVA"
+            elif search_disabled:
+                drv_status = "Eszközbeáll. LETILTVA"
+
             if service_disabled:
                 result = {'status': 'Szolgáltatás LETILTVA (services.msc)', 'color': 'disabled'}
             elif paused_until:
-                result = {'status': f'SZÜNETELTETVE idáig: {paused_until}', 'color': 'warning'}
-            elif policy_disabled and search_disabled:
-                result = {'status': 'Teljesen LETILTVA', 'color': 'disabled'}
-            elif policy_disabled:
-                result = {'status': 'Házirend által LETILTVA', 'color': 'disabled'}
-            elif search_disabled:
-                result = {'status': 'Eszközbeállításokban LETILTVA', 'color': 'disabled'}
+                date_only = paused_until.split('T')[0] if 'T' in paused_until else paused_until
+                result = {'status': f'SZÜNET idáig: {date_only} | Driverek: {drv_status}', 'color': 'warning'}
             else:
-                result = {'status': 'Driver frissítés ENGEDÉLYEZVE', 'color': 'enabled'}
+                color = 'disabled' if 'LETILTVA' in drv_status else 'enabled'
+                result = {'status': f'Driver frissítés: {drv_status}', 'color': color}
+                
             logging.info(f"[WU_STATUS] Eredmény: {result['status']}")
             return result
         except Exception as e:
@@ -2175,9 +2180,19 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             logging.info("[WU] WU driver letiltás indítása...")
             self.emit('task_start', {'task': 'disable_wu', 'title': 'WU Driver Letiltás'})
             self._disable_wu_sync()
-            self._run('net stop wuauserv & net start wuauserv', shell=True)
+            
+            self.emit('task_progress', {'task': 'disable_wu', 'log': 'Beragadt frissítések és WU gyorsítótár ürítése...'})
+            clear_cache = r"""
+            Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
+            Stop-Service bits -Force -ErrorAction SilentlyContinue
+            Stop-Service cryptsvc -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path "$env:windir\SoftwareDistribution" -Recurse -Force -ErrorAction SilentlyContinue
+            """
+            self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", clear_cache])
+            
+            self._run('net start wuauserv', shell=True)
             self.emit('task_progress', {'task': 'disable_wu', 'log': '✅ WU szolgáltatás újraindítva'})
-            self.emit('task_complete', {'task': 'disable_wu', 'status': '✅ WU driver letiltás kész!'})
+            self.emit('task_complete', {'task': 'disable_wu', 'status': '✅ WU driver letiltás kész (Cache ürítve)!'})
         self._safe_thread('disable_wu', worker)
 
     def enable_wu(self):
@@ -2189,6 +2204,20 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             logging.info("[WU_ENABLE] Worker indult - WU engedélyezés és reset...")
             self.emit('task_start', {'task': 'enable_wu', 'title': 'WU Driver Engedélyezés + Reset'})
             self.emit('task_progress', {'task': 'enable_wu', 'log': 'WU driver engedélyezés + teljes reset...', 'indeterminate': True})
+
+            # Szüneteltetés (Pause) feloldása a registry-ből
+            self.emit('task_progress', {'task': 'enable_wu', 'log': 'Szüneteltetés (Pause) feloldása...'})
+            ps_resume = """
+            $regPath = 'HKLM:\\SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings'
+            Remove-ItemProperty -Path $regPath -Name 'PauseUpdatesExpiryTime' -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path $regPath -Name 'PauseFeatureUpdatesEndTime' -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path $regPath -Name 'PauseQualityUpdatesEndTime' -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path $regPath -Name 'PauseUpdatesStartTime' -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path $regPath -Name 'PauseFeatureUpdatesStartTime' -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path $regPath -Name 'PauseQualityUpdatesStartTime' -ErrorAction SilentlyContinue
+            """
+            self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_resume])
+            self.emit('task_progress', {'task': 'enable_wu', 'log': '✅ Szüneteltetés törölve'})
 
             # Delete policy
             try:
@@ -2357,6 +2386,9 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             Set-ItemProperty -Path $regPath -Name 'PauseQualityUpdatesStartTime' -Value $startStr -Type String -Force | Out-Null
             
             Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
+            Stop-Service bits -Force -ErrorAction SilentlyContinue
+            Stop-Service cryptsvc -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path "$env:windir\SoftwareDistribution" -Recurse -Force -ErrorAction SilentlyContinue
             Start-Service wuauserv -ErrorAction SilentlyContinue
             
             Write-Output $dateStr
@@ -3810,14 +3842,28 @@ class CliApi:
         except (FileNotFoundError, OSError):
             pass
         
+        drv_status = "✅ ENGEDÉLYEZVE"
         if policy_disabled and search_disabled:
-            return "⛔ LETILTVA (policy + eszközbeállítások)"
+            drv_status = "⛔ LETILTVA (policy + eszközbeállítások)"
         elif policy_disabled:
-            return "⛔ LETILTVA (policy)"
+            drv_status = "⛔ LETILTVA (policy)"
         elif search_disabled:
-            return "⛔ LETILTVA (eszközbeállítások)"
-        else:
-            return "✅ ENGEDÉLYEZVE"
+            drv_status = "⛔ LETILTVA (eszközbeállítások)"
+            
+        paused_until = None
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings", 0, winreg.KEY_READ) as key:
+                val, _ = winreg.QueryValueEx(key, "PauseUpdatesExpiryTime")
+                if val:
+                    dt = datetime.strptime(val, "%Y-%m-%dT%H:%M:%SZ")
+                    if dt > datetime.utcnow():
+                        paused_until = val.split('T')[0] if 'T' in val else val
+        except Exception:
+            pass
+            
+        if paused_until:
+            return f"SZÜNETELTETVE ({paused_until}) | Driverek: {drv_status}"
+        return drv_status
     
     def disable_wu_drivers(self):
         """WU driver frissítések letiltása."""
@@ -3838,11 +3884,24 @@ class CliApi:
         self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching',
                    '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f'])
         
+        self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate',
+                   '/v', 'ExcludeWUDriversInQualityUpdate', '/t', 'REG_DWORD', '/d', '1', '/f'])
+        print("  ✅ ExcludeWUDriversInQualityUpdate = 1")
+        
+        print("  🗑️  Beragadt frissítések törlése (SoftwareDistribution)...")
+        clear_cache = r"""
+        Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
+        Stop-Service bits -Force -ErrorAction SilentlyContinue
+        Stop-Service cryptsvc -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path "$env:windir\SoftwareDistribution" -Recurse -Force -ErrorAction SilentlyContinue
+        """
+        self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", clear_cache])
+
         print("  🔄 WU szolgáltatás újraindítása...")
-        self._run('net stop wuauserv & net start wuauserv', shell=True)
+        self._run('net start wuauserv', shell=True)
         
         print("-" * 50)
-        print("✅ WU driver letiltás kész!")
+        print("✅ WU driver letiltás kész (Cache ürítve)!")
     
     def enable_wu_drivers(self):
         """WU driver frissítések engedélyezése + teljes reset."""
@@ -3853,6 +3912,19 @@ class CliApi:
         print("\n✅ WU driver frissítések engedélyezése + reset...")
         print("-" * 50)
         
+        # Szüneteltetés (Pause) feloldása a registry-ből
+        ps_resume = """
+        $regPath = 'HKLM:\\SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings'
+        Remove-ItemProperty -Path $regPath -Name 'PauseUpdatesExpiryTime' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name 'PauseFeatureUpdatesEndTime' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name 'PauseQualityUpdatesEndTime' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name 'PauseUpdatesStartTime' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name 'PauseFeatureUpdatesStartTime' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name 'PauseQualityUpdatesStartTime' -ErrorAction SilentlyContinue
+        """
+        self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_resume])
+        print("  ✅ Szüneteltetés feloldva")
+
         # Policy törlés
         try:
             with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate", 0, winreg.KEY_WRITE) as key:
