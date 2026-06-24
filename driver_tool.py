@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 108
+BUILD_NUMBER = 109
 
 try:
     import webview
@@ -311,7 +311,8 @@ class DriverToolApi:
             import urllib.request
             import ssl
             ssl_ctx = ssl.create_default_context()
-            url = "https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py"
+            # Bypassing GitHub cache with a timestamp
+            url = f"https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t={int(time.time())}"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
             with urllib.request.urlopen(req, context=ssl_ctx, timeout=5) as resp:
                 content = resp.read().decode('utf-8')
