@@ -572,8 +572,41 @@ function switchView(name) {
   document.getElementById('view-' + name).classList.add('active');
   document.querySelector('.nav-btn[data-view="'+name+'"]').classList.add('active');
   currentView = name;
+  
+  const targetBar = document.querySelector('.target-bar');
+  if (targetBar) {
+    if (name === 'drivers' || name === 'backup') {
+      targetBar.style.display = 'flex';
+    } else {
+      targetBar.style.display = 'none';
+    }
+  }
+  
   if (name === 'wu') checkWuStatus();
+  if (name === 'bitlocker') checkBitlockerStatus();
   if (name === 'hw' && !hwPool.length && !hwInstalled.length) { /* first visit, don't auto-scan */ }
+}
+
+/* ========== BITLOCKER ========== */
+function checkBitlockerStatus() {
+  const blEl = document.getElementById('bl-status');
+  if (blEl) {
+    blEl.textContent = 'Állapot lekérdezése...';
+    blEl.className = 'wu-status unknown';
+    api().get_bitlocker_status().then(res => {
+      if (res) {
+        blEl.textContent = 'Jelenlegi állapot: ' + (res.status || 'Ismeretlen');
+        blEl.className = 'wu-status ' + (res.color || 'unknown');
+      }
+    }).catch(e => console.error(e));
+  }
+}
+
+async function disableBitlocker() {
+  const ok = await showConfirm('BitLocker kikapcsolása', 'Biztosan véglegesen kikapcsolod a BitLocker titkosítást ezen a meghajtón?\n\nA folyamat a háttérben órákig is eltarthat!');
+  if (ok) {
+    api().disable_bitlocker();
+  }
 }
 
 /* ========== TARGET OS ========== */
