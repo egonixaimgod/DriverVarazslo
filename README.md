@@ -53,6 +53,13 @@ A Driver telepítés után a program lehúzza a GitHub-ról a FurMark, Linpack X
 * **Backend Motor:** A legtöbb bonyolult hívás rejtett `Powershell -Command` futtatásokkal van megoldva (pl. WMI `Win32_PnPEntity`, Windows Update `Microsoft.Update.Session` COM API) `subprocess.Popen` segítségével, folyamatos `stdout` olvasással a real-time progress sávokhoz.
 * **WinPE Támogatás (X: Meghajtó):** A WIM/ESD extract és a letöltések temp mappája automatikusan lekezeli a `SystemDrive` változót. Ha `X:` alatt fut, a RAM-disk megtelése elkerülése végett az asztali (offline) OS célmappájába (`C:\DV_Temp`) irányítja a gigantikus fájlokat.
 * **Hibakeresés (Debug):** Minden standard output a `DriverVarázsló_debug.log` fájlba íródik, és minden JS hiba egy speciális hídon át landol a Python loggerben.
+* **Auto-Updater:** A program minden indításkor ellenőrzi a `driver_tool.py` fájlban lévő `BUILD_NUMBER` változót a GitHub repón. Ha az online szám nagyobb a beégetettnél, a szoftver felajánlja az önfrissítést.
+
+### 🔄 Fejlesztés és Kiadás (Release) menete:
+Ha módosítasz a kódon, és ki akarsz adni egy új verziót, hogy a többi gép frissítse magát:
+1. Átírod a `BUILD_NUMBER` értékét a `driver_tool.py` legelején eggyel nagyobbra.
+2. Lefordítod az exe-t a konzolból: `pyinstaller --clean DriverVarazslo.spec`
+3. Git Commit és Push a `main` ágra. Az auto-updater a `dist/DriverVarazslo.exe`-t fogja lehúzni és futás közben, PowerShell (`Move-Item`) segítségével felülírni önmagát!
 
 ## 🕹️ Használat Parancssorból (CLI)
 Ha nincs elérhető WebView2, vagy WinPE alatt vagy, a program automatikusan CLI módba kapcsol, de manuálisan is erőltethető:
