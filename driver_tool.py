@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 126
+BUILD_NUMBER = 127
 
 try:
     import webview
@@ -179,6 +179,7 @@ class DriverToolApi:
         self.wu_api_mode = True
         self._cancel_flag = False  # Flag for cancelling long-running tasks
         self.resume_mode = '--resume-autofix' in sys.argv
+        self.resume_step1 = '--resume-step1' in sys.argv
         self._si = subprocess.STARTUPINFO()
         self._si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         self._nw = subprocess.CREATE_NO_WINDOW
@@ -419,7 +420,7 @@ del "%~f0"
 
     def get_init_data(self):
         logging.info(f"[API] get_init_data() hívás - build={BUILD_NUMBER}, target={self.target_os_path}")
-        return {'build': BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path, 'resume_mode': getattr(self, 'resume_mode', False), }
+        return {'build': BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path, 'resume_mode': getattr(self, 'resume_mode', False), 'resume_step1': getattr(self, 'resume_step1', False)}
 
     def reboot_system(self):
         logging.info("[API] reboot_system() - Felhasználó újraindítást kért")
@@ -2016,18 +2017,77 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             return
 
         def worker():
-            task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if getattr(self, 'resume_mode', False) else '1 Kattintásos Driver Javítás és Frissítés'
+            is_resume_step1 = getattr(self, 'resume_step1', False)
+            is_resume_mode = getattr(self, 'resume_mode', False)
+            
+            task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if (is_resume_mode or is_resume_step1) else '1 Kattintásos Driver Javítás és Frissítés'
             self.emit('task_start', {'task': 'autofix', 'title': task_title})
             try:
                 # Internet ellenőrzés autofix elején (ha nem resume mód)
-                if not getattr(self, 'resume_mode', False):
+                if not is_resume_mode and not is_resume_step1:
                     self.emit('task_progress', {'task': 'autofix', 'log': '⏳ Internetkapcsolat ellenőrzése...'})
                     if not self._check_internet():
                         self.emit('toast', {'message': '❌ Nincs internetkapcsolat! Kérlek csatlakozz egy hálózathoz az Autofix előtt!', 'type': 'error'})
                         self.emit('task_complete', {'task': 'autofix', 'status': '❌ Nincs Internetkapcsolat!'})
                         return
 
-                if not getattr(self, 'resume_mode', False):
+                # ÚJ LÉPÉS (-1. LÉPÉS)
+                if not is_resume_mode and not is_resume_step1:
+                    self.emit('task_progress', {'task': 'autofix', 'log': '-1. LÉPÉS: Windows Update szüneteltetése és újraindítás...'})
+                    
+                    self._disable_sleep_sync()
+                    
+                    self.emit('task_progress', {'task': 'autofix', 'log': 'WU szüneteltetése 1 hétre...'})
+                    ps_pause = r"""
+                    $pauseDate = (Get-Date).AddDays(7).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    $nowDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseUpdatesExpiryTime' -Value $pauseDate -Type String -Force | Out-Null
+                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseFeatureUpdatesEndTime' -Value $pauseDate -Type String -Force | Out-Null
+                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseQualityUpdatesEndTime' -Value $pauseDate -Type String -Force | Out-Null
+                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
+                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseFeatureUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
+                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseQualityUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
+                    """
+                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_pause])
+                    self.emit('task_progress', {'task': 'autofix', 'log': '✅ WU szüneteltetve 1 hétre.\n'})
+                    
+                    self.emit('task_progress', {'task': 'autofix', 'log': '🔄 A számítógép újraindul, majd a folyamat a rendszer előkészítésével folytatódik!'})
+                    
+                    exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+                    temp_env = os.environ.get('TEMP', '!!').lower()
+                    if temp_env in exe_path.lower():
+                        try:
+                            public_dir = os.environ.get('PUBLIC', 'C:\\Users\\Public')
+                            safe_exe = os.path.join(public_dir, "DriverVarazslo_Resume.exe" if getattr(sys, 'frozen', False) else "DriverVarazslo_Resume.py")
+                            shutil.copy2(exe_path, safe_exe)
+                            exe_path = safe_exe
+                            self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ Temp mappából futás detektálva. Biztonsági másolat készítve a Public mappába.'})
+                        except Exception as e:
+                            logging.error(f"[AUTOFIX] Biztonsági másolat hiba: {e}")
+                    
+                    if getattr(sys, 'frozen', False):
+                        exec_path = exe_path
+                        args = '--resume-step1'
+                    else:
+                        exec_path = sys.executable
+                        args = f'"{exe_path}" --resume-step1'
+                    
+                    task_ps = f'''
+                    $action = New-ScheduledTaskAction -Execute '{exec_path}' -Argument '{args}'
+                    $trigger = New-ScheduledTaskTrigger -AtLogOn
+                    $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
+                    Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Force
+                    '''
+                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", task_ps])
+                    
+                    self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve (-1. lépés)...'})
+                    time.sleep(5)
+                    self._run(['shutdown', '/r', '/t', '0', '/f'])
+                    return
+
+                if not is_resume_mode:
+                    if is_resume_step1:
+                        self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'])
                     self.emit('task_progress', {'task': 'autofix', 'log': '0. LÉPÉS: Rendszer előkészítése és régi driverek törlése...'})
                     
                     self._disable_sleep_sync()
