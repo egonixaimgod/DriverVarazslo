@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 127
+BUILD_NUMBER = 128
 
 try:
     import webview
@@ -425,6 +425,11 @@ del "%~f0"
     def reboot_system(self):
         logging.info("[API] reboot_system() - Felhasználó újraindítást kért")
         self._run(['shutdown', '/r', '/t', '0', '/f'])
+        return True
+
+    def open_defender(self):
+        logging.info("[API] open_defender() - Windows Defender megnyitása")
+        self._run(['start', 'windowsdefender://threat'], shell=True)
         return True
 
     def cancel_task(self):

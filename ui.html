@@ -356,6 +356,13 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
         <div class="panel glass">
           <div class="panel-title"><span class="emoji">🚀</span> 1 Kattintásos Driver Fix</div>
           <p style="margin-bottom: 16px; color: var(--text3);">Ez a funkció automatikusan elkészíti a registry mentést (Restore Point), letiltja a Windows Gyors Rendszerindítását (Fast Startup) és az automata WU driver frissítést, törli a third-party drivereket, majd frissíti őket a legújabbakra (automatikus letöltés WU-ról), és végül újraindítja a gépet.</p>
+          
+          <div style="background: rgba(255, 100, 90, 0.1); border: 1px solid rgba(255, 100, 90, 0.4); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="color: var(--red); font-weight: bold; margin-bottom: 8px;">⚠️ FIGYELEM: WINDOWS DEFENDER</div>
+            <p style="color: var(--text2); font-size: 13px; margin-bottom: 12px; line-height: 1.5;">A Windows Defender "vírusnak" nézheti és futás közben gondolkodás nélkül letörölheti a Varázslót a háttérben futó scriptek és a mély rendszer-módosítások miatt. <strong>Kérlek, feltétlenül kapcsold ki a "Valós idejű védelmet", mielőtt rányomsz a Fix indítására!</strong></p>
+            <button class="btn btn-sm" style="background: rgba(255, 100, 90, 0.2); border-color: rgba(255, 100, 90, 0.5); color: #fff;" onclick="api().open_defender()">🛡️ Windows Defender Megnyitása</button>
+          </div>
+
           <button class="btn btn-big btn-primary" onclick="startAutoFix()" id="btn-autofix">🚀 FIX INDÍTÁSA</button>
         </div>
       </div>
