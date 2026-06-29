@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 143
+BUILD_NUMBER = 144
 
 try:
     import webview
@@ -440,7 +440,7 @@ del "%~f0"
         return True
 
     def _download_stresstools(self):
-        import tempfile, urllib.request, zipfile
+        import tempfile, urllib.request, zipfile, ssl, shutil
         temp_dir = tempfile.gettempdir()
         stress_dir = os.path.join(temp_dir, "DriverVarázsló_Stress")
         zip_path = os.path.join(temp_dir, "stresstools.zip")
@@ -451,7 +451,14 @@ del "%~f0"
             
         try:
             logging.info("[STRESSTOOLS] Letöltés INNEN: " + download_url)
-            urllib.request.urlretrieve(download_url, zip_path)
+            ssl_ctx = ssl.create_default_context()
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+            
+            req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+            with urllib.request.urlopen(req, context=ssl_ctx, timeout=60) as resp, open(zip_path, 'wb') as f:
+                shutil.copyfileobj(resp, f)
+                
             if not zipfile.is_zipfile(zip_path):
                 return None
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
