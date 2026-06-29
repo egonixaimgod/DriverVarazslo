@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 146
+BUILD_NUMBER = 147
 
 try:
     import webview
@@ -3453,7 +3453,19 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                                 hours = "?"
                                 power_on = info_data.get("power_on_time", {}).get("hours")
                                 if power_on is not None:
-                                    hours = f"{power_on} óra"
+                                    try:
+                                        p_hours = int(power_on)
+                                        d = p_hours // 24
+                                        h = p_hours % 24
+                                        if d > 0:
+                                            if h > 0:
+                                                hours = f"{d} nap {h} óra"
+                                            else:
+                                                hours = f"{d} nap"
+                                        else:
+                                            hours = f"{h} óra"
+                                    except:
+                                        hours = f"{power_on} óra"
                                     
                                 temp = "?"
                                 temperature = info_data.get("temperature", {}).get("current")
