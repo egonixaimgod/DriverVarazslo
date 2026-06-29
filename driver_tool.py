@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 144
+BUILD_NUMBER = 145
 
 try:
     import webview
@@ -3438,6 +3438,17 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                                     size_gb = f"{round(user_cap / (1024**3), 1)} GB"
                                     
                                 dev_type = info_data.get("device", {}).get("protocol", "Unspecified")
+                                rotation = info_data.get("rotation_rate", 0)
+                                
+                                if dev_type.lower() == "nvme":
+                                    dev_type_str = "NVMe SSD"
+                                elif dev_type.lower() == "ata":
+                                    if rotation == 0:
+                                        dev_type_str = "SATA SSD"
+                                    else:
+                                        dev_type_str = f"SATA HDD ({rotation} RPM)"
+                                else:
+                                    dev_type_str = dev_type.upper()
                                 
                                 hours = "?"
                                 power_on = info_data.get("power_on_time", {}).get("hours")
@@ -3451,17 +3462,18 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                                     
                                 health_txt = "Ismeretlen"
                                 health = "-1"
+                                perf = "100%"
                                 
                                 if dev_type.lower() == "nvme":
                                     used = info_data.get("nvme_smart_health_information_log", {}).get("percentage_used")
                                     if used is not None:
                                         health_pct = 100 - used
                                         health = f"{health_pct}%"
-                                        health_txt = f"{health_pct}%"
+                                        health_txt = f"{health_pct}% (Teljesítmény: {perf})"
                                 else:
                                     status = info_data.get("smart_status", {}).get("passed")
                                     if status is True:
-                                        health_txt = "OK"
+                                        health_txt = f"100% (Teljesítmény: {perf})"
                                         health = "100%"
                                     elif status is False:
                                         health_txt = "Hibás (SMART Fail)"
@@ -3471,7 +3483,7 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                                     if endurance is not None:
                                         health_pct = 100 - endurance
                                         health = f"{health_pct}%"
-                                        health_txt = f"{health_pct}%"
+                                        health_txt = f"{health_pct}% (Teljesítmény: {perf})"
                                     else:
                                         attrs = info_data.get("ata_smart_attributes", {}).get("table", [])
                                         for attr in attrs:
@@ -3479,17 +3491,17 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                                                 val = attr.get("value")
                                                 if val is not None:
                                                     health = f"{val}%"
-                                                    health_txt = f"{val}%"
+                                                    health_txt = f"{val}% (Teljesítmény: {perf})"
                                                     break
                                 
-                                logging.info(f"[REPORT] Lemez: {model} | Méret: {size_gb} | Típus: {dev_type} | Health: {health_txt} | Temp: {temp}")                    
+                                logging.info(f"[REPORT] Lemez: {model} | Méret: {size_gb} | Típus: {dev_type_str} | Health: {health_txt} | Temp: {temp}")                    
                                 smart_data.append({
                                     "Name": model.strip(),
                                     "Size": size_gb,
                                     "Health": health_txt,
                                     "Hours": str(hours),
                                     "Temp": str(temp),
-                                    "Type": dev_type.strip(),
+                                    "Type": dev_type_str,
                                     "RawHealth": health.replace('%','').strip() if health != "-1" else "-1"
                                 })
                     else:
@@ -3622,11 +3634,24 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
                 
             html += f"<p style='margin: 0 0 8px 0;'><strong>Összes fizikai memória:</strong> {tot_gb} ({len(ram_list)} db modul)</p>"
             if ram_list:
+                jedec_map = {
+                    "80AD": "SK Hynix", "80CE": "Samsung", "802C": "Micron", 
+                    "0198": "Kingston", "029E": "Corsair", "04CB": "A-DATA", 
+                    "00CE": "Samsung", "014F": "Transcend", "02FE": "Elpida",
+                    "0D0B": "Crucial", "0298": "Kingston"
+                }
                 html += "<table><tr><th>Gyártó / Cikkszám</th><th>Kapacitás</th><th>Sebesség</th></tr>"
                 for r in ram_list:
                     cap = r.get('Capacity')
                     cap_gb = f"{round(int(cap)/(1024**3), 1)} GB" if cap else "?"
-                    man_part = f"{r.get('Manufacturer', '?')} {r.get('PartNumber', '?')}".strip()
+                    
+                    man = str(r.get('Manufacturer', '?')).strip()
+                    if len(man) >= 4 and all(c in '0123456789ABCDEFabcdef' for c in man[:4]):
+                        hex_pfx = man[:4].upper()
+                        if hex_pfx in jedec_map:
+                            man = jedec_map[hex_pfx]
+                            
+                    man_part = f"{man} {r.get('PartNumber', '?')}".strip()
                     html += f"<tr><td>{man_part}</td><td>{cap_gb}</td><td>{r.get('Speed', '?')} MHz</td></tr>"
                 html += "</table>"
             
@@ -3642,6 +3667,7 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
                     full = int(batt_data['Full'])
                     health_pct = round((full / des) * 100)
                     h_class = "health-Healthy" if health_pct > 80 else "health-Warning" if health_pct > 50 else "health-Unhealthy"
+                    batt_icon = "🔋" if health_pct >= 20 else "🪫"
                     
                     html += f"""
         <div class="section">
@@ -3649,7 +3675,7 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             <table>
                 <tr><th>Gyári kapacitás</th><td>{des} mWh</td></tr>
                 <tr><th>Jelenlegi max.</th><td>{full} mWh</td></tr>
-                <tr><th>Egészség</th><td><span class="badge {h_class}">{health_pct}%</span></td></tr>
+                <tr><th>Egészség</th><td><span style="font-size:18px; vertical-align:middle;">{batt_icon}</span> <span class="badge {h_class}" style="font-size:13px; padding:4px 8px;">{health_pct}%</span></td></tr>
             </table>
         </div>"""
                 except: pass
@@ -3661,9 +3687,17 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             if not gpu_list:
                 html += "<p>Nem található dedikált/integrált videókártya.</p>"
             for g in gpu_list:
+                name = g.get('Name', 'Ismeretlen')
                 ram = g.get('AdapterRAM')
-                ram_gb = f"{round(int(ram)/(1024**3), 1)} GB" if ram else "Ismeretlen"
-                html += f"<table><tr><th>Modell</th><td>{g.get('Name', 'Ismeretlen')}</td></tr><tr><th>VRAM</th><td>{ram_gb}</td></tr></table><br>"
+                if ram:
+                    ram_gb = round(int(ram)/(1024**3), 1)
+                    ram_gb_str = f"{ram_gb} GB"
+                    if ("intel" in name.lower() or "amd radeon" in name.lower() or "vega" in name.lower()) and ram_gb <= 2.0:
+                        ram_gb_str += " (Megosztott / Dinamikus VRAM)"
+                else:
+                    ram_gb_str = "Ismeretlen"
+                
+                html += f"<table><tr><th>Modell</th><td>{name}</td></tr><tr><th>VRAM</th><td>{ram_gb_str}</td></tr></table><br>"
             
             if gpu_list: html = html[:-4] # remove last <br>
 
