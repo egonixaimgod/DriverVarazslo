@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 139
+BUILD_NUMBER = 140
 
 try:
     import webview
@@ -3373,78 +3373,93 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
     def generate_system_report(self):
         logging.info("[API] generate_system_report()")
         try:
-            # S.M.A.R.T adatok begyűjtése (HDSentinel - stress tools zipből)
+            # S.M.A.R.T adatok begyűjtése (smartctl - stress tools zipből)
             stress_dir = self._download_stresstools()
-            hds_exe = None
+            smartctl_exe = None
             if stress_dir:
                 for root, dirs, files in os.walk(stress_dir):
                     for f in files:
-                        if f.lower() == "hdsentinel.exe":
-                            hds_exe = os.path.join(root, f)
+                        if f.lower() == "smartctl.exe":
+                            smartctl_exe = os.path.join(root, f)
                             break
-                    if hds_exe: break
+                    if smartctl_exe: break
             
             smart_data = []
-            if hds_exe:
+            if smartctl_exe:
                 try:
-                    hds_dir = os.path.dirname(hds_exe)
-                    xml_path = os.path.join(hds_dir, "HDSData", "HDSentinel.xml")
-                    if os.path.exists(xml_path):
-                        try: os.remove(xml_path)
-                        except: pass
+                    scan_res = self._run([smartctl_exe, "--scan", "-j"], encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW)
+                    scan_data = json.loads(scan_res.stdout) if scan_res.stdout.strip() else {}
                     
-                    self._run([hds_exe, "/XML"], cwd=hds_dir)
-                    
-                    for _ in range(30):
-                        if os.path.exists(xml_path):
-                            break
-                        time.sleep(0.5)
-                        
-                    self._run(["taskkill", "/IM", "HDSentinel.exe", "/F"], creationflags=subprocess.CREATE_NO_WINDOW)
-                    
-                    if os.path.exists(xml_path):
-                        import xml.etree.ElementTree as ET
-                        try:
-                            tree = ET.parse(xml_path)
-                            root_xml = tree.getroot()
-                            for disk_node in root_xml.findall('./*'):
-                                if disk_node.tag.startswith('Physical_Disk_Information_Disk'):
-                                    summary = disk_node.find('Hard_Disk_Summary')
-                                    if summary is not None:
-                                        model = summary.findtext('Hard_Disk_Model_ID') or 'Ismeretlen Meghajtó'
-                                        size_str = summary.findtext('Total_Size')
-                                        size_gb = "?"
-                                        if size_str:
-                                            m = re.search(r'(\d+)', size_str)
-                                            if m: size_gb = f"{round(int(m.group(1)) / 1024, 1)} GB"
-                                            
-                                        health = summary.findtext('Health') or '-1'
-                                        perf = summary.findtext('Performance') or '-1'
+                    if "devices" in scan_data:
+                        for dev in scan_data["devices"]:
+                            dev_name = dev.get("name")
+                            if dev_name:
+                                info_res = self._run([smartctl_exe, "-a", dev_name, "-j"], encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW)
+                                info_data = json.loads(info_res.stdout) if info_res.stdout.strip() else {}
+                                
+                                model = info_data.get("model_name", "Ismeretlen Meghajtó")
+                                
+                                size_gb = "?"
+                                user_cap = info_data.get("user_capacity", {}).get("bytes", 0)
+                                if user_cap:
+                                    size_gb = f"{round(user_cap / (1024**3), 1)} GB"
+                                    
+                                dev_type = info_data.get("device", {}).get("protocol", "Unspecified")
+                                
+                                hours = "?"
+                                power_on = info_data.get("power_on_time", {}).get("hours")
+                                if power_on is not None:
+                                    hours = f"{power_on} óra"
+                                    
+                                temp = "?"
+                                temperature = info_data.get("temperature", {}).get("current")
+                                if temperature is not None:
+                                    temp = f"{temperature} °C"
+                                    
+                                health_txt = "Ismeretlen"
+                                health = "-1"
+                                
+                                if dev_type.lower() == "nvme":
+                                    used = info_data.get("nvme_smart_health_information_log", {}).get("percentage_used")
+                                    if used is not None:
+                                        health_pct = 100 - used
+                                        health = f"{health_pct}%"
+                                        health_txt = f"{health_pct}%"
+                                else:
+                                    status = info_data.get("smart_status", {}).get("passed")
+                                    if status is True:
+                                        health_txt = "OK"
+                                        health = "100%"
+                                    elif status is False:
+                                        health_txt = "Hibás (SMART Fail)"
+                                        health = "0%"
                                         
-                                        health_txt = "Ismeretlen"
-                                        if health != '-1' and '%' not in health: health += '%'
-                                        if perf != '-1' and '%' not in perf: perf += '%'
-                                        
-                                        if health != '-1%':
-                                            health_txt = f"{health} (Teljesítmény: {perf})"
-                                            
-                                        hours = summary.findtext('Power_on_time') or 'Ismeretlen'
-                                        temp = summary.findtext('Current_Temperature') or '?'
-                                        dev_type = summary.findtext('Device_Type') or 'Unspecified'
-                                        
-                                        smart_data.append({
-                                            "Name": model.strip(),
-                                            "Size": size_gb,
-                                            "Health": health_txt,
-                                            "Hours": hours.strip(),
-                                            "Temp": temp.strip(),
-                                            "Type": dev_type.strip(),
-                                            "RawHealth": health.replace('%','').strip()
-                                        })
-                        except Exception as e:
-                            logging.error(f"HDSentinel XML parse hiba: {e}")
+                                    endurance = info_data.get("endurance_used", {}).get("current_percent")
+                                    if endurance is not None:
+                                        health_pct = 100 - endurance
+                                        health = f"{health_pct}%"
+                                        health_txt = f"{health_pct}%"
+                                    else:
+                                        attrs = info_data.get("ata_smart_attributes", {}).get("table", [])
+                                        for attr in attrs:
+                                            if attr.get("name") == "SSD_Life_Left" or attr.get("id") == 231 or attr.get("name") == "Media_Wearout_Indicator" or attr.get("id") == 233:
+                                                val = attr.get("value")
+                                                if val is not None:
+                                                    health = f"{val}%"
+                                                    health_txt = f"{val}%"
+                                                    break
+                                                    
+                                smart_data.append({
+                                    "Name": model.strip(),
+                                    "Size": size_gb,
+                                    "Health": health_txt,
+                                    "Hours": str(hours),
+                                    "Temp": str(temp),
+                                    "Type": dev_type.strip(),
+                                    "RawHealth": health.replace('%','').strip() if health != "-1" else "-1"
+                                })
                 except Exception as e:
-                    logging.error(f"HDSentinel futtatási hiba: {e}")
+                    logging.error(f"smartctl futtatási hiba: {e}")
 
             # Akkumulátor információk
             batt_script = r"""
