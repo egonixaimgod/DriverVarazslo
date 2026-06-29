@@ -210,6 +210,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
     <button class="nav-btn" onclick="switchView('bitlocker')" data-view="bitlocker"><span class="icon">🔒</span>BitLocker Kezelő</button>
     <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Fix</button>
     <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stabilitás Teszt</button>
+    <button class="nav-btn" onclick="switchView('report')" data-view="report"><span class="icon">📊</span>Rendszer Riport (PDF)</button>
     <div class="sidebar-bottom" id="build-label">Build ---</div>
   </nav>
 
@@ -373,6 +374,15 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
           <div class="panel-title"><span class="emoji">🔥</span> Stabilitás Teszt (3 az 1-ben)</div>
           <p style="margin-bottom: 16px; color: var(--text3);">Letölti és %TEMP%-ből elindítja a FurMark, Linpack Xtreme és Prime95 teszteket. Használd stabilitás és hőmérséklet tesztelésre javítás után!</p>
           <button class="btn btn-big btn-danger" onclick="startStressTests()" id="btn-stresstest">🔥 MINDEN TESZT INDÍTÁSA</button>
+        </div>
+      </div>
+
+      <!-- VIEW: Report (PDF) -->
+      <div class="view" id="view-report">
+        <div class="panel glass">
+          <div class="panel-title"><span class="emoji">📊</span> Rendszer Riport (PDF Gépkönyv)</div>
+          <p style="margin-bottom: 16px; color: var(--text3);">Egy szép, modern PDF dokumentumot generál a számítógép hardveres adatairól (CPU, Memória, Videókártyák, és Háttértárak S.M.A.R.T. adatai), amit elmenthetsz vagy kinyomtathatsz.</p>
+          <button class="btn btn-big btn-success" onclick="generateSystemReport()" id="btn-report">📄 PDF Riport Generálása</button>
         </div>
       </div>
 
@@ -934,6 +944,26 @@ async function resumeWu() {
     setTimeout(checkWuStatus, 1500);
   } catch (e) {
     toast('Feloldás hiba: ' + e, 'error');
+  }
+}
+
+/* ========== PDF REPORT ========== */
+async function generateSystemReport() {
+  document.getElementById('btn-report').disabled = true;
+  document.getElementById('btn-report').textContent = '⏳ Adatok letapogatása...';
+  try {
+    const res = await api().generate_system_report();
+    if (res && res.success) {
+      const openPdf = await showConfirm('Kész!', 'A rendszer riport sikeresen elkészült:\n' + res.path + '\n\nMegnyitod most a PDF fájlt?');
+      if (openPdf) {
+        api().open_file(res.path);
+      }
+    }
+  } catch (e) {
+    toast('PDF generálási hiba: ' + e, 'error');
+  } finally {
+    document.getElementById('btn-report').disabled = false;
+    document.getElementById('btn-report').textContent = '📄 PDF Riport Generálása';
   }
 }
 

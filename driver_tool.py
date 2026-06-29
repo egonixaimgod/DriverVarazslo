@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 128
+BUILD_NUMBER = 129
 
 try:
     import webview
@@ -3354,6 +3354,223 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                 self.emit('task_complete', {'task': 'wim', 'status': f'❌ Hiba: {e}'})
 
         self._safe_thread('wim', worker)
+
+    def open_file(self, path):
+        logging.info(f"[API] open_file: {path}")
+        try:
+            os.startfile(path)
+            return True
+        except Exception as e:
+            logging.error(f"Cannot open file: {e}")
+            return False
+
+    def generate_system_report(self):
+        logging.info("[API] generate_system_report()")
+        import tempfile
+        try:
+            ps_script = r"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$data = @{}
+try { $data.CPU = Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed | ConvertTo-Json -Compress } catch {}
+try { $data.RAM = @(Get-CimInstance Win32_PhysicalMemory | Select-Object Capacity, Speed, Manufacturer, PartNumber) | ConvertTo-Json -Compress } catch {}
+try { $data.RAMTotal = Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory | ConvertTo-Json -Compress } catch {}
+try { $data.GPU = @(Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM) | ConvertTo-Json -Compress } catch {}
+try { $data.OS = Get-CimInstance Win32_OperatingSystem | Select-Object Caption, OSArchitecture | ConvertTo-Json -Compress } catch {}
+try { $data.Board = Get-CimInstance Win32_BaseBoard | Select-Object Manufacturer, Product | ConvertTo-Json -Compress } catch {}
+try {
+    $disks = Get-PhysicalDisk | Select-Object DeviceId, FriendlyName, MediaType, Size
+    $storageList = @()
+    foreach ($d in $disks) {
+        $health = "Ismeretlen"
+        $hours = "Ismeretlen"
+        $temp = "Ismeretlen"
+        try {
+            $stat = Get-StorageReliabilityCounter -PhysicalDisk $d -ErrorAction SilentlyContinue
+            if ($stat) {
+                if ($stat.Wear -ne $null) { $health = (100 - $stat.Wear).ToString() + "%" }
+                if ($stat.PowerOnHours -ne $null) { $hours = $stat.PowerOnHours }
+                if ($stat.Temperature -ne $null) { $temp = $stat.Temperature.ToString() + " C" }
+            }
+        } catch {}
+        $storageList += @{ Name=$d.FriendlyName; Type=$d.MediaType; Size=$d.Size; Health=$health; Hours=$hours; Temp=$temp }
+    }
+    $data.Storage = $storageList | ConvertTo-Json -Compress
+} catch {}
+ConvertTo-Json $data
+"""
+            res = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script], encoding='utf-8')
+            raw_data = json.loads(res.stdout.strip())
+
+            def safe_json(k):
+                try:
+                    return json.loads(raw_data.get(k, "{}")) if raw_data.get(k) else {}
+                except:
+                    return {}
+
+            def safe_json_list(k):
+                try:
+                    parsed = json.loads(raw_data.get(k, "[]")) if raw_data.get(k) else []
+                    return parsed if isinstance(parsed, list) else [parsed]
+                except:
+                    return []
+
+            cpu = safe_json("CPU")
+            if isinstance(cpu, list) and len(cpu) > 0: cpu = cpu[0]
+            ram_list = safe_json_list("RAM")
+            gpu_list = safe_json_list("GPU")
+            os_info = safe_json("OS")
+            board = safe_json("Board")
+            storage_list = safe_json_list("Storage")
+
+            # HTML Generator
+            html = f"""<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<style>
+body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #fff; color: #333; margin: 0; padding: 40px; }}
+h1 {{ color: #46286e; border-bottom: 2px solid #d488ff; padding-bottom: 10px; }}
+.section {{ margin-bottom: 30px; background: #f9f6ff; padding: 20px; border-radius: 8px; border-left: 4px solid #b855ff; }}
+.section h2 {{ margin-top: 0; color: #46286e; font-size: 18px; margin-bottom: 15px; }}
+table {{ width: 100%; border-collapse: collapse; }}
+th, td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid #e0d8f0; }}
+th {{ background: #eee8f8; color: #46286e; width: 30%; }}
+.item-title {{ font-weight: bold; color: #46286e; margin-top: 10px; margin-bottom: 5px; }}
+.badge {{ display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; background: #e0d8f0; color: #46286e; }}
+.health-good {{ background: #d4edda; color: #155724; }}
+.health-warn {{ background: #fff3cd; color: #856404; }}
+.health-bad {{ background: #f8d7da; color: #721c24; }}
+</style>
+</head>
+<body>
+<h1>DriverVarázsló - Rendszer Adatlap</h1>
+<p style="color: #666; margin-top: -10px; margin-bottom: 30px;">Generálva: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+
+<div class="section">
+    <h2>💻 Számítógép és Rendszer</h2>
+    <table>
+        <tr><th>Operációs rendszer</th><td>{os_info.get('Caption', 'Ismeretlen')} ({os_info.get('OSArchitecture', 'Ismeretlen')})</td></tr>
+        <tr><th>Alaplap</th><td>{board.get('Manufacturer', 'Ismeretlen')} - {board.get('Product', 'Ismeretlen')}</td></tr>
+    </table>
+</div>
+
+<div class="section">
+    <h2>🧠 Processzor (CPU)</h2>
+    <table>
+        <tr><th>Modell</th><td>{cpu.get('Name', 'Ismeretlen')}</td></tr>
+        <tr><th>Magok / Szálak</th><td>{cpu.get('NumberOfCores', '?')} Mag / {cpu.get('NumberOfLogicalProcessors', '?')} Szál</td></tr>
+        <tr><th>Max Órajel</th><td>{cpu.get('MaxClockSpeed', '?')} MHz</td></tr>
+    </table>
+</div>
+
+<div class="section">
+    <h2>🎮 Videókártyák (GPU)</h2>"""
+            
+            if not gpu_list:
+                html += "<p>Nem található dedikált/integrált videókártya.</p>"
+            for g in gpu_list:
+                ram = g.get('AdapterRAM')
+                ram_gb = f"{round(int(ram)/(1024**3), 1)} GB" if ram else "Ismeretlen"
+                html += f"<table><tr><th>Modell</th><td>{g.get('Name', 'Ismeretlen')}</td></tr><tr><th>VRAM</th><td>{ram_gb}</td></tr></table><br>"
+                
+            html += """</div>
+<div class="section">
+    <h2>🧩 Memória (RAM)</h2>"""
+            
+            try:
+                tot = json.loads(raw_data.get("RAMTotal", "{}")).get('TotalPhysicalMemory')
+                tot_gb = f"{round(int(tot)/(1024**3), 1)} GB" if tot else "Ismeretlen"
+                html += f"<p><strong>Összes fizikai memória:</strong> {tot_gb} ({len(ram_list)} db modul)</p>"
+            except:
+                pass
+                
+            html += "<table><tr><th>Gyártó</th><th>Típus / Cikkszám</th><th>Kapacitás</th><th>Sebesség</th></tr>"
+            for r in ram_list:
+                cap = r.get('Capacity')
+                cap_gb = f"{round(int(cap)/(1024**3), 1)} GB" if cap else "?"
+                html += f"<tr><td>{r.get('Manufacturer', '?')}</td><td>{r.get('PartNumber', '?')}</td><td>{cap_gb}</td><td>{r.get('Speed', '?')} MHz</td></tr>"
+            html += "</table></div>"
+
+            html += """<div class="section">
+    <h2>💾 Háttértárak (S.M.A.R.T. Adatok)</h2>"""
+            if not storage_list:
+                html += "<p>Nem található háttértár információ.</p>"
+            for s in storage_list:
+                sz = s.get('Size')
+                sz_gb = f"{round(int(sz)/(1024**3), 1)} GB" if sz else "?"
+                h = s.get('Health', 'Ismeretlen')
+                h_class = ""
+                if "%" in h:
+                    try:
+                        pct = int(h.replace("%", ""))
+                        if pct > 80: h_class = "health-good"
+                        elif pct > 40: h_class = "health-warn"
+                        else: h_class = "health-bad"
+                    except: pass
+                
+                html += f"""<div class="item-title">{s.get('Name', 'Ismeretlen')} <span class="badge">{s.get('Type', 'Ismeretlen')}</span> <span class="badge">{sz_gb}</span></div>
+                <table>
+                    <tr><th>Egészségi Állapot</th><td><span class="badge {h_class}">{h}</span></td></tr>
+                    <tr><th>Üzemidő (Óra)</th><td>{s.get('Hours', '?')}</td></tr>
+                    <tr><th>Hőmérséklet</th><td>{s.get('Temp', '?')}</td></tr>
+                </table><br>"""
+
+            html += "</div></body></html>"
+
+            # Ideiglenes HTML mentése
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders") as key:
+                    desktop_dir, _ = winreg.QueryValueEx(key, "Desktop")
+            except Exception:
+                desktop_dir = os.path.join(os.environ.get('USERPROFILE', 'C:\\'), 'Desktop')
+
+            safe_name = os_info.get('Caption', 'PC').replace(' ', '_')
+            try:
+                comp_name = os.environ.get('COMPUTERNAME', 'PC')
+                safe_name = f"Rendszer_Riport_{comp_name}"
+            except: pass
+
+            temp_html = os.path.join(tempfile.gettempdir(), f"{safe_name}_{int(time.time())}.html")
+            pdf_path = os.path.join(desktop_dir, f"{safe_name}.pdf")
+
+            with open(temp_html, "w", encoding="utf-8") as f:
+                f.write(html)
+
+            # Edge Headless PDF generálás
+            edge_paths = [
+                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+            ]
+            edge_exe = None
+            for ep in edge_paths:
+                if os.path.exists(ep):
+                    edge_exe = ep
+                    break
+            
+            if not edge_exe:
+                raise Exception("Microsoft Edge nem található, nem lehet PDF-et generálni!")
+
+            # cmd futtatása
+            temp_profile = os.path.join(tempfile.gettempdir(), f"edge_tmp_{int(time.time())}")
+            cmd = f'"{edge_exe}" --headless --disable-gpu --no-sandbox --user-data-dir="{temp_profile}" --print-to-pdf="{pdf_path}" "{temp_html}"'
+            logging.info(f"Edge PDF futtatása: {cmd}")
+            res_edge = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            logging.info(f"Edge PDF kimenet: {res_edge.stdout} | {res_edge.stderr}")
+
+            try:
+                os.remove(temp_html)
+                shutil.rmtree(temp_profile, ignore_errors=True)
+            except: pass
+
+            if os.path.exists(pdf_path):
+                return {'success': True, 'path': pdf_path}
+            else:
+                raise Exception(f"A PDF generálása sikertelen volt! Kimenet: {res_edge.stderr}")
+
+        except Exception as e:
+            logging.error(f"Hiba a PDF generálásnál: {e}")
+            logging.error(traceback.format_exc())
+            raise Exception(str(e))
 
 
 # ================================================================
