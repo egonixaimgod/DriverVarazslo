@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 145
+BUILD_NUMBER = 146
 
 try:
     import webview
@@ -3469,21 +3469,22 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                                     if used is not None:
                                         health_pct = 100 - used
                                         health = f"{health_pct}%"
-                                        health_txt = f"{health_pct}% (Teljesítmény: {perf})"
+                                        health_txt = f"{health_pct}%"
                                 else:
                                     status = info_data.get("smart_status", {}).get("passed")
                                     if status is True:
-                                        health_txt = f"100% (Teljesítmény: {perf})"
+                                        health_txt = "100%"
                                         health = "100%"
                                     elif status is False:
                                         health_txt = "Hibás (SMART Fail)"
                                         health = "0%"
+                                        perf = "0%"
                                         
                                     endurance = info_data.get("endurance_used", {}).get("current_percent")
                                     if endurance is not None:
                                         health_pct = 100 - endurance
                                         health = f"{health_pct}%"
-                                        health_txt = f"{health_pct}% (Teljesítmény: {perf})"
+                                        health_txt = f"{health_pct}%"
                                     else:
                                         attrs = info_data.get("ata_smart_attributes", {}).get("table", [])
                                         for attr in attrs:
@@ -3491,7 +3492,7 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                                                 val = attr.get("value")
                                                 if val is not None:
                                                     health = f"{val}%"
-                                                    health_txt = f"{val}% (Teljesítmény: {perf})"
+                                                    health_txt = f"{val}%"
                                                     break
                                 
                                 logging.info(f"[REPORT] Lemez: {model} | Méret: {size_gb} | Típus: {dev_type_str} | Health: {health_txt} | Temp: {temp}")                    
@@ -3499,6 +3500,7 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                                     "Name": model.strip(),
                                     "Size": size_gb,
                                     "Health": health_txt,
+                                    "Performance": perf,
                                     "Hours": str(hours),
                                     "Temp": str(temp),
                                     "Type": dev_type_str,
@@ -3709,18 +3711,23 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
                 html += "<p>Nem található háttértár információ vagy nem olvasható a S.M.A.R.T.</p>"
             for s in smart_data:
                 h = s.get('Health', 'Ismeretlen')
+                p = s.get('Performance', '100%')
                 h_class = ""
+                p_class = ""
                 raw_h = s.get('RawHealth', '-1')
                 try:
                     pct = int(raw_h)
                     if pct > 80: h_class = "health-Healthy"
                     elif pct > 40: h_class = "health-Warning"
                     elif pct >= 0: h_class = "health-Unhealthy"
+                    
+                    if pct >= 0:
+                        p_class = "health-Healthy" if p == "100%" else "health-Warning"
                 except: pass
                 
                 html += f"""<div class="item-title">{s.get('Name', 'Ismeretlen')} <span class="badge">{s.get('Size', '?')}</span> <span class="badge">{s.get('Type', '?')}</span></div>
                 <table>
-                    <tr><th>Kondíció</th><td><span class="badge {h_class}">{h}</span></td></tr>
+                    <tr><th>Kond. / Telj.</th><td><span class="badge {h_class}">❤️ {h}</span> <span class="badge {p_class}">⚡ {p}</span></td></tr>
                     <tr><th>Üzemidő / Hőm.</th><td>{s.get('Hours', '?')} / {s.get('Temp', '?')}</td></tr>
                 </table><br>"""
                 
