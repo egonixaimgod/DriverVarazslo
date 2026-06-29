@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 130
+BUILD_NUMBER = 132
 
 try:
     import webview
@@ -3366,33 +3366,22 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
 
     def generate_system_report(self):
         logging.info("[API] generate_system_report()")
-        import tempfile
         try:
             ps_script = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $data = @{}
-try { $data.CPU = Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed | ConvertTo-Json -Compress } catch {}
+try { $data.CS = Get-CimInstance Win32_ComputerSystem | Select-Object Manufacturer, Model | ConvertTo-Json -Compress } catch {}
+try { $data.BB = Get-CimInstance Win32_BaseBoard | Select-Object Manufacturer, Product | ConvertTo-Json -Compress } catch {}
+try { $data.CPU = Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors | ConvertTo-Json -Compress } catch {}
 try { $data.RAM = @(Get-CimInstance Win32_PhysicalMemory | Select-Object Capacity, Speed, Manufacturer, PartNumber) | ConvertTo-Json -Compress } catch {}
 try { $data.RAMTotal = Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory | ConvertTo-Json -Compress } catch {}
 try { $data.GPU = @(Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM) | ConvertTo-Json -Compress } catch {}
 try { $data.OS = Get-CimInstance Win32_OperatingSystem | Select-Object Caption, OSArchitecture | ConvertTo-Json -Compress } catch {}
-try { $data.Board = Get-CimInstance Win32_BaseBoard | Select-Object Manufacturer, Product | ConvertTo-Json -Compress } catch {}
 try {
-    $disks = Get-PhysicalDisk | Select-Object DeviceId, FriendlyName, MediaType, Size
+    $disks = Get-PhysicalDisk | Select-Object DeviceId, FriendlyName, MediaType, Size, HealthStatus
     $storageList = @()
     foreach ($d in $disks) {
-        $health = "Ismeretlen"
-        $hours = "Ismeretlen"
-        $temp = "Ismeretlen"
-        try {
-            $stat = Get-StorageReliabilityCounter -PhysicalDisk $d -ErrorAction SilentlyContinue
-            if ($stat) {
-                if ($stat.Wear -ne $null) { $health = (100 - $stat.Wear).ToString() + "%" }
-                if ($stat.PowerOnHours -ne $null) { $hours = $stat.PowerOnHours }
-                if ($stat.Temperature -ne $null) { $temp = $stat.Temperature.ToString() + " C" }
-            }
-        } catch {}
-        $storageList += @{ Name=$d.FriendlyName; Type=$d.MediaType; Size=$d.Size; Health=$health; Hours=$hours; Temp=$temp }
+        $storageList += @{ Name=$d.FriendlyName; Type=$d.MediaType; Size=$d.Size; HealthStatus=$d.HealthStatus }
     }
     $data.Storage = $storageList | ConvertTo-Json -Compress
 } catch {}
@@ -3414,57 +3403,93 @@ ConvertTo-Json $data
                 except:
                     return []
 
+            cs = safe_json("CS")
+            bb = safe_json("BB")
+            man = (cs.get("Manufacturer") or "").strip()
+            mod = (cs.get("Model") or "").strip()
+            oem_junk = {"to be filled by o.e.m.", "default string", "system manufacturer", "system product name", "not applicable", ""}
+            if man.lower() in oem_junk: man = (bb.get("Manufacturer") or "").strip()
+            if mod.lower() in oem_junk: mod = (bb.get("Product") or "").strip()
+            if man.lower() in oem_junk: man = "Ismeretlen gyártó"
+            if mod.lower() in oem_junk: mod = "Ismeretlen modell"
+            pc_model = f"{man} - {mod}"
+
             cpu = safe_json("CPU")
             if isinstance(cpu, list) and len(cpu) > 0: cpu = cpu[0]
             ram_list = safe_json_list("RAM")
             gpu_list = safe_json_list("GPU")
             os_info = safe_json("OS")
-            board = safe_json("Board")
             storage_list = safe_json_list("Storage")
 
-            # HTML Generator
+            # HTML Generator (Kompakt A4 méretre optimalizálva, 2 oszlopos grid)
             html = f"""<!DOCTYPE html>
 <html lang="hu">
 <head>
 <meta charset="UTF-8">
 <style>
-body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #fff; color: #333; margin: 0; padding: 40px; }}
-h1 {{ color: #46286e; border-bottom: 2px solid #d488ff; padding-bottom: 10px; }}
-.section {{ margin-bottom: 30px; background: #f9f6ff; padding: 20px; border-radius: 8px; border-left: 4px solid #b855ff; }}
-.section h2 {{ margin-top: 0; color: #46286e; font-size: 18px; margin-bottom: 15px; }}
-table {{ width: 100%; border-collapse: collapse; }}
-th, td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid #e0d8f0; }}
-th {{ background: #eee8f8; color: #46286e; width: 30%; }}
-.item-title {{ font-weight: bold; color: #46286e; margin-top: 10px; margin-bottom: 5px; }}
-.badge {{ display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; background: #e0d8f0; color: #46286e; }}
-.health-good {{ background: #d4edda; color: #155724; }}
-.health-warn {{ background: #fff3cd; color: #856404; }}
-.health-bad {{ background: #f8d7da; color: #721c24; }}
+@page {{ size: A4; margin: 15mm; }}
+body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #fff; color: #333; margin: 0; padding: 20px; font-size: 12px; }}
+h1 {{ color: #46286e; border-bottom: 2px solid #d488ff; padding-bottom: 5px; font-size: 22px; margin-bottom: 5px; }}
+.subtitle {{ color: #666; font-size: 12px; margin-top: 0; margin-bottom: 20px; }}
+.grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; align-items: start; }}
+.section {{ background: #f9f6ff; padding: 12px 15px; border-radius: 6px; border-left: 4px solid #b855ff; margin-bottom: 15px; }}
+.section h2 {{ margin-top: 0; color: #46286e; font-size: 15px; margin-bottom: 10px; border-bottom: 1px solid #e0d8f0; padding-bottom: 4px; }}
+table {{ width: 100%; border-collapse: collapse; font-size: 11px; }}
+th, td {{ padding: 6px 8px; text-align: left; border-bottom: 1px solid #e0d8f0; }}
+th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
+.item-title {{ font-weight: bold; color: #46286e; margin-top: 8px; margin-bottom: 4px; font-size: 12px; }}
+.badge {{ display: inline-block; padding: 2px 6px; border-radius: 8px; font-size: 10px; font-weight: bold; background: #e0d8f0; color: #46286e; margin-left: 5px; }}
+.health-Healthy {{ background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }}
+.health-Warning {{ background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }}
+.health-Unhealthy {{ background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }}
 </style>
 </head>
 <body>
 <h1>DriverVarázsló - Rendszer Adatlap</h1>
-<p style="color: #666; margin-top: -10px; margin-bottom: 30px;">Generálva: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+<p class="subtitle">Gép típusa: <strong style="color:#000; font-size:13px;">{pc_model}</strong> | Generálva: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
 
-<div class="section">
-    <h2>💻 Számítógép és Rendszer</h2>
-    <table>
-        <tr><th>Operációs rendszer</th><td>{os_info.get('Caption', 'Ismeretlen')} ({os_info.get('OSArchitecture', 'Ismeretlen')})</td></tr>
-        <tr><th>Alaplap</th><td>{board.get('Manufacturer', 'Ismeretlen')} - {board.get('Product', 'Ismeretlen')}</td></tr>
-    </table>
-</div>
+<div class="grid">
+    <div class="col">
+        <div class="section">
+            <h2>💻 Operációs Rendszer</h2>
+            <table>
+                <tr><th>Verzió</th><td>{os_info.get('Caption', 'Ismeretlen')} ({os_info.get('OSArchitecture', 'Ismeretlen')})</td></tr>
+            </table>
+        </div>
 
-<div class="section">
-    <h2>🧠 Processzor (CPU)</h2>
-    <table>
-        <tr><th>Modell</th><td>{cpu.get('Name', 'Ismeretlen')}</td></tr>
-        <tr><th>Magok / Szálak</th><td>{cpu.get('NumberOfCores', '?')} Mag / {cpu.get('NumberOfLogicalProcessors', '?')} Szál</td></tr>
-        <tr><th>Max Órajel</th><td>{cpu.get('MaxClockSpeed', '?')} MHz</td></tr>
-    </table>
-</div>
+        <div class="section">
+            <h2>🧠 Processzor (CPU)</h2>
+            <table>
+                <tr><th>Modell</th><td>{cpu.get('Name', 'Ismeretlen')}</td></tr>
+                <tr><th>Magok / Szálak</th><td>{cpu.get('NumberOfCores', '?')} Mag / {cpu.get('NumberOfLogicalProcessors', '?')} Szál</td></tr>
+            </table>
+        </div>
 
-<div class="section">
-    <h2>🎮 Videókártyák (GPU)</h2>"""
+        <div class="section">
+            <h2>🧩 Memória (RAM)</h2>"""
+            
+            tot_gb = "Ismeretlen"
+            try:
+                tot = json.loads(raw_data.get("RAMTotal", "{}")).get('TotalPhysicalMemory')
+                if tot: tot_gb = f"{round(int(tot)/(1024**3), 1)} GB"
+            except: pass
+                
+            html += f"<p style='margin: 0 0 8px 0;'><strong>Összes fizikai memória:</strong> {tot_gb} ({len(ram_list)} db modul)</p>"
+            if ram_list:
+                html += "<table><tr><th>Gyártó / Cikkszám</th><th>Kapacitás</th><th>Sebesség</th></tr>"
+                for r in ram_list:
+                    cap = r.get('Capacity')
+                    cap_gb = f"{round(int(cap)/(1024**3), 1)} GB" if cap else "?"
+                    man_part = f"{r.get('Manufacturer', '?')} {r.get('PartNumber', '?')}".strip()
+                    html += f"<tr><td>{man_part}</td><td>{cap_gb}</td><td>{r.get('Speed', '?')} MHz</td></tr>"
+                html += "</table>"
+            
+            html += """</div>
+    </div>
+    
+    <div class="col">
+        <div class="section">
+            <h2>🎮 Videókártyák (GPU)</h2>"""
             
             if not gpu_list:
                 html += "<p>Nem található dedikált/integrált videókártya.</p>"
@@ -3472,50 +3497,34 @@ th {{ background: #eee8f8; color: #46286e; width: 30%; }}
                 ram = g.get('AdapterRAM')
                 ram_gb = f"{round(int(ram)/(1024**3), 1)} GB" if ram else "Ismeretlen"
                 html += f"<table><tr><th>Modell</th><td>{g.get('Name', 'Ismeretlen')}</td></tr><tr><th>VRAM</th><td>{ram_gb}</td></tr></table><br>"
-                
-            html += """</div>
-<div class="section">
-    <h2>🧩 Memória (RAM)</h2>"""
             
-            try:
-                tot = json.loads(raw_data.get("RAMTotal", "{}")).get('TotalPhysicalMemory')
-                tot_gb = f"{round(int(tot)/(1024**3), 1)} GB" if tot else "Ismeretlen"
-                html += f"<p><strong>Összes fizikai memória:</strong> {tot_gb} ({len(ram_list)} db modul)</p>"
-            except:
-                pass
-                
-            html += "<table><tr><th>Gyártó</th><th>Típus / Cikkszám</th><th>Kapacitás</th><th>Sebesség</th></tr>"
-            for r in ram_list:
-                cap = r.get('Capacity')
-                cap_gb = f"{round(int(cap)/(1024**3), 1)} GB" if cap else "?"
-                html += f"<tr><td>{r.get('Manufacturer', '?')}</td><td>{r.get('PartNumber', '?')}</td><td>{cap_gb}</td><td>{r.get('Speed', '?')} MHz</td></tr>"
-            html += "</table></div>"
+            if gpu_list: html = html[:-4] # remove last <br>
 
-            html += """<div class="section">
-    <h2>💾 Háttértárak (S.M.A.R.T. Adatok)</h2>"""
+            html += """</div>
+        <div class="section">
+            <h2>💾 Háttértárak (Lemezek)</h2>"""
             if not storage_list:
                 html += "<p>Nem található háttértár információ.</p>"
             for s in storage_list:
                 sz = s.get('Size')
                 sz_gb = f"{round(int(sz)/(1024**3), 1)} GB" if sz else "?"
-                h = s.get('Health', 'Ismeretlen')
-                h_class = ""
-                if "%" in h:
-                    try:
-                        pct = int(h.replace("%", ""))
-                        if pct > 80: h_class = "health-good"
-                        elif pct > 40: h_class = "health-warn"
-                        else: h_class = "health-bad"
-                    except: pass
+                h = s.get('HealthStatus', 'Unknown')
                 
-                html += f"""<div class="item-title">{s.get('Name', 'Ismeretlen')} <span class="badge">{s.get('Type', 'Ismeretlen')}</span> <span class="badge">{sz_gb}</span></div>
-                <table>
-                    <tr><th>Egészségi Állapot</th><td><span class="badge {h_class}">{h}</span></td></tr>
-                    <tr><th>Üzemidő (Óra)</th><td>{s.get('Hours', '?')}</td></tr>
-                    <tr><th>Hőmérséklet</th><td>{s.get('Temp', '?')}</td></tr>
-                </table><br>"""
+                h_class = ""
+                h_text = "Ismeretlen"
+                if h == "Healthy":
+                    h_class = "health-Healthy"
+                    h_text = "Kiváló (Healthy)"
+                elif h == "Warning":
+                    h_class = "health-Warning"
+                    h_text = "Figyelmeztetés (Warning)"
+                elif h == "Unhealthy":
+                    h_class = "health-Unhealthy"
+                    h_text = "Kritikus (Unhealthy)"
+                
+                html += f"""<div class="item-title">{s.get('Name', 'Ismeretlen')} <span class="badge">{s.get('Type', 'Ismeretlen')}</span> <span class="badge">{sz_gb}</span> <span class="badge {h_class}">{h_text}</span></div>"""
 
-            html += "</div></body></html>"
+            html += "</div>\n    </div>\n</div>\n</body></html>"
 
             safe_name = os_info.get('Caption', 'PC').replace(' ', '_')
             try:
