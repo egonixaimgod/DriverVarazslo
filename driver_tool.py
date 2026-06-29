@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 132
+BUILD_NUMBER = 133
 
 try:
     import webview
@@ -439,47 +439,46 @@ del "%~f0"
         self.emit('toast', {'message': '⚠️ Megszakítás kérve...', 'type': 'warning'})
         return True
 
+    def _download_stresstools(self):
+        import tempfile, urllib.request, zipfile
+        temp_dir = tempfile.gettempdir()
+        stress_dir = os.path.join(temp_dir, "DriverVarázsló_Stress")
+        zip_path = os.path.join(temp_dir, "stresstools.zip")
+        download_url = "https://github.com/egonixaimgod/DriverVarazslo/releases/download/stresstools.zip/stresstools.zip"
+        
+        if os.path.exists(stress_dir):
+            return stress_dir
+            
+        try:
+            logging.info("[STRESSTOOLS] Letöltés INNEN: " + download_url)
+            urllib.request.urlretrieve(download_url, zip_path)
+            if not zipfile.is_zipfile(zip_path):
+                return None
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(stress_dir)
+            try: os.remove(zip_path)
+            except: pass
+            return stress_dir
+        except Exception as e:
+            logging.error(f"[STRESSTOOLS] Download hiba: {e}")
+            return None
+
     def start_stress_tests(self):
         logging.info("[API] start_stress_tests()")
         
         def worker():
-            import tempfile
-            import urllib.request
-            import zipfile
             import os
-            
-            temp_dir = tempfile.gettempdir()
-            stress_dir = os.path.join(temp_dir, "DriverVarázsló_Stress")
-            zip_path = os.path.join(temp_dir, "stresstools.zip")
-            
-            # A pontos GitHub közvetlen letöltési link:
-            download_url = "https://github.com/egonixaimgod/DriverVarazslo/releases/download/stresstools.zip/stresstools.zip"
-            
             try:
                 self.emit('task_start', {'task': 'stress', 'title': 'Stabilitás Teszt Indítása'})
-                self.emit('task_progress', {'task': 'stress', 'log': '🌐 Tesztprogramok letöltése a háttérben...', 'indeterminate': True})
+                self.emit('task_progress', {'task': 'stress', 'log': '🌐 Tesztprogramok (ZIP) letöltése a háttérben...', 'indeterminate': True})
                 
-                if not os.path.exists(stress_dir):
-                    os.makedirs(stress_dir, exist_ok=True)
-                    
-                    logging.info(f"[STRESS] Letöltés INNEN: {download_url}")
-                    urllib.request.urlretrieve(download_url, zip_path)
-                    
-                    if not zipfile.is_zipfile(zip_path):
-                        raise Exception("A letöltött fájl sérült (Helytelen ZIP / CRC hiba).")
-                        
-                    self.emit('task_progress', {'task': 'stress', 'log': '📦 Fájlok kicsomagolása...'})
-                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                        zip_ref.extractall(stress_dir)
-                    
-                    try:
-                        os.remove(zip_path)
-                    except OSError:
-                        pass
+                stress_dir = self._download_stresstools()
+                if not stress_dir:
+                    raise Exception("Hiba a ZIP letöltésekor vagy kicsomagolásakor (Helytelen ZIP / Nincs net).")
                 
                 self.emit('task_progress', {'task': 'stress', 'log': '🔥 Programok rászabadítása a gépre...'})
                 
-                # Dinamikus keresés, ha esetleg egy mappával beljebb csomagolta a user a zip-et
+                # Dinamikus keresés
                 furmark = None
                 linpack = None
                 prime95 = None
@@ -507,8 +506,6 @@ del "%~f0"
                 else:
                      self.emit('task_complete', {'task': 'stress', 'status': f'⚠️ Csak {launched}/3 program indult el.'})
 
-            except urllib.error.URLError:
-                self.emit('task_error', {'task': 'stress', 'error': 'Hiba: Nem elérhető a letöltési link! Van net?'})
             except Exception as e:
                 logging.error(f"Stressz teszt hiba: {e}")
                 self.emit('task_error', {'task': 'stress', 'error': f'Hiba: {str(e)}'})
@@ -3367,6 +3364,101 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
     def generate_system_report(self):
         logging.info("[API] generate_system_report()")
         try:
+            # S.M.A.R.T adatok begyűjtése (smartctl.exe - stress tools zipből)
+            stress_dir = self._download_stresstools()
+            smartctl_exe = None
+            if stress_dir:
+                for root, dirs, files in os.walk(stress_dir):
+                    for f in files:
+                        if f.lower() == "smartctl.exe":
+                            smartctl_exe = os.path.join(root, f)
+                            break
+                    if smartctl_exe: break
+            
+            smart_data = []
+            if smartctl_exe:
+                try:
+                    res_scan = self._run([smartctl_exe, "--scan", "-j"], encoding='utf-8')
+                    scan_json = json.loads(res_scan.stdout)
+                    for dev in scan_json.get('devices', []):
+                        dev_name = dev.get('name')
+                        if dev_name:
+                            res_det = self._run([smartctl_exe, "-a", dev_name, "-j"], encoding='utf-8')
+                            det = json.loads(res_det.stdout)
+                            
+                            model = det.get('model_name', 'Ismeretlen Meghajtó')
+                            if model == 'Ismeretlen Meghajtó':
+                                model = det.get('model_family', 'Ismeretlen Meghajtó')
+                                
+                            size_bytes = det.get('user_capacity', {}).get('bytes', 0)
+                            size_gb = f"{round(size_bytes / (1024**3), 1)} GB" if size_bytes else "?"
+                            
+                            health = "Ismeretlen"
+                            hours = "?"
+                            temp = det.get('temperature', {}).get('current', '?')
+                            
+                            nvme_smart = det.get('nvme_smart_health_information_log')
+                            if nvme_smart:
+                                used = nvme_smart.get('percentage_used')
+                                if used is not None:
+                                    health = f"{100 - used}%"
+                                hours = nvme_smart.get('power_on_hours', '?')
+                            else:
+                                ata_smart = det.get('ata_smart_attributes', {}).get('table', [])
+                                for attr in ata_smart:
+                                    name_lower = attr.get('name', '').lower()
+                                    val_raw = attr.get('raw', {}).get('value', '?')
+                                    val_norm = attr.get('value', '?')
+                                    
+                                    if attr.get('id') == 9 or 'power_on_hours' in name_lower:
+                                        hours = val_raw
+                                    
+                                    if attr.get('id') in [202, 231, 177, 233, 169] or 'wear' in name_lower or 'life' in name_lower or 'remaining' in name_lower:
+                                        if isinstance(val_norm, int) and val_norm <= 100:
+                                            health = f"{val_norm}%"
+
+                            smart_status = det.get('smart_status', {}).get('passed')
+                            if health == "Ismeretlen":
+                                if smart_status is True: health = "100% (SMART OK)"
+                                elif smart_status is False: health = "Kritikus (SMART FAIL)"
+                            
+                            smart_data.append({
+                                "Name": model,
+                                "Size": size_gb,
+                                "Health": health,
+                                "Hours": f"{hours} óra",
+                                "Temp": f"{temp}°C" if temp != "?" else "?"
+                            })
+                except Exception as e:
+                    logging.error(f"Smartctl parse hiba: {e}")
+
+            # Akkumulátor információk
+            batt_script = r"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$tempXML = "$env:TEMP\batt_$(Get-Random).xml"
+try {
+    powercfg /batteryreport /xml /output $tempXML | Out-Null
+    [xml]$batt = Get-Content $tempXML -ErrorAction Stop
+    if ($batt.BatteryReport.Batteries.Battery) {
+        $b = $batt.BatteryReport.Batteries.Battery
+        if ($b -is [array]) { $b = $b[0] }
+        $des = $b.DesignCapacity
+        $full = $b.FullChargeCapacity
+        $name = $b.Id
+        @{Name=$name; Design=$des; Full=$full} | ConvertTo-Json -Compress
+    }
+} catch {}
+finally {
+    if (Test-Path $tempXML) { Remove-Item $tempXML -Force -ErrorAction SilentlyContinue }
+}
+"""
+            res_batt = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", batt_script], encoding='utf-8')
+            batt_data = {}
+            if res_batt.stdout.strip():
+                try: batt_data = json.loads(res_batt.stdout.strip())
+                except: pass
+
+            # Alapvető WMI hardver adatok
             ps_script = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $data = @{}
@@ -3377,14 +3469,6 @@ try { $data.RAM = @(Get-CimInstance Win32_PhysicalMemory | Select-Object Capacit
 try { $data.RAMTotal = Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory | ConvertTo-Json -Compress } catch {}
 try { $data.GPU = @(Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM) | ConvertTo-Json -Compress } catch {}
 try { $data.OS = Get-CimInstance Win32_OperatingSystem | Select-Object Caption, OSArchitecture | ConvertTo-Json -Compress } catch {}
-try {
-    $disks = Get-PhysicalDisk | Select-Object DeviceId, FriendlyName, MediaType, Size, HealthStatus
-    $storageList = @()
-    foreach ($d in $disks) {
-        $storageList += @{ Name=$d.FriendlyName; Type=$d.MediaType; Size=$d.Size; HealthStatus=$d.HealthStatus }
-    }
-    $data.Storage = $storageList | ConvertTo-Json -Compress
-} catch {}
 ConvertTo-Json $data
 """
             res = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script], encoding='utf-8')
@@ -3393,15 +3477,13 @@ ConvertTo-Json $data
             def safe_json(k):
                 try:
                     return json.loads(raw_data.get(k, "{}")) if raw_data.get(k) else {}
-                except:
-                    return {}
+                except: return {}
 
             def safe_json_list(k):
                 try:
                     parsed = json.loads(raw_data.get(k, "[]")) if raw_data.get(k) else []
                     return parsed if isinstance(parsed, list) else [parsed]
-                except:
-                    return []
+                except: return []
 
             cs = safe_json("CS")
             bb = safe_json("BB")
@@ -3419,7 +3501,6 @@ ConvertTo-Json $data
             ram_list = safe_json_list("RAM")
             gpu_list = safe_json_list("GPU")
             os_info = safe_json("OS")
-            storage_list = safe_json_list("Storage")
 
             # HTML Generator (Kompakt A4 méretre optimalizálva, 2 oszlopos grid)
             html = f"""<!DOCTYPE html>
@@ -3487,7 +3568,28 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             html += """</div>
     </div>
     
-    <div class="col">
+    <div class="col">"""
+
+            # Akku szekció ha van
+            if batt_data.get('Design') and batt_data.get('Full'):
+                try:
+                    des = int(batt_data['Design'])
+                    full = int(batt_data['Full'])
+                    health_pct = round((full / des) * 100)
+                    h_class = "health-Healthy" if health_pct > 80 else "health-Warning" if health_pct > 50 else "health-Unhealthy"
+                    
+                    html += f"""
+        <div class="section">
+            <h2>🔋 Akkumulátor Állapot</h2>
+            <table>
+                <tr><th>Gyári kapacitás</th><td>{des} mWh</td></tr>
+                <tr><th>Jelenlegi max.</th><td>{full} mWh</td></tr>
+                <tr><th>Egészség</th><td><span class="badge {h_class}">{health_pct}%</span></td></tr>
+            </table>
+        </div>"""
+                except: pass
+
+            html += """
         <div class="section">
             <h2>🎮 Videókártyák (GPU)</h2>"""
             
@@ -3502,27 +3604,28 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
 
             html += """</div>
         <div class="section">
-            <h2>💾 Háttértárak (Lemezek)</h2>"""
-            if not storage_list:
-                html += "<p>Nem található háttértár információ.</p>"
-            for s in storage_list:
-                sz = s.get('Size')
-                sz_gb = f"{round(int(sz)/(1024**3), 1)} GB" if sz else "?"
-                h = s.get('HealthStatus', 'Unknown')
-                
+            <h2>💾 Háttértárak (S.M.A.R.T. Adatok)</h2>"""
+            
+            if not smart_data:
+                html += "<p>Nem található háttértár információ vagy nem olvasható a S.M.A.R.T.</p>"
+            for s in smart_data:
+                h = s.get('Health', 'Ismeretlen')
                 h_class = ""
-                h_text = "Ismeretlen"
-                if h == "Healthy":
-                    h_class = "health-Healthy"
-                    h_text = "Kiváló (Healthy)"
-                elif h == "Warning":
-                    h_class = "health-Warning"
-                    h_text = "Figyelmeztetés (Warning)"
-                elif h == "Unhealthy":
-                    h_class = "health-Unhealthy"
-                    h_text = "Kritikus (Unhealthy)"
+                if "%" in h:
+                    try:
+                        pct = int(re.search(r'(\d+)', h).group(1))
+                        if pct > 80: h_class = "health-Healthy"
+                        elif pct > 40: h_class = "health-Warning"
+                        else: h_class = "health-Unhealthy"
+                    except: pass
                 
-                html += f"""<div class="item-title">{s.get('Name', 'Ismeretlen')} <span class="badge">{s.get('Type', 'Ismeretlen')}</span> <span class="badge">{sz_gb}</span> <span class="badge {h_class}">{h_text}</span></div>"""
+                html += f"""<div class="item-title">{s.get('Name', 'Ismeretlen')} <span class="badge">{s.get('Size', '?')}</span></div>
+                <table>
+                    <tr><th>Egészség</th><td><span class="badge {h_class}">{h}</span></td></tr>
+                    <tr><th>Üzemidő / Hőm.</th><td>{s.get('Hours', '?')} / {s.get('Temp', '?')}</td></tr>
+                </table><br>"""
+                
+            if smart_data: html = html[:-4]
 
             html += "</div>\n    </div>\n</div>\n</body></html>"
 
