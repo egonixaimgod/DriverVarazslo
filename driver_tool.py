@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 129
+BUILD_NUMBER = 130
 
 try:
     import webview
@@ -3517,58 +3517,26 @@ th {{ background: #eee8f8; color: #46286e; width: 30%; }}
 
             html += "</div></body></html>"
 
-            # Ideiglenes HTML mentése
-            try:
-                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders") as key:
-                    desktop_dir, _ = winreg.QueryValueEx(key, "Desktop")
-            except Exception:
-                desktop_dir = os.path.join(os.environ.get('USERPROFILE', 'C:\\'), 'Desktop')
-
             safe_name = os_info.get('Caption', 'PC').replace(' ', '_')
             try:
                 comp_name = os.environ.get('COMPUTERNAME', 'PC')
                 safe_name = f"Rendszer_Riport_{comp_name}"
             except: pass
 
-            temp_html = os.path.join(tempfile.gettempdir(), f"{safe_name}_{int(time.time())}.html")
-            pdf_path = os.path.join(desktop_dir, f"{safe_name}.pdf")
+            # A program mellé mentjük
+            exe_dir = os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__))
+            final_path = os.path.join(exe_dir, f"{safe_name}.html")
 
-            with open(temp_html, "w", encoding="utf-8") as f:
+            with open(final_path, "w", encoding="utf-8") as f:
                 f.write(html)
 
-            # Edge Headless PDF generálás
-            edge_paths = [
-                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"
-            ]
-            edge_exe = None
-            for ep in edge_paths:
-                if os.path.exists(ep):
-                    edge_exe = ep
-                    break
-            
-            if not edge_exe:
-                raise Exception("Microsoft Edge nem található, nem lehet PDF-et generálni!")
-
-            # cmd futtatása
-            temp_profile = os.path.join(tempfile.gettempdir(), f"edge_tmp_{int(time.time())}")
-            cmd = f'"{edge_exe}" --headless --disable-gpu --no-sandbox --user-data-dir="{temp_profile}" --print-to-pdf="{pdf_path}" "{temp_html}"'
-            logging.info(f"Edge PDF futtatása: {cmd}")
-            res_edge = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            logging.info(f"Edge PDF kimenet: {res_edge.stdout} | {res_edge.stderr}")
-
-            try:
-                os.remove(temp_html)
-                shutil.rmtree(temp_profile, ignore_errors=True)
-            except: pass
-
-            if os.path.exists(pdf_path):
-                return {'success': True, 'path': pdf_path}
+            if os.path.exists(final_path):
+                return {'success': True, 'path': final_path}
             else:
-                raise Exception(f"A PDF generálása sikertelen volt! Kimenet: {res_edge.stderr}")
+                raise Exception("A fájl mentése sikertelen volt!")
 
         except Exception as e:
-            logging.error(f"Hiba a PDF generálásnál: {e}")
+            logging.error(f"Hiba a jelentés generálásánál: {e}")
             logging.error(traceback.format_exc())
             raise Exception(str(e))
 
