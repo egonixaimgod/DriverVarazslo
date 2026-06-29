@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 140
+BUILD_NUMBER = 141
 
 try:
     import webview
@@ -3387,14 +3387,18 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
             smart_data = []
             if smartctl_exe:
                 try:
-                    scan_res = self._run([smartctl_exe, "--scan", "-j"], encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW)
+                    logging.info("[REPORT] smartctl --scan futtatása...")
+                    scan_res = self._run([smartctl_exe, "--scan", "-j"], encoding='utf-8')
                     scan_data = json.loads(scan_res.stdout) if scan_res.stdout.strip() else {}
                     
                     if "devices" in scan_data:
-                        for dev in scan_data["devices"]:
+                        devices = scan_data["devices"]
+                        logging.info(f"[REPORT] smartctl talált eszközök száma: {len(devices)}")
+                        for dev in devices:
                             dev_name = dev.get("name")
                             if dev_name:
-                                info_res = self._run([smartctl_exe, "-a", dev_name, "-j"], encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW)
+                                logging.info(f"[REPORT] Adatok lekérése: {dev_name}")
+                                info_res = self._run([smartctl_exe, "-a", dev_name, "-j"], encoding='utf-8')
                                 info_data = json.loads(info_res.stdout) if info_res.stdout.strip() else {}
                                 
                                 model = info_data.get("model_name", "Ismeretlen Meghajtó")
@@ -3448,7 +3452,8 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                                                     health = f"{val}%"
                                                     health_txt = f"{val}%"
                                                     break
-                                                    
+                                
+                                logging.info(f"[REPORT] Lemez: {model} | Méret: {size_gb} | Típus: {dev_type} | Health: {health_txt} | Temp: {temp}")                    
                                 smart_data.append({
                                     "Name": model.strip(),
                                     "Size": size_gb,
@@ -3458,6 +3463,8 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                                     "Type": dev_type.strip(),
                                     "RawHealth": health.replace('%','').strip() if health != "-1" else "-1"
                                 })
+                    else:
+                        logging.warning("[REPORT] smartctl nem talált devices tömböt a kimenetben!")
                 except Exception as e:
                     logging.error(f"smartctl futtatási hiba: {e}")
 
