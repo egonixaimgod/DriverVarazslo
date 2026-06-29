@@ -4,3 +4,4 @@ dist/
 *.spec
 *.log
 *debug.log
+stresstools.zip

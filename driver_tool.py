@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 133
+BUILD_NUMBER = 138
 
 try:
     import webview
@@ -482,6 +482,7 @@ del "%~f0"
                 furmark = None
                 linpack = None
                 prime95 = None
+                hwinfo = None
                 
                 for root, dirs, files in os.walk(stress_dir):
                     for file in files:
@@ -491,20 +492,28 @@ del "%~f0"
                             linpack = os.path.join(root, file)
                         elif file.lower() == "prime95.exe":
                             prime95 = os.path.join(root, file)
+                        elif file.lower() in ("hwinfo64.exe", "hwinfo32.exe"):
+                            hwinfo = os.path.join(root, file)
                 
                 launched = 0
-                for name, exe in [("FurMark", furmark), ("Linpack", linpack), ("Prime95", prime95)]:
+                for name, exe in [("FurMark", furmark), ("Linpack", linpack), ("Prime95", prime95), ("HWiNFO (Sensor Only)", hwinfo)]:
                     if exe and os.path.exists(exe):
+                        if name == "HWiNFO (Sensor Only)":
+                            try:
+                                ini_path = os.path.join(os.path.dirname(exe), "HWiNFO64.INI")
+                                with open(ini_path, "w") as f:
+                                    f.write("[Settings]\nSensorsOnly=1\n")
+                            except: pass
                         subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
                         launched += 1
                         self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva: {name}'})
                     else:
                         self.emit('task_progress', {'task': 'stress', 'log': f'⚠️ Nem található a ZIP-ben: {name}'})
                 
-                if launched == 3:
+                if launched >= 3:
                      self.emit('task_complete', {'task': 'stress', 'status': '👀 Minden teszt elindult. Égjen!'})
                 else:
-                     self.emit('task_complete', {'task': 'stress', 'status': f'⚠️ Csak {launched}/3 program indult el.'})
+                     self.emit('task_complete', {'task': 'stress', 'status': f'⚠️ Csak {launched} program indult el.'})
 
             except Exception as e:
                 logging.error(f"Stressz teszt hiba: {e}")
@@ -3364,73 +3373,78 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
     def generate_system_report(self):
         logging.info("[API] generate_system_report()")
         try:
-            # S.M.A.R.T adatok begyűjtése (smartctl.exe - stress tools zipből)
+            # S.M.A.R.T adatok begyűjtése (HDSentinel - stress tools zipből)
             stress_dir = self._download_stresstools()
-            smartctl_exe = None
+            hds_exe = None
             if stress_dir:
                 for root, dirs, files in os.walk(stress_dir):
                     for f in files:
-                        if f.lower() == "smartctl.exe":
-                            smartctl_exe = os.path.join(root, f)
+                        if f.lower() == "hdsentinel.exe":
+                            hds_exe = os.path.join(root, f)
                             break
-                    if smartctl_exe: break
+                    if hds_exe: break
             
             smart_data = []
-            if smartctl_exe:
+            if hds_exe:
                 try:
-                    res_scan = self._run([smartctl_exe, "--scan", "-j"], encoding='utf-8')
-                    scan_json = json.loads(res_scan.stdout)
-                    for dev in scan_json.get('devices', []):
-                        dev_name = dev.get('name')
-                        if dev_name:
-                            res_det = self._run([smartctl_exe, "-a", dev_name, "-j"], encoding='utf-8')
-                            det = json.loads(res_det.stdout)
-                            
-                            model = det.get('model_name', 'Ismeretlen Meghajtó')
-                            if model == 'Ismeretlen Meghajtó':
-                                model = det.get('model_family', 'Ismeretlen Meghajtó')
-                                
-                            size_bytes = det.get('user_capacity', {}).get('bytes', 0)
-                            size_gb = f"{round(size_bytes / (1024**3), 1)} GB" if size_bytes else "?"
-                            
-                            health = "Ismeretlen"
-                            hours = "?"
-                            temp = det.get('temperature', {}).get('current', '?')
-                            
-                            nvme_smart = det.get('nvme_smart_health_information_log')
-                            if nvme_smart:
-                                used = nvme_smart.get('percentage_used')
-                                if used is not None:
-                                    health = f"{100 - used}%"
-                                hours = nvme_smart.get('power_on_hours', '?')
-                            else:
-                                ata_smart = det.get('ata_smart_attributes', {}).get('table', [])
-                                for attr in ata_smart:
-                                    name_lower = attr.get('name', '').lower()
-                                    val_raw = attr.get('raw', {}).get('value', '?')
-                                    val_norm = attr.get('value', '?')
-                                    
-                                    if attr.get('id') == 9 or 'power_on_hours' in name_lower:
-                                        hours = val_raw
-                                    
-                                    if attr.get('id') in [202, 231, 177, 233, 169] or 'wear' in name_lower or 'life' in name_lower or 'remaining' in name_lower:
-                                        if isinstance(val_norm, int) and val_norm <= 100:
-                                            health = f"{val_norm}%"
-
-                            smart_status = det.get('smart_status', {}).get('passed')
-                            if health == "Ismeretlen":
-                                if smart_status is True: health = "100% (SMART OK)"
-                                elif smart_status is False: health = "Kritikus (SMART FAIL)"
-                            
-                            smart_data.append({
-                                "Name": model,
-                                "Size": size_gb,
-                                "Health": health,
-                                "Hours": f"{hours} óra",
-                                "Temp": f"{temp}°C" if temp != "?" else "?"
-                            })
+                    hds_dir = os.path.dirname(hds_exe)
+                    xml_path = os.path.join(hds_dir, "HDSData", "HDSentinel.xml")
+                    if os.path.exists(xml_path):
+                        try: os.remove(xml_path)
+                        except: pass
+                    
+                    self._run([hds_exe, "/XML"], cwd=hds_dir)
+                    
+                    for _ in range(30):
+                        if os.path.exists(xml_path):
+                            break
+                        time.sleep(0.5)
+                        
+                    self._run(["taskkill", "/IM", "HDSentinel.exe", "/F"], creationflags=subprocess.CREATE_NO_WINDOW)
+                    
+                    if os.path.exists(xml_path):
+                        import xml.etree.ElementTree as ET
+                        try:
+                            tree = ET.parse(xml_path)
+                            root_xml = tree.getroot()
+                            for disk_node in root_xml.findall('./*'):
+                                if disk_node.tag.startswith('Physical_Disk_Information_Disk'):
+                                    summary = disk_node.find('Hard_Disk_Summary')
+                                    if summary is not None:
+                                        model = summary.findtext('Hard_Disk_Model_ID') or 'Ismeretlen Meghajtó'
+                                        size_str = summary.findtext('Total_Size')
+                                        size_gb = "?"
+                                        if size_str:
+                                            m = re.search(r'(\d+)', size_str)
+                                            if m: size_gb = f"{round(int(m.group(1)) / 1024, 1)} GB"
+                                            
+                                        health = summary.findtext('Health') or '-1'
+                                        perf = summary.findtext('Performance') or '-1'
+                                        
+                                        health_txt = "Ismeretlen"
+                                        if health != '-1' and '%' not in health: health += '%'
+                                        if perf != '-1' and '%' not in perf: perf += '%'
+                                        
+                                        if health != '-1%':
+                                            health_txt = f"{health} (Teljesítmény: {perf})"
+                                            
+                                        hours = summary.findtext('Power_on_time') or 'Ismeretlen'
+                                        temp = summary.findtext('Current_Temperature') or '?'
+                                        dev_type = summary.findtext('Device_Type') or 'Unspecified'
+                                        
+                                        smart_data.append({
+                                            "Name": model.strip(),
+                                            "Size": size_gb,
+                                            "Health": health_txt,
+                                            "Hours": hours.strip(),
+                                            "Temp": temp.strip(),
+                                            "Type": dev_type.strip(),
+                                            "RawHealth": health.replace('%','').strip()
+                                        })
+                        except Exception as e:
+                            logging.error(f"HDSentinel XML parse hiba: {e}")
                 except Exception as e:
-                    logging.error(f"Smartctl parse hiba: {e}")
+                    logging.error(f"HDSentinel futtatási hiba: {e}")
 
             # Akkumulátor információk
             batt_script = r"""
@@ -3509,17 +3523,17 @@ ConvertTo-Json $data
 <meta charset="UTF-8">
 <style>
 @page {{ size: A4; margin: 15mm; }}
-body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #fff; color: #333; margin: 0; padding: 20px; font-size: 12px; }}
-h1 {{ color: #46286e; border-bottom: 2px solid #d488ff; padding-bottom: 5px; font-size: 22px; margin-bottom: 5px; }}
-.subtitle {{ color: #666; font-size: 12px; margin-top: 0; margin-bottom: 20px; }}
+body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #fff; color: #333; margin: 0; padding: 20px; font-size: 13px; }}
+h1 {{ color: #46286e; border-bottom: 2px solid #d488ff; padding-bottom: 5px; font-size: 24px; margin-bottom: 5px; }}
+.subtitle {{ color: #666; font-size: 13px; margin-top: 0; margin-bottom: 20px; }}
 .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; align-items: start; }}
 .section {{ background: #f9f6ff; padding: 12px 15px; border-radius: 6px; border-left: 4px solid #b855ff; margin-bottom: 15px; }}
-.section h2 {{ margin-top: 0; color: #46286e; font-size: 15px; margin-bottom: 10px; border-bottom: 1px solid #e0d8f0; padding-bottom: 4px; }}
-table {{ width: 100%; border-collapse: collapse; font-size: 11px; }}
+.section h2 {{ margin-top: 0; color: #46286e; font-size: 16px; margin-bottom: 10px; border-bottom: 1px solid #e0d8f0; padding-bottom: 4px; }}
+table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
 th, td {{ padding: 6px 8px; text-align: left; border-bottom: 1px solid #e0d8f0; }}
 th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
-.item-title {{ font-weight: bold; color: #46286e; margin-top: 8px; margin-bottom: 4px; font-size: 12px; }}
-.badge {{ display: inline-block; padding: 2px 6px; border-radius: 8px; font-size: 10px; font-weight: bold; background: #e0d8f0; color: #46286e; margin-left: 5px; }}
+.item-title {{ font-weight: bold; color: #46286e; margin-top: 8px; margin-bottom: 4px; font-size: 13px; }}
+.badge {{ display: inline-block; padding: 2px 6px; border-radius: 8px; font-size: 11px; font-weight: bold; background: #e0d8f0; color: #46286e; margin-left: 5px; }}
 .health-Healthy {{ background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }}
 .health-Warning {{ background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }}
 .health-Unhealthy {{ background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }}
@@ -3527,7 +3541,7 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
 </head>
 <body>
 <h1>DriverVarázsló - Rendszer Adatlap</h1>
-<p class="subtitle">Gép típusa: <strong style="color:#000; font-size:13px;">{pc_model}</strong> | Generálva: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+<p class="subtitle">Gép típusa: <strong style="color:#000; font-size:14px;">{pc_model}</strong> | Generálva: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
 
 <div class="grid">
     <div class="col">
@@ -3611,17 +3625,17 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             for s in smart_data:
                 h = s.get('Health', 'Ismeretlen')
                 h_class = ""
-                if "%" in h:
-                    try:
-                        pct = int(re.search(r'(\d+)', h).group(1))
-                        if pct > 80: h_class = "health-Healthy"
-                        elif pct > 40: h_class = "health-Warning"
-                        else: h_class = "health-Unhealthy"
-                    except: pass
+                raw_h = s.get('RawHealth', '-1')
+                try:
+                    pct = int(raw_h)
+                    if pct > 80: h_class = "health-Healthy"
+                    elif pct > 40: h_class = "health-Warning"
+                    elif pct >= 0: h_class = "health-Unhealthy"
+                except: pass
                 
-                html += f"""<div class="item-title">{s.get('Name', 'Ismeretlen')} <span class="badge">{s.get('Size', '?')}</span></div>
+                html += f"""<div class="item-title">{s.get('Name', 'Ismeretlen')} <span class="badge">{s.get('Size', '?')}</span> <span class="badge">{s.get('Type', '?')}</span></div>
                 <table>
-                    <tr><th>Egészség</th><td><span class="badge {h_class}">{h}</span></td></tr>
+                    <tr><th>Kondíció</th><td><span class="badge {h_class}">{h}</span></td></tr>
                     <tr><th>Üzemidő / Hőm.</th><td>{s.get('Hours', '?')} / {s.get('Temp', '?')}</td></tr>
                 </table><br>"""
                 
