@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 141
+BUILD_NUMBER = 143
 
 try:
     import webview
@@ -504,9 +504,23 @@ del "%~f0"
                                 with open(ini_path, "w") as f:
                                     f.write("[Settings]\nSensorsOnly=1\n")
                             except: pass
-                        subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
-                        launched += 1
-                        self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva: {name}'})
+                        try:
+                            subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
+                            launched += 1
+                            self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva: {name}'})
+                        except OSError as e:
+                            if getattr(e, 'winerror', None) == 740:
+                                try:
+                                    import ctypes
+                                    ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, None, os.path.dirname(exe), 1)
+                                    launched += 1
+                                    self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva (Admin): {name}'})
+                                except Exception as e2:
+                                    self.emit('task_progress', {'task': 'stress', 'log': f'❌ Hiba indításnál ({name}): {e2}'})
+                            else:
+                                self.emit('task_progress', {'task': 'stress', 'log': f'❌ Hiba indításnál ({name}): {e}'})
+                        except Exception as e:
+                            self.emit('task_progress', {'task': 'stress', 'log': f'❌ Hiba indításnál ({name}): {e}'})
                     else:
                         self.emit('task_progress', {'task': 'stress', 'log': f'⚠️ Nem található a ZIP-ben: {name}'})
                 
@@ -3394,6 +3408,7 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                     if "devices" in scan_data:
                         devices = scan_data["devices"]
                         logging.info(f"[REPORT] smartctl talált eszközök száma: {len(devices)}")
+                        seen_serials = set()
                         for dev in devices:
                             dev_name = dev.get("name")
                             if dev_name:
@@ -3401,6 +3416,13 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                                 info_res = self._run([smartctl_exe, "-a", dev_name, "-j"], encoding='utf-8')
                                 info_data = json.loads(info_res.stdout) if info_res.stdout.strip() else {}
                                 
+                                serial = info_data.get("serial_number", "")
+                                if serial and serial in seen_serials:
+                                    logging.info(f"[REPORT] Duplikált lemez átugrása (serial: {serial})")
+                                    continue
+                                if serial:
+                                    seen_serials.add(serial)
+                                    
                                 model = info_data.get("model_name", "Ismeretlen Meghajtó")
                                 
                                 size_gb = "?"
