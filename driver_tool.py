@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 154
+BUILD_NUMBER = 155
 
 # Bolti hálózati nyomtató (raw/JetDirect, port 9100) - nincs hozzá telepített Windows driver,
 # ezért a riport PDF-jét közvetlenül, nyers TCP socketen küldjük rá.
