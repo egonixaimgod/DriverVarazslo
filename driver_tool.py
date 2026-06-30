@@ -15,7 +15,7 @@ import queue
 import pathlib
 from datetime import datetime
 
-BUILD_NUMBER = 150
+BUILD_NUMBER = 151
 
 # Bolti hálózati nyomtató (raw/JetDirect, port 9100) - nincs hozzá telepített Windows driver,
 # ezért a riport PDF-jét közvetlenül, nyers TCP socketen küldjük rá.
@@ -474,16 +474,27 @@ del "%~f0"
             try: os.remove(pdf_path)
             except: pass
 
-        html_uri = pathlib.Path(html_path).as_uri()
-        cmd = [
-            msedge_exe, "--headless", "--disable-gpu", "--no-sandbox",
-            f"--print-to-pdf={pdf_path}", "--print-to-pdf-no-header", html_uri
-        ]
-        logging.info(f"[PRINT] Edge headless PDF export: {' '.join(cmd)}")
-        res = self._run(cmd, timeout=30)
-        if res.returncode != 0 or not os.path.exists(pdf_path):
-            raise Exception(f"PDF konvertálás sikertelen (Edge kilépési kód: {res.returncode}).")
-        return pdf_path
+        import tempfile
+        # Külön, ideiglenes profil kell, különben ha már fut egy Edge/WebView2 folyamat
+        # (pl. maga a program ablaka, vagy az Edge "Startup boost" háttérfolyamata) ugyanazzal
+        # a felhasználói profillal, a headless hívás csak átadja a parancsot a már futó
+        # példánynak és azonnal (0-s kilépési kóddal, tényleges munka nélkül) visszatér -
+        # emiatt nem jött létre PDF, pedig a kilépési kód 0-t mutatott.
+        edge_profile_dir = tempfile.mkdtemp(prefix="DriverVarazslo_EdgePdf_")
+        try:
+            html_uri = pathlib.Path(html_path).as_uri()
+            cmd = [
+                msedge_exe, "--headless", "--disable-gpu", "--no-sandbox",
+                f"--user-data-dir={edge_profile_dir}",
+                f"--print-to-pdf={pdf_path}", "--print-to-pdf-no-header", html_uri
+            ]
+            logging.info(f"[PRINT] Edge headless PDF export: {' '.join(cmd)}")
+            res = self._run(cmd, timeout=30)
+            if res.returncode != 0 or not os.path.exists(pdf_path):
+                raise Exception(f"PDF konvertálás sikertelen (Edge kilépési kód: {res.returncode}).")
+            return pdf_path
+        finally:
+            shutil.rmtree(edge_profile_dir, ignore_errors=True)
 
     def print_report(self, html_path, target='default'):
         """Riport kinyomtatása: 'default' = rendszer alapértelmezett nyomtatója, 'shop' = bolti hálózati nyomtató (IP)."""
