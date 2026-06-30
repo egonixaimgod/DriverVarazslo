@@ -8,7 +8,7 @@ echo ==========================================
 echo.
 
 echo [1/3] Build szam novelese...
-python -c "import re; f=open('driver_tool.py','r',encoding='utf-8'); c=f.read(); f.close(); m=re.search(r'^BUILD_NUMBER\s*=\s*(\d+)', c, re.M); nb=int(m.group(1))+1; c=c[:m.start(1)]+str(nb)+c[m.end(1):]; f=open('driver_tool.py','w',encoding='utf-8'); f.write(c); f.close(); print(nb)" > temp_build.txt
+python bump_build.py > temp_build.txt
 set /p NEW_BUILD=<temp_build.txt
 del temp_build.txt
 echo Uj Build verzio: %NEW_BUILD%

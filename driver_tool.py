@@ -13,8 +13,9 @@ import traceback
 import winreg
 import queue
 from datetime import datetime
+from html import escape as html_escape
 
-BUILD_NUMBER = 161
+BUILD_NUMBER = 162
 
 try:
     import webview
@@ -3632,6 +3633,16 @@ ConvertTo-Json $data
             os_info = safe_json("OS")
 
             # HTML Generator (Kompakt A4 méretre optimalizálva, 2 oszlopos grid)
+            # g(): WMI/CIM néha a kulcsot megtartja null értékkel ("None" jelenne meg helyette);
+            # e(): minden hardver-/firmware-eredetű string HTML-escape-elve kerül a riportba,
+            # nehogy egy '<'/'>'/'&'-et tartalmazó modell-/gyártónév eltörje a HTML-t.
+            def g(d, key, default='?'):
+                v = d.get(key, default)
+                return default if v is None else v
+
+            def e(value):
+                return html_escape(str(value))
+
             html = f"""<!DOCTYPE html>
 <html lang="hu">
 <head>
@@ -3656,22 +3667,22 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
 </head>
 <body>
 <h1>DriverVarázsló - Rendszer Adatlap</h1>
-<p class="subtitle">Gép típusa: <strong style="color:#000; font-size:14px;">{pc_model}</strong> | Generálva: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+<p class="subtitle">Gép típusa: <strong style="color:#000; font-size:14px;">{e(pc_model)}</strong> | Generálva: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
 
 <div class="grid">
     <div class="col">
         <div class="section">
             <h2>💻 Operációs Rendszer</h2>
             <table>
-                <tr><th>Verzió</th><td>{os_info.get('Caption', 'Ismeretlen')} ({os_info.get('OSArchitecture', 'Ismeretlen')})</td></tr>
+                <tr><th>Verzió</th><td>{e(g(os_info, 'Caption', 'Ismeretlen'))} ({e(g(os_info, 'OSArchitecture', 'Ismeretlen'))})</td></tr>
             </table>
         </div>
 
         <div class="section">
             <h2>🧠 Processzor (CPU)</h2>
             <table>
-                <tr><th>Modell</th><td>{cpu.get('Name', 'Ismeretlen')}</td></tr>
-                <tr><th>Magok / Szálak</th><td>{cpu.get('NumberOfCores', '?')} Mag / {cpu.get('NumberOfLogicalProcessors', '?')} Szál</td></tr>
+                <tr><th>Modell</th><td>{e(g(cpu, 'Name', 'Ismeretlen'))}</td></tr>
+                <tr><th>Magok / Szálak</th><td>{e(g(cpu, 'NumberOfCores'))} Mag / {e(g(cpu, 'NumberOfLogicalProcessors'))} Szál</td></tr>
             </table>
         </div>
 
@@ -3697,14 +3708,14 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
                     cap = r.get('Capacity')
                     cap_gb = f"{round(int(cap)/(1024**3), 1)} GB" if cap else "?"
                     
-                    man = str(r.get('Manufacturer', '?')).strip()
+                    man = str(g(r, 'Manufacturer')).strip()
                     if len(man) >= 4 and all(c in '0123456789ABCDEFabcdef' for c in man[:4]):
                         hex_pfx = man[:4].upper()
                         if hex_pfx in jedec_map:
                             man = jedec_map[hex_pfx]
                             
-                    man_part = f"{man} {r.get('PartNumber', '?')}".strip()
-                    html += f"<tr><td>{man_part}</td><td>{cap_gb}</td><td>{r.get('Speed', '?')} MHz</td></tr>"
+                    man_part = f"{man} {g(r, 'PartNumber')}".strip()
+                    html += f"<tr><td>{e(man_part)}</td><td>{e(cap_gb)}</td><td>{e(g(r, 'Speed'))} MHz</td></tr>"
                 html += "</table>"
             
             html += """</div>
@@ -3738,58 +3749,57 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             
             if not gpu_list:
                 html += "<p>Nem található dedikált/integrált videókártya.</p>"
-            for g in gpu_list:
-                name = g.get('Name', 'Ismeretlen')
-                ram = g.get('AdapterRAM')
-                if ram:
-                    ram_gb = round(int(ram)/(1024**3), 1)
-                    ram_gb_str = f"{ram_gb} GB"
-                    if ("intel" in name.lower() or "amd radeon" in name.lower() or "vega" in name.lower()) and ram_gb <= 2.0:
-                        ram_gb_str += " (Megosztott / Dinamikus VRAM)"
-                else:
-                    ram_gb_str = "Ismeretlen"
-                
-                html += f"<table><tr><th>Modell</th><td>{name}</td></tr><tr><th>VRAM</th><td>{ram_gb_str}</td></tr></table><br>"
-            
-            if gpu_list: html = html[:-4] # remove last <br>
+            else:
+                gpu_blocks = []
+                for gd in gpu_list:
+                    name = g(gd, 'Name', 'Ismeretlen')
+                    ram = gd.get('AdapterRAM')
+                    if ram:
+                        ram_gb = round(int(ram)/(1024**3), 1)
+                        ram_gb_str = f"{ram_gb} GB"
+                        if ("intel" in name.lower() or "amd radeon" in name.lower() or "vega" in name.lower()) and ram_gb <= 2.0:
+                            ram_gb_str += " (Megosztott / Dinamikus VRAM)"
+                    else:
+                        ram_gb_str = "Ismeretlen"
+
+                    gpu_blocks.append(f"<table><tr><th>Modell</th><td>{e(name)}</td></tr><tr><th>VRAM</th><td>{e(ram_gb_str)}</td></tr></table>")
+                html += "<br>".join(gpu_blocks)
 
             html += """</div>
         <div class="section">
             <h2>💾 Háttértárak (S.M.A.R.T. Adatok)</h2>"""
-            
+
             if not smart_data:
                 html += "<p>Nem található háttértár információ vagy nem olvasható a S.M.A.R.T.</p>"
-            for s in smart_data:
-                h = s.get('Health', 'Ismeretlen')
-                p = s.get('Performance', '100%')
-                h_class = ""
-                p_class = ""
-                raw_h = s.get('RawHealth', '-1')
-                try:
-                    pct = int(raw_h)
-                    if pct > 80: h_class = "health-Healthy"
-                    elif pct > 40: h_class = "health-Warning"
-                    elif pct >= 0: h_class = "health-Unhealthy"
-                    
-                    if pct >= 0:
-                        p_class = "health-Healthy" if p == "100%" else "health-Warning"
-                except: pass
-                
-                html += f"""<div class="item-title">{s.get('Name', 'Ismeretlen')} <span class="badge">{s.get('Size', '?')}</span> <span class="badge">{s.get('Type', '?')}</span></div>
+            else:
+                smart_blocks = []
+                for s in smart_data:
+                    h = g(s, 'Health', 'Ismeretlen')
+                    p = g(s, 'Performance', '100%')
+                    h_class = ""
+                    p_class = ""
+                    raw_h = g(s, 'RawHealth', '-1')
+                    try:
+                        pct = int(raw_h)
+                        if pct > 80: h_class = "health-Healthy"
+                        elif pct > 40: h_class = "health-Warning"
+                        elif pct >= 0: h_class = "health-Unhealthy"
+
+                        if pct >= 0:
+                            p_class = "health-Healthy" if p == "100%" else "health-Warning"
+                    except: pass
+
+                    smart_blocks.append(f"""<div class="item-title">{e(g(s, 'Name', 'Ismeretlen'))} <span class="badge">{e(g(s, 'Size'))}</span> <span class="badge">{e(g(s, 'Type'))}</span></div>
                 <table>
-                    <tr><th>Kond. / Telj.</th><td><span class="badge {h_class}">❤️ {h}</span> <span class="badge {p_class}">⚡ {p}</span></td></tr>
-                    <tr><th>Üzemidő / Hőm.</th><td>{s.get('Hours', '?')} / {s.get('Temp', '?')}</td></tr>
-                </table><br>"""
-                
-            if smart_data: html = html[:-4]
+                    <tr><th>Kond. / Telj.</th><td><span class="badge {h_class}">❤️ {e(h)}</span> <span class="badge {p_class}">⚡ {e(p)}</span></td></tr>
+                    <tr><th>Üzemidő / Hőm.</th><td>{e(g(s, 'Hours'))} / {e(g(s, 'Temp'))}</td></tr>
+                </table>""")
+                html += "<br>".join(smart_blocks)
 
             html += "</div>\n    </div>\n</div>\n</body></html>"
 
-            safe_name = os_info.get('Caption', 'PC').replace(' ', '_')
-            try:
-                comp_name = os.environ.get('COMPUTERNAME', 'PC')
-                safe_name = f"Rendszer_Riport_{comp_name}"
-            except: pass
+            comp_name = os.environ.get('COMPUTERNAME', 'PC')
+            safe_name = f"Rendszer_Riport_{comp_name}"
 
             # A program mellé mentjük
             exe_dir = os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__))
