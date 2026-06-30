@@ -1,7 +1,38 @@
-﻿__pycache__/
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller
+# A build/ mappa minden fordításnál újragenerálódik, nem kell verziózni.
+# A dist/ mappát is figyelmen kívül hagyjuk, KIVÉVE a már trackelt
+# dist/DriverVarazslo.exe-t, amit a rebuild.bat szándékosan felrak - ezt az
+# in-app auto-updater tölti le a felhasználóknál, ezért a repo része kell maradjon.
 build/
 dist/
-*.spec
+
+# A DriverVarazslo.spec és a version_info.txt NEM kerül ide (sok Python sablon
+# ignorálja a *.spec-et, de itt a rebuild.bat ezekre épít - tracking nélkül a
+# build egyből elszáll egy friss klónozás után).
+
+# Virtuális környezetek
+venv/
+.venv/
+env/
+ENV/
+
+# Naplók / debug kimenet
 *.log
 *debug.log
+
+# Stressz-teszt eszközcsomag - futásidőben töltődik le %TEMP%-be, sosem
+# tartozik a repohoz, de ha valaki véletlenül idemásolja, ne kerüljön fel.
 stresstools.zip
+
+# Szerkesztő / IDE
+.vscode/
+.idea/
+
+# Windows OS szemét
+Thumbs.db
+desktop.ini

@@ -14,7 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 147
+BUILD_NUMBER = 149
 
 try:
     import webview
@@ -443,28 +443,35 @@ del "%~f0"
         import tempfile, urllib.request, zipfile, ssl, shutil
         temp_dir = tempfile.gettempdir()
         stress_dir = os.path.join(temp_dir, "DriverVarázsló_Stress")
+        marker_path = os.path.join(stress_dir, ".extract_complete")
         zip_path = os.path.join(temp_dir, "stresstools.zip")
         download_url = "https://github.com/egonixaimgod/DriverVarazslo/releases/download/stresstools.zip/stresstools.zip"
-        
-        if os.path.exists(stress_dir):
+
+        # Csak akkor fogadjuk el a cache-t, ha a kicsomagolás korábban teljesen lefutott.
+        # Egy félbeszakadt (pl. AV által megszakított) kicsomagolás mappáját ne ragadjunk be örökre.
+        if os.path.exists(marker_path):
             return stress_dir
-            
+
         try:
             logging.info("[STRESSTOOLS] Letöltés INNEN: " + download_url)
             ssl_ctx = ssl.create_default_context()
             ssl_ctx.check_hostname = False
             ssl_ctx.verify_mode = ssl.CERT_NONE
-            
+
             req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
             with urllib.request.urlopen(req, context=ssl_ctx, timeout=60) as resp, open(zip_path, 'wb') as f:
                 shutil.copyfileobj(resp, f)
-                
+
             if not zipfile.is_zipfile(zip_path):
                 return None
+            if os.path.exists(stress_dir):
+                shutil.rmtree(stress_dir, ignore_errors=True)
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(stress_dir)
             try: os.remove(zip_path)
             except: pass
+            with open(marker_path, 'w') as f:
+                f.write('ok')
             return stress_dir
         except Exception as e:
             logging.error(f"[STRESSTOOLS] Download hiba: {e}")
@@ -3407,22 +3414,53 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
             
             smart_data = []
             if smartctl_exe:
-                try:
-                    logging.info("[REPORT] smartctl --scan futtatása...")
-                    scan_res = self._run([smartctl_exe, "--scan", "-j"], encoding='utf-8')
-                    scan_data = json.loads(scan_res.stdout) if scan_res.stdout.strip() else {}
-                    
-                    if "devices" in scan_data:
-                        devices = scan_data["devices"]
+                # Friss letöltés/kicsomagolás után a Windows Defender (felhős ellenőrzés) néha
+                # pár másodpercig blokkolja vagy üresen futtatja az új exe-t, ezért pár próbálkozást
+                # engedünk, mielőtt feladnánk - lassú gépen/neten ez korábban "nem talált semmit" hibát adott.
+                devices = []
+                max_scan_attempts = 3
+                for scan_attempt in range(1, max_scan_attempts + 1):
+                    try:
+                        logging.info(f"[REPORT] smartctl --scan futtatása... (próba {scan_attempt}/{max_scan_attempts})")
+                        scan_res = self._run([smartctl_exe, "--scan", "-j"], encoding='utf-8')
+                        scan_data = json.loads(scan_res.stdout) if scan_res.stdout.strip() else {}
+                        devices = scan_data.get("devices", [])
+                    except Exception as e:
+                        logging.error(f"smartctl scan hiba (próba {scan_attempt}/{max_scan_attempts}): {e}")
+                        devices = []
+
+                    if devices:
+                        break
+                    if scan_attempt < max_scan_attempts:
+                        logging.warning("[REPORT] smartctl nem talált devices tömböt, újrapróbálás 2s múlva...")
+                        time.sleep(2)
+
+                if devices:
+                    try:
                         logging.info(f"[REPORT] smartctl talált eszközök száma: {len(devices)}")
                         seen_serials = set()
                         for dev in devices:
                             dev_name = dev.get("name")
+                            dev_scan_type = dev.get("type", "")
                             if dev_name:
-                                logging.info(f"[REPORT] Adatok lekérése: {dev_name}")
-                                info_res = self._run([smartctl_exe, "-a", dev_name, "-j"], encoding='utf-8')
-                                info_data = json.loads(info_res.stdout) if info_res.stdout.strip() else {}
-                                
+                                logging.info(f"[REPORT] Adatok lekérése: {dev_name} (type={dev_scan_type or '?'})")
+                                info_data = {}
+                                for info_attempt in range(1, 3):
+                                    info_cmd = [smartctl_exe]
+                                    if dev_scan_type:
+                                        info_cmd += ["-d", dev_scan_type]
+                                    info_cmd += ["-a", dev_name, "-j"]
+                                    try:
+                                        info_res = self._run(info_cmd, encoding='utf-8')
+                                        info_data = json.loads(info_res.stdout) if info_res.stdout.strip() else {}
+                                    except Exception as e:
+                                        logging.error(f"smartctl -a hiba ({dev_name}, próba {info_attempt}/2): {e}")
+                                        info_data = {}
+                                    if info_data:
+                                        break
+                                    if info_attempt < 2:
+                                        time.sleep(2)
+
                                 serial = info_data.get("serial_number", "")
                                 if serial and serial in seen_serials:
                                     logging.info(f"[REPORT] Duplikált lemez átugrása (serial: {serial})")
@@ -3518,10 +3556,10 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                                     "Type": dev_type_str,
                                     "RawHealth": health.replace('%','').strip() if health != "-1" else "-1"
                                 })
-                    else:
-                        logging.warning("[REPORT] smartctl nem talált devices tömböt a kimenetben!")
-                except Exception as e:
-                    logging.error(f"smartctl futtatási hiba: {e}")
+                    except Exception as e:
+                        logging.error(f"smartctl futtatási hiba: {e}")
+                else:
+                    logging.warning("[REPORT] smartctl nem talált devices tömböt a kimenetben (több próbálkozás után sem)!")
 
             # Akkumulátor információk
             batt_script = r"""
