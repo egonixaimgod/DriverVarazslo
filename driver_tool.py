@@ -14,12 +14,7 @@ import winreg
 import queue
 from datetime import datetime
 
-BUILD_NUMBER = 155
-
-# Bolti hálózati nyomtató (raw/JetDirect, port 9100) - nincs hozzá telepített Windows driver,
-# ezért a riport PDF-jét közvetlenül, nyers TCP socketen küldjük rá.
-SHOP_PRINTER_IP = "192.168.35.12"
-SHOP_PRINTER_PORT = 9100
+BUILD_NUMBER = 150
 
 try:
     import webview
@@ -443,110 +438,6 @@ del "%~f0"
         self._cancel_flag = True
         self.emit('toast', {'message': '⚠️ Megszakítás kérve...', 'type': 'warning'})
         return True
-
-    def _ensure_shop_printer(self):
-        """Megkeresi (vagy felveszi) a bolti IP-nyomtatóhoz tartozó Windows nyomtatót, és visszaadja a nevét.
-        Először az IP alapján keres létező nyomtatót (így ha valaki kézzel, gyári driverrel vette fel, azt
-        használjuk - az a legmegbízhatóbb). Ha nincs, létrehoz egy RAW (9100) portot és felveszi az IPP Class
-        Driverrel (a modern hálózati nyomtatókhoz beépített univerzális Windows driver)."""
-        printer_name = "DriverVarazslo Bolti Nyomtato"
-        ps_script = r'''
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$ip = "%s"
-$desiredName = "%s"
-try {
-    # 1. Van-e már nyomtató, aminek a portja erre az IP-re mutat?
-    $port = Get-PrinterPort | Where-Object { $_.PrinterHostAddress -eq $ip } | Select-Object -First 1
-    if ($port) {
-        $pr = Get-Printer | Where-Object { $_.PortName -eq $port.Name } | Select-Object -First 1
-        if ($pr) { Write-Output ("OK:" + $pr.Name); exit 0 }
-    }
-    # 2. RAW (9100) port létrehozása, ha még nincs
-    $portName = "DV_IP_" + $ip
-    if (-not (Get-PrinterPort -Name $portName -ErrorAction SilentlyContinue)) {
-        Add-PrinterPort -Name $portName -PrinterHostAddress $ip -ErrorAction Stop
-    }
-    # 3. Driver kiválasztása: IPP Class Driver, ha elérhető (univerzális), különben Generic / Text Only
-    $driver = "Microsoft IPP Class Driver"
-    if (-not (Get-PrinterDriver -Name $driver -ErrorAction SilentlyContinue)) {
-        $driver = "Generic / Text Only"
-    }
-    # 4. Nyomtató felvétele (ha esetleg már létezik ezzel a névvel, töröljük és újra)
-    if (Get-Printer -Name $desiredName -ErrorAction SilentlyContinue) {
-        Write-Output ("OK:" + $desiredName); exit 0
-    }
-    Add-Printer -Name $desiredName -PortName $portName -DriverName $driver -ErrorAction Stop
-    Write-Output ("OK:" + $desiredName)
-} catch {
-    Write-Output ("ERR:" + $_.Exception.Message)
-}
-''' % (SHOP_PRINTER_IP, printer_name)
-        res = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script], encoding='utf-8')
-        out = (res.stdout or "").strip()
-        logging.info(f"[PRINT] _ensure_shop_printer kimenet: {out}")
-        for line in out.splitlines():
-            line = line.strip()
-            if line.startswith("OK:"):
-                return line[3:].strip()
-            if line.startswith("ERR:"):
-                raise Exception(f"Bolti nyomtató felvétele sikertelen: {line[4:].strip()}")
-        raise Exception(f"Bolti nyomtató felvétele sikertelen (váratlan kimenet): {out[:300]}")
-
-    def _print_pdf_to(self, pdf_path, printer_name):
-        """A PDF csendes nyomtatása egy adott nevű Windows nyomtatóra a 'printto' shell verb-bel.
-        Ez ugyanazt a (működő) Windows PDF-kezelőt használja, mint az alapértelmezett nyomtatás,
-        csak névre címezve - így nem kell az alapértelmezett nyomtatót átállítani."""
-        import ctypes
-        rc = ctypes.windll.shell32.ShellExecuteW(None, "printto", pdf_path, f'"{printer_name}"', None, 0)
-        if rc <= 32:
-            raise Exception(f"A nyomtatás indítása sikertelen (ShellExecute kód: {rc}). "
-                            f"Lehet, hogy nincs PDF-kezelő társítva a 'printto' művelethez ezen a gépen.")
-
-    def print_report(self, pdf_path, target='default'):
-        """Riport kinyomtatása: 'default' = rendszer alapértelmezett nyomtatója, 'shop' = bolti hálózati nyomtató (IP).
-        A riport natívan PDF (reportlab), nincs Edge/böngésző-függőség, így WinPE-n és kipucolt Windows buildeken is megy."""
-        logging.info(f"[API] print_report(target={target})")
-        def worker():
-            try:
-                if not os.path.exists(pdf_path):
-                    raise Exception("A riport fájl nem található.")
-
-                if target == 'shop':
-                    self.emit('toast', {'message': '🏪 Bolti nyomtató előkészítése...', 'type': 'info'})
-                    printer_name = self._ensure_shop_printer()
-                    logging.info(f"[PRINT] Bolti nyomtató neve: {printer_name}")
-                    self._print_pdf_to(pdf_path, printer_name)
-                    self.emit('toast', {'message': f'✅ Riport elküldve a bolti nyomtatóra ({SHOP_PRINTER_IP})!', 'type': 'success'})
-                else:
-                    logging.info(f"[PRINT] Nyomtatás az alapértelmezett nyomtatóra: {pdf_path}")
-                    os.startfile(pdf_path, "print")
-                    self.emit('toast', {'message': '✅ Riport elküldve az alapértelmezett nyomtatóra!', 'type': 'success'})
-            except Exception as e:
-                logging.error(f"[PRINT] Nyomtatási hiba: {e}")
-                logging.error(traceback.format_exc())
-                self.emit('toast', {'message': f'❌ Nyomtatási hiba: {e}', 'type': 'error'})
-        self._safe_thread('print_report', worker)
-
-    def _register_pdf_fonts(self):
-        """Windows rendszerbetűtípus regisztrálása a riport PDF-hez, hogy az ő/ű és egyéb ékezetek
-        helyesen jelenjenek meg (a reportlab beépített Helvetica-ja csak Latin-1-et tud, abból az ő/ű hiányzik)."""
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
-        from reportlab.pdfbase.pdfmetrics import registerFontFamily
-        fonts_dir = os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), 'Fonts')
-        regular = os.path.join(fonts_dir, 'segoeui.ttf')
-        bold = os.path.join(fonts_dir, 'segoeuib.ttf')
-        try:
-            if os.path.exists(regular):
-                pdfmetrics.registerFont(TTFont('ReportFont', regular))
-                pdfmetrics.registerFont(TTFont('ReportFont-Bold', bold if os.path.exists(bold) else regular))
-                # Család regisztrálása, hogy a Paragraph <b> tagja a félkövér változatra mappeljen.
-                registerFontFamily('ReportFont', normal='ReportFont', bold='ReportFont-Bold',
-                                   italic='ReportFont', boldItalic='ReportFont-Bold')
-                return 'ReportFont', 'ReportFont-Bold'
-        except Exception as e:
-            logging.warning(f"[REPORT] Rendszerbetűtípus regisztrálása sikertelen, Helvetica-ra esünk vissza: {e}")
-        return 'Helvetica', 'Helvetica-Bold'
 
     def _download_stresstools(self):
         import tempfile, urllib.request, zipfile, ssl, shutil
@@ -3740,235 +3631,159 @@ ConvertTo-Json $data
             gpu_list = safe_json_list("GPU")
             os_info = safe_json("OS")
 
-            # PDF Generátor (reportlab) - natívan, böngésző/Edge nélkül épül fel a riport,
-            # így WinPE-n és minimalizált ("kipucolt") Windows telepítéseken is megbízhatóan működik.
-            # A megjelenés a régi HTML riportot idézi: lila téma, 2 oszlop, szekciók színes bal
-            # sávval, kulcs/érték táblák lila fejléccel és színes (zöld/sárga/piros) állapot-badge-ek.
-            from xml.sax.saxutils import escape as _esc
-            from reportlab.lib.pagesizes import A4
-            from reportlab.lib.units import mm
-            from reportlab.lib import colors
-            from reportlab.lib.styles import ParagraphStyle
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+            # HTML Generator (Kompakt A4 méretre optimalizálva, 2 oszlopos grid)
+            html = f"""<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<style>
+@page {{ size: A4; margin: 15mm; }}
+body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #fff; color: #333; margin: 0; padding: 20px; font-size: 13px; }}
+h1 {{ color: #46286e; border-bottom: 2px solid #d488ff; padding-bottom: 5px; font-size: 24px; margin-bottom: 5px; }}
+.subtitle {{ color: #666; font-size: 13px; margin-top: 0; margin-bottom: 20px; }}
+.grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; align-items: start; }}
+.section {{ background: #f9f6ff; padding: 12px 15px; border-radius: 6px; border-left: 4px solid #b855ff; margin-bottom: 15px; }}
+.section h2 {{ margin-top: 0; color: #46286e; font-size: 16px; margin-bottom: 10px; border-bottom: 1px solid #e0d8f0; padding-bottom: 4px; }}
+table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+th, td {{ padding: 6px 8px; text-align: left; border-bottom: 1px solid #e0d8f0; }}
+th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
+.item-title {{ font-weight: bold; color: #46286e; margin-top: 8px; margin-bottom: 4px; font-size: 13px; }}
+.badge {{ display: inline-block; padding: 2px 6px; border-radius: 8px; font-size: 11px; font-weight: bold; background: #e0d8f0; color: #46286e; margin-left: 5px; }}
+.health-Healthy {{ background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }}
+.health-Warning {{ background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }}
+.health-Unhealthy {{ background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }}
+</style>
+</head>
+<body>
+<h1>DriverVarázsló - Rendszer Adatlap</h1>
+<p class="subtitle">Gép típusa: <strong style="color:#000; font-size:14px;">{pc_model}</strong> | Generálva: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
 
-            font_normal, font_bold = self._register_pdf_fonts()
-            purple      = colors.HexColor('#46286e')
-            accent_bar  = colors.HexColor('#b855ff')
-            accent_line = colors.HexColor('#d488ff')
-            section_bg  = colors.HexColor('#f9f6ff')
-            th_bg       = colors.HexColor('#eee8f8')
-            grid_color  = colors.HexColor('#e0d8f0')
-            health_colors = {
-                'green': (colors.HexColor('#d4edda'), colors.HexColor('#155724')),
-                'amber': (colors.HexColor('#fff3cd'), colors.HexColor('#856404')),
-                'red':   (colors.HexColor('#f8d7da'), colors.HexColor('#721c24')),
-            }
+<div class="grid">
+    <div class="col">
+        <div class="section">
+            <h2>💻 Operációs Rendszer</h2>
+            <table>
+                <tr><th>Verzió</th><td>{os_info.get('Caption', 'Ismeretlen')} ({os_info.get('OSArchitecture', 'Ismeretlen')})</td></tr>
+            </table>
+        </div>
 
-            title_style    = ParagraphStyle('DvTitle', fontName=font_bold, fontSize=20, leading=24, textColor=purple)
-            subtitle_style = ParagraphStyle('DvSubtitle', fontName=font_normal, fontSize=9.5, textColor=colors.HexColor('#666666'))
-            sec_head_style = ParagraphStyle('DvSecHead', fontName=font_bold, fontSize=12, textColor=purple)
-            normal_style   = ParagraphStyle('DvNormal', fontName=font_normal, fontSize=9, leading=12, spaceAfter=3)
-            cell_style     = ParagraphStyle('DvCell', fontName=font_normal, fontSize=8.5, leading=11)
-            cell_bold      = ParagraphStyle('DvCellBold', fontName=font_bold, fontSize=8.5, leading=11, textColor=purple)
-            drive_title    = ParagraphStyle('DvDrive', fontName=font_bold, fontSize=9.5, textColor=purple, spaceBefore=1, spaceAfter=3)
+        <div class="section">
+            <h2>🧠 Processzor (CPU)</h2>
+            <table>
+                <tr><th>Modell</th><td>{cpu.get('Name', 'Ismeretlen')}</td></tr>
+                <tr><th>Magok / Szálak</th><td>{cpu.get('NumberOfCores', '?')} Mag / {cpu.get('NumberOfLogicalProcessors', '?')} Szál</td></tr>
+            </table>
+        </div>
 
-            COL_W     = 84 * mm           # egy oszlop teljes szélessége
-            CONTENT_W = COL_W - 2 * mm    # szekció tartalmi szélessége (a bal sáv 2mm)
-            INNER_W   = CONTENT_W - 16 * mm   # belső táblák szélessége a content padding (8+8) után
-
-            def kv_table(rows, label_w=26 * mm, extra_styles=None):
-                """Kulcs/érték tábla: bal oszlop lila fejléc, jobb oszlop érték (string vagy flowable)."""
-                data = []
-                for label, value in rows:
-                    lbl = Paragraph(_esc(str(label)), cell_bold)
-                    val = value if hasattr(value, 'wrap') else Paragraph(_esc(str(value)), cell_style)
-                    data.append([lbl, val])
-                t = Table(data, colWidths=[label_w, INNER_W - label_w])
-                style = [
-                    ('BACKGROUND', (0, 0), (0, -1), th_bg),
-                    ('GRID', (0, 0), (-1, -1), 0.5, grid_color),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('LEFTPADDING', (0, 0), (-1, -1), 5), ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-                    ('TOPPADDING', (0, 0), (-1, -1), 3), ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-                ]
-                if extra_styles:
-                    style.extend(extra_styles)
-                t.setStyle(TableStyle(style))
-                return t
-
-            def make_section(title, body_flowables):
-                """Szekció: vékony lila bal sáv + halványlila háttér, fejléc alatta vékony vonallal."""
-                heading = Paragraph(_esc(title), sec_head_style)
-                hr = HRFlowable(width='100%', thickness=0.6, color=grid_color, spaceBefore=3, spaceAfter=5)
-                content = [heading, hr] + body_flowables
-                t = Table([['', content]], colWidths=[2 * mm, CONTENT_W])
-                t.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (0, 0), accent_bar),
-                    ('BACKGROUND', (1, 0), (1, 0), section_bg),
-                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                    ('LEFTPADDING', (0, 0), (0, 0), 0), ('RIGHTPADDING', (0, 0), (0, 0), 0),
-                    ('TOPPADDING', (0, 0), (0, 0), 0), ('BOTTOMPADDING', (0, 0), (0, 0), 0),
-                    ('LEFTPADDING', (1, 0), (1, 0), 8), ('RIGHTPADDING', (1, 0), (1, 0), 8),
-                    ('TOPPADDING', (1, 0), (1, 0), 6), ('BOTTOMPADDING', (1, 0), (1, 0), 6),
-                ]))
-                return t
-
-            left_col = []
-            right_col = []
-
-            # --- BAL OSZLOP ---
-            # Operációs rendszer
-            left_col.append(make_section("Operációs Rendszer", [kv_table([
-                ["Verzió", f"{os_info.get('Caption', 'Ismeretlen')} ({os_info.get('OSArchitecture', 'Ismeretlen')})"],
-            ])]))
-            left_col.append(Spacer(1, 5 * mm))
-
-            # CPU
-            left_col.append(make_section("Processzor (CPU)", [kv_table([
-                ["Modell", cpu.get('Name', 'Ismeretlen')],
-                ["Magok / Szálak", f"{cpu.get('NumberOfCores', '?')} Mag / {cpu.get('NumberOfLogicalProcessors', '?')} Szál"],
-            ])]))
-            left_col.append(Spacer(1, 5 * mm))
-
-            # RAM
+        <div class="section">
+            <h2>🧩 Memória (RAM)</h2>"""
+            
             tot_gb = "Ismeretlen"
             try:
                 tot = json.loads(raw_data.get("RAMTotal", "{}")).get('TotalPhysicalMemory')
-                if tot: tot_gb = f"{round(int(tot) / (1024**3), 1)} GB"
+                if tot: tot_gb = f"{round(int(tot)/(1024**3), 1)} GB"
             except: pass
-
-            ram_body = [Paragraph(f"Összes fizikai memória: <b>{_esc(tot_gb)}</b> ({len(ram_list)} db modul)", normal_style)]
+                
+            html += f"<p style='margin: 0 0 8px 0;'><strong>Összes fizikai memória:</strong> {tot_gb} ({len(ram_list)} db modul)</p>"
             if ram_list:
                 jedec_map = {
-                    "80AD": "SK Hynix", "80CE": "Samsung", "802C": "Micron",
-                    "0198": "Kingston", "029E": "Corsair", "04CB": "A-DATA",
+                    "80AD": "SK Hynix", "80CE": "Samsung", "802C": "Micron", 
+                    "0198": "Kingston", "029E": "Corsair", "04CB": "A-DATA", 
                     "00CE": "Samsung", "014F": "Transcend", "02FE": "Elpida",
                     "0D0B": "Crucial", "0298": "Kingston"
                 }
-                ram_rows = [[Paragraph("Gyártó / Cikkszám", cell_bold), Paragraph("Kapacitás", cell_bold), Paragraph("Sebesség", cell_bold)]]
+                html += "<table><tr><th>Gyártó / Cikkszám</th><th>Kapacitás</th><th>Sebesség</th></tr>"
                 for r in ram_list:
                     cap = r.get('Capacity')
-                    cap_gb = f"{round(int(cap) / (1024**3), 1)} GB" if cap else "?"
-
+                    cap_gb = f"{round(int(cap)/(1024**3), 1)} GB" if cap else "?"
+                    
                     man = str(r.get('Manufacturer', '?')).strip()
                     if len(man) >= 4 and all(c in '0123456789ABCDEFabcdef' for c in man[:4]):
                         hex_pfx = man[:4].upper()
                         if hex_pfx in jedec_map:
                             man = jedec_map[hex_pfx]
-
+                            
                     man_part = f"{man} {r.get('PartNumber', '?')}".strip()
-                    ram_rows.append([Paragraph(_esc(man_part), cell_style),
-                                     Paragraph(_esc(cap_gb), cell_style),
-                                     Paragraph(_esc(f"{r.get('Speed', '?')} MHz"), cell_style)])
-                ram_t = Table(ram_rows, colWidths=[34 * mm, 18 * mm, 18 * mm])
-                ram_t.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), th_bg),
-                    ('GRID', (0, 0), (-1, -1), 0.5, grid_color),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('LEFTPADDING', (0, 0), (-1, -1), 5), ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-                    ('TOPPADDING', (0, 0), (-1, -1), 3), ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-                ]))
-                ram_body.append(ram_t)
-            left_col.append(make_section("Memória (RAM)", ram_body))
+                    html += f"<tr><td>{man_part}</td><td>{cap_gb}</td><td>{r.get('Speed', '?')} MHz</td></tr>"
+                html += "</table>"
+            
+            html += """</div>
+    </div>
+    
+    <div class="col">"""
 
-            # --- JOBB OSZLOP ---
-            # Akkumulátor, ha van
+            # Akku szekció ha van
             if batt_data.get('Design') and batt_data.get('Full'):
                 try:
                     des = int(batt_data['Design'])
                     full = int(batt_data['Full'])
                     health_pct = round((full / des) * 100)
-                    bkey = 'green' if health_pct > 80 else 'amber' if health_pct > 50 else 'red'
-                    bbg, bfg = health_colors[bkey]
-                    batt_badge = Paragraph(f"{health_pct}%", ParagraphStyle('bb', parent=cell_style, fontName=font_bold, textColor=bfg))
-                    right_col.append(make_section("Akkumulátor Állapot", [kv_table([
-                        ["Gyári kapacitás", f"{des} mWh"],
-                        ["Jelenlegi max.", f"{full} mWh"],
-                        ["Egészség", batt_badge],
-                    ], extra_styles=[('BACKGROUND', (1, 2), (1, 2), bbg)])]))
-                    right_col.append(Spacer(1, 5 * mm))
+                    h_class = "health-Healthy" if health_pct > 80 else "health-Warning" if health_pct > 50 else "health-Unhealthy"
+                    batt_icon = "🔋" if health_pct >= 20 else "🪫"
+                    
+                    html += f"""
+        <div class="section">
+            <h2>🔋 Akkumulátor Állapot</h2>
+            <table>
+                <tr><th>Gyári kapacitás</th><td>{des} mWh</td></tr>
+                <tr><th>Jelenlegi max.</th><td>{full} mWh</td></tr>
+                <tr><th>Egészség</th><td><span style="font-size:18px; vertical-align:middle;">{batt_icon}</span> <span class="badge {h_class}" style="font-size:13px; padding:4px 8px;">{health_pct}%</span></td></tr>
+            </table>
+        </div>"""
                 except: pass
 
-            # GPU
-            gpu_body = []
+            html += """
+        <div class="section">
+            <h2>🎮 Videókártyák (GPU)</h2>"""
+            
             if not gpu_list:
-                gpu_body.append(Paragraph("Nem található dedikált/integrált videókártya.", normal_style))
-            for gi, g in enumerate(gpu_list):
+                html += "<p>Nem található dedikált/integrált videókártya.</p>"
+            for g in gpu_list:
                 name = g.get('Name', 'Ismeretlen')
                 ram = g.get('AdapterRAM')
                 if ram:
-                    ram_gb = round(int(ram) / (1024**3), 1)
+                    ram_gb = round(int(ram)/(1024**3), 1)
                     ram_gb_str = f"{ram_gb} GB"
                     if ("intel" in name.lower() or "amd radeon" in name.lower() or "vega" in name.lower()) and ram_gb <= 2.0:
                         ram_gb_str += " (Megosztott / Dinamikus VRAM)"
                 else:
                     ram_gb_str = "Ismeretlen"
-                gpu_body.append(kv_table([
-                    ["Modell", name],
-                    ["VRAM", ram_gb_str],
-                ]))
-                if gi < len(gpu_list) - 1:
-                    gpu_body.append(Spacer(1, 3 * mm))
-            right_col.append(make_section("Videókártyák (GPU)", gpu_body))
-            right_col.append(Spacer(1, 5 * mm))
+                
+                html += f"<table><tr><th>Modell</th><td>{name}</td></tr><tr><th>VRAM</th><td>{ram_gb_str}</td></tr></table><br>"
+            
+            if gpu_list: html = html[:-4] # remove last <br>
 
-            # Háttértárak / S.M.A.R.T.
-            smart_body = []
+            html += """</div>
+        <div class="section">
+            <h2>💾 Háttértárak (S.M.A.R.T. Adatok)</h2>"""
+            
             if not smart_data:
-                smart_body.append(Paragraph("Nem található háttértár információ vagy nem olvasható a S.M.A.R.T.", normal_style))
-            for idx, s in enumerate(smart_data):
-                smart_body.append(Paragraph(
-                    f"{_esc(s.get('Name', 'Ismeretlen'))} <font size=7 color='#888888'>({_esc(s.get('Size', '?'))} &bull; {_esc(s.get('Type', '?'))})</font>",
-                    drive_title))
-
+                html += "<p>Nem található háttértár információ vagy nem olvasható a S.M.A.R.T.</p>"
+            for s in smart_data:
                 h = s.get('Health', 'Ismeretlen')
                 p = s.get('Performance', '100%')
+                h_class = ""
+                p_class = ""
                 raw_h = s.get('RawHealth', '-1')
-                hkey = None
                 try:
                     pct = int(raw_h)
-                    if pct > 80: hkey = 'green'
-                    elif pct > 40: hkey = 'amber'
-                    elif pct >= 0: hkey = 'red'
+                    if pct > 80: h_class = "health-Healthy"
+                    elif pct > 40: h_class = "health-Warning"
+                    elif pct >= 0: h_class = "health-Unhealthy"
+                    
+                    if pct >= 0:
+                        p_class = "health-Healthy" if p == "100%" else "health-Warning"
                 except: pass
-                pkey = ('green' if p == '100%' else 'amber') if hkey is not None else None
+                
+                html += f"""<div class="item-title">{s.get('Name', 'Ismeretlen')} <span class="badge">{s.get('Size', '?')}</span> <span class="badge">{s.get('Type', '?')}</span></div>
+                <table>
+                    <tr><th>Kond. / Telj.</th><td><span class="badge {h_class}">❤️ {h}</span> <span class="badge {p_class}">⚡ {p}</span></td></tr>
+                    <tr><th>Üzemidő / Hőm.</th><td>{s.get('Hours', '?')} / {s.get('Temp', '?')}</td></tr>
+                </table><br>"""
+                
+            if smart_data: html = html[:-4]
 
-                extra = []
-                h_val = h
-                if hkey:
-                    hbg, hfg = health_colors[hkey]
-                    h_val = Paragraph(_esc(str(h)), ParagraphStyle('hb', parent=cell_style, fontName=font_bold, textColor=hfg))
-                    extra.append(('BACKGROUND', (1, 0), (1, 0), hbg))
-                p_val = p
-                if pkey:
-                    pbg, pfg = health_colors[pkey]
-                    p_val = Paragraph(_esc(str(p)), ParagraphStyle('pb', parent=cell_style, fontName=font_bold, textColor=pfg))
-                    extra.append(('BACKGROUND', (1, 1), (1, 1), pbg))
-
-                smart_body.append(kv_table([
-                    ["Kondíció", h_val],
-                    ["Teljesítmény", p_val],
-                    ["Üzemidő", s.get('Hours', '?')],
-                    ["Hőmérséklet", s.get('Temp', '?')],
-                ], extra_styles=extra))
-                if idx < len(smart_data) - 1:
-                    smart_body.append(Spacer(1, 3 * mm))
-            right_col.append(make_section("Háttértárak (S.M.A.R.T. Adatok)", smart_body))
-
-            # --- DOKUMENTUM ÖSSZEÁLLÍTÁSA ---
-            elements = []
-            elements.append(Paragraph("DriverVarázsló - Rendszer Adatlap", title_style))
-            elements.append(HRFlowable(width='100%', thickness=1.5, color=accent_line, spaceBefore=4, spaceAfter=3))
-            elements.append(Paragraph(
-                f"Gép típusa: <b>{_esc(pc_model)}</b>&nbsp;&nbsp;|&nbsp;&nbsp;Generálva: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                subtitle_style))
-            elements.append(Spacer(1, 6 * mm))
-            elements.append(Table([[left_col, '', right_col]], colWidths=[COL_W, 12 * mm, COL_W],
-                                  style=TableStyle([
-                                      ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                                      ('LEFTPADDING', (0, 0), (-1, -1), 0), ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-                                      ('TOPPADDING', (0, 0), (-1, -1), 0), ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-                                  ])))
+            html += "</div>\n    </div>\n</div>\n</body></html>"
 
             safe_name = os_info.get('Caption', 'PC').replace(' ', '_')
             try:
@@ -3976,14 +3791,12 @@ ConvertTo-Json $data
                 safe_name = f"Rendszer_Riport_{comp_name}"
             except: pass
 
-            # A program mellé mentjük - egyetlen fájl (PDF), nincs köztes HTML.
+            # A program mellé mentjük
             exe_dir = os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__))
-            final_path = os.path.join(exe_dir, f"{safe_name}.pdf")
+            final_path = os.path.join(exe_dir, f"{safe_name}.html")
 
-            doc = SimpleDocTemplate(final_path, pagesize=A4,
-                                     topMargin=15 * mm, bottomMargin=15 * mm,
-                                     leftMargin=15 * mm, rightMargin=15 * mm)
-            doc.build(elements)
+            with open(final_path, "w", encoding="utf-8") as f:
+                f.write(html)
 
             if os.path.exists(final_path):
                 return {'success': True, 'path': final_path}
