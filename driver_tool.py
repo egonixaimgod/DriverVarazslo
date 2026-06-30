@@ -15,7 +15,7 @@ import queue
 import pathlib
 from datetime import datetime
 
-BUILD_NUMBER = 151
+BUILD_NUMBER = 152
 
 # Bolti hálózati nyomtató (raw/JetDirect, port 9100) - nincs hozzá telepített Windows driver,
 # ezért a riport PDF-jét közvetlenül, nyers TCP socketen küldjük rá.
@@ -463,11 +463,25 @@ del "%~f0"
                 return candidate
         return None
 
+    def _check_edge_headless_policy(self):
+        """Diagnosztika: ha az Edge 'HeadlessMode' csoportházirenddel le van tiltva (gyakori
+        vállalati/kezelt gépeken, pl. Dell Latitude üzleti laptopok), a headless hívás némán,
+        0-s kilépési kóddal, tényleges munka nélkül tér vissza - pont úgy, mint egy sikeres futás."""
+        for hive, hive_name in ((winreg.HKEY_LOCAL_MACHINE, "HKLM"), (winreg.HKEY_CURRENT_USER, "HKCU")):
+            try:
+                with winreg.OpenKey(hive, r"SOFTWARE\Policies\Microsoft\Edge") as key:
+                    value, _ = winreg.QueryValueEx(key, "HeadlessMode")
+                    logging.warning(f"[PRINT] Edge 'HeadlessMode' csoportházirend található ({hive_name}): érték={value} - ez blokkolhatja a headless PDF exportot!")
+            except OSError:
+                pass
+
     def _html_to_pdf(self, html_path):
         """HTML riport PDF-é alakítása Edge headless móddal, nyomtatáshoz."""
         msedge_exe = self._find_msedge_exe()
         if not msedge_exe:
             raise Exception("Microsoft Edge nem található a nyomtatáshoz szükséges PDF konvertáláshoz.")
+        logging.info(f"[PRINT] Edge útvonal: {msedge_exe}")
+        self._check_edge_headless_policy()
 
         pdf_path = os.path.splitext(html_path)[0] + ".pdf"
         if os.path.exists(pdf_path):
@@ -484,14 +498,27 @@ del "%~f0"
         try:
             html_uri = pathlib.Path(html_path).as_uri()
             cmd = [
-                msedge_exe, "--headless", "--disable-gpu", "--no-sandbox",
+                msedge_exe, "--headless=new", "--disable-gpu", "--no-sandbox",
                 f"--user-data-dir={edge_profile_dir}",
                 f"--print-to-pdf={pdf_path}", "--print-to-pdf-no-header", html_uri
             ]
-            logging.info(f"[PRINT] Edge headless PDF export: {' '.join(cmd)}")
+            logging.info(f"[PRINT] Edge headless PDF export parancs: {' '.join(cmd)}")
             res = self._run(cmd, timeout=30)
-            if res.returncode != 0 or not os.path.exists(pdf_path):
-                raise Exception(f"PDF konvertálás sikertelen (Edge kilépési kód: {res.returncode}).")
+            # Mindig logoljuk a teljes stdout/stderr-t, függetlenül a kilépési kódtól - 0-s
+            # kilépési kód mellett is történhet "néma" hiba, és e nélkül korábban nem derült ki,
+            # ténylegesen mi történt (a _run() csak hibás visszatérési kód esetén logolt stderr-t).
+            logging.info(f"[PRINT] Edge kilépési kód: {res.returncode}")
+            logging.info(f"[PRINT] Edge stdout: {res.stdout.strip() if res.stdout else '(üres)'}")
+            logging.info(f"[PRINT] Edge stderr: {res.stderr.strip() if res.stderr else '(üres)'}")
+            pdf_exists = os.path.exists(pdf_path)
+            pdf_size = os.path.getsize(pdf_path) if pdf_exists else 0
+            logging.info(f"[PRINT] PDF létrejött: {pdf_exists}, méret: {pdf_size} byte")
+            if res.returncode != 0 or not pdf_exists or pdf_size == 0:
+                hint = ""
+                if res.returncode == 0 and not pdf_exists:
+                    hint = " Gyanú: az Edge headless módja csoportházirenddel vagy víruskereső/végpontvédelmi szoftverrel le lehet tiltva ezen a gépen."
+                extra = (res.stderr or res.stdout or "").strip()[:500]
+                raise Exception(f"PDF konvertálás sikertelen (Edge kilépési kód: {res.returncode}).{hint} {extra}".strip())
             return pdf_path
         finally:
             shutil.rmtree(edge_profile_dir, ignore_errors=True)
@@ -519,6 +546,13 @@ del "%~f0"
                     logging.info(f"[PRINT] Nyomtatás az alapértelmezett nyomtatóra: {pdf_path}")
                     os.startfile(pdf_path, "print")
                     self.emit('toast', {'message': '✅ Riport elküldve az alapértelmezett nyomtatóra!', 'type': 'success'})
+
+                # Csak a végleges PDF marad meg - a HTML köztes fájlra a nyomtatás után már nincs szükség.
+                try:
+                    if os.path.exists(html_path):
+                        os.remove(html_path)
+                except Exception as e:
+                    logging.warning(f"[PRINT] HTML köztes fájl törlése sikertelen: {e}")
             except Exception as e:
                 logging.error(f"[PRINT] Nyomtatási hiba: {e}")
                 logging.error(traceback.format_exc())
