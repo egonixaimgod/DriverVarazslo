@@ -411,7 +411,14 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
 <div class="modal-overlay" id="modal-confirm">
   <div class="modal-box" style="max-width:480px">
     <div class="modal-header"><h3 id="mc-title">Megerősítés</h3></div>
-    <div class="modal-body"><div id="mc-message" style="line-height:1.8;font-size:13px;white-space:pre-line"></div></div>
+    <div class="modal-body">
+      <div id="mc-message" style="line-height:1.8;font-size:13px;white-space:pre-line"></div>
+      <label class="toggle" id="mc-skip-printers-row" style="display:none;margin-top:14px" title="A nyomtató és szkenner/multifunkciós driverek nem törlődnek, mert ezek gyakran csak gyári driverrel működnek jól.">
+        <input type="checkbox" id="mc-skip-printers" checked>
+        <span class="toggle-track"></span>
+        Nyomtató és szkenner driverek kihagyása (ajánlott)
+      </label>
+    </div>
     <div class="modal-footer">
       <button class="btn" id="mc-cancel" onclick="resolveConfirm(null)">Mégse</button>
       <button class="btn btn-danger" id="mc-no" onclick="resolveConfirm(false)" style="display:none">Nem</button>
@@ -892,14 +899,17 @@ function updateWuStatus(data) {
 }
 async function startAutoFix(skipConfirm = false) {
   let ok = skipConfirm;
+  let skipPrinters = true; // resume hívásnál irreleváns, a Python úgyis argv-ből dönt
   if (!ok) {
-    ok = await showConfirm('1 Kattintásos Driver Fix', 'Megerősíted a teljes automatikus javítás (visszaállítási pont, driver törlés és újratelepítés) indítását?');
+    const res = await showAutoFixConfirm('1 Kattintásos Driver Fix', 'Megerősíted a teljes automatikus javítás (visszaállítási pont, driver törlés és újratelepítés) indítását?');
+    ok = res.ok;
+    skipPrinters = res.skipPrinters;
   }
   if (ok) {
     document.getElementById('btn-autofix').disabled = true;
     document.getElementById('btn-autofix').textContent = '⏳ FOLYAMATBAN...';
     try {
-      await api().run_autofix();
+      await api().run_autofix(skipPrinters);
     } catch (e) {
       toast('Autofix hiba: ' + e, 'error');
       document.getElementById('btn-autofix').disabled = false;
@@ -1188,6 +1198,22 @@ function showConfirm3(title, message, yesText, noText, cancelText) {
     document.getElementById('mc-no').textContent = noText;
     document.getElementById('mc-cancel').textContent = cancelText;
     document.getElementById('mc-yes').textContent = yesText;
+    document.getElementById('modal-confirm').classList.add('active');
+  });
+}
+function showAutoFixConfirm(title, message) {
+  return new Promise(resolve => {
+    confirmResolver = (val) => {
+      const skip = document.getElementById('mc-skip-printers').checked;
+      document.getElementById('mc-skip-printers-row').style.display = 'none';
+      resolve({ ok: val, skipPrinters: skip });
+    };
+    document.getElementById('mc-title').textContent = title;
+    document.getElementById('mc-message').textContent = message;
+    document.getElementById('mc-no').style.display = 'none';
+    document.getElementById('mc-cancel').textContent = 'Mégse';
+    document.getElementById('mc-yes').textContent = 'Igen';
+    document.getElementById('mc-skip-printers-row').style.display = 'flex';
     document.getElementById('modal-confirm').classList.add('active');
   });
 }

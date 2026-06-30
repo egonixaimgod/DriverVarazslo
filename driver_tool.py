@@ -15,7 +15,7 @@ import queue
 from datetime import datetime
 from html import escape as html_escape
 
-BUILD_NUMBER = 163
+BUILD_NUMBER = 164
 
 try:
     import webview
@@ -167,6 +167,11 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+# AutoFix-nál opcionálisan kihagyható driver-osztályok (nyomtató + szkenner/multifunkciós) -
+# ezek gyakran csak gyári driverrel működnek jól, a WU nem mindig telepíti vissza automatikusan.
+AUTOFIX_PRINTER_SKIP_CLASSES = {'Printer', 'PrintQueue', 'Image'}
+
+
 class DriverToolApi:
     def __init__(self):
         logging.info("[INIT] DriverToolApi inicializálás...")
@@ -181,6 +186,7 @@ class DriverToolApi:
         self._cancel_flag = False  # Flag for cancelling long-running tasks
         self.resume_mode = '--resume-autofix' in sys.argv
         self.resume_step1 = '--resume-step1' in sys.argv
+        self.skip_printer_drivers = '--skip-printer-drivers' in sys.argv
         self._si = subprocess.STARTUPINFO()
         self._si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         self._nw = subprocess.CREATE_NO_WINDOW
@@ -1825,11 +1831,22 @@ try {
         
         self.emit('task_progress', {'task': task_id, 'log': '✅ Automatikus driver telepítés letiltva.\n'})
 
-    def _delete_ghost_devices_sync(self, task_id='autofix'):
+    def _delete_ghost_devices_sync(self, task_id='autofix', skip_classes=None):
         self.emit('task_progress', {'task': task_id, 'log': 'Nem csatlakoztatott (fantom) eszközök azonosítása és törlése...', 'indeterminate': True})
+        skip_classes = skip_classes or set()
+        # A skip_classes mindig a hardcodeolt AUTOFIX_PRINTER_SKIP_CLASSES konstansból jön
+        # (nem felhasználói inputból), ezért biztonságos a PowerShell scriptbe fűzni.
+        extra_exclusions = ''.join(f" -and $_.PNPClass -ne '{c}'" for c in sorted(skip_classes))
+        if skip_classes:
+            skip_match = ' -or '.join(f"$_.PNPClass -eq '{c}'" for c in sorted(skip_classes))
+            skipped_count_expr = f"@(Get-PnpDevice -PresentOnly:$false | Where-Object {{ $_.Present -eq $false -and $_.InstanceId -ne $null -and ({skip_match}) }}).Count"
+        else:
+            skipped_count_expr = "0"
         ps_script = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$ghosts = Get-PnpDevice -PresentOnly:$false | Where-Object { $_.Present -eq $false -and $_.InstanceId -ne $null -and $_.PNPClass -ne 'SoftwareDevice' -and $_.PNPClass -ne 'Net' -and $_.PNPClass -ne 'System' }
+$skippedGhosts = """ + skipped_count_expr + r"""
+Write-Output "SKIPPED: $skippedGhosts"
+$ghosts = Get-PnpDevice -PresentOnly:$false | Where-Object { $_.Present -eq $false -and $_.InstanceId -ne $null -and $_.PNPClass -ne 'SoftwareDevice' -and $_.PNPClass -ne 'Net' -and $_.PNPClass -ne 'System'""" + extra_exclusions + r""" }
 $count = 0
 $total = @($ghosts).Count
 if ($total -eq 0) {
@@ -1862,7 +1879,11 @@ Write-Output "DONE: Törölve: $count / $total"
             line = line.strip()
             if not line:
                 continue
-            if line.startswith("TOTAL:"):
+            if line.startswith("SKIPPED:"):
+                m = re.search(r'SKIPPED:\s*(\d+)', line)
+                if m and int(m.group(1)) > 0:
+                    self.emit('task_progress', {'task': task_id, 'log': f'ℹ️ {m.group(1)} db nyomtató/szkenner szellemeszköz kihagyva.\n'})
+            elif line.startswith("TOTAL:"):
                 m = re.search(r'TOTAL:\s*(\d+)', line)
                 if m:
                     total = int(m.group(1))
@@ -1872,9 +1893,15 @@ Write-Output "DONE: Törölve: $count / $total"
         
         process.wait()
 
-    def _delete_third_party_sync(self, task_id='autofix'):
+    def _delete_third_party_sync(self, task_id='autofix', skip_classes=None):
         self.emit('task_progress', {'task': task_id, 'log': 'Third-party driverek összegyűjtése és törlése...', 'indeterminate': True})
         drivers = self._get_third_party_drivers()
+        skip_classes = skip_classes or set()
+        if skip_classes:
+            skipped = [d for d in drivers if d.get('class', '') in skip_classes]
+            drivers = [d for d in drivers if d.get('class', '') not in skip_classes]
+            if skipped:
+                self.emit('task_progress', {'task': task_id, 'log': f'ℹ️ {len(skipped)} db nyomtató/szkenner driver kihagyva (felhasználói beállítás szerint).\n'})
         total = len(drivers)
         if total > 0:
             self.emit('task_progress', {'task': task_id, 'log': f'{total} db third-party driver eltávolítása...\n'})
@@ -2050,8 +2077,8 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                         
         return total_installed_in_session
 
-    def run_autofix(self):
-        logging.info("[API] run_autofix() indítása")
+    def run_autofix(self, skip_printer_drivers=True):
+        logging.info(f"[API] run_autofix() indítása (skip_printer_drivers={skip_printer_drivers})")
         if self.target_os_path:
             self.emit('toast', {'message': 'Az 1 kattintásos fix csak az Élő (jelenlegi) rendszeren futtatható le biztonságosan!', 'type': 'error'})
             return
@@ -2059,7 +2086,14 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
         def worker():
             is_resume_step1 = getattr(self, 'resume_step1', False)
             is_resume_mode = getattr(self, 'resume_mode', False)
-            
+            # Resume lábakon (új processz, a dialógus meg sem jelenik újra) a JS-paraméter
+            # irreleváns - az A láb által a Scheduled Task argumentumába épített flag-et kell
+            # sys.argv-ből visszaolvasni (lásd __init__: self.skip_printer_drivers).
+            if is_resume_step1 or is_resume_mode:
+                skip_printers = getattr(self, 'skip_printer_drivers', True)
+            else:
+                skip_printers = skip_printer_drivers
+
             task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if (is_resume_mode or is_resume_step1) else '1 Kattintásos Driver Javítás és Frissítés'
             self.emit('task_start', {'task': 'autofix', 'title': task_title})
             try:
@@ -2105,13 +2139,17 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                         except Exception as e:
                             logging.error(f"[AUTOFIX] Biztonsági másolat hiba: {e}")
                     
+                    resume_flag = '--resume-step1'
+                    if skip_printers:
+                        resume_flag += ' --skip-printer-drivers'
+
                     if getattr(sys, 'frozen', False):
                         exec_path = exe_path
-                        args = '--resume-step1'
+                        args = resume_flag
                     else:
                         exec_path = sys.executable
-                        args = f'"{exe_path}" --resume-step1'
-                    
+                        args = f'"{exe_path}" {resume_flag}'
+
                     task_ps = f'''
                     $action = New-ScheduledTaskAction -Execute '{exec_path}' -Argument '{args}'
                     $trigger = New-ScheduledTaskTrigger -AtLogOn
@@ -2119,7 +2157,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Force
                     '''
                     self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", task_ps])
-                    
+
                     self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve (-1. lépés)...'})
                     time.sleep(5)
                     self._run(['shutdown', '/r', '/t', '0', '/f'])
@@ -2141,10 +2179,12 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     self._create_restore_point_sync()
                     if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
 
-                    self._delete_ghost_devices_sync()
+                    skip_cls = AUTOFIX_PRINTER_SKIP_CLASSES if skip_printers else None
+
+                    self._delete_ghost_devices_sync(skip_classes=skip_cls)
                     if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
 
-                    self._delete_third_party_sync()
+                    self._delete_third_party_sync(skip_classes=skip_cls)
                     if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
                     
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Szolgáltatások leállítása és újraindítási jelzések (Pending Reboot) törlése...'})
