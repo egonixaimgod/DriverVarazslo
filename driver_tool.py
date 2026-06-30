@@ -12,9 +12,15 @@ import glob
 import traceback
 import winreg
 import queue
+import pathlib
 from datetime import datetime
 
-BUILD_NUMBER = 149
+BUILD_NUMBER = 150
+
+# Bolti hálózati nyomtató (raw/JetDirect, port 9100) - nincs hozzá telepített Windows driver,
+# ezért a riport PDF-jét közvetlenül, nyers TCP socketen küldjük rá.
+SHOP_PRINTER_IP = "192.168.35.12"
+SHOP_PRINTER_PORT = 9100
 
 try:
     import webview
@@ -438,6 +444,75 @@ del "%~f0"
         self._cancel_flag = True
         self.emit('toast', {'message': '⚠️ Megszakítás kérve...', 'type': 'warning'})
         return True
+
+    def _find_msedge_exe(self):
+        """Megkeresi a rendszerre telepített Edge böngészőt (a WebView2-höz úgyis kell), headless PDF exporthoz."""
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                 r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe") as key:
+                path, _ = winreg.QueryValueEx(key, None)
+                if path and os.path.exists(path):
+                    return path
+        except OSError:
+            pass
+        for candidate in (
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        ):
+            if os.path.exists(candidate):
+                return candidate
+        return None
+
+    def _html_to_pdf(self, html_path):
+        """HTML riport PDF-é alakítása Edge headless móddal, nyomtatáshoz."""
+        msedge_exe = self._find_msedge_exe()
+        if not msedge_exe:
+            raise Exception("Microsoft Edge nem található a nyomtatáshoz szükséges PDF konvertáláshoz.")
+
+        pdf_path = os.path.splitext(html_path)[0] + ".pdf"
+        if os.path.exists(pdf_path):
+            try: os.remove(pdf_path)
+            except: pass
+
+        html_uri = pathlib.Path(html_path).as_uri()
+        cmd = [
+            msedge_exe, "--headless", "--disable-gpu", "--no-sandbox",
+            f"--print-to-pdf={pdf_path}", "--print-to-pdf-no-header", html_uri
+        ]
+        logging.info(f"[PRINT] Edge headless PDF export: {' '.join(cmd)}")
+        res = self._run(cmd, timeout=30)
+        if res.returncode != 0 or not os.path.exists(pdf_path):
+            raise Exception(f"PDF konvertálás sikertelen (Edge kilépési kód: {res.returncode}).")
+        return pdf_path
+
+    def print_report(self, html_path, target='default'):
+        """Riport kinyomtatása: 'default' = rendszer alapértelmezett nyomtatója, 'shop' = bolti hálózati nyomtató (IP)."""
+        logging.info(f"[API] print_report(target={target})")
+        def worker():
+            try:
+                if not os.path.exists(html_path):
+                    raise Exception("A riport fájl nem található.")
+
+                self.emit('toast', {'message': '🖨️ Riport előkészítése nyomtatáshoz...', 'type': 'info'})
+                pdf_path = self._html_to_pdf(html_path)
+
+                if target == 'shop':
+                    import socket
+                    logging.info(f"[PRINT] Küldés a bolti nyomtatóra: {SHOP_PRINTER_IP}:{SHOP_PRINTER_PORT}")
+                    with open(pdf_path, 'rb') as f:
+                        pdf_bytes = f.read()
+                    with socket.create_connection((SHOP_PRINTER_IP, SHOP_PRINTER_PORT), timeout=15) as sock:
+                        sock.sendall(pdf_bytes)
+                    self.emit('toast', {'message': f'✅ Riport elküldve a bolti nyomtatóra ({SHOP_PRINTER_IP})!', 'type': 'success'})
+                else:
+                    logging.info(f"[PRINT] Nyomtatás az alapértelmezett nyomtatóra: {pdf_path}")
+                    os.startfile(pdf_path, "print")
+                    self.emit('toast', {'message': '✅ Riport elküldve az alapértelmezett nyomtatóra!', 'type': 'success'})
+            except Exception as e:
+                logging.error(f"[PRINT] Nyomtatási hiba: {e}")
+                logging.error(traceback.format_exc())
+                self.emit('toast', {'message': f'❌ Nyomtatási hiba: {e}', 'type': 'error'})
+        self._safe_thread('print_report', worker)
 
     def _download_stresstools(self):
         import tempfile, urllib.request, zipfile, ssl, shutil
