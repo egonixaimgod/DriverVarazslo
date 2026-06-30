@@ -1,0 +1,32 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project overview
+
+DriverVarázsló is a Windows driver-management utility (Hungarian UI/comments) distributed as a single PyInstaller-built `.exe`. It manages third-party/inbox drivers (list, force-delete, backup/restore, offline WIM/ESD extraction), can repair non-booting Windows installs (BCD/bootloader rebuild from WinPE), pauses Windows Update driver pushes, removes ghost devices, runs a one-click "AutoFix" routine that chains a reboot via the `RunOnce` registry key, and generates an HTML hardware report with S.M.A.R.T. data. See [README.md](README.md) for the full feature list.
+
+## Architecture
+
+- **`driver_tool.py`** — the entire application (~5300 lines), two API classes:
+  - `DriverToolApi` (line ~170) — the GUI backend, exposed to the frontend as `pywebview`'s `js_api`. Nearly every feature is a method on this class.
+  - `CliApi` (line ~3825) — a parallel, full-featured mirror of `DriverToolApi` for the text-menu CLI fallback (`run_cli_mode()`, `main_menu()` near line 4837). When adding a feature to one, the other usually needs the equivalent.
+  - Section banners (`# ====...`) mark major feature groups within `DriverToolApi`: driver listing, BCD repair, driver deletion, hardware/ghost-device scan, WU driver install, WU pause/management, backup/restore. `grep -n "# ===="` to navigate.
+- **`ui.html`** — the entire frontend: plain HTML/CSS/JS (no framework, no build step), dark "glassmorphism" theme. Talks to Python only through `window.pywebview.api.<method>()` (helper: `api()`) and receives async push events via `window.handlePyEvent(payload)`, which Python calls from `DriverToolApi.emit(event, data)` (`driver_tool.py` ~line 221) via `window.evaluate_js(...)`. JS console errors/uncaught exceptions are forwarded back to the Python logger through `api().js_log(...)`.
+- **GUI vs CLI dispatch**: `if __name__ == "__main__"` (driver_tool.py ~line 5033) does a single-instance mutex check, then UAC self-elevates if not admin, then branches: `--cli` arg or `check_webview2_runtime()` failing (WebView2 missing/too old, min v109) routes to `run_cli_mode()`; otherwise it creates the `pywebview` window with `DriverToolApi` as `js_api`.
+- **Offline mode**: most driver operations check `self.target_os_path` — when set (via `change_target_os`/`apply_target_os`), operations target a foreign Windows volume (e.g. `D:\Windows`, mounted from WinPE or a second OS) using `dism /Image:...` instead of the live `/Online` system. Always handle both branches when touching driver listing/deletion code.
+- **WinPE awareness**: code checks `os.environ.get('SystemDrive') == 'X:'` to detect running from WinPE/boot media and redirects large temp downloads/extracts to `C:\DV_Temp` instead of the RAM-disk `X:` drive.
+- **Packaging**: `resource_path()` (~line 162) resolves bundled resources (`ui.html`) via `sys._MEIPASS` when frozen. `BUILD_NUMBER` (top of file) drives the in-app auto-updater (`check_for_updates`, ~line 309): it fetches `driver_tool.py` from `raw.githubusercontent.com`, compares `BUILD_NUMBER`, and if newer, downloads and replaces `dist/DriverVarazslo.exe` — this published exe is intentionally committed to the repo (`git add -f`) so the updater has something to fetch. Never let an automated/manual edit lower the committed `BUILD_NUMBER` — `check_for_updates` only offers an update on strict `new_build > BUILD_NUMBER`, so a regression silently freezes already-updated users (this happened once; see `bump_build.py`).
+- **AutoFix resume-after-reboot**: the AutoFix flow (`run_autofix`, ~line 2053) writes a scheduled task / `RunOnce` registry entry pointing back at the exe with `--resume-autofix` / `--resume-step1`, since cleanup steps (Fast Startup off, ghost device removal) require a reboot mid-flow before driver reinstallation can continue.
+- **Subprocess-heavy backend**: most real work shells out via `self._run(cmd, **kwargs)` (a logging wrapper around `subprocess.run`, two near-identical copies exist — one per API class) to `dism`, `pnputil`, `bcdboot`/`bootrec`, `takeown`/`icacls`, and inline PowerShell (`-Command` heredoc strings) for WMI/CIM queries and Windows Update COM API access. Long-running tasks run in background threads via `self._safe_thread(task, target)`, which auto-emits a `task_error` event on exception.
+- **System report generation** (`generate_system_report`, in `DriverToolApi`) builds an HTML report via raw f-string concatenation (not a template engine). Any value sourced from WMI/CIM or `smartctl` JSON must go through the local `g(dict, key, default)` helper (handles WMI nulls) and `e(value)` helper (HTML-escapes) before interpolation — both are defined inline at the top of the function, not module-level.
+
+## Build / release
+
+There is no test suite and no `requirements.txt`; the only third-party runtime dependency is `pywebview` (imported with a try/except guard at the top of `driver_tool.py` that exits with a clear message if missing).
+
+- **Full release** (build-number bump, PyInstaller build, commit, push): run `rebuild.bat` from the repo root. It calls `bump_build.py` first, which increments `BUILD_NUMBER` from `max(local, GitHub-published)` — never edit `BUILD_NUMBER` by hand and commit a lower value, since that breaks the auto-updater for users already past it.
+- **Manual build only** (no commit/push): `python -m PyInstaller --clean DriverVarazslo.spec`. Output is `dist/DriverVarazslo.exe`. The spec embeds `icon_drivervarazslo.ico` and `version_info.txt` (Windows file-version resource — keep this populated; an unsigned exe with no version info is far more likely to be flagged/deleted by Defender) and explicitly disables UPX compression for the same Defender-false-positive reason.
+- **Run from source**: `python driver_tool.py` (GUI, needs admin — it self-elevates via UAC) or `python driver_tool.py --cli` (text menu).
+- `DriverVarazslo.spec`, `version_info.txt`, and `dist/DriverVarazslo.exe` are intentionally tracked in git (not gitignored) — the spec and version-info files are static build inputs `rebuild.bat` depends on existing, and the dist exe is what the in-app updater downloads.
+- Debug logging goes to `DriverVarázsló_debug.log` next to the exe (or script when run from source).
