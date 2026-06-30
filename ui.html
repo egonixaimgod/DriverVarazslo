@@ -380,9 +380,9 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
       <!-- VIEW: Report (PDF) -->
       <div class="view" id="view-report">
         <div class="panel glass">
-          <div class="panel-title"><span class="emoji">📊</span> Rendszer Riport (HTML Gépkönyv)</div>
-          <p style="margin-bottom: 16px; color: var(--text3);">Egy szép, modern HTML dokumentumot generál a számítógép hardveres adatairól (CPU, Memória, Videókártyák, és Háttértárak S.M.A.R.T. adatai), amit a böngésződben megnyitva akár PDF-be is lementhetsz vagy kinyomtathatsz. A fájl a program mellé kerül mentésre.</p>
-          <button class="btn btn-big btn-success" onclick="generateSystemReport()" id="btn-report">📄 HTML Riport Generálása</button>
+          <div class="panel-title"><span class="emoji">📊</span> Rendszer Riport (PDF Gépkönyv)</div>
+          <p style="margin-bottom: 16px; color: var(--text3);">Egy szép PDF dokumentumot generál a számítógép hardveres adatairól (CPU, Memória, Videókártyák, és Háttértárak S.M.A.R.T. adatai), amit el is menthetsz, vagy rögtön ki is nyomtathatsz. A fájl a program mellé kerül mentésre.</p>
+          <button class="btn btn-big btn-success" onclick="generateSystemReport()" id="btn-report">📄 PDF Riport Generálása</button>
         </div>
       </div>
 
@@ -969,7 +969,7 @@ async function generateSystemReport() {
     toast('Generálási hiba: ' + e, 'error');
   } finally {
     document.getElementById('btn-report').disabled = false;
-    document.getElementById('btn-report').textContent = '📄 HTML Riport Generálása';
+    document.getElementById('btn-report').textContent = '📄 PDF Riport Generálása';
   }
 }
 
