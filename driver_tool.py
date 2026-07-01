@@ -17,7 +17,7 @@ import math
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 170
+BUILD_NUMBER = 171
 
 try:
     import webview
@@ -203,6 +203,15 @@ STRESS_TOOLS_BULK = ['furmark', 'prime95', 'linpack', 'hwinfo']
 # (<= a ténylegesen meglévő RAM) opciót választja - lásd _pick_linpack_ram_option().
 LINPACK_RAM_OPTIONS = [(1, 2), (2, 4), (3, 6), (4, 8), (5, 10), (6, 14), (7, 30)]
 
+# GUI programok indítás utáni, egymást követő dialógusablakainak automatikus végignyomkodása
+# (lásd _auto_click_sequence). Egy lépés lehet egyetlen felirat, vagy alternatívák listája
+# (localizált feliratokhoz - pl. HWiNFO a rendszer nyelvén jelenik meg, "Indítás" vagy "Start").
+STRESS_CLICK_SEQUENCES = {
+    'furmark': ['GPU stress test', 'GO'],  # beállító-ablak -> "*** CAUTION ***" figyelmeztetés
+    'prime95': ['Just Stress Testing', 'small ffts (tests l1/l2/l3', 'OK'],  # GIMPS üdvözlő -> torture test típus -> OK
+    'hwinfo': [['Indítás', 'Start']],  # a HWiNFO64.INI SensorsOnly=1 már kiválasztja a módot, csak indítani kell
+}
+
 
 class _MEMORYSTATUSEX(ctypes.Structure):
     """A Win32 GlobalMemoryStatusEx-hez tartozó struktúra - a teljes fizikai RAM
@@ -219,6 +228,42 @@ class _MEMORYSTATUSEX(ctypes.Structure):
         ("ullAvailVirtual", ctypes.c_ulonglong),
         ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
     ]
+
+
+# SendInput-hoz szükséges struktúrák (a konzolos menük - pl. Linpack - "begépeléséhez"):
+# valódi billentyű-esemény szimuláció, mert a konzolablakok (conhost) bemenet-kezelése a
+# stdin egyszerű pipe-ra kötésével nem mindig működik együtt (ld. _launch_stress_exe
+# docstringje - a Linpack ezzel elindulás előtt megbukott).
+_PUL = ctypes.POINTER(ctypes.c_ulong)
+
+
+class _KeyBdInput(ctypes.Structure):
+    _fields_ = [("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort),
+                ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong), ("dwExtraInfo", _PUL)]
+
+
+class _HardwareInput(ctypes.Structure):
+    _fields_ = [("uMsg", ctypes.c_ulong), ("wParamL", ctypes.c_short), ("wParamH", ctypes.c_ushort)]
+
+
+class _MouseInput(ctypes.Structure):
+    _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long), ("mouseData", ctypes.c_ulong),
+                ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong), ("dwExtraInfo", _PUL)]
+
+
+class _InputUnion(ctypes.Union):
+    _fields_ = [("ki", _KeyBdInput), ("mi", _MouseInput), ("hi", _HardwareInput)]
+
+
+class _Input(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_ulong), ("ii", _InputUnion)]
+
+
+INPUT_KEYBOARD = 1
+KEYEVENTF_UNICODE = 0x0004
+KEYEVENTF_KEYUP = 0x0002
+VK_RETURN = 0x0D
+BM_CLICK = 0x00F5  # natív Win32 gomb-vezérlők "megnyomása" üzenettel (pl. FurMark GUI-ja)
 
 
 # Stabilitás Teszt közben letiltandó energiagazdálkodási beállítások (powercfg alias-ok -
@@ -698,7 +743,156 @@ del "%~f0"
         logging.info(f"[STRESSTOOLS] Linpack RAM-automatizálás: észlelt RAM={total_gb} GB -> {ram_option}. opció")
         return ['2', str(ram_option), 'Y', 'Y', 'N']
 
-    def _launch_stress_exe(self, exe, display_name, stdin_lines=None):
+    def _send_unicode_char(self, user32, char):
+        """Egyetlen Unicode karakter (le+fel) szimulálása SendInput-tal - a KEYEVENTF_UNICODE
+        közvetlenül a karaktert küldi, nem virtuális billentyűkódot, így Shift-állapot
+        (kis/nagybetű) kezelése nélkül is pontosan a kívánt karakter jelenik meg."""
+        extra = ctypes.c_ulong(0)
+        down = _Input(INPUT_KEYBOARD, _InputUnion(ki=_KeyBdInput(0, ord(char), KEYEVENTF_UNICODE, 0, ctypes.pointer(extra))))
+        up = _Input(INPUT_KEYBOARD, _InputUnion(ki=_KeyBdInput(0, ord(char), KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, ctypes.pointer(extra))))
+        user32.SendInput(1, ctypes.byref(down), ctypes.sizeof(_Input))
+        user32.SendInput(1, ctypes.byref(up), ctypes.sizeof(_Input))
+
+    def _send_vk(self, user32, vk):
+        """Egy virtuális billentyűkód (pl. Enter) le+fel eseménye - erre azért van szükség
+        külön (nem KEYEVENTF_UNICODE-dal), mert az Enter/vezérlő billentyűket a konzolos
+        sor-beviteli logika a valódi VK_RETURN esemény alapján ismeri fel megbízhatóan."""
+        extra = ctypes.c_ulong(0)
+        down = _Input(INPUT_KEYBOARD, _InputUnion(ki=_KeyBdInput(vk, 0, 0, 0, ctypes.pointer(extra))))
+        up = _Input(INPUT_KEYBOARD, _InputUnion(ki=_KeyBdInput(vk, 0, KEYEVENTF_KEYUP, 0, ctypes.pointer(extra))))
+        user32.SendInput(1, ctypes.byref(down), ctypes.sizeof(_Input))
+        user32.SendInput(1, ctypes.byref(up), ctypes.sizeof(_Input))
+
+    def _auto_answer_console(self, pid, lines, task_id=None):
+        """Egy konzolos program (pl. Linpack) menüjét navigálja végig automatikusan: minden
+        sor előtt előtérbe hozza az ablakot (SetForegroundWindow), majd valódi billentyű-
+        esemény szimulációval (SendInput) begépeli a sort és Enter-t küld.
+
+        Ezt korábban stdin=subprocess.PIPE-pal próbáltuk megoldani, de a Linpack ezzel
+        egyáltalán nem indult el - valószínűleg a konzolos bemenet-kezelése (ami valódi
+        konzol-bemenetet vár, nem egy egyszerű átirányított pipe-ot) nem tudott mit kezdeni
+        a CREATE_NEW_CONSOLE + átirányított stdin kombinációval, és elindulás előtt
+        elszállt. A SendInput-os "valódi begépelés" ezt elkerüli, mert a program szemszögéből
+        megkülönböztethetetlen attól, mintha egy felhasználó ülne a gép előtt és gépelne."""
+        user32 = self._stress_user32()
+        hwnd = None
+        for _ in range(20):  # max ~10 mp, amíg a konzolablak megjelenik
+            hwnd = self._find_window_for_pid(pid)
+            if hwnd:
+                break
+            time.sleep(0.5)
+        if not hwnd:
+            logging.warning(f"[STRESSTOOLS] Automatikus bevitel kihagyva - nem található konzolablak (pid={pid})")
+            return
+        for line in lines:
+            time.sleep(2)
+            try:
+                user32.SetForegroundWindow(hwnd)
+                time.sleep(0.15)
+                for ch in line:
+                    self._send_unicode_char(user32, ch)
+                    time.sleep(0.03)
+                self._send_vk(user32, VK_RETURN)
+                logging.debug(f"[STRESSTOOLS] Automatikus bevitel elküldve: '{line}' (pid={pid})")
+            except Exception as e:
+                logging.warning(f"[STRESSTOOLS] Automatikus bevitel hiba ('{line}', pid={pid}): {e}")
+
+    @staticmethod
+    def _text_alternatives(text_or_alts):
+        """Egy lépés címke-megadása vagy egyetlen string (pl. 'OK'), vagy alternatívák
+        listája (pl. ['Indítás', 'Start'] - HWiNFO nyelvtől függően magyar vagy angol
+        feliratú gombja) - ez egységesíti a kettőt egy listává."""
+        if isinstance(text_or_alts, (list, tuple, set)):
+            return list(text_or_alts)
+        return [text_or_alts]
+
+    def _find_child_by_text(self, hwnd_parent, text_or_alts):
+        """Megkeresi a hwnd_parent egy közvetlen gyermek-vezérlőjét (pl. gombot), aminek a
+        felirata (kis/nagybetűtől függetlenül) tartalmazza a megadott szövegek bármelyikét."""
+        user32 = self._stress_user32()
+        result = {'hwnd': None}
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        needles = [t.lower() for t in self._text_alternatives(text_or_alts)]
+
+        def _callback(hwnd, _lparam):
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length > 0:
+                buf = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buf, length + 1)
+                text_lower = buf.value.lower()
+                if any(needle in text_lower for needle in needles):
+                    result['hwnd'] = hwnd
+                    return False  # megvan, leállítjuk a bejárást
+            return True
+
+        try:
+            user32.EnumChildWindows(hwnd_parent, WNDENUMPROC(_callback), 0)
+        except Exception as e:
+            logging.warning(f"[STRESSTOOLS] EnumChildWindows hiba: {e}")
+        return result['hwnd']
+
+    def _find_pid_window_with_child_text(self, pid, text_or_alts, timeout=15):
+        """Megkeresi az adott PID-hez tartozó BÁRMELYIK (nem feltétlenül a legnagyobb)
+        felső szintű, látható ablakot, aminek van a megadott feliratú (vagy alternatívák
+        egyikének megfelelő) gyermek-vezérlője - pl. egy épp megjelenő modális
+        figyelmeztető/megerősítő dialógusablakot a rajta lévő gomb alapján. Eltér a
+        _find_window_for_pid-től, ami mindig a legnagyobb ablakot választja - egy
+        dialógus viszont jellemzően KISEBB, mint a program főablaka, arra a logika itt
+        nem használható. Legfeljebb 'timeout' másodpercig vár, amíg a dialógus megjelenik.
+        Visszaad: (ablak hwnd, gomb hwnd) vagy (None, None)."""
+        user32 = self._stress_user32()
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            result = {'hwnd': None, 'btn': None}
+
+            def _callback(hwnd, _lparam):
+                found_pid = ctypes.wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(found_pid))
+                if found_pid.value != pid:
+                    return True
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                btn = self._find_child_by_text(hwnd, text_or_alts)
+                if btn:
+                    result['hwnd'] = hwnd
+                    result['btn'] = btn
+                    return False
+                return True
+
+            try:
+                user32.EnumWindows(WNDENUMPROC(_callback), 0)
+            except Exception as e:
+                logging.warning(f"[STRESSTOOLS] EnumWindows hiba (pid={pid}): {e}")
+            if result['btn']:
+                return result['hwnd'], result['btn']
+            time.sleep(0.3)
+        return None, None
+
+    def _auto_click_sequence(self, pid, steps, task_id=None):
+        """Egy GUI program egymás után megjelenő ablakait/dialógusait navigálja végig:
+        minden lépésnél megvárja (max ~15 mp / lépés), amíg megjelenik egy olyan ablak,
+        amiben van a lépéshez tartozó feliratú gomb/rádiógomb (lásd
+        _find_pid_window_with_child_text), és BM_CLICK üzenettel megnyomja. Ezzel több
+        egymást követő popup is végignyomkodható felügyelet nélkül (pl. FurMark: "GPU
+        stress test" -> "GO!" figyelmeztetés; Prime95: "Just Stress Testing" -> "Small
+        FFTs" rádiógomb -> "OK"). Egy 'steps'-beli elem lehet egyetlen string, vagy
+        alternatívák listája (lokalizált feliratokhoz, pl. HWiNFO "Indítás"/"Start")."""
+        user32 = self._stress_user32()
+        for step in steps:
+            hwnd, btn = self._find_pid_window_with_child_text(pid, step)
+            if not btn:
+                logging.warning(f"[STRESSTOOLS] '{step}' gomb/dialógus nem található (pid={pid}), automatizálás megszakítva.")
+                return
+            try:
+                user32.SendMessageW(btn, BM_CLICK, 0, 0)
+                logging.info(f"[STRESSTOOLS] '{step}' megnyomva (pid={pid}).")
+            except Exception as e:
+                logging.warning(f"[STRESSTOOLS] Gombnyomási hiba ('{step}', pid={pid}): {e}")
+                return
+            time.sleep(1)  # a következő dialógus (ha van) megjelenéséhez
+
+    def _launch_stress_exe(self, exe, display_name, stdin_lines=None, click_sequence=None):
         """Egy stressz-teszt/monitor .exe elindítása, UAC-elutasítás (WinError 740) esetén
         'runas'-os újrapróbálással. Visszaadási érték:
           - PID (pozitív int), ha sikerült elindítani és ismerjük a PID-jét (normál eset),
@@ -706,32 +900,23 @@ del "%~f0"
             a ShellExecuteW nem ad vissza process handle-t/PID-et), ilyenkor az ablak
             automatikus pozicionálása (lásd _position_stress_windows) ki fog maradni,
           - None, ha nem sikerült elindítani.
-        stdin_lines: opcionális sorlista (pl. Linpack RAM-menüjéhez) - ha meg van adva, a
-        program stdin-jét pipe-ra kötjük, és a sorokat kis késleltetéssel, sorban
-        "begépeljük", hogy a konzolos menüt felügyelet nélkül végig lehessen navigálni.
-        A konzolablak (stdout/stderr) NEM kerül átirányításra, tehát a felhasználó
-        továbbra is látja élőben a program kimenetét. UAC-os ('runas') indításnál a
-        stdin-automatizálás nem működik (nincs kézben tartott process handle), ilyenkor
-        egyszerűen kimarad."""
+        stdin_lines: opcionális sorlista (pl. Linpack RAM-menüjéhez) - ha meg van adva, egy
+        háttérszálon _auto_answer_console navigálja végig a program konzolos menüjét
+        (lásd ott, miért SendInput-tal, nem stdin-átirányítással).
+        click_sequence: opcionális lista (pl. FurMark: ['GPU stress test', 'GO'] - a
+        beállító-ablak gombja, majd a rákövetkező figyelmeztető dialógus gombja) - ha meg
+        van adva, egy háttérszálon _auto_click_sequence sorban megkeresi és BM_CLICK
+        üzenettel megnyomja az egymás után megjelenő ablakok/dialógusok gombjait. Egy
+        lépés lehet egyetlen felirat vagy alternatívák listája (localizált szövegekhez).
+        Mindkettő (stdin_lines/click_sequence) UAC ('runas') indításnál kimarad (nincs
+        PID-ünk)."""
         try:
-            if stdin_lines:
-                proc = subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE,
-                                         cwd=os.path.dirname(exe), stdin=subprocess.PIPE, text=True)
-
-                def _feed_stdin():
-                    try:
-                        for line in stdin_lines:
-                            time.sleep(0.6)
-                            # text=True mellett a '\n' automatikusan os.linesep-re (Windows-on
-                            # '\r\n'-re) fordul íráskor - kézzel '\r\n'-t írni ide dupla CR-t adna.
-                            proc.stdin.write(line + '\n')
-                            proc.stdin.flush()
-                    except Exception as e:
-                        logging.warning(f"[STRESSTOOLS] stdin-automatizálási hiba ({display_name}): {e}")
-                threading.Thread(target=_feed_stdin, daemon=True).start()
-            else:
-                proc = subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
+            proc = subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
             logging.info(f"[STRESSTOOLS] Elindítva: {display_name} ({exe}), pid={proc.pid}")
+            if stdin_lines:
+                threading.Thread(target=self._auto_answer_console, args=(proc.pid, stdin_lines), daemon=True).start()
+            elif click_sequence:
+                threading.Thread(target=self._auto_click_sequence, args=(proc.pid, click_sequence), daemon=True).start()
             return proc.pid
         except OSError as e:
             if getattr(e, 'winerror', None) == 740:
@@ -778,6 +963,16 @@ del "%~f0"
         user32.GetClassNameW.restype = ctypes.c_int
         user32.IsIconic.argtypes = [HWND]
         user32.IsIconic.restype = BOOL
+        user32.SetForegroundWindow.argtypes = [HWND]
+        user32.SetForegroundWindow.restype = BOOL
+        user32.SendInput.argtypes = [ctypes.c_uint, ctypes.POINTER(_Input), ctypes.c_int]
+        user32.SendInput.restype = ctypes.c_uint
+        user32.EnumChildWindows.argtypes = [HWND, ctypes.WINFUNCTYPE(BOOL, HWND, LPARAM), LPARAM]
+        user32.EnumChildWindows.restype = BOOL
+        user32.GetWindowTextW.argtypes = [HWND, ctypes.wintypes.LPWSTR, ctypes.c_int]
+        user32.GetWindowTextW.restype = ctypes.c_int
+        user32.SendMessageW.argtypes = [HWND, UINT, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM]
+        user32.SendMessageW.restype = ctypes.wintypes.LPARAM
         return user32
 
     def _find_window_for_pid(self, pid):
@@ -1005,25 +1200,28 @@ del "%~f0"
                             except Exception:
                                 pass
                         stdin_lines = self._build_linpack_stdin() if key == 'linpack' else None
-                        pid = self._launch_stress_exe(exe, display_name, stdin_lines=stdin_lines)
+                        click_sequence = STRESS_CLICK_SEQUENCES.get(key)
+                        pid = self._launch_stress_exe(exe, display_name, stdin_lines=stdin_lines, click_sequence=click_sequence)
                         if pid:
                             launched += 1
                             pid_map[key] = pid
                             self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva: {display_name}'})
                             if stdin_lines:
                                 self.emit('task_progress', {'task': 'stress', 'log': '  🤖 Linpack menü automatikusan kitöltve (RAM-választás + megerősítés).'})
+                            if click_sequence:
+                                self.emit('task_progress', {'task': 'stress', 'log': '  🤖 Indító dialógusok automatikusan végignyomkodva.'})
                         else:
                             self.emit('task_progress', {'task': 'stress', 'log': f'❌ Hiba indításnál: {display_name}'})
                     else:
                         self.emit('task_progress', {'task': 'stress', 'log': f'⚠️ Nem található a ZIP-ben: {display_name}'})
 
-                # 25 mp várakozás, hogy a felhasználó végignyomkodhassa a Prime95/Linpack
+                # 30 mp várakozás, hogy a felhasználó végignyomkodhassa a Prime95
                 # induló dialógusait, MIELŐTT megpróbáljuk a helyükre igazítani az ablakokat -
                 # egy azonnali pozicionálás a rövid életű induló dialógust kapná el, nem a
                 # ténylegesen futó program fő ablakát.
                 if launched > 0:
-                    self.emit('task_progress', {'task': 'stress', 'log': '\n⏳ 25 másodperc várakozás (nyomd végig a felugró dialógusokat, pl. Prime95/Linpack indítását), utána az ablakok automatikusan a helyükre kerülnek...'})
-                    for _ in range(25):
+                    self.emit('task_progress', {'task': 'stress', 'log': '\n⏳ 30 másodperc várakozás (nyomd végig a felugró dialógusokat, pl. Prime95 indítását), utána az ablakok automatikusan a helyükre kerülnek...'})
+                    for _ in range(30):
                         if self._check_cancel():
                             break
                         time.sleep(1)
@@ -1089,7 +1287,8 @@ del "%~f0"
                         pass
 
                 stdin_lines = self._build_linpack_stdin() if name == 'linpack' else None
-                if self._launch_stress_exe(exe_path, display_name, stdin_lines=stdin_lines):
+                click_sequence = STRESS_CLICK_SEQUENCES.get(name)
+                if self._launch_stress_exe(exe_path, display_name, stdin_lines=stdin_lines, click_sequence=click_sequence):
                     self.emit('toast', {'message': f'✅ {display_name} elindítva!', 'type': 'success'})
                 else:
                     self.emit('toast', {'message': f'❌ Hiba a(z) {display_name} indításakor!', 'type': 'error'})
