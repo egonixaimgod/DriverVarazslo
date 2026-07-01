@@ -1,4 +1,5 @@
 import ctypes
+import ctypes.wintypes
 import os
 import sys
 import subprocess
@@ -15,7 +16,7 @@ import queue
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 167
+BUILD_NUMBER = 168
 
 try:
     import webview
@@ -637,25 +638,143 @@ del "%~f0"
 
     def _launch_stress_exe(self, exe, display_name):
         """Egy stressz-teszt/monitor .exe elindítása, UAC-elutasítás (WinError 740) esetén
-        'runas'-os újrapróbálással. Visszaadja, hogy sikerült-e elindítani."""
+        'runas'-os újrapróbálással. Visszaadási érték:
+          - PID (pozitív int), ha sikerült elindítani és ismerjük a PID-jét (normál eset),
+          - -1, ha sikerült elindítani, de nem ismerjük a PID-jét (UAC 'runas' eset -
+            a ShellExecuteW nem ad vissza process handle-t/PID-et), ilyenkor az ablak
+            automatikus pozicionálása (lásd _position_stress_windows) ki fog maradni,
+          - None, ha nem sikerült elindítani."""
         try:
-            subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
-            logging.info(f"[STRESSTOOLS] Elindítva: {display_name} ({exe})")
-            return True
+            proc = subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
+            logging.info(f"[STRESSTOOLS] Elindítva: {display_name} ({exe}), pid={proc.pid}")
+            return proc.pid
         except OSError as e:
             if getattr(e, 'winerror', None) == 740:
                 try:
                     ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, None, os.path.dirname(exe), 1)
                     logging.info(f"[STRESSTOOLS] Elindítva (Admin): {display_name} ({exe})")
-                    return True
+                    return -1
                 except Exception as e2:
                     logging.error(f"[STRESSTOOLS] Indítási hiba (Admin) - {display_name}: {e2}")
-                    return False
+                    return None
             logging.error(f"[STRESSTOOLS] Indítási hiba - {display_name}: {e}")
-            return False
+            return None
         except Exception as e:
             logging.error(f"[STRESSTOOLS] Indítási hiba - {display_name}: {e}")
-            return False
+            return None
+
+    def _stress_user32(self):
+        """A stressz-teszt ablak-pozicionáláshoz használt user32 függvényekre explicit
+        argtypes/restype-ot állít be (idempotens - hívható többször is). Enélkül egy
+        HWND-típusú (64 biten pointer-méretű) paraméter argtypes deklaráció nélküli, sima
+        Python int-ként való átadása ctypes-szal 64 bites Windows-on elméletileg hibás
+        marshalling-hoz vezethet - ez itt garantáltan helyesen konvertál."""
+        user32 = ctypes.windll.user32
+        HWND, LPARAM, DWORD, BOOL, RECT, UINT = (ctypes.wintypes.HWND, ctypes.wintypes.LPARAM,
+                                                  ctypes.wintypes.DWORD, ctypes.wintypes.BOOL,
+                                                  ctypes.wintypes.RECT, ctypes.wintypes.UINT)
+        user32.EnumWindows.argtypes = [ctypes.WINFUNCTYPE(BOOL, HWND, LPARAM), LPARAM]
+        user32.EnumWindows.restype = BOOL
+        user32.GetWindowThreadProcessId.argtypes = [HWND, ctypes.POINTER(DWORD)]
+        user32.GetWindowThreadProcessId.restype = DWORD
+        user32.IsWindowVisible.argtypes = [HWND]
+        user32.IsWindowVisible.restype = BOOL
+        user32.GetWindowTextLengthW.argtypes = [HWND]
+        user32.GetWindowTextLengthW.restype = ctypes.c_int
+        user32.GetWindowRect.argtypes = [HWND, ctypes.POINTER(RECT)]
+        user32.GetWindowRect.restype = BOOL
+        user32.ShowWindow.argtypes = [HWND, ctypes.c_int]
+        user32.ShowWindow.restype = BOOL
+        user32.SetWindowPos.argtypes = [HWND, HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, UINT]
+        user32.SetWindowPos.restype = BOOL
+        user32.SystemParametersInfoW.argtypes = [UINT, UINT, ctypes.wintypes.LPVOID, UINT]
+        user32.SystemParametersInfoW.restype = BOOL
+        return user32
+
+    def _find_window_for_pid(self, pid):
+        """Megkeresi az adott PID-hez tartozó legnagyobb (kliens-terület szerint), látható,
+        címsoros felső szintű ablakot - ha egy folyamatnak több ablaka/rejtett segédablaka
+        is van, a legnagyobbat tekintjük a "fő" ablaknak."""
+        user32 = self._stress_user32()
+        result = {'hwnd': None, 'area': -1}
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+
+        def _callback(hwnd, _lparam):
+            found_pid = ctypes.wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(found_pid))
+            if found_pid.value != pid:
+                return True
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            if user32.GetWindowTextLengthW(hwnd) == 0:
+                return True
+            rect = ctypes.wintypes.RECT()
+            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            area = (rect.right - rect.left) * (rect.bottom - rect.top)
+            if area > result['area']:
+                result['area'] = area
+                result['hwnd'] = hwnd
+            return True
+
+        try:
+            user32.EnumWindows(WNDENUMPROC(_callback), 0)
+        except Exception as e:
+            logging.warning(f"[STRESSTOOLS] EnumWindows hiba (pid={pid}): {e}")
+        return result['hwnd']
+
+    def _position_stress_windows(self, pid_map, task_id='stress'):
+        """A négy stressz-teszt ablakot 2x2 rácsba rendezi a fő monitor hasznos területén
+        (tálca nélkül): FurMark bal-fent (DE z-sorrendben leghátulra küldve, mert a
+        render-felülete valójában nem méretezhető szabadon - így legalább a másik 3
+        ablak jól látszik felette), Prime95 jobb-fent, Linpack bal-lent, HWiNFO jobb-lent.
+        pid_map: {STRESS_TOOLS kulcs: pid}. A hiányzó/‑1 (UAC) PID-ű vagy meg nem található
+        ablakú tételeket egyszerűen kihagyja, nem buktatja el a többit."""
+        HWND_BOTTOM = 1
+        SWP_NOZORDER = 0x0004
+        SWP_NOACTIVATE = 0x0010
+        SW_RESTORE = 9
+        SPI_GETWORKAREA = 0x0030
+        user32 = self._stress_user32()
+
+        try:
+            rect = ctypes.wintypes.RECT()
+            user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(rect), 0)
+            left, top, right, bottom = rect.left, rect.top, rect.right, rect.bottom
+        except Exception as e:
+            logging.warning(f"[STRESSTOOLS] Munkaterület lekérdezési hiba, pozicionálás kihagyva: {e}")
+            return
+        w = (right - left) // 2
+        h = (bottom - top) // 2
+
+        # A sorrend itt számít: a FurMarkot kell ELŐSZÖR HWND_BOTTOM-ra küldeni, utána a
+        # többit SWP_NOZORDER-rel (érintetlenül hagyva a z-sorrendjüket) - így garantált,
+        # hogy a másik 3 a FurMark FÖLÖTT marad, nem kell nekik explicit HWND_TOP.
+        layout = [
+            ('furmark', left, top, w, h, True),
+            ('prime95', left + w, top, w, h, False),
+            ('linpack', left, top + h, w, h, False),
+            ('hwinfo', left + w, top + h, w, h, False),
+        ]
+
+        for key, x, y, ww, hh, send_back in layout:
+            pid = pid_map.get(key)
+            display_name = STRESS_TOOLS[key][0]
+            if not pid or pid <= 0:
+                continue  # nem indult el, vagy UAC-os indítás volt (nincs PID)
+            hwnd = self._find_window_for_pid(pid)
+            if not hwnd:
+                logging.warning(f"[STRESSTOOLS] Nem található ablak a pozicionáláshoz: {display_name} (pid={pid})")
+                self.emit('task_progress', {'task': task_id, 'log': f'⚠️ {display_name}: nem található ablak a pozicionáláshoz.'})
+                continue
+            try:
+                user32.ShowWindow(hwnd, SW_RESTORE)
+                z = HWND_BOTTOM if send_back else 0
+                flags = SWP_NOACTIVATE | (0 if send_back else SWP_NOZORDER)
+                user32.SetWindowPos(hwnd, z, x, y, ww, hh, flags)
+                logging.info(f"[STRESSTOOLS] Ablak pozicionálva: {display_name} -> ({x},{y},{ww}x{hh}), hátra={send_back}")
+                self.emit('task_progress', {'task': task_id, 'log': f'🪟 {display_name} elrendezve.'})
+            except Exception as e:
+                logging.warning(f"[STRESSTOOLS] Pozicionálási hiba ({display_name}): {e}")
 
     def _download_stresstools(self):
         import tempfile, urllib.request, zipfile, ssl, shutil
@@ -727,6 +846,7 @@ del "%~f0"
                 found = self._find_stress_tool_exes(stress_dir, STRESS_TOOLS_BULK)
 
                 launched = 0
+                pid_map = {}
                 for key in STRESS_TOOLS_BULK:
                     display_name, _ = STRESS_TOOLS[key]
                     exe = found[key]
@@ -738,13 +858,31 @@ del "%~f0"
                                     f.write("[Settings]\nSensorsOnly=1\n")
                             except Exception:
                                 pass
-                        if self._launch_stress_exe(exe, display_name):
+                        pid = self._launch_stress_exe(exe, display_name)
+                        if pid:
                             launched += 1
+                            pid_map[key] = pid
                             self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva: {display_name}'})
                         else:
                             self.emit('task_progress', {'task': 'stress', 'log': f'❌ Hiba indításnál: {display_name}'})
                     else:
                         self.emit('task_progress', {'task': 'stress', 'log': f'⚠️ Nem található a ZIP-ben: {display_name}'})
+
+                # 25 mp várakozás, hogy a felhasználó végignyomkodhassa a Prime95/Linpack
+                # induló dialógusait, MIELŐTT megpróbáljuk a helyükre igazítani az ablakokat -
+                # egy azonnali pozicionálás a rövid életű induló dialógust kapná el, nem a
+                # ténylegesen futó program fő ablakát.
+                if launched > 0:
+                    self.emit('task_progress', {'task': 'stress', 'log': '\n⏳ 25 másodperc várakozás (nyomd végig a felugró dialógusokat, pl. Prime95/Linpack indítását), utána az ablakok automatikusan a helyükre kerülnek...'})
+                    for _ in range(25):
+                        if self._check_cancel():
+                            break
+                        time.sleep(1)
+                    if self._check_cancel():
+                        self.emit('task_progress', {'task': 'stress', 'log': '❗ Ablak-elrendezés kihagyva (megszakítva).'})
+                    else:
+                        self.emit('task_progress', {'task': 'stress', 'log': '🪟 Ablakok elrendezése...'})
+                        self._position_stress_windows(pid_map, task_id='stress')
 
                 if launched == len(STRESS_TOOLS_BULK):
                      self.emit('task_complete', {'task': 'stress', 'status': '👀 Minden teszt elindult. Égjen!'})
