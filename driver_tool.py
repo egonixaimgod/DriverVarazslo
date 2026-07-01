@@ -15,7 +15,7 @@ import queue
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 166
+BUILD_NUMBER = 167
 
 try:
     import webview
@@ -184,9 +184,17 @@ STRESS_TOOLS = {
     'furmark': ('FurMark', ['furmark.exe']),
     'prime95': ('Prime95', ['prime95.exe']),
     'linpack': ('Linpack Xtreme', ['linpackxtreme.exe', 'linpack.exe']),
-    'hwinfo': ('HWiNFO (Sensor Only)', ['hwinfo64.exe', 'hwinfo32.exe']),
+    # A lista SORRENDJE itt prioritás: a 64 bites verziót preferáljuk, a 32 bites csak
+    # akkor indul, ha nincs 64 bites az extracted mappában (lásd _find_stress_tool_exes).
+    'hwinfo': ('HWiNFO64 (Sensor Only)', ['hwinfo64.exe', 'hwinfo32.exe']),
     'hdsentinel': ('HD Sentinel', ['hdsentinel.exe', 'hdsentinel_x64.exe', 'hdsentinel64.exe']),
 }
+
+# "Minden teszt indítása" gomb csak ezeket a valódi terhelés-generáló stressz teszteket
+# indítja - a HD Sentinel egy lemez-egészség MONITOR (nem terhel semmit), ezért
+# kifejezett felhasználói kérésre nem szerepel a tömeges indításban, csak egyenként
+# (start_stress_tool) érhető el.
+STRESS_TOOLS_BULK = ['furmark', 'prime95', 'linpack', 'hwinfo']
 
 # Stabilitás Teszt közben letiltandó energiagazdálkodási beállítások (powercfg alias-ok -
 # ezek a kulcsszavak nyelvfüggetlenek, minden Windows-nyelven ugyanígy kell megadni őket).
@@ -602,6 +610,31 @@ del "%~f0"
         except Exception as e:
             logging.warning(f"[STRESS_POWER] Visszaállítási hiba: {e}")
 
+    def _find_stress_tool_exes(self, stress_dir, keys):
+        """Megkeresi a kicsomagolt mappában a megadott STRESS_TOOLS kulcsokhoz tartozó
+        exe-ket. Egy kulcson belül a STRESS_TOOLS[key][1] filenames-lista SORRENDJE
+        prioritást jelent (pl. HWiNFO-nál előbb a 64, majd a 32 bites) - ezért nem az
+        os.walk bejárási sorrendjében elsőként talált fájlt fogadjuk el, hanem a teljes
+        bejárás után, kulcsonként, a legmagasabb prioritású (legkorábbi) filenames-
+        bejegyzést választjuk ki az összes ténylegesen megtalált jelölt közül."""
+        candidates = {key: {} for key in keys}
+        for root, dirs, files in os.walk(stress_dir):
+            for file in files:
+                fl = file.lower()
+                for key in keys:
+                    filenames = STRESS_TOOLS[key][1]
+                    if fl in filenames and fl not in candidates[key]:
+                        candidates[key][fl] = os.path.join(root, file)
+
+        found = {}
+        for key in keys:
+            found[key] = None
+            for fname in STRESS_TOOLS[key][1]:
+                if fname in candidates[key]:
+                    found[key] = candidates[key][fname]
+                    break
+        return found
+
     def _launch_stress_exe(self, exe, display_name):
         """Egy stressz-teszt/monitor .exe elindítása, UAC-elutasítás (WinError 740) esetén
         'runas'-os újrapróbálással. Visszaadja, hogy sikerült-e elindítani."""
@@ -689,19 +722,13 @@ del "%~f0"
 
                 self.emit('task_progress', {'task': 'stress', 'log': '🔥 Programok rászabadítása a gépre...'})
 
-                # Dinamikus keresés a STRESS_TOOLS-ban felsorolt összes programra
-                found = {key: None for key in STRESS_TOOLS}
-                for root, dirs, files in os.walk(stress_dir):
-                    for file in files:
-                        fl = file.lower()
-                        for key, (_, filenames) in STRESS_TOOLS.items():
-                            if found[key]:
-                                continue
-                            if fl in filenames:
-                                found[key] = os.path.join(root, file)
+                # Csak a STRESS_TOOLS_BULK-ban felsorolt (valódi terhelés-generáló) programok -
+                # a HD Sentinel monitor kifejezett kérésre nincs benne a tömeges indításban.
+                found = self._find_stress_tool_exes(stress_dir, STRESS_TOOLS_BULK)
 
                 launched = 0
-                for key, (display_name, _) in STRESS_TOOLS.items():
+                for key in STRESS_TOOLS_BULK:
+                    display_name, _ = STRESS_TOOLS[key]
                     exe = found[key]
                     if exe and os.path.exists(exe):
                         if key == 'hwinfo':
@@ -719,10 +746,10 @@ del "%~f0"
                     else:
                         self.emit('task_progress', {'task': 'stress', 'log': f'⚠️ Nem található a ZIP-ben: {display_name}'})
 
-                if launched == len(STRESS_TOOLS):
+                if launched == len(STRESS_TOOLS_BULK):
                      self.emit('task_complete', {'task': 'stress', 'status': '👀 Minden teszt elindult. Égjen!'})
                 elif launched > 0:
-                     self.emit('task_complete', {'task': 'stress', 'status': f'⚠️ Csak {launched}/{len(STRESS_TOOLS)} program indult el.'})
+                     self.emit('task_complete', {'task': 'stress', 'status': f'⚠️ Csak {launched}/{len(STRESS_TOOLS_BULK)} program indult el.'})
                 else:
                      self.emit('task_complete', {'task': 'stress', 'status': '❌ Egyetlen program sem indult el.'})
 
@@ -742,7 +769,7 @@ del "%~f0"
         if not info:
             self.emit('toast', {'message': f'❌ Ismeretlen program: {name}', 'type': 'error'})
             return
-        display_name, filenames = info
+        display_name, _ = info
 
         def worker():
             import tempfile
@@ -760,14 +787,7 @@ del "%~f0"
                     self.emit('toast', {'message': f'❌ Hiba a tesztprogramok letöltésekor/kicsomagolásakor ({display_name})!', 'type': 'error'})
                     return
 
-                exe_path = None
-                for root, dirs, files in os.walk(stress_dir):
-                    for file in files:
-                        if file.lower() in filenames:
-                            exe_path = os.path.join(root, file)
-                            break
-                    if exe_path:
-                        break
+                exe_path = self._find_stress_tool_exes(stress_dir, [name])[name]
 
                 if not exe_path or not os.path.exists(exe_path):
                     self.emit('toast', {'message': f'⚠️ {display_name} nem található a letöltött csomagban!', 'type': 'warning'})
