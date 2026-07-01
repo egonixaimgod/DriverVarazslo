@@ -12,10 +12,10 @@ import glob
 import traceback
 import winreg
 import queue
-from datetime import datetime
+from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 165
+BUILD_NUMBER = 166
 
 try:
     import webview
@@ -177,6 +177,24 @@ def _ps_quote(value):
 # ezek gyakran csak gyári driverrel működnek jól, a WU nem mindig telepíti vissza automatikusan.
 AUTOFIX_PRINTER_SKIP_CLASSES = {'Printer', 'PrintQueue', 'Image'}
 
+# Stabilitás Teszt: egyenként is indítható programok, kulcs -> (megjelenített név, a
+# stresstools.zip-ben keresett fájlnév-változatok). A HDSentinel jelenléte a ZIP-től függ -
+# ha nincs benne, a keresés futásidőben "nem található" hibát ad, ami nem kódhiba.
+STRESS_TOOLS = {
+    'furmark': ('FurMark', ['furmark.exe']),
+    'prime95': ('Prime95', ['prime95.exe']),
+    'linpack': ('Linpack Xtreme', ['linpackxtreme.exe', 'linpack.exe']),
+    'hwinfo': ('HWiNFO (Sensor Only)', ['hwinfo64.exe', 'hwinfo32.exe']),
+    'hdsentinel': ('HD Sentinel', ['hdsentinel.exe', 'hdsentinel_x64.exe', 'hdsentinel64.exe']),
+}
+
+# Stabilitás Teszt közben letiltandó energiagazdálkodási beállítások (powercfg alias-ok -
+# ezek a kulcsszavak nyelvfüggetlenek, minden Windows-nyelven ugyanígy kell megadni őket).
+# SUB_VIDEO/VIDEOIDLE = kijelző kikapcsolása, SUB_SLEEP/STANDBYIDLE = alvó mód,
+# SUB_SLEEP/HIBERNATEIDLE = hibernálás.
+STRESS_POWER_SETTINGS = [('SUB_VIDEO', 'VIDEOIDLE'), ('SUB_SLEEP', 'STANDBYIDLE'), ('SUB_SLEEP', 'HIBERNATEIDLE')]
+STRESS_POWER_REG_KEY = r"SOFTWARE\DriverVarazslo\StressPowerBackup"
+
 
 class DriverToolApi:
     def __init__(self):
@@ -190,6 +208,8 @@ class DriverToolApi:
         self._hw_loaded = False
         self.wu_api_mode = True
         self._cancel_flag = False  # Flag for cancelling long-running tasks
+        self._task_busy = None  # None, vagy a jelenleg futó feladat neve (lásd _safe_thread)
+        self._stresstools_download_lock = threading.Lock()
         self.resume_mode = '--resume-autofix' in sys.argv
         self.resume_step1 = '--resume-step1' in sys.argv
         self.skip_printer_drivers = '--skip-printer-drivers' in sys.argv
@@ -208,12 +228,17 @@ class DriverToolApi:
         except Exception:
             pass
 
+        # Ha egy korábbi Stabilitás Teszt indítás letiltotta a képernyő-kikapcsolást/alvó
+        # módot, itt, a program (újra)indulásakor állítjuk vissza az akkor elmentett eredeti
+        # energiagazdálkodási beállításokat (lásd _lock_power_for_stress/_restore_power_after_stress).
+        self._restore_power_after_stress()
+
         logging.info("[INIT] DriverToolApi kész.")
 
     def set_window(self, window):
         logging.info("[WINDOW] WebView ablak beállítása...")
         self._window = window
-        # Wait for WebView2 DOM to be ready (max 12s, watchdog: 15s)
+        # Wait for WebView2 DOM to be ready (max 12s, watchdog timeout: 60s)
         dom_ready = False
         for i in range(120):  # 120 * 0.1s = 12s
             try:
@@ -295,6 +320,24 @@ class DriverToolApi:
             raise
 
     def _safe_thread(self, task, target):
+        """Háttérszálon futtatja a target()-et.
+
+        Egyszerre csak EGY ilyen feladat futhat: ha már fut egy másik, ezt elutasítjuk,
+        mert két egyidejű feladat egyébként ütközne a közös self._cancel_flag-en (egy
+        épp induló új feladat False-ra állítaná a MÁR futó feladat megszakítás-kérését),
+        és pl. a hardver-scan/driver-telepítés is ugyanazt a self.hw_updates_pool listát
+        írná-olvasná egyszerre. A _cancel_flag reset-jét is itt, a busy-check UTÁN
+        végezzük - ha korábban minden hívó metódus saját maga nullázta a flaget MIELŐTT
+        idekerült volna, egy elutasított (busy) próbálkozás is csendben visszavonta volna
+        a ténylegesen futó feladat megszakítás-kérését.
+        """
+        if self._task_busy:
+            logging.warning(f"[THREAD:{task}] Elutasítva - már fut egy másik feladat ({self._task_busy}).")
+            self.emit('toast', {'message': f'⚠️ Már folyamatban van egy másik művelet ({self._task_busy}), várd meg amíg befejeződik!', 'type': 'warning'})
+            return
+        self._task_busy = task
+        self._cancel_flag = False
+
         def wrapper():
             logging.info(f"[THREAD:{task}] Háttérszál indul...")
             start_time = time.time()
@@ -308,6 +351,8 @@ class DriverToolApi:
                 logging.error(f"[THREAD:{task}] Traceback:\n{traceback.format_exc()}")
                 self.emit('task_error', {'task': task, 'error': str(e)})
                 self.emit('task_complete', {'task': task, 'status': f'❌ Hiba: {e}'})
+            finally:
+                self._task_busy = None
         threading.Thread(target=wrapper, daemon=True).start()
 
     # ================================================================
@@ -329,8 +374,6 @@ class DriverToolApi:
             import urllib.request
             import ssl
             ssl_ctx = ssl.create_default_context()
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE
             # Bypassing GitHub cache with a timestamp
             url = f"https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t={int(time.time())}"
             logging.info(f"[UPDATE] Update ellenőrzése erről a címről: {url}")
@@ -364,9 +407,7 @@ class DriverToolApi:
                 import ssl
                 import shutil
                 ssl_ctx = ssl.create_default_context()
-                ssl_ctx.check_hostname = False
-                ssl_ctx.verify_mode = ssl.CERT_NONE
-                
+
                 exe_url = f"https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/dist/DriverVarazslo.exe?t={int(time.time())}"
                 # WinPE-ben a %TEMP% az X: RAM-diskre mutat - a letöltött exe-t a valódi C: meghajtóra tesszük.
                 is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
@@ -405,6 +446,11 @@ class DriverToolApi:
                 logging.info(f"[UPDATE] Asztali elérési út: {desktop_exe}")
                 
                 bat_path = os.path.join(temp_dir, f"dv_update_{int(time.time())}.bat")
+                # A ".old" biztonsági másolatokat sosem olvassuk vissza (nincs rollback funkció),
+                # kizárólag a következő indításkori törlésre szolgálnak - ha viszont a program
+                # legközelebb egy MÁSIK elérési útról indul (pl. nem az asztalról), a __init__-beli
+                # takarítás sosem találja meg és törli őket, és örökre a lemezen maradnak. Ezért itt,
+                # helyben (és csak sikeres másolás esetén) rögtön eltávolítjuk mindkettőt.
                 bat_content = f"""@echo off
 set _MEIPASS2=
 set _MEIPASS=
@@ -414,10 +460,12 @@ timeout /t 3 /nobreak > nul
 if /I not "{current_exe}"=="{desktop_exe}" (
     move /y "{current_exe}" "{current_exe}.old" > nul 2>&1
     copy /y "{new_exe}" "{current_exe}" > nul 2>&1
+    if not errorlevel 1 del /f /q "{current_exe}.old" > nul 2>&1
 )
 
 move /y "{desktop_exe}" "{desktop_exe}.old" > nul 2>&1
 copy /y "{new_exe}" "{desktop_exe}" > nul 2>&1
+if not errorlevel 1 del /f /q "{desktop_exe}.old" > nul 2>&1
 
 start "" "{desktop_exe}"
 del "%~f0"
@@ -462,6 +510,120 @@ del "%~f0"
         self.emit('toast', {'message': '⚠️ Megszakítás kérve...', 'type': 'warning'})
         return True
 
+    # ================================================================
+    # STABILITÁS TESZT - energiagazdálkodás (képernyő/alvó mód letiltása közben)
+    # ================================================================
+    def _query_power_setting(self, subgroup, setting):
+        """(ac_másodperc, dc_másodperc) lekérdezése egy powercfg alias-párra.
+
+        A SUB_VIDEO/VIDEOIDLE stb. alias-kulcsszavak nyelvfüggetlenek, de a `powercfg
+        /query` kimenetének felirat-szövegei lokalizáltak lehetnek - ezért nem szöveges
+        mintára illesztünk, hanem a kimenetben szereplő "0x..." hexa értékeket szedjük ki
+        POZÍCIÓ szerint (a sorrend - előbb AC, utána DC - nem nyelvfüggő)."""
+        try:
+            res = self._run(['powercfg', '/query', 'SCHEME_CURRENT', subgroup, setting])
+            hexes = re.findall(r'0x[0-9a-fA-F]+', res.stdout or '')
+            if len(hexes) >= 2:
+                return int(hexes[0], 16), int(hexes[1], 16)
+        except Exception as e:
+            logging.warning(f"[STRESS_POWER] Lekérdezési hiba ({subgroup}/{setting}): {e}")
+        return None, None
+
+    def _set_power_setting(self, subgroup, setting, ac_seconds, dc_seconds):
+        self._run(['powercfg', '/setacvalueindex', 'SCHEME_CURRENT', subgroup, setting, str(ac_seconds)])
+        self._run(['powercfg', '/setdcvalueindex', 'SCHEME_CURRENT', subgroup, setting, str(dc_seconds)])
+
+    def _lock_power_for_stress(self):
+        """Letiltja a kijelző kikapcsolását és az alvó/hibernálás módot (AC és DC is), amíg
+        a stressz-teszt programok futnak - enélkül a gép/kijelző elalhatna egy hosszú, több
+        órás stabilitás-teszt közben. Az EREDETI értékeket (csak ha még nincs korábbi
+        mentés) elmentjük a registrybe, hogy a program legközelebbi indításakor
+        (_restore_power_after_stress, hívva __init__-ből) visszaállíthassuk őket."""
+        try:
+            try:
+                already_saved = True
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, STRESS_POWER_REG_KEY, 0, winreg.KEY_READ):
+                    pass
+            except FileNotFoundError:
+                already_saved = False
+
+            if not already_saved:
+                with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, STRESS_POWER_REG_KEY, 0, winreg.KEY_WRITE) as key:
+                    for subgroup, setting in STRESS_POWER_SETTINGS:
+                        ac, dc = self._query_power_setting(subgroup, setting)
+                        if ac is not None:
+                            winreg.SetValueEx(key, f'{subgroup}_{setting}_AC', 0, winreg.REG_DWORD, ac)
+                        if dc is not None:
+                            winreg.SetValueEx(key, f'{subgroup}_{setting}_DC', 0, winreg.REG_DWORD, dc)
+                logging.info("[STRESS_POWER] Eredeti energiagazdálkodási beállítások elmentve.")
+
+            for subgroup, setting in STRESS_POWER_SETTINGS:
+                self._set_power_setting(subgroup, setting, 0, 0)
+            self._run(['powercfg', '/setactive', 'SCHEME_CURRENT'])
+            logging.info("[STRESS_POWER] Képernyő-kikapcsolás és alvó mód letiltva a stressz teszt idejére.")
+        except Exception as e:
+            logging.warning(f"[STRESS_POWER] Letiltási hiba: {e}")
+
+    def _restore_power_after_stress(self):
+        """A program indulásakor hívva: ha egy korábbi Stabilitás Teszt futás során
+        elmentettük az eredeti energiagazdálkodási értékeket, itt visszaállítjuk őket, majd
+        töröljük a mentést, hogy egy következő stressz teszt friss eredeti állapotot
+        mentsen el (ne egy már egyszer nullázott értéket)."""
+        try:
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, STRESS_POWER_REG_KEY, 0, winreg.KEY_READ) as key:
+                    values = {}
+                    i = 0
+                    while True:
+                        try:
+                            name, value, _ = winreg.EnumValue(key, i)
+                            values[name] = value
+                            i += 1
+                        except OSError:
+                            break
+            except FileNotFoundError:
+                return
+
+            restored_any = False
+            for subgroup, setting in STRESS_POWER_SETTINGS:
+                ac = values.get(f'{subgroup}_{setting}_AC')
+                dc = values.get(f'{subgroup}_{setting}_DC')
+                if ac is not None and dc is not None:
+                    self._set_power_setting(subgroup, setting, ac, dc)
+                    restored_any = True
+            if restored_any:
+                self._run(['powercfg', '/setactive', 'SCHEME_CURRENT'])
+                logging.info("[STRESS_POWER] Eredeti energiagazdálkodási beállítások visszaállítva.")
+
+            try:
+                winreg.DeleteKey(winreg.HKEY_LOCAL_MACHINE, STRESS_POWER_REG_KEY)
+            except Exception:
+                pass
+        except Exception as e:
+            logging.warning(f"[STRESS_POWER] Visszaállítási hiba: {e}")
+
+    def _launch_stress_exe(self, exe, display_name):
+        """Egy stressz-teszt/monitor .exe elindítása, UAC-elutasítás (WinError 740) esetén
+        'runas'-os újrapróbálással. Visszaadja, hogy sikerült-e elindítani."""
+        try:
+            subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
+            logging.info(f"[STRESSTOOLS] Elindítva: {display_name} ({exe})")
+            return True
+        except OSError as e:
+            if getattr(e, 'winerror', None) == 740:
+                try:
+                    ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, None, os.path.dirname(exe), 1)
+                    logging.info(f"[STRESSTOOLS] Elindítva (Admin): {display_name} ({exe})")
+                    return True
+                except Exception as e2:
+                    logging.error(f"[STRESSTOOLS] Indítási hiba (Admin) - {display_name}: {e2}")
+                    return False
+            logging.error(f"[STRESSTOOLS] Indítási hiba - {display_name}: {e}")
+            return False
+        except Exception as e:
+            logging.error(f"[STRESSTOOLS] Indítási hiba - {display_name}: {e}")
+            return False
+
     def _download_stresstools(self):
         import tempfile, urllib.request, zipfile, ssl, shutil
         # WinPE-ben a %TEMP% az X: RAM-diskre mutat - a stressztesztek zip-jét a valódi C: meghajtóra tesszük.
@@ -481,102 +643,153 @@ del "%~f0"
         if os.path.exists(marker_path):
             return stress_dir
 
-        try:
-            logging.info("[STRESSTOOLS] Letöltés INNEN: " + download_url)
-            ssl_ctx = ssl.create_default_context()
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE
+        # A "Minden teszt indítása" és az egyenkénti gombok is idekerülhetnek egyszerre
+        # (utóbbiak nem mennek át a _task_busy-n, hogy egymás után gyorsan lehessen indítani
+        # több eszközt is) - lock nélkül két egyidejű hívás ugyanabba a zip_path/stress_dir
+        # mappába írna/csomagolna ki párhuzamosan, ami korrupciót okozhatna.
+        with self._stresstools_download_lock:
+            # Amíg a lock-ra vártunk, egy másik szál esetleg már befejezte a letöltést.
+            if os.path.exists(marker_path):
+                return stress_dir
+            try:
+                logging.info("[STRESSTOOLS] Letöltés INNEN: " + download_url)
+                ssl_ctx = ssl.create_default_context()
 
-            req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-            with urllib.request.urlopen(req, context=ssl_ctx, timeout=60) as resp, open(zip_path, 'wb') as f:
-                shutil.copyfileobj(resp, f)
+                req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+                with urllib.request.urlopen(req, context=ssl_ctx, timeout=60) as resp, open(zip_path, 'wb') as f:
+                    shutil.copyfileobj(resp, f)
 
-            if not zipfile.is_zipfile(zip_path):
+                if not zipfile.is_zipfile(zip_path):
+                    return None
+                if os.path.exists(stress_dir):
+                    shutil.rmtree(stress_dir, ignore_errors=True)
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(stress_dir)
+                try: os.remove(zip_path)
+                except: pass
+                with open(marker_path, 'w') as f:
+                    f.write('ok')
+                return stress_dir
+            except Exception as e:
+                logging.error(f"[STRESSTOOLS] Download hiba: {e}")
                 return None
-            if os.path.exists(stress_dir):
-                shutil.rmtree(stress_dir, ignore_errors=True)
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(stress_dir)
-            try: os.remove(zip_path)
-            except: pass
-            with open(marker_path, 'w') as f:
-                f.write('ok')
-            return stress_dir
-        except Exception as e:
-            logging.error(f"[STRESSTOOLS] Download hiba: {e}")
-            return None
 
     def start_stress_tests(self):
         logging.info("[API] start_stress_tests()")
-        
+
         def worker():
-            import os
             try:
                 self.emit('task_start', {'task': 'stress', 'title': 'Stabilitás Teszt Indítása'})
+                self._lock_power_for_stress()
                 self.emit('task_progress', {'task': 'stress', 'log': '🌐 Tesztprogramok (ZIP) letöltése a háttérben...', 'indeterminate': True})
-                
+
                 stress_dir = self._download_stresstools()
                 if not stress_dir:
                     raise Exception("Hiba a ZIP letöltésekor vagy kicsomagolásakor (Helytelen ZIP / Nincs net).")
-                
+
                 self.emit('task_progress', {'task': 'stress', 'log': '🔥 Programok rászabadítása a gépre...'})
-                
-                # Dinamikus keresés
-                furmark = None
-                linpack = None
-                prime95 = None
-                hwinfo = None
-                
+
+                # Dinamikus keresés a STRESS_TOOLS-ban felsorolt összes programra
+                found = {key: None for key in STRESS_TOOLS}
                 for root, dirs, files in os.walk(stress_dir):
                     for file in files:
-                        if file.lower() == "furmark.exe":
-                            furmark = os.path.join(root, file)
-                        elif file.lower() == "linpackxtreme.exe" or file.lower() == "linpack.exe":
-                            linpack = os.path.join(root, file)
-                        elif file.lower() == "prime95.exe":
-                            prime95 = os.path.join(root, file)
-                        elif file.lower() in ("hwinfo64.exe", "hwinfo32.exe"):
-                            hwinfo = os.path.join(root, file)
-                
+                        fl = file.lower()
+                        for key, (_, filenames) in STRESS_TOOLS.items():
+                            if found[key]:
+                                continue
+                            if fl in filenames:
+                                found[key] = os.path.join(root, file)
+
                 launched = 0
-                for name, exe in [("FurMark", furmark), ("Linpack", linpack), ("Prime95", prime95), ("HWiNFO (Sensor Only)", hwinfo)]:
+                for key, (display_name, _) in STRESS_TOOLS.items():
+                    exe = found[key]
                     if exe and os.path.exists(exe):
-                        if name == "HWiNFO (Sensor Only)":
+                        if key == 'hwinfo':
                             try:
                                 ini_path = os.path.join(os.path.dirname(exe), "HWiNFO64.INI")
                                 with open(ini_path, "w") as f:
                                     f.write("[Settings]\nSensorsOnly=1\n")
-                            except: pass
-                        try:
-                            subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
+                            except Exception:
+                                pass
+                        if self._launch_stress_exe(exe, display_name):
                             launched += 1
-                            self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva: {name}'})
-                        except OSError as e:
-                            if getattr(e, 'winerror', None) == 740:
-                                try:
-                                    import ctypes
-                                    ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, None, os.path.dirname(exe), 1)
-                                    launched += 1
-                                    self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva (Admin): {name}'})
-                                except Exception as e2:
-                                    self.emit('task_progress', {'task': 'stress', 'log': f'❌ Hiba indításnál ({name}): {e2}'})
-                            else:
-                                self.emit('task_progress', {'task': 'stress', 'log': f'❌ Hiba indításnál ({name}): {e}'})
-                        except Exception as e:
-                            self.emit('task_progress', {'task': 'stress', 'log': f'❌ Hiba indításnál ({name}): {e}'})
+                            self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva: {display_name}'})
+                        else:
+                            self.emit('task_progress', {'task': 'stress', 'log': f'❌ Hiba indításnál: {display_name}'})
                     else:
-                        self.emit('task_progress', {'task': 'stress', 'log': f'⚠️ Nem található a ZIP-ben: {name}'})
-                
-                if launched >= 3:
+                        self.emit('task_progress', {'task': 'stress', 'log': f'⚠️ Nem található a ZIP-ben: {display_name}'})
+
+                if launched == len(STRESS_TOOLS):
                      self.emit('task_complete', {'task': 'stress', 'status': '👀 Minden teszt elindult. Égjen!'})
+                elif launched > 0:
+                     self.emit('task_complete', {'task': 'stress', 'status': f'⚠️ Csak {launched}/{len(STRESS_TOOLS)} program indult el.'})
                 else:
-                     self.emit('task_complete', {'task': 'stress', 'status': f'⚠️ Csak {launched} program indult el.'})
+                     self.emit('task_complete', {'task': 'stress', 'status': '❌ Egyetlen program sem indult el.'})
 
             except Exception as e:
                 logging.error(f"Stressz teszt hiba: {e}")
                 self.emit('task_error', {'task': 'stress', 'error': f'Hiba: {str(e)}'})
 
         self._safe_thread('stress', worker)
+
+    def start_stress_tool(self, name):
+        """Egyetlen stabilitás-teszt/monitor program elindítása (a Stabilitás Teszt nézet
+        5 kis ikonja hívja). Tudatosan NEM megy át a task_start/progress-modal rendszeren -
+        a felhasználó kifejezett kérése, hogy egy gombnyomásra csendben, ablak/dialógus
+        nélkül induljon el a program, csak egy rövid toast-tal tájékoztatva."""
+        logging.info(f"[API] start_stress_tool({name})")
+        info = STRESS_TOOLS.get(name)
+        if not info:
+            self.emit('toast', {'message': f'❌ Ismeretlen program: {name}', 'type': 'error'})
+            return
+        display_name, filenames = info
+
+        def worker():
+            import tempfile
+            try:
+                self._lock_power_for_stress()
+
+                is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
+                temp_dir = r'C:\DV_Temp' if is_pe else tempfile.gettempdir()
+                marker_path = os.path.join(temp_dir, "DriverVarázsló_Stress", ".extract_complete")
+                if not os.path.exists(marker_path):
+                    self.emit('toast', {'message': f'⏳ {display_name}: első indítás, tesztprogramok letöltése (eltarthat egy percig)...', 'type': 'info'})
+
+                stress_dir = self._download_stresstools()
+                if not stress_dir:
+                    self.emit('toast', {'message': f'❌ Hiba a tesztprogramok letöltésekor/kicsomagolásakor ({display_name})!', 'type': 'error'})
+                    return
+
+                exe_path = None
+                for root, dirs, files in os.walk(stress_dir):
+                    for file in files:
+                        if file.lower() in filenames:
+                            exe_path = os.path.join(root, file)
+                            break
+                    if exe_path:
+                        break
+
+                if not exe_path or not os.path.exists(exe_path):
+                    self.emit('toast', {'message': f'⚠️ {display_name} nem található a letöltött csomagban!', 'type': 'warning'})
+                    return
+
+                if name == 'hwinfo':
+                    try:
+                        ini_path = os.path.join(os.path.dirname(exe_path), "HWiNFO64.INI")
+                        with open(ini_path, "w") as f:
+                            f.write("[Settings]\nSensorsOnly=1\n")
+                    except Exception:
+                        pass
+
+                if self._launch_stress_exe(exe_path, display_name):
+                    self.emit('toast', {'message': f'✅ {display_name} elindítva!', 'type': 'success'})
+                else:
+                    self.emit('toast', {'message': f'❌ Hiba a(z) {display_name} indításakor!', 'type': 'error'})
+            except Exception as e:
+                logging.error(f"[STRESSTOOLS] start_stress_tool hiba ({name}): {e}")
+                self.emit('toast', {'message': f'❌ Hiba: {e}', 'type': 'error'})
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _check_cancel(self):
         """Ellenőrzi, hogy a felhasználó megszakította-e a műveletet."""
@@ -806,7 +1019,6 @@ del "%~f0"
     def delete_drivers(self, published_names, list_all=False, reboot=False):
         logging.info(f"[API] delete_drivers() - {len(published_names)} driver, list_all={list_all}, reboot={reboot}")
         logging.info(f"[DELETE] Törlendő driverek: {published_names}")
-        self._cancel_flag = False
         def worker():
             total = len(published_names)
             success = 0
@@ -1018,7 +1230,20 @@ Write-Output "DONE: Törölve: $count / $total"
         if self._hw_scanning:
             logging.warning("[HW_SCAN] Már fut egy scan!")
             return
+        if self._task_busy:
+            # Megosztjuk a _safe_thread-alapú feladatokkal ugyanazt a "busy" jelzőt, mert
+            # a scan és egy driver-telepítés/törlés egyszerre futva ugyanazt a
+            # self.hw_updates_pool listát írná-olvasná (race condition).
+            logging.warning(f"[HW_SCAN] Elutasítva - már fut egy másik feladat ({self._task_busy}).")
+            self.emit('toast', {'message': f'⚠️ Már folyamatban van egy másik művelet ({self._task_busy}), várd meg amíg befejeződik!', 'type': 'warning'})
+            # A JS oldal a scan gomb megnyomásakor azonnal "folyamatban" állapotba kapcsol -
+            # e nélkül az emit nélkül elutasítás esetén a progress sáv örökre "Scannelés
+            # folyamatban..." állapotban ragadna, hiszen sosem indul valódi scan-szál.
+            self.emit('hw_scan_result', {'pool': self.hw_updates_pool, 'installed': self._hw_installed_devs,
+                                          'sys_info': f'⚠️ Másik művelet ({self._task_busy}) fut, próbáld újra pár másodperc múlva', 'time': ''})
+            return
         self._hw_scanning = True
+        self._task_busy = 'hw_scan'
         logging.info("[HW_SCAN] Hardver scan indítása...")
 
         def worker():
@@ -1236,12 +1461,14 @@ Write-Output "DONE: Törölve: $count / $total"
                 self.emit('hw_scan_result', {'pool': [], 'installed': [], 'sys_info': '❌ Scan hiba', 'time': ''})
             finally:
                 self._hw_scanning = False
+                self._task_busy = None
 
         try:
             threading.Thread(target=worker, daemon=True).start()
         except Exception as e:
             logging.error(f"[HW_SCAN] Thread indítási hiba: {e}")
             self._hw_scanning = False
+            self._task_busy = None
             self.emit('hw_scan_result', {'pool': [], 'installed': [], 'sys_info': '❌ Thread hiba', 'time': ''})
 
     def _set_wu_pause(self, pause=True):
@@ -1411,7 +1638,6 @@ try {
     def install_selected_wu(self, selected_indices):
         logging.info(f"[API] install_selected_wu() - {len(selected_indices)} index kiválasztva")
         logging.debug(f"[WU_INSTALL] Indexek: {selected_indices}")
-        self._cancel_flag = False  # Reset cancel flag
         selected_pool = [self.hw_updates_pool[i] for i in selected_indices if 0 <= i < len(self.hw_updates_pool)]
         if not selected_pool:
             logging.warning("[WU_INSTALL] Nincs érvényes driver kiválasztva!")
@@ -1759,7 +1985,7 @@ try {
                     val, _ = winreg.QueryValueEx(key, "PauseUpdatesExpiryTime")
                     if val:
                         dt = datetime.strptime(val, "%Y-%m-%dT%H:%M:%SZ")
-                        if dt > datetime.utcnow():
+                        if dt > datetime.now(timezone.utc).replace(tzinfo=None):
                             paused_until = val
             except Exception:
                 pass
@@ -2312,7 +2538,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     
                     self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve...'})
                     time.sleep(5)
-                    self._run(['shutdown', '/r', '/t', '0'])
+                    self._run(['shutdown', '/r', '/t', '0', '/f'])
                     return
                 else:
                     self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 KÉSZ! Nulla újonnan fellelt driver, a konfiguráció végigért.'})
@@ -2662,7 +2888,6 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             logging.info("[BACKUP] Mégse - nincs mappa kiválasztva")
             return
         logging.info(f"[BACKUP] Third-party backup indítása -> {dest}")
-        self._cancel_flag = False
 
         def worker():
             folder = os.path.join(dest, f"DriverVarázsló_Export_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
@@ -2715,7 +2940,6 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             logging.info("[BACKUP_ALL] Mégse - nincs mappa kiválasztva")
             return
         logging.info(f"[BACKUP_ALL] Összes driver backup indítása -> {dest}")
-        self._cancel_flag = False
 
         def worker():
             folder = os.path.join(dest, f"DriverVarázsló_FullExport_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
@@ -2992,7 +3216,6 @@ try {{
 
     def _run_restore(self, online, source, target):
         logging.info(f"[RESTORE] _run_restore: online={online}, source={source}, target={target}")
-        self._cancel_flag = False
         def worker():
             mode = 'Élő' if online else 'Offline'
             logging.info(f"[RESTORE] Worker indult - {mode} mód")
@@ -3075,7 +3298,7 @@ try {{
                 """Run DISM /Add-Driver on a folder with /Recurse. Returns (returncode, cancelled)."""
                 scratch = os.path.join(norm_target, "Scratch")
                 os.makedirs(scratch, exist_ok=True)
-                cmd = ['dism', f'/Image:{norm_target}', '/Add-Driver', f'/Driver:{driver_path}', '/Recurse', f'/ScratchDir:{scratch}']
+                cmd = ['dism', f'/Image:{norm_target}', '/Add-Driver', f'/Driver:{driver_path}', '/Recurse', '/ForceUnsigned', f'/ScratchDir:{scratch}']
                 self.emit('task_progress', {'task': 'restore', 'log': f'{label}Parancs: {" ".join(cmd)}'})
                 process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                            startupinfo=self._si, creationflags=self._nw, errors='replace')
@@ -3362,7 +3585,6 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
             logging.info("[WIM] Mégse - nincs célmappa kiválasztva")
             return
         logging.info(f"[WIM] Célmappa: {dest}")
-        self._cancel_flag = False
 
         def worker():
             logging.info("[WIM] Worker indult - WIM kinyerés...")
@@ -4029,7 +4251,10 @@ class CliApi:
     def get_offline_drivers(self, all_drivers=False):
         """Offline OS driverek listája."""
         self._print_progress(f"📋 Offline driverek lekérdezése: {self.target_os_path}...")
-        cmd = ['dism', f'/Image:{self.target_os_path}', '/Get-Drivers']
+        # /English: a GUI verzióval egyezően kényszerített angol DISM kimenet, függetlenül a
+        # futtató Windows/WinPE nyelvétől - enélkül nem angol rendszeren a lenti angol
+        # kulcsszavak (Published Name stb.) nem illeszkednek, és a lista némán üres marad.
+        cmd = ['dism', '/English', f'/Image:{self.target_os_path}', '/Get-Drivers']
         if all_drivers:
             cmd.append('/all')
         res = self._run(cmd)
@@ -4045,15 +4270,15 @@ class CliApi:
             parts = line.split(":", 1)
             if len(parts) == 2:
                 key, val = parts[0].strip(), parts[1].strip()
-                if "Published Name" in key or "Közzétett név" in key or "Published name" in key:
+                if "Published Name" in key:
                     current["published"] = val
-                elif "Original File Name" in key or "Eredeti fájlnév" in key or "Original name" in key:
+                elif "Original File Name" in key:
                     current["original"] = val
-                elif "Provider Name" in key or "Szolgáltató neve" in key or "Provider" in key:
+                elif "Provider Name" in key:
                     current["provider"] = val
-                elif "Class Name" in key or "Osztálynév" in key:
+                elif "Class Name" in key:
                     current["class"] = val
-                elif "Date and Version" in key or "Dátum és verzió" in key:
+                elif "Date and Version" in key:
                     current["version"] = val
         if current and "published" in current:
             drivers.append(current)
@@ -4655,7 +4880,7 @@ class CliApi:
                 val, _ = winreg.QueryValueEx(key, "PauseUpdatesExpiryTime")
                 if val:
                     dt = datetime.strptime(val, "%Y-%m-%dT%H:%M:%SZ")
-                    if dt > datetime.utcnow():
+                    if dt > datetime.now(timezone.utc).replace(tzinfo=None):
                         paused_until = val.split('T')[0] if 'T' in val else val
         except Exception:
             pass
@@ -5519,11 +5744,15 @@ if __name__ == "__main__":
                 pass
         sys.exit()
 
-    # Logging
+    # Logging - RotatingFileHandler, hogy a DEBUG-szintű, minden subprocess-kimenetet logoló
+    # fájl ne nőhessen korlátlanul (egy hosszú élettartamú szerviz-USB-n/WinPE-n, sok gépen,
+    # sok futtatás alatt évekig gyűlő log könnyen több száz MB-ra hízhatna rotáció nélkül).
     log_filename = os.path.join(os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)), "DriverVarázsló_debug.log")
     try:
-        logging.basicConfig(filename=log_filename, level=logging.DEBUG,
-                            format='%(asctime)s [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S', encoding='utf-8')
+        from logging.handlers import RotatingFileHandler
+        log_handler = RotatingFileHandler(log_filename, maxBytes=5 * 1024 * 1024, backupCount=2, encoding='utf-8')
+        logging.basicConfig(level=logging.DEBUG, handlers=[log_handler],
+                            format='%(asctime)s [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     except Exception:
         logging.basicConfig(level=logging.DEBUG)
 

@@ -319,7 +319,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
         <div class="panel glass">
           <div class="sys-info" id="sys-info">Rendszer információk betöltése...</div>
           <div class="toolbar">
-            <button class="btn btn-primary" onclick="startHwScan()">🔍 Hardverek Scannelése</button>
+            <button class="btn btn-primary" onclick="startHwScan()" id="btn-hw-scan">🔍 Hardverek Scannelése</button>
             <button class="btn btn-success" onclick="installSelectedHw()" id="btn-install-hw" disabled>🚀 Kijelöltek Telepítése</button>
             <button class="btn btn-sm" onclick="selectAllHw()" id="btn-sel-all-hw" disabled>☑ Összes</button>
             <button class="btn btn-sm" onclick="deselectAllHw()" id="btn-desel-all-hw" disabled>☐ Törlés</button>
@@ -372,7 +372,14 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
       <div class="view" id="view-stress">
         <div class="panel glass">
           <div class="panel-title"><span class="emoji">🔥</span> Stabilitás Teszt (3 az 1-ben)</div>
-          <p style="margin-bottom: 16px; color: var(--text3);">Letölti és %TEMP%-ből elindítja a FurMark, Linpack Xtreme és Prime95 teszteket. Használd stabilitás és hőmérséklet tesztelésre javítás után!</p>
+          <p style="margin-bottom: 12px; color: var(--text3);">Letölti és a TEMP mappából elindítja a kiválasztott teszt-/monitor programot. Első indításkor a teljes csomag letöltődik, utána már a helyi másolatból indul azonnal - egyenként is elindíthatod őket, felugró ablak nélkül. Indítás közben a képernyő-kikapcsolás és az alvó mód automatikusan letiltásra kerül.</p>
+          <div class="toolbar" style="margin-bottom:18px;">
+            <button class="btn btn-sm" onclick="startStressTool('furmark')" title="FurMark - GPU stressz teszt">🌡️ FurMark</button>
+            <button class="btn btn-sm" onclick="startStressTool('prime95')" title="Prime95 - CPU stressz teszt">🧮 Prime95</button>
+            <button class="btn btn-sm" onclick="startStressTool('linpack')" title="Linpack Xtreme - CPU stressz teszt">📈 Linpack</button>
+            <button class="btn btn-sm" onclick="startStressTool('hwinfo')" title="HWiNFO - hőmérséklet/szenzor monitor">📟 HWiNFO</button>
+            <button class="btn btn-sm" onclick="startStressTool('hdsentinel')" title="HD Sentinel - háttértár egészség monitor">💾 HDSentinel</button>
+          </div>
           <button class="btn btn-big btn-danger" onclick="startStressTests()" id="btn-stresstest">🔥 MINDEN TESZT INDÍTÁSA</button>
         </div>
       </div>
@@ -748,12 +755,14 @@ async function startHwScan() {
   document.getElementById('hw-progress').classList.add('progress-indeterminate');
   document.getElementById('hw-progress-fill').style.width = '30%';
   document.getElementById('hw-status').textContent = '⏳ Scannelés folyamatban...';
+  document.getElementById('btn-hw-scan').disabled = true;
   updateHwButtons();
   try {
     await api().start_hw_scan();
   } catch (e) {
     document.getElementById('hw-status').textContent = '❌ Hiba: ' + e;
     document.getElementById('hw-progress').style.display = 'none';
+    document.getElementById('btn-hw-scan').disabled = false;
     toast('Hardver scan hiba: ' + e, 'error');
   }
 }
@@ -769,6 +778,7 @@ function updateHwScanProgress(data) {
 function onHwScanResult(data) {
   hwPool = data.pool || [];
   hwInstalled = data.installed || [];
+  document.getElementById('btn-hw-scan').disabled = false;
   document.getElementById('hw-progress').classList.remove('progress-indeterminate');
   document.getElementById('hw-progress-fill').style.width = '100%';
   document.getElementById('hw-status').textContent = '✅ ' + hwPool.length + ' letölthető + ' + hwInstalled.length + ' telepített driver' + (data.time ? ' (' + data.time + ')' : '');
@@ -1066,6 +1076,17 @@ async function startStressTests() {
   }
 }
 
+async function startStressTool(name) {
+  // Szándékosan nincs progress-modal / megerősítő ablak: egy kattintásra csendben
+  // elindul (esetleg letölti magát, ha első használat), az eredményről csak egy
+  // rövid toast tájékoztat.
+  try {
+    await api().start_stress_tool(name);
+  } catch (e) {
+    toast('Indítási hiba: ' + e, 'error');
+  }
+}
+
 async function deleteGhostDevices() {
   const ok = await showConfirm('Szellemeszközök Törlése', 'Biztosan véglegesen törölni akarod az összes fizikailag nem csatlakoztatott (fantom) hardver bejegyzését a rendszerből?');
   if (ok) {
@@ -1157,7 +1178,7 @@ function onTaskComplete(data) {
   if (data.task === 'autofix') {
     const btn = document.getElementById('btn-autofix');
     btn.disabled = false;
-    btn.textContent = '⚡ INDÍTÁS: Teljes Driver Újratelepítés ⚡';
+    btn.textContent = '🚀 FIX INDÍTÁSA';
   }
 }
 async function cancelTask() {
