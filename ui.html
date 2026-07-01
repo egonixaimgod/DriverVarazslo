@@ -537,7 +537,12 @@ window.handlePyEvent = function(payload) {
       drivers = data.drivers || [];
       selectedDrivers.clear();
       renderDriverTable();
-      document.getElementById('driver-status').innerHTML = '<span class="status-dot"></span> ✅ ' + drivers.length + ' driver betöltve (' + data.elapsed + ' mp)';
+      if (data.error) {
+        document.getElementById('driver-status').innerHTML = '<span class="status-dot" style="background:#e74c3c"></span> ❌ Hiba a driverek betöltésekor: ' + esc(data.error);
+        toast('❌ Hiba a driverek betöltésekor: ' + data.error, 'error');
+      } else {
+        document.getElementById('driver-status').innerHTML = '<span class="status-dot"></span> ✅ ' + drivers.length + ' driver betöltve (' + data.elapsed + ' mp)';
+      }
       updateDeleteBtn();
       break;
     case 'task_start':
@@ -565,9 +570,6 @@ window.handlePyEvent = function(payload) {
     case 'hw_scan_result':
       onHwScanResult(data);
       break;
-    case 'wu_status':
-      updateWuStatus(data);
-      break;
     case 'bitlocker_status':
       const blEl = document.getElementById('bl-status');
       if (blEl) {
@@ -579,9 +581,6 @@ window.handlePyEvent = function(payload) {
       showConfirm('Újraindítás Szükséges', 'A driverek telepítése sikeresen befejeződött.\n\nSzeretnéd most AZONNAL újraindítani a számítógépet a változások érvénybe lépéséhez?').then(res => {
         if (res === true) api().reboot_system();
       });
-      break;
-    case 'alert':
-      showAlert(data.title || 'Értesítés', data.message || '', data.type);
       break;
     case 'toast':
       toast(data.message, data.type || 'info');
@@ -679,7 +678,7 @@ async function loadDrivers() {
     await api().load_drivers(listAll);
   } catch (e) {
     document.getElementById('driver-loading').style.display = 'none';
-    document.getElementById('driver-status').innerHTML = '<span class="status-dot" style="background:var(--red)"></span> ❌ Hiba: ' + e;
+    document.getElementById('driver-status').innerHTML = '<span class="status-dot" style="background:var(--red)"></span> ❌ Hiba: ' + esc(String(e));
     toast('Driver lista betöltési hiba: ' + e, 'error');
   }
 }
@@ -1052,11 +1051,19 @@ async function extractWim() {
   }
 }
 
-function startStressTests() {
+async function startStressTests() {
   if(!window.pywebview) return;
   showProgressModal('Stabilitás Teszt', '🚀 Indítás');
   currentTask = 'stress';
-  api().start_stress_tests();
+  try {
+    await api().start_stress_tests();
+  } catch (e) {
+    toast('Stabilitás teszt indítási hiba: ' + e, 'error');
+    document.getElementById('mp-status').textContent = '❌ Hiba történt!';
+    document.getElementById('mp-close-btn').style.display = 'inline-flex';
+    document.getElementById('mp-cancel-btn').style.display = 'none';
+    currentTask = null;
+  }
 }
 
 async function deleteGhostDevices() {

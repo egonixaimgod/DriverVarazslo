@@ -15,7 +15,7 @@ import queue
 from datetime import datetime
 from html import escape as html_escape
 
-BUILD_NUMBER = 164
+BUILD_NUMBER = 165
 
 try:
     import webview
@@ -167,6 +167,12 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+def _ps_quote(value):
+    """PowerShell egyszeres idézőjeles string escape: ' -> '' , hogy egy aposztrófot
+    tartalmazó fájlútvonal (pl. C:\\Users\\O'Brien\\...) ne törje meg a generált parancsot."""
+    return str(value).replace("'", "''")
+
+
 # AutoFix-nál opcionálisan kihagyható driver-osztályok (nyomtató + szkenner/multifunkciós) -
 # ezek gyakran csak gyári driverrel működnek jól, a WU nem mindig telepíti vissza automatikusan.
 AUTOFIX_PRINTER_SKIP_CLASSES = {'Printer', 'PrintQueue', 'Image'}
@@ -243,6 +249,10 @@ class DriverToolApi:
             payload = None
             try:
                 payload = json.dumps({"event": event, "data": data}, ensure_ascii=False, default=str)
+                # U+2028/U+2029 a JSON-ban érvényes, de egy JS string-literálba nyers szövegként
+                # beillesztve (nem JSON.parse-on át) sor-terminátornak számíthat és megszakíthatja
+                # a generált window.handlePyEvent(...) hívást - escape-eljük explicit \uXXXX-ként.
+                payload = payload.replace(' ', '\\u2028').replace(' ', '\\u2029')
                 self._window.evaluate_js(f'window.handlePyEvent({payload})')
             except Exception as e:
                 if 'NoneType' in str(e) and payload:
@@ -358,7 +368,13 @@ class DriverToolApi:
                 ssl_ctx.verify_mode = ssl.CERT_NONE
                 
                 exe_url = f"https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/dist/DriverVarazslo.exe?t={int(time.time())}"
-                temp_dir = tempfile.gettempdir()
+                # WinPE-ben a %TEMP% az X: RAM-diskre mutat - a letöltött exe-t a valódi C: meghajtóra tesszük.
+                is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
+                if is_pe:
+                    temp_dir = r'C:\DV_Temp'
+                    os.makedirs(temp_dir, exist_ok=True)
+                else:
+                    temp_dir = tempfile.gettempdir()
                 new_exe = os.path.join(temp_dir, f"DriverVarazslo_Update_{int(time.time())}.exe")
                 
                 logging.info(f"[UPDATE] EXE letöltése innen: {exe_url}")
@@ -448,7 +464,13 @@ del "%~f0"
 
     def _download_stresstools(self):
         import tempfile, urllib.request, zipfile, ssl, shutil
-        temp_dir = tempfile.gettempdir()
+        # WinPE-ben a %TEMP% az X: RAM-diskre mutat - a stressztesztek zip-jét a valódi C: meghajtóra tesszük.
+        is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
+        if is_pe:
+            temp_dir = r'C:\DV_Temp'
+            os.makedirs(temp_dir, exist_ok=True)
+        else:
+            temp_dir = tempfile.gettempdir()
         stress_dir = os.path.join(temp_dir, "DriverVarázsló_Stress")
         marker_path = os.path.join(stress_dir, ".extract_complete")
         zip_path = os.path.join(temp_dir, "stresstools.zip")
@@ -810,15 +832,10 @@ del "%~f0"
                     is_offline = bool(self.target_os_path)
                     is_oem = pub.lower().startswith("oem")
 
-                    if is_offline and is_oem:
+                    if is_offline:
                         res = self._run(['dism', f'/Image:{self.target_os_path}', '/Remove-Driver', f'/Driver:{pub}'])
-                    elif not is_offline:
-                        res = self._run(['pnputil', '/delete-driver', pub, '/uninstall', '/force'])
                     else:
-                        class DummyRes:
-                            returncode = 1
-                            stdout = ""
-                        res = DummyRes()
+                        res = self._run(['pnputil', '/delete-driver', pub, '/uninstall', '/force'])
 
                     if res.returncode == 0 or any(k in res.stdout for k in ["Deleted", "törölve", "successfully"]):
                         success += 1
@@ -1227,44 +1244,6 @@ Write-Output "DONE: Törölve: $count / $total"
             self._hw_scanning = False
             self.emit('hw_scan_result', {'pool': [], 'installed': [], 'sys_info': '❌ Thread hiba', 'time': ''})
 
-    def _extract_hwid(self, pnp_id):
-        if not pnp_id:
-            return None
-        m = re.search(r'(HDAUDIO\\FUNC_[0-9A-Z]+&VEN_[0-9A-Z]+&DEV_[0-9A-Z]+)', pnp_id, re.I)
-        if m:
-            logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
-            return m.group(1)
-        m = re.search(r'(VEN_[0-9A-Z]+&DEV_[0-9A-Z]+)', pnp_id, re.I)
-        if m:
-            logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
-            return m.group(1)
-        m = re.search(r'(HID\\VID_[0-9A-Z]+&PID_[0-9A-Z]+)', pnp_id, re.I)
-        if m:
-            logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
-            return m.group(1)
-        m = re.search(r'(USB\\VID_[0-9A-Z]+&PID_[0-9A-Z]+)', pnp_id, re.I)
-        if m:
-            logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
-            return m.group(1)
-        m = re.search(r'(VID_[0-9A-Z]+&PID_[0-9A-Z]+)', pnp_id, re.I)
-        if m:
-            logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
-            return m.group(1)
-        m = re.search(r'(ACPI\\[A-Z0-9_&]+)', pnp_id, re.I)
-        if m:
-            logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
-            return m.group(1)
-        m = re.search(r'(DISPLAY\\[A-Z0-9_&]+)', pnp_id, re.I)
-        if m:
-            logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
-            return m.group(1)
-        m = re.search(r'(SWC\\[A-Z0-9_&]+)', pnp_id, re.I)
-        if m:
-            logging.debug(f"[HWID] {pnp_id} -> {m.group(1)}")
-            return m.group(1)
-        logging.debug(f"[HWID] {pnp_id} -> None (no match)")
-        return None
-
     def _set_wu_pause(self, pause=True):
         if pause:
             ps = r'''
@@ -1441,7 +1420,15 @@ try {
         logging.info(f"[WU_INSTALL] {len(selected_pool)} driver telepítése, mód={'WU API' if self.wu_api_mode else 'Katalógus'}")
 
         if self.wu_api_mode:
-            self._install_wu_api(selected_pool)
+            if self.target_os_path:
+                # A WU API (Microsoft.Update.Session COM) mindig az élő rendszert célozza meg,
+                # offline cél-OS esetén ez csendben a host gépre telepítene drivert a kiválasztott
+                # offline image helyett - ezért ilyenkor a dism-alapú katalógus módra váltunk.
+                logging.warning("[WU_INSTALL] WU API mód offline cél-OS mellett nem használható, katalógus módra váltás.")
+                self.emit('toast', {'message': '⚠️ Offline célrendszer esetén a WU API mód nem elérhető - katalógus (DISM) módban folytatjuk.', 'type': 'warning'})
+                self._install_catalog(selected_pool)
+            else:
+                self._install_wu_api(selected_pool)
         else:
             self._install_catalog(selected_pool)
 
@@ -2151,7 +2138,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                         args = f'"{exe_path}" {resume_flag}'
 
                     task_ps = f'''
-                    $action = New-ScheduledTaskAction -Execute '{exec_path}' -Argument '{args}'
+                    $action = New-ScheduledTaskAction -Execute '{_ps_quote(exec_path)}' -Argument '{_ps_quote(args)}'
                     $trigger = New-ScheduledTaskTrigger -AtLogOn
                     $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
                     Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Force
@@ -2255,7 +2242,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                         args = f'"{exe_path}" --resume-autofix'
                     
                     task_ps = f'''
-                    $action = New-ScheduledTaskAction -Execute '{exec_path}' -Argument '{args}'
+                    $action = New-ScheduledTaskAction -Execute '{_ps_quote(exec_path)}' -Argument '{_ps_quote(args)}'
                     $trigger = New-ScheduledTaskTrigger -AtLogOn
                     $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
                     Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Force
@@ -2268,7 +2255,6 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                     return
                 else:
                     self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'])
-                    self._run(['reg', 'delete', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverVarázslóResume', '/f'])
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Láncolt folytatás gépújraindítás után. Régi driverek törlése kihagyva, hogy ne töröljünk friss drivereket.\n'})
                     self._disable_sleep_sync()
 
@@ -2279,12 +2265,17 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                 self._set_wu_pause(pause=False)
 
                 # 4. Keresés és visszaépítés
-                installed_count = self._scan_and_install_wu_sync()
-                
-                # 5. Végső WU letiltás és szüneteltetés visszaállítása
-                self._run(['reg', 'delete', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU', '/v', 'NoAutoUpdate', '/f'])
-                self._disable_wu_sync()
-                self._set_wu_pause(pause=True)
+                # A finally garantálja, hogy az 5. lépés (WU letiltás/szüneteltetés visszaállítása)
+                # akkor is lefusson, ha a scan/install kivétellel elszáll - különben a WU
+                # véglegesen (NoAutoUpdate=1) letiltva maradna a gépen, ütemezett feladat nélkül,
+                # ami ezt valaha visszaállítaná.
+                try:
+                    installed_count = self._scan_and_install_wu_sync()
+                finally:
+                    # 5. Végső WU letiltás és szüneteltetés visszaállítása
+                    self._run(['reg', 'delete', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU', '/v', 'NoAutoUpdate', '/f'])
+                    self._disable_wu_sync()
+                    self._set_wu_pause(pause=True)
 
                 self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 MINDEN LÉPÉS KÉSZ!'})
                 
@@ -2312,7 +2303,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                         args = f'"{exe_path}" --resume-autofix'
                     
                     task_ps = f'''
-                    $action = New-ScheduledTaskAction -Execute '{exec_path}' -Argument '{args}'
+                    $action = New-ScheduledTaskAction -Execute '{_ps_quote(exec_path)}' -Argument '{_ps_quote(args)}'
                     $trigger = New-ScheduledTaskTrigger -AtLogOn
                     $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
                     Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Force
@@ -2326,8 +2317,7 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
                 else:
                     self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 KÉSZ! Nulla újonnan fellelt driver, a konfiguráció végigért.'})
                     self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'])
-                    self._run(['reg', 'delete', r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce', '/v', 'DriverVarázslóResume', '/f'])
-                    
+
                     self.emit('task_progress', {'task': 'autofix', 'log': 'DCH alkalmazások (Microsoft Store) frissítésének kényszerítése...'})
                     try:
                         # Ez aszinkron elindítja a Store App-ok (pl. Realtek Audio Console) szinkronizálását a háttérben
@@ -2761,6 +2751,14 @@ for ($i = 0; $i -lt $ToInstall.Count; $i++) {{
             driverstore = os.path.join(windows_dir, 'System32', 'DriverStore', 'FileRepository')
             inbox_folder = os.path.join(folder, '_Windows_Inbox_Drivers')
             os.makedirs(inbox_folder, exist_ok=True)
+
+            needed_bytes = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(driverstore) for f in fs if os.path.exists(os.path.join(r, f))) if os.path.exists(driverstore) else 0
+            free_bytes = shutil.disk_usage(dest).free
+            if needed_bytes > free_bytes:
+                self.emit('task_progress', {'task': 'backup', 'log': f'❌ Nincs elég szabad hely a célmeghajtón! Szükséges kb. {needed_bytes // (1024*1024)} MB, elérhető: {free_bytes // (1024*1024)} MB.'})
+                self.emit('task_complete', {'task': 'backup', 'status': '❌ Nincs elég szabad hely!'})
+                return
+
             self._run(['robocopy', driverstore, inbox_folder, '/E', '/R:0', '/W:0', '/NFL', '/NDL', '/NJH', '/NJS', '/NC', '/NS', '/NP'])
 
             if self._check_cancel():
@@ -3001,6 +2999,7 @@ try {{
             self.emit('task_start', {'task': 'restore', 'title': f'Driver Visszaállítás ({mode})'})
             self.emit('task_progress', {'task': 'restore', 'log': f'=== {mode.upper()} RESTORE ===\nForrás: {source}\nCél: {target or "jelenlegi rendszer"}\n', 'indeterminate': True})
 
+            restore_had_errors = False
             norm_source = os.path.normpath(source)
             norm_target = os.path.normpath(target) if target else None
             logging.debug(f"[RESTORE] norm_source={norm_source}, norm_target={norm_target}")
@@ -3017,12 +3016,25 @@ try {{
             logging.info(f"[RESTORE] Típus detektálás: is_wim_extract={is_wim_extract}, has_inbox_subfolder={has_inbox_subfolder}")
 
             def force_copy(src, dst):
-                """Robocopy-based forced copy with fallback for inbox/system drivers."""
+                """Robocopy-based forced copy with fallback for inbox/system drivers.
+                Visszatérési érték: True, ha a másolás közben bármilyen hiba történt
+                (a hívónak ezt a végső "sikeres" összegzésbe be KELL számítania,
+                különben egy ténylegesen hiányos másolás is sikeresnek tűnik)."""
                 logging.debug(f"[RESTORE] force_copy: {src} -> {dst}")
                 if not os.path.exists(src):
                     logging.warning(f"[RESTORE] Forrás nem létezik: {src}")
-                    return
+                    self.emit('task_progress', {'task': 'restore', 'log': f'  ❌ Forrás nem létezik: {src}'})
+                    return True
                 os.makedirs(dst, exist_ok=True)
+
+                free_bytes = shutil.disk_usage(dst).free
+                needed_bytes = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(src) for f in fs if os.path.exists(os.path.join(r, f)))
+                if needed_bytes > free_bytes:
+                    msg = (f'  ❌ Nincs elég szabad hely a célmeghajtón! Szükséges: {needed_bytes // (1024*1024)} MB, '
+                           f'elérhető: {free_bytes // (1024*1024)} MB.')
+                    self.emit('task_progress', {'task': 'restore', 'log': msg})
+                    return True
+
                 self.emit('task_progress', {'task': 'restore', 'log': f'\n  Robocopy indul: {os.path.basename(src)} -> {os.path.basename(dst)}\n  (Backup mód - Windows jogosultságok megkerülése)'})
                 cmd = ['robocopy', src, dst, '/E', '/ZB', '/R:1', '/W:1', '/COPY:DAT', '/NC', '/NS', '/NFL', '/NDL', '/NP']
                 res = self._run(cmd)
@@ -3030,16 +3042,18 @@ try {{
                 if res.returncode < 8:
                     logging.info(f"[RESTORE] Robocopy sikeres, returncode={res.returncode}")
                     self.emit('task_progress', {'task': 'restore', 'log': f'  ✅ Sikeres robocopy kényszerítés ({res.returncode})'})
+                    return False
                 else:
                     self.emit('task_progress', {'task': 'restore', 'log': f'  ⚠️ Robocopy hiba ({res.returncode}), végső tartalék: mappánkénti jogszerzés (lassabb)...'})
+                    had_error = False
                     for root, _, files in os.walk(src):
-                        if self._cancel_flag: return
+                        if self._cancel_flag: return had_error
                         rel = os.path.relpath(root, src)
                         target_dir = os.path.join(dst, rel) if rel != '.' else dst
                         os.makedirs(target_dir, exist_ok=True)
 
                         for f in files:
-                            if self._cancel_flag: return
+                            if self._cancel_flag: return had_error
                             sfile = os.path.join(root, f)
                             dfile = os.path.join(target_dir, f)
                             if os.path.exists(dfile):
@@ -3050,7 +3064,12 @@ try {{
                                 shutil.copy2(sfile, dfile)
                             except Exception as e:
                                 self.emit('task_progress', {'task': 'restore', 'log': f'❌ Hiba ({f}): {e}'})
-                    self.emit('task_progress', {'task': 'restore', 'log': '  ✅ Fallback másolás befejeződött.'})
+                                had_error = True
+                    if had_error:
+                        self.emit('task_progress', {'task': 'restore', 'log': '  ⚠️ Fallback másolás hibákkal fejeződött be.'})
+                    else:
+                        self.emit('task_progress', {'task': 'restore', 'log': '  ✅ Fallback másolás befejeződött.'})
+                    return had_error
 
             def run_dism_add_driver(driver_path, label=""):
                 """Run DISM /Add-Driver on a folder with /Recurse. Returns (returncode, cancelled)."""
@@ -3105,27 +3124,31 @@ try {{
                 try:
                     if os.path.exists(new_format_repo):
                         self.emit('task_progress', {'task': 'restore', 'log': '1/2 FileRepository és INF fizikai másolása...'})
-                        force_copy(new_format_repo, target_repo)
+                        restore_had_errors = force_copy(new_format_repo, target_repo) or restore_had_errors
                         if self._check_cancel():
                             self.emit('task_complete', {'task': 'restore', 'status': '❗ Megszakítva!'})
                             return
                         if os.path.exists(new_format_inf):
-                            force_copy(new_format_inf, target_inf)
+                            restore_had_errors = force_copy(new_format_inf, target_inf) or restore_had_errors
                             if self._check_cancel():
                                 self.emit('task_complete', {'task': 'restore', 'status': '❗ Megszakítva!'})
                                 return
                     else:
                         self.emit('task_progress', {'task': 'restore', 'log': '1/2 DriverStore fizikai másolása...'})
-                        force_copy(norm_source, target_repo)
+                        restore_had_errors = force_copy(norm_source, target_repo) or restore_had_errors
                         if self._check_cancel():
                             self.emit('task_complete', {'task': 'restore', 'status': '❗ Megszakítva!'})
                             return
 
-                    self.emit('task_progress', {'task': 'restore', 'log': '✅ Fizikai másolás kész!'})
+                    if restore_had_errors:
+                        self.emit('task_progress', {'task': 'restore', 'log': '⚠️ Fizikai másolás hibákkal fejeződött be!'})
+                    else:
+                        self.emit('task_progress', {'task': 'restore', 'log': '✅ Fizikai másolás kész!'})
                 except Exception as e:
                     err_msg = str(e)
                     if len(err_msg) > 300: err_msg = err_msg[:300] + "..."
-                    self.emit('task_progress', {'task': 'restore', 'log': f'⚠️ Másolási hiba: {err_msg}'})
+                    self.emit('task_progress', {'task': 'restore', 'log': f'❌ Másolási hiba: {err_msg}'})
+                    restore_had_errors = True
 
                 # DISM regisztrálás a fizikai másolás után
                 self.emit('task_progress', {'task': 'restore', 'log': '\n2/2 DISM driver regisztrálás (inbox drivereknél sok hiba normális)...'})
@@ -3147,13 +3170,13 @@ try {{
                 inbox_inf_subfolder = os.path.join(norm_source, "_Windows_Inbox_INF")
                 self.emit('task_progress', {'task': 'restore', 'log': '--- 1. LÉPÉS: Inbox driverek fizikai másolása a DriverStore-ba ---'})
                 try:
-                    force_copy(inbox_subfolder, target_repo)
+                    restore_had_errors = force_copy(inbox_subfolder, target_repo) or restore_had_errors
                     if self._check_cancel():
                         self.emit('task_complete', {'task': 'restore', 'status': '❗ Megszakítva!'})
                         return
                     if os.path.isdir(inbox_inf_subfolder):
                         self.emit('task_progress', {'task': 'restore', 'log': 'Windows INF mappa visszamásolása (új formátumú backup)...'})
-                        force_copy(inbox_inf_subfolder, target_inf)
+                        restore_had_errors = force_copy(inbox_inf_subfolder, target_inf) or restore_had_errors
                         if self._check_cancel():
                             self.emit('task_complete', {'task': 'restore', 'status': '❗ Megszakítva!'})
                             return
@@ -3178,11 +3201,15 @@ try {{
                                     except Exception as e:
                                         logging.debug(e)
                         self.emit('task_progress', {'task': 'restore', 'log': f'✅ {inf_count} db .inf fájl kinyerve a Windows\\INF mappába (.pnf-eket a Windows legenerálja bootoláskor).'})
-                    self.emit('task_progress', {'task': 'restore', 'log': '✅ Inbox driverek fizikai másolása kész!'})
+                    if restore_had_errors:
+                        self.emit('task_progress', {'task': 'restore', 'log': '⚠️ Inbox driverek fizikai másolása hibákkal fejeződött be!'})
+                    else:
+                        self.emit('task_progress', {'task': 'restore', 'log': '✅ Inbox driverek fizikai másolása kész!'})
                 except Exception as e:
                     err_msg = str(e)
                     if len(err_msg) > 300: err_msg = err_msg[:300] + "..."
-                    self.emit('task_progress', {'task': 'restore', 'log': f'⚠️ Inbox másolási hiba: {err_msg}'})
+                    self.emit('task_progress', {'task': 'restore', 'log': f'❌ Inbox másolási hiba: {err_msg}'})
+                    restore_had_errors = True
 
                 # 2) OEM driverek DISM-mel (almappák, amik nem _Windows_Inbox_Drivers)
                 oem_folders = []
@@ -3251,7 +3278,11 @@ try {{
                     self.emit('task_progress', {'task': 'restore', 'log': f'⚠ Script írási hiba: {e}'})
 
             self.emit('task_progress', {'task': 'restore', 'log': '\n==== BEFEJEZVE ===='})
-            self.emit('task_complete', {'task': 'restore', 'status': '✅ Visszaállítás befejezve!'})
+            if restore_had_errors:
+                self.emit('task_progress', {'task': 'restore', 'log': '⚠️ A visszaállítás hibákkal fejeződött be - egyes driverek fizikai másolása sikertelen volt, a napló tartalmazza a részleteket!'})
+                self.emit('task_complete', {'task': 'restore', 'status': '⚠️ Visszaállítás hibákkal fejeződött be!'})
+            else:
+                self.emit('task_complete', {'task': 'restore', 'status': '✅ Visszaállítás befejezve!'})
 
         self._safe_thread('restore', worker)
 
@@ -3339,8 +3370,10 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
             wim = os.path.abspath(wim_path).replace("/", "\\")
             # A WIM csatolási mappának a C: meghajtón kell lennie (NTFS), mert a cserélhető meghajtókat (USB) a DISM visszautasítja
             is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
-            if is_pe and self.target_os_path:
-                sys_temp = os.path.join(self.target_os_path, 'DV_Temp')
+            if is_pe:
+                # WinPE-ben a SystemDrive az X: RAM-disk - sosem szabad oda írni nagy fájlokat,
+                # attól függetlenül, hogy van-e kiválasztott offline cél-OS.
+                sys_temp = os.path.join(self.target_os_path, 'DV_Temp') if self.target_os_path else r'C:\DV_Temp'
             else:
                 sys_temp = os.environ.get('SystemDrive', 'C:') + '\\DV_Temp'
             mount_dir = os.path.join(sys_temp, f"WIM_{int(time.time())}")
@@ -3362,6 +3395,10 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
 
                 wim_to_mount = wim
                 if wim.lower().endswith('.esd'):
+                    needed_bytes = os.path.getsize(wim) * 2  # biztonsági ráhagyás a konvertált WIM méretére
+                    free_bytes = shutil.disk_usage(sys_temp).free
+                    if needed_bytes > free_bytes:
+                        raise Exception(f"Nincs elég szabad hely a konvertáláshoz! Szükséges kb. {needed_bytes // (1024*1024)} MB, elérhető: {free_bytes // (1024*1024)} MB ({sys_temp}).")
                     self.emit('task_progress', {'task': 'wim', 'log': 'ESD -> WIM konvertálás (ez 10-15 percet is igénybe vehet!)...', 'indeterminate': True, 'counter': '1/4', 'status': 'Fájl konvertálása...'})
                     temp_wim = os.path.join(sys_temp, f"converted_{int(time.time())}.wim")
                     res_esd = self._run(["dism", "/Export-Image", f"/SourceImageFile:{wim}", "/SourceIndex:1", f"/DestinationImageFile:{temp_wim}", "/Compress:max", "/CheckIntegrity"])
@@ -3389,6 +3426,10 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                 driverstore = os.path.join(mount_dir, "Windows", "System32", "DriverStore", "FileRepository")
                 target_repo = os.path.join(target_folder, "FileRepository")
                 if os.path.exists(driverstore):
+                    needed_bytes = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(driverstore) for f in fs if os.path.exists(os.path.join(r, f)))
+                    free_bytes = shutil.disk_usage(target_folder).free
+                    if needed_bytes > free_bytes:
+                        raise Exception(f"Nincs elég szabad hely a célmappában! Szükséges kb. {needed_bytes // (1024*1024)} MB, elérhető: {free_bytes // (1024*1024)} MB.")
                     logging.info(f"[WIM] FileRepository másolása: {driverstore} -> {target_repo}")
                     shutil.copytree(driverstore, target_repo, dirs_exist_ok=True)
                 else:
@@ -3425,6 +3466,14 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
                 self._run(["dism", "/Unmount-Image", f"/MountDir:{mount_dir}", "/Discard"])
                 self._run(["dism", "/Cleanup-Wim"])
                 shutil.rmtree(mount_dir, ignore_errors=True)
+                # Az ESD->WIM konvertált ideiglenes fájlt hiba esetén is töröljük, különben egy
+                # több GB-os "converted_*.wim" örökre ott marad a DV_Temp mappában. Fontos: sosem
+                # a wim_to_mount == wim (eredeti forrásfájl) esetet töröljük.
+                try:
+                    if wim.lower().endswith('.esd') and 'wim_to_mount' in locals() and wim_to_mount != wim and os.path.exists(wim_to_mount):
+                        os.remove(wim_to_mount)
+                except Exception:
+                    pass
                 self.emit('task_error', {'task': 'wim', 'error': str(e)})
                 self.emit('task_complete', {'task': 'wim', 'status': f'❌ Hiba: {e}'})
 
@@ -3912,7 +3961,10 @@ class CliApi:
     def get_third_party_drivers(self):
         """Third-party driverek listája."""
         self._print_progress("📋 Third-party driverek lekérdezése...")
-        res = self._run(['pnputil', '/enum-drivers'])
+        # dism /English-lel a kimenet mindig angol, függetlenül a Windows nyelvi
+        # beállításától - a pnputil-lel ellentétben nincs "csak angol/magyar kulcsot
+        # ismerünk fel" locale-probléma (más nyelvű Windows-on üres listát adott volna).
+        res = self._run(['dism', '/English', '/Online', '/Get-Drivers'])
         drivers = []
         current = {}
         for line in res.stdout.splitlines():
@@ -3925,20 +3977,20 @@ class CliApi:
             parts = line.split(":", 1)
             if len(parts) == 2:
                 key, val = parts[0].strip(), parts[1].strip()
-                if "Published Name" in key or "Közzétett név" in key:
+                if "Published Name" in key:
                     current["published"] = val
-                elif "Original Name" in key or "Eredeti név" in key:
+                elif "Original File Name" in key:
                     current["original"] = val
-                elif "Provider Name" in key or "Szolgáltató neve" in key:
+                elif "Provider Name" in key:
                     current["provider"] = val
-                elif "Class Name" in key or "Osztály neve" in key:
+                elif "Class Name" in key:
                     current["class"] = val
-                elif "Driver Version" in key or "Illesztőprogram verziója" in key:
+                elif "Date and Version" in key:
                     current["version"] = val
         if current and "published" in current:
             drivers.append(current)
         return drivers
-    
+
     def get_all_drivers(self):
         """Összes driver listája (veszélyes mód)."""
         self._print_progress("📋 Összes driver lekérdezése (PowerShell)...")
@@ -3952,11 +4004,27 @@ class CliApi:
             data = json.loads(out)
             if isinstance(data, dict):
                 data = [data]
-            return [{"published": d.get("Driver", ""), "original": d.get("OriginalFileName", ""),
+            parsed_drivers = [{"published": d.get("Driver", ""), "original": d.get("OriginalFileName", ""),
                      "provider": d.get("ProviderName", ""), "class": d.get("ClassName", ""),
                      "version": d.get("Version", "")} for d in data]
         except Exception:
             return []
+
+        # Szellem (force-delete-elt) driverek kiszűrése - ugyanaz a logika, mint a GUI-ban:
+        # egy nem-oem publikált nevű bejegyzés csak akkor valódi, ha még van hozzá tartozó
+        # mappa a DriverStore-ban, különben egy korábban force-delete-elt phantom bejegyzés.
+        valid_drivers = []
+        rep = os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), "System32", "DriverStore", "FileRepository")
+        for d in parsed_drivers:
+            pub = d.get("published", "")
+            if not pub:
+                continue
+            if pub.lower().startswith("oem"):
+                valid_drivers.append(d)
+                continue
+            if glob.glob(os.path.join(rep, f"{pub}_*")):
+                valid_drivers.append(d)
+        return valid_drivers
     
     def get_offline_drivers(self, all_drivers=False):
         """Offline OS driverek listája."""
@@ -4032,37 +4100,36 @@ class CliApi:
         print("-" * 70)
         return drivers
     
-    def delete_drivers(self, drivers, reboot=False):
+    def delete_drivers(self, drivers, list_all=False, reboot=False):
         """Driverek törlése."""
         total = len(drivers)
         print(f"\n🗑️  {total} driver törlése indul...")
         print("-" * 50)
-        
+
         success = 0
         fail = 0
         is_offline = bool(self.target_os_path)
-        
+
         for i, drv in enumerate(drivers, 1):
             pub = drv.get('published', '?')
             print(f"  [{i}/{total}] {pub}... ", end="", flush=True)
-            
+
             is_oem = pub.lower().startswith("oem")
-            
-            if is_offline and is_oem:
+
+            if is_offline:
                 res = self._run(['dism', f'/Image:{self.target_os_path}', '/Remove-Driver', f'/Driver:{pub}'])
-            elif not is_offline:
-                res = self._run(['pnputil', '/delete-driver', pub, '/uninstall', '/force'])
             else:
-                class DummyRes:
-                    returncode = 1
-                    stdout = ""
-                res = DummyRes()
-            
+                res = self._run(['pnputil', '/delete-driver', pub, '/uninstall', '/force'])
+
             if res.returncode == 0 or any(k in res.stdout.lower() for k in ['deleted', 'törölve', 'successfully']):
                 print("✅")
                 success += 1
             else:
-                if not is_oem:
+                # A GUI verzióval egyezően az agresszív force-delete fallback (takeown/icacls/
+                # rmtree) csak "ÖSSZES driver" módban fut le - harmadik féltől eltérő
+                # (list_all=False) nézetben egy sikertelen törlés egyszerűen sikertelen marad,
+                # nem próbálunk erőszakkal beleírni a DriverStore-ba.
+                if list_all and not is_oem:
                     found_any = False
                     if is_offline:
                         rep = os.path.join(self.target_os_path, "Windows", "System32", "DriverStore", "FileRepository")
@@ -4213,23 +4280,96 @@ class CliApi:
             if not target:
                 print("❌ Nincs cél megadva!")
                 return False
-            
+
+            # Formátum-detektálás: a DISM /Add-Driver egyedül NEM tudja telepíteni az inbox
+            # (Windows-natív) drivereket, mert nincs hozzájuk class installer - ezért ezeket
+            # fizikailag is át kell másolni a DriverStore-ba, ugyanúgy mint a GUI verzióban.
+            norm_source = os.path.normpath(source_folder)
+            repo_check = os.path.join(norm_source, "FileRepository")
+            inf_check = os.path.join(norm_source, "INF")
+            is_wim_extract = os.path.isdir(repo_check) or os.path.isdir(inf_check)
+            inbox_subfolder = os.path.join(norm_source, "_Windows_Inbox_Drivers")
+            has_inbox_subfolder = os.path.isdir(inbox_subfolder)
+
+            target_repo = os.path.join(target, "Windows", "System32", "DriverStore", "FileRepository")
+            target_inf = os.path.join(target, "Windows", "INF")
+            had_errors = False
+
+            if is_wim_extract:
+                print("WIM-ből kimentett gyári driverek észlelve - fizikai másolás (a DISM egyedül nem tudja telepíteni az inbox drivereket)...")
+                if os.path.exists(repo_check):
+                    had_errors = self._force_copy_cli(repo_check, target_repo) or had_errors
+                    if os.path.exists(inf_check):
+                        had_errors = self._force_copy_cli(inf_check, target_inf) or had_errors
+                else:
+                    had_errors = self._force_copy_cli(norm_source, target_repo) or had_errors
+            elif has_inbox_subfolder:
+                print("Teljes export formátum észlelve (_Windows_Inbox_Drivers) - inbox driverek fizikai másolása...")
+                had_errors = self._force_copy_cli(inbox_subfolder, target_repo) or had_errors
+                inbox_inf_subfolder = os.path.join(norm_source, "_Windows_Inbox_INF")
+                if os.path.isdir(inbox_inf_subfolder):
+                    had_errors = self._force_copy_cli(inbox_inf_subfolder, target_inf) or had_errors
+
             print(f"🔄 DISM /Add-Driver futtatása ({target})...")
             scratch = os.path.join(target, "Scratch")
             os.makedirs(scratch, exist_ok=True)
-            res = self._run(['dism', f'/Image:{target}', '/Add-Driver', f'/Driver:{source_folder}', '/Recurse', '/ForceUnsigned', f'/ScratchDir:{scratch}'])
-            
-            if res.returncode == 0:
+            res = self._run(['dism', f'/Image:{target}', '/Add-Driver', f'/Driver:{norm_source}', '/Recurse', '/ForceUnsigned', f'/ScratchDir:{scratch}'])
+
+            if res.returncode == 0 and not had_errors:
                 print("✅ Visszaállítás sikeres!")
+            elif had_errors:
+                print("⚠️  A DISM regisztráció lefutott, DE a fizikai másolás hibákkal fejeződött be - a napló tartalmazza a részleteket, a visszaállítás valószínűleg HIÁNYOS!")
             else:
                 print("⚠️  Részleges siker vagy hiba. Néhány inbox driver nem telepíthető DISM-mel.")
                 print(res.stdout[:300] if res.stdout else "")
-            
+
             # === BCD JAVÍTÁS (boot loader) ===
             self._repair_bcd_cli(target)
-        
+
         return True
-    
+
+    def _force_copy_cli(self, src, dst):
+        """Robocopy-alapú kényszerített másolás jogosultság-megkerüléssel (CLI verzió a GUI
+        force_copy-jának megfelelője). Visszatérési érték: True, ha hiba történt."""
+        if not os.path.exists(src):
+            print(f"  ⚠️  Forrás nem létezik: {src}")
+            return True
+        os.makedirs(dst, exist_ok=True)
+
+        needed_bytes = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(src) for f in fs if os.path.exists(os.path.join(r, f)))
+        free_bytes = shutil.disk_usage(dst).free
+        if needed_bytes > free_bytes:
+            print(f"  ❌ Nincs elég szabad hely! Szükséges kb. {needed_bytes // (1024*1024)} MB, elérhető: {free_bytes // (1024*1024)} MB.")
+            return True
+
+        print(f"  Robocopy: {os.path.basename(src)} -> {os.path.basename(dst)}")
+        cmd = ['robocopy', src, dst, '/E', '/ZB', '/R:1', '/W:1', '/COPY:DAT', '/NC', '/NS', '/NFL', '/NDL', '/NP']
+        res = self._run(cmd)
+        if res.returncode < 8:
+            print(f"  ✅ Sikeres robocopy ({res.returncode})")
+            return False
+
+        print(f"  ⚠️  Robocopy hiba ({res.returncode}), tartalék: mappánkénti jogszerzés (lassabb)...")
+        had_error = False
+        for root, _, files in os.walk(src):
+            rel = os.path.relpath(root, src)
+            target_dir = os.path.join(dst, rel) if rel != '.' else dst
+            os.makedirs(target_dir, exist_ok=True)
+            for f in files:
+                sfile = os.path.join(root, f)
+                dfile = os.path.join(target_dir, f)
+                if os.path.exists(dfile):
+                    self._run(f'takeown /f "{dfile}" /A', shell=True)
+                    self._run(f'icacls "{dfile}" /grant *S-1-5-32-544:F', shell=True)
+                    self._run(f'attrib -R "{dfile}"', shell=True)
+                try:
+                    shutil.copy2(sfile, dfile)
+                except Exception as e:
+                    print(f"  ❌ Hiba ({f}): {e}")
+                    had_error = True
+        print("  ⚠️  Fallback másolás hibákkal fejeződött be." if had_error else "  ✅ Fallback másolás befejeződött.")
+        return had_error
+
     def _repair_bcd_cli(self, target_drive):
         """BCD újraépítése CLI módban - megkeresi a megfelelő lemezen az EFI-t."""
         print("\n" + "-" * 50)
@@ -4383,7 +4523,8 @@ class CliApi:
         print(f"   Cél: {dest_folder}")
         print("-" * 50)
         
-        sys_temp = os.environ.get('SystemDrive', 'C:') + '\\DV_Temp'
+        is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
+        sys_temp = r'C:\DV_Temp' if is_pe else (os.environ.get('SystemDrive', 'C:') + '\\DV_Temp')
         mount_dir = os.path.join(sys_temp, f"WIM_Mount_Temp_{int(time.time())}")
         target_folder = os.path.join(dest_folder, f"Windows_Gyari_Alap_Driverek_{datetime.now().strftime('%Y%m%d_%H%M')}")
         
@@ -4608,17 +4749,42 @@ class CliApi:
         time.sleep(2)
         
         # SoftwareDistribution törlés
-        sw_dist = os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), 'SoftwareDistribution')
+        sysroot = os.environ.get('SYSTEMROOT', r'C:\Windows')
+        sw_dist = os.path.join(sysroot, 'SoftwareDistribution')
         if os.path.exists(sw_dist):
             print("  🗑️  SoftwareDistribution törlése...")
             shutil.rmtree(sw_dist, ignore_errors=True)
-        
+
+        # Rename catroot2 (a GUI verzióval egyező mély reset - enélkül a WU komponensraktár
+        # korrupciója gyakran nem javul, csak a friss frissítés-cache törlésétől)
+        catroot2 = os.path.join(sysroot, 'System32', 'catroot2')
+        bak = catroot2 + '.bak'
+        try:
+            if os.path.exists(bak):
+                shutil.rmtree(bak, ignore_errors=True)
+            if os.path.exists(catroot2):
+                os.rename(catroot2, bak)
+                print("  ✅ catroot2 átnevezve")
+        except Exception as e:
+            print(f"  ⚠️  catroot2: {e}")
+
+        # WU DLL-ek újraregisztrálása
+        sys32 = os.path.join(sysroot, 'System32')
+        for dll in ['wuaueng.dll', 'wuapi.dll', 'wups.dll', 'wups2.dll', 'wuwebv.dll', 'wucltux.dll']:
+            fp = os.path.join(sys32, dll)
+            if os.path.exists(fp):
+                self._run(f'regsvr32.exe /s "{fp}"', shell=True)
+        print("  ✅ WU DLL-ek újraregisztrálva")
+
+        # Winsock reset
+        self._run('netsh winsock reset', shell=True)
+
         for svc in ['cryptsvc', 'bits', 'wuauserv']:
             self._run(f'net start {svc}', shell=True)
-        
+
         self._run('wuauclt.exe /resetauthorization /detectnow', shell=True)
         self._run('UsoClient.exe StartScan', shell=True)
-        
+
         print("-" * 50)
         print("✅ WU engedélyezés + reset kész!")
     
@@ -4645,10 +4811,172 @@ class CliApi:
         
         self._run('wuauclt.exe /resetauthorization /detectnow', shell=True)
         self._run('UsoClient.exe StartScan', shell=True)
-        
+
         print("-" * 50)
         print("✅ WU szolgáltatások újraindítva!")
-    
+
+    def pause_wu(self, days):
+        """Windows Update szüneteltetése N napra (a GUI verzió CLI megfelelője)."""
+        if self.target_os_path:
+            print("\n❌ Hiba: Offline módban nem elérhető!")
+            return
+
+        print(f"\n⏸️  WU szüneteltetése ({days} nap)...")
+        print("-" * 50)
+
+        ps = """
+        $regPath = 'HKLM:\\SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings'
+        if (!(Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+
+        $daysToAdd = """ + str(days) + """
+        $now = (Get-Date).ToUniversalTime()
+
+        $currentPauseStr = (Get-ItemProperty -Path $regPath -Name 'PauseUpdatesExpiryTime' -ErrorAction SilentlyContinue).PauseUpdatesExpiryTime
+
+        if ($currentPauseStr -and $daysToAdd -eq 7) {
+            try {
+                $currentPause = [datetime]$currentPauseStr
+                if ($currentPause -lt $now) { $currentPause = $now }
+            } catch {
+                $currentPause = $now
+            }
+            $newDate = $currentPause.AddDays($daysToAdd)
+        } else {
+            $newDate = $now.AddDays($daysToAdd)
+        }
+
+        $dateStr = $newDate.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $startStr = $now.ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+        Set-ItemProperty -Path $regPath -Name 'PauseUpdatesExpiryTime' -Value $dateStr -Type String -Force | Out-Null
+        Set-ItemProperty -Path $regPath -Name 'PauseFeatureUpdatesEndTime' -Value $dateStr -Type String -Force | Out-Null
+        Set-ItemProperty -Path $regPath -Name 'PauseQualityUpdatesEndTime' -Value $dateStr -Type String -Force | Out-Null
+        Set-ItemProperty -Path $regPath -Name 'PauseUpdatesStartTime' -Value $startStr -Type String -Force | Out-Null
+        Set-ItemProperty -Path $regPath -Name 'PauseFeatureUpdatesStartTime' -Value $startStr -Type String -Force | Out-Null
+        Set-ItemProperty -Path $regPath -Name 'PauseQualityUpdatesStartTime' -Value $startStr -Type String -Force | Out-Null
+
+        Write-Output $dateStr
+        """
+        res = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], encoding='utf-8')
+        new_date = res.stdout.strip()
+
+        print("  Szolgáltatások leállítása és újraindítási jelzések törlése...")
+        stop_svc = r"""
+        Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
+        Stop-Service bits -Force -ErrorAction SilentlyContinue
+        Stop-Service cryptsvc -Force -ErrorAction SilentlyContinue
+        Stop-Service UsoSvc -Force -ErrorAction SilentlyContinue
+        """
+        self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", stop_svc])
+        time.sleep(2)
+        self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'])
+
+        print("  Beragadt frissítések és WU gyorsítótár ürítése...")
+        sysroot = os.environ.get('SYSTEMROOT', r'C:\Windows')
+        sw_dist = os.path.join(sysroot, 'SoftwareDistribution')
+        for _ in range(4):
+            try:
+                if os.path.exists(sw_dist):
+                    shutil.rmtree(sw_dist, ignore_errors=False)
+                    break
+                else:
+                    break
+            except Exception:
+                time.sleep(3)
+        self._run(["powershell", "-NoProfile", "-Command", f'Remove-Item -Path "{sw_dist}" -Recurse -Force -ErrorAction SilentlyContinue'])
+        self._run('net start wuauserv', shell=True)
+
+        print("-" * 50)
+        print(f"✅ Frissítések szüneteltetve idáig: {new_date}")
+
+    def resume_wu(self):
+        """Windows Update szüneteltetésének feloldása (a GUI verzió CLI megfelelője)."""
+        if self.target_os_path:
+            print("\n❌ Hiba: Offline módban nem elérhető!")
+            return
+
+        print("\n▶️  WU szüneteltetés feloldása...")
+        print("-" * 50)
+
+        ps = """
+        $regPath = 'HKLM:\\SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings'
+        Remove-ItemProperty -Path $regPath -Name 'PauseUpdatesExpiryTime' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name 'PauseFeatureUpdatesEndTime' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name 'PauseQualityUpdatesEndTime' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name 'PauseUpdatesStartTime' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name 'PauseFeatureUpdatesStartTime' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name 'PauseQualityUpdatesStartTime' -ErrorAction SilentlyContinue
+
+        Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
+        Start-Service wuauserv -ErrorAction SilentlyContinue
+
+        try { (New-Object -ComObject Microsoft.Update.AutoUpdate).Resume() | Out-Null } catch {}
+        """
+        self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps])
+
+        print("-" * 50)
+        print("✅ Szüneteltetés feloldva!")
+
+    def delete_ghost_devices(self):
+        """Nem csatlakoztatott (szellem) eszközök törlése (a GUI verzió CLI megfelelője)."""
+        if self.target_os_path:
+            print("\n❌ Hiba: Ez a funkció csak Élő (Online) rendszeren működik!")
+            return
+
+        print("\n👻 Szellemeszközök keresése és törlése...")
+        print("-" * 50)
+
+        ps_script = r"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$ghosts = Get-PnpDevice -PresentOnly:$false | Where-Object { $_.Present -eq $false -and $_.InstanceId -ne $null -and $_.PNPClass -ne 'SoftwareDevice' -and $_.PNPClass -ne 'Net' -and $_.PNPClass -ne 'System' }
+$count = 0
+$total = @($ghosts).Count
+if ($total -eq 0) {
+    Write-Output "DONE: Nincs szellemeszköz a rendszerben."
+    exit
+}
+Write-Output "TOTAL: $total"
+foreach ($dev in $ghosts) {
+    $id = $dev.PNPDeviceID
+    $name = $dev.Name
+    if (-not $name) { $name = "Ismeretlen eszköz" }
+    Write-Output "RM: $name"
+    $res = & pnputil /remove-device "$($id)" 2>&1
+    if ($LASTEXITCODE -eq 0 -or $res -match "deleted" -or $res -match "törölve" -or $res -match "successfully") {
+        Write-Output "OK: $name"
+        $count++
+    } else {
+        Write-Output "FAIL: $name"
+    }
+}
+Write-Output "DONE: Törölve: $count / $total"
+"""
+        res = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script], encoding='utf-8')
+        success = 0
+        total = 0
+        for line in res.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("TOTAL:"):
+                m = re.search(r'TOTAL:\s*(\d+)', line)
+                if m:
+                    total = int(m.group(1))
+                print(f"Összesen {total} db szellemeszköz azonosítva...")
+            elif line.startswith("RM:"):
+                print(f"  🗑 Próbálkozás: {line[3:].strip()}...", end=" ", flush=True)
+            elif line.startswith("OK:"):
+                success += 1
+                print("✅")
+            elif line.startswith("FAIL:"):
+                print("❌ (valószínűleg védett eszköz)")
+            elif line.startswith("DONE:"):
+                print(line[5:].strip())
+
+        print("-" * 50)
+        print(f"✅ Szellemeszközök törlése kész! Törölve: {success} / {total}")
+        return success, total
+
     # ================================================================
     # AUTOFIX (1 kattintásos driver fix)
     # ================================================================
@@ -4663,24 +4991,31 @@ class CliApi:
         print("=" * 60)
         print("""
 Lépések:
-  0️⃣  Alvó mód kikapcsolása
-  1️⃣  Windows Update driver keresés LETILTÁSA
-  2️⃣  Összes third-party driver TÖRLÉSE
-  3️⃣  Hardver újraszkennelés
-  4️⃣  WU driver telepítés (friss driverek)
-  5️⃣  Újraindítás
+  0️⃣  Alvó mód és Gyors Rendszerindítás kikapcsolása
+  1️⃣  Visszaállítási pont létrehozása
+  2️⃣  Windows Update driver keresés LETILTÁSA
+  3️⃣  Szellemeszközök törlése
+  4️⃣  Összes third-party driver TÖRLÉSE
+  5️⃣  Hardver újraszkennelés
+  6️⃣  WU driver telepítés (friss driverek)
+  7️⃣  Újraindítás
+
+Megjegyzés: ez az egymenetes CLI változat - a GUI verzióval ellentétben nem
+iktat be automatikus újraindítás(oka)t a törlés és az újratelepítés közé,
+ezért ha egy driver csak egy közbenső reboot után enumerálódik újra, azt
+manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkennelés).
 """)
-        
+
         confirm = input("Biztosan elindítod? (igen/nem): ").strip().lower()
         if confirm not in ['igen', 'i', 'yes', 'y']:
             print("❌ Megszakítva.")
             return
-        
+
         start_time = time.time()
-        
-        # FÁZIS 0: Alvó mód letiltása
+
+        # FÁZIS 0: Alvó mód + Fast Startup letiltása
         print("\n" + "=" * 50)
-        print("  FÁZIS 0: Alvó mód és képernyő kikapcsolás letiltása")
+        print("  FÁZIS 0: Alvó mód és Gyors Rendszerindítás kikapcsolása")
         print("=" * 50)
         power_cmds = [
             ['powercfg', '/change', 'monitor-timeout-ac', '0'],
@@ -4692,17 +5027,30 @@ Lépések:
         ]
         for cmd in power_cmds:
             self._run(cmd)
-        print("  ✅ Energiagazdálkodás beállítva.")
-        
-        # FÁZIS 1: WU letiltás
+        self._run(["powercfg", "/h", "off"])
+        print("  ✅ Energiagazdálkodás beállítva, Gyors Rendszerindítás kikapcsolva.")
+
+        # FÁZIS 1: Visszaállítási pont
         print("\n" + "=" * 50)
-        print("  FÁZIS 1: WU driver letiltás")
+        print("  FÁZIS 1: Visszaállítási pont létrehozása")
+        print("=" * 50)
+        self.create_restore_point()
+
+        # FÁZIS 2: WU letiltás
+        print("\n" + "=" * 50)
+        print("  FÁZIS 2: WU driver letiltás")
         print("=" * 50)
         self.disable_wu_drivers()
-        
-        # FÁZIS 2: Third-party driverek törlése
+
+        # FÁZIS 3: Szellemeszközök törlése
         print("\n" + "=" * 50)
-        print("  FÁZIS 2: Third-party driverek törlése")
+        print("  FÁZIS 3: Szellemeszközök törlése")
+        print("=" * 50)
+        self.delete_ghost_devices()
+
+        # FÁZIS 4: Third-party driverek törlése
+        print("\n" + "=" * 50)
+        print("  FÁZIS 4: Third-party driverek törlése")
         print("=" * 50)
         drivers = self.get_third_party_drivers()
         if drivers:
@@ -4710,19 +5058,19 @@ Lépések:
             self.delete_drivers(drivers, reboot=False)
         else:
             print("Nincs third-party driver.")
-        
-        # FÁZIS 3: Hardver scan
+
+        # FÁZIS 5: Hardver scan
         print("\n" + "=" * 50)
-        print("  FÁZIS 3: Hardver újraszkennelés")
+        print("  FÁZIS 5: Hardver újraszkennelés")
         print("=" * 50)
         print("🔄 pnputil /scan-devices...")
         self._run(['pnputil', '/scan-devices'])
         time.sleep(5)
         print("✅ Kész!")
-        
-        # FÁZIS 4: WU driver telepítés
+
+        # FÁZIS 6: WU driver telepítés
         print("\n" + "=" * 50)
-        print("  FÁZIS 4: WU driver telepítés")
+        print("  FÁZIS 6: WU driver telepítés")
         print("=" * 50)
         print("🔄 Driver frissítések keresése és telepítése...")
         print("   (Ez akár 5-10 percig is tarthat)")
@@ -4839,7 +5187,7 @@ try {
         print(f"  ⚡ AUTOFIX KÉSZ! (Idő: {elapsed // 60} perc {elapsed % 60} mp)")
         print("=" * 60)
         
-        # FÁZIS 5: Újraindítás
+        # FÁZIS 7: Újraindítás
         if install_success > 0 or len(drivers) > 0:
             print("\n🔄 Újraindítás 30 másodperc múlva...")
             print("   (Ctrl+C a megszakításhoz)")
@@ -4882,8 +5230,9 @@ def run_cli_mode():
     💾  2. Mentés és Visszaállítás
     🔄  3. Windows Update
     ⚡  4. 1 Kattintásos Driver Fix
-    
+
     ⚙️   5. Cél OS váltása (offline mód)
+    ℹ️   6. GUI-only funkciók (mik nem érhetők el itt)
     ❌  0. Kilépés
 """)
     
@@ -4897,7 +5246,8 @@ def run_cli_mode():
     2. ÖSSZES driver listázása (veszélyes!)
     3. Driver(ek) törlése
     4. Hardver újraszkennelés
-    
+    5. Szellemeszközök (ghost device) törlése
+
     0. Vissza a főmenübe
 """)
             choice = input("Választás: ").strip()
@@ -4928,7 +5278,7 @@ def run_cli_mode():
                     reboot = input("Törlés után újraindítás? (i/n): ").strip().lower() == 'i'
                     confirm = input(f"Biztosan törölsz {len(to_delete)} drivert? (i/n): ").strip().lower()
                     if confirm == 'i':
-                        api.delete_drivers(to_delete, reboot=reboot)
+                        api.delete_drivers(to_delete, list_all=all_mode, reboot=reboot)
                 input("\nNyomj ENTER-t a folytatáshoz...")
             elif choice == '4':
                 if api.target_os_path:
@@ -4939,7 +5289,10 @@ def run_cli_mode():
                     time.sleep(2)
                     print("✅ Kész!")
                 input("\nNyomj ENTER-t a folytatáshoz...")
-    
+            elif choice == '5':
+                api.delete_ghost_devices()
+                input("\nNyomj ENTER-t a folytatáshoz...")
+
     def backup_menu():
         while True:
             print_header()
@@ -5003,11 +5356,13 @@ def run_cli_mode():
     1. WU driver letiltás
     2. WU driver engedélyezés + reset
     3. WU szolgáltatások újraindítása
-    
+    4. WU szüneteltetése (N napra)
+    5. WU szüneteltetés feloldása
+
     0. Vissza a főmenübe
 """)
             choice = input("Választás: ").strip()
-            
+
             if choice == '0':
                 break
             elif choice == '1':
@@ -5018,6 +5373,14 @@ def run_cli_mode():
                 input("\nNyomj ENTER-t a folytatáshoz...")
             elif choice == '3':
                 api.restart_wu_services()
+                input("\nNyomj ENTER-t a folytatáshoz...")
+            elif choice == '4':
+                days_str = input("Hány napra szüneteltessük (pl: 7)? ").strip()
+                days = int(days_str) if days_str.isdigit() else 7
+                api.pause_wu(days)
+                input("\nNyomj ENTER-t a folytatáshoz...")
+            elif choice == '5':
+                api.resume_wu()
                 input("\nNyomj ENTER-t a folytatáshoz...")
     
     def target_menu():
@@ -5063,6 +5426,22 @@ def run_cli_mode():
             input("\nNyomj ENTER-t a folytatáshoz...")
         elif choice == '5':
             target_menu()
+        elif choice == '6':
+            print_header()
+            print("""
+  ℹ️  CSAK A GRAFIKUS FELÜLETEN (GUI) ELÉRHETŐ FUNKCIÓK
+
+  A következő funkciók jelenleg csak a grafikus (nem --cli) módban
+  érhetők el, futtasd a programot --cli kapcsoló nélkül, ha ezekre
+  van szükséged:
+
+    • BitLocker állapot lekérdezése / kikapcsolása
+    • HTML hardverjelentés generálása (S.M.A.R.T. adatokkal)
+    • Célzott WU driver keresés és kiválasztásos telepítés
+      (a CLI Autofix csak a teljes automatikus telepítést tudja)
+    • Stabilitás (stressz) teszt indítása
+""")
+            input("\nNyomj ENTER-t a folytatáshoz...")
         else:
             print("❌ Érvénytelen választás!")
 
@@ -5091,7 +5470,19 @@ if __name__ == "__main__":
 
     import multiprocessing
     multiprocessing.freeze_support()
-    
+
+    def _relaunch_elevated():
+        """UAC self-elevation. True, ha az emelt jogú processz sikeresen elindult;
+        False, ha a felhasználó elutasította a UAC-promptot vagy hiba történt
+        (ShellExecuteW <= 32 visszatérési érték = hiba, ld. WinAPI dokumentáció)."""
+        params = ' '.join([f'"{arg}"' for arg in sys.argv[1:]])
+        if getattr(sys, 'frozen', False):
+            exe, args = sys.executable, params
+        else:
+            exe, args = sys.executable, f'"{sys.argv[0]}" {params}'
+        result = ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, args, None, 1)
+        return result > 32
+
     if "--cli" in sys.argv:
         if getattr(sys, "frozen", False):
             # Attach to the parent console if running from cmd in windowed mode
@@ -5103,20 +5494,29 @@ if __name__ == "__main__":
     # CLI mód
     if '--cli' in sys.argv:
         if not is_admin():
-            print("❌ Rendszergazdai jogosultság szükséges!")
-            print("   Futtasd rendszergazdaként!")
+            print("⚠️  Rendszergazdai jogosultság szükséges, UAC-emelés kérése...")
+            if _relaunch_elevated():
+                sys.exit(0)
+            print("❌ Az emelt jogú indítás megszakadt vagy elutasításra került!")
+            print("   Futtasd manuálisan rendszergazdaként!")
             input("Nyomj ENTER-t a kilépéshez...")
             sys.exit(1)
         run_cli_mode()
         sys.exit(0)
-    
+
     if not is_admin():
-        params = ' '.join([f'"{arg}"' for arg in sys.argv[1:]])
-        if getattr(sys, 'frozen', False):
-            ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
-        else:
-            script = sys.argv[0]
-            ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, f'"{script}" {params}', None, 1)
+        if not _relaunch_elevated():
+            try:
+                ctypes.windll.user32.MessageBoxW(
+                    None,
+                    "A DriverVarázsló futtatásához rendszergazdai jogosultság szükséges.\n\n"
+                    "Az emelt jogú indítás megszakadt vagy elutasításra került (UAC).\n"
+                    "Indítsd el újra, és fogadd el a jogosultság-kérést.",
+                    "DriverVarázsló - Jogosultság szükséges",
+                    0x10 | 0x40000  # MB_ICONERROR | MB_TOPMOST
+                )
+            except Exception:
+                pass
         sys.exit()
 
     # Logging
@@ -5137,13 +5537,14 @@ if __name__ == "__main__":
     sys.excepthook = global_exception_handler
 
     def cleanup_zombies():
+        # Nem atexit-tel regisztrálva, mert a program mindig os._exit(0)-val lép ki,
+        # ami teljesen kihagyja az atexit hook-okat - ezért itt explicit hívjuk meg
+        # minden os._exit(0) előtt.
         try:
             pid = os.getpid()
             subprocess.run(['taskkill', '/F', '/T', '/PID', str(pid)], creationflags=subprocess.CREATE_NO_WINDOW)
         except Exception:
             pass
-    import atexit
-    atexit.register(cleanup_zombies)
 
     def thread_exception_handler(args):
         err_str = str(args.exc_value)
@@ -5285,6 +5686,7 @@ if __name__ == "__main__":
         print("=" * 60)
         
         run_cli_mode()
+        cleanup_zombies()
         os._exit(0)
 
     # Hardware rendering (gyors) - az autofix progress külön ablakban jelenik meg
@@ -5361,5 +5763,6 @@ if __name__ == "__main__":
         print("=" * 60)
         
         run_cli_mode()
-    
+
+    cleanup_zombies()
     os._exit(0)

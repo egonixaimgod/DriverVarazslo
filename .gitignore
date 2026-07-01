@@ -36,3 +36,6 @@ stresstools.zip
 # Windows OS szemét
 Thumbs.db
 desktop.ini
+
+# Claude Code személyes/gépspecifikus beállítások (pl. permission mode)
+.claude/settings.local.json
