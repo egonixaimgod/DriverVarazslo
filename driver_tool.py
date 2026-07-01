@@ -13,10 +13,11 @@ import glob
 import traceback
 import winreg
 import queue
+import math
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 168
+BUILD_NUMBER = 170
 
 try:
     import webview
@@ -196,6 +197,29 @@ STRESS_TOOLS = {
 # kifejezett felhasználói kérésre nem szerepel a tömeges indításban, csak egyenként
 # (start_stress_tool) érhető el.
 STRESS_TOOLS_BULK = ['furmark', 'prime95', 'linpack', 'hwinfo']
+
+# Linpack Xtreme RAM-választó menüjének opciói (a program konzolos menüjéből, sorrendben):
+# (menüpont szám, GB). Az automatizálás a rendszer teljes RAM-jához a legnagyobb ide illő
+# (<= a ténylegesen meglévő RAM) opciót választja - lásd _pick_linpack_ram_option().
+LINPACK_RAM_OPTIONS = [(1, 2), (2, 4), (3, 6), (4, 8), (5, 10), (6, 14), (7, 30)]
+
+
+class _MEMORYSTATUSEX(ctypes.Structure):
+    """A Win32 GlobalMemoryStatusEx-hez tartozó struktúra - a teljes fizikai RAM
+    lekérdezéséhez (Linpack RAM-opció automatikus kiválasztásához), subprocess/WMI
+    hívás nélkül."""
+    _fields_ = [
+        ("dwLength", ctypes.c_ulong),
+        ("dwMemoryLoad", ctypes.c_ulong),
+        ("ullTotalPhys", ctypes.c_ulonglong),
+        ("ullAvailPhys", ctypes.c_ulonglong),
+        ("ullTotalPageFile", ctypes.c_ulonglong),
+        ("ullAvailPageFile", ctypes.c_ulonglong),
+        ("ullTotalVirtual", ctypes.c_ulonglong),
+        ("ullAvailVirtual", ctypes.c_ulonglong),
+        ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+    ]
+
 
 # Stabilitás Teszt közben letiltandó energiagazdálkodási beállítások (powercfg alias-ok -
 # ezek a kulcsszavak nyelvfüggetlenek, minden Windows-nyelven ugyanígy kell megadni őket).
@@ -636,16 +660,77 @@ del "%~f0"
                     break
         return found
 
-    def _launch_stress_exe(self, exe, display_name):
+    def _get_total_ram_gb(self):
+        """Teljes fizikai RAM lekérdezése GB-ban (felfelé kerekítve - a Windows a
+        ténylegesen jelentett bájtszámot mindig a "reklámozott" kapacitás alatt adja
+        vissza a hardver számára fenntartott tartomány miatt, pl. egy 8GB-os gép gyakran
+        ~7.85 GB-ot jelent - felkerekítve ez helyesen 8-cá válik)."""
+        try:
+            ctypes.windll.kernel32.GlobalMemoryStatusEx.argtypes = [ctypes.POINTER(_MEMORYSTATUSEX)]
+            ctypes.windll.kernel32.GlobalMemoryStatusEx.restype = ctypes.wintypes.BOOL
+            stat = _MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(_MEMORYSTATUSEX)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                return math.ceil(stat.ullTotalPhys / (1024 ** 3))
+        except Exception as e:
+            logging.warning(f"[STRESSTOOLS] RAM lekérdezési hiba: {e}")
+        return None
+
+    def _pick_linpack_ram_option(self, total_gb):
+        """A LINPACK_RAM_OPTIONS közül a legnagyobb, a rendszer RAM-jába ("total_gb")
+        még belefélő opciót választja ki (ha a RAM meghaladja a legnagyobb - 30GB-os -
+        opciót is, egyszerűen azt választja, nincs nagyobb)."""
+        if not total_gb:
+            return 4  # ismeretlen RAM esetén biztonságos alapértelmezés (8GB opció)
+        best = LINPACK_RAM_OPTIONS[0][0]
+        for opt_num, gb in LINPACK_RAM_OPTIONS:
+            if gb <= total_gb:
+                best = opt_num
+        return best
+
+    def _build_linpack_stdin(self):
+        """Összeállítja a Linpack Xtreme konzolos indító menüjéhez automatikusan
+        "begépelendő" válaszokat: 2 = stressz teszt mód, utána a RAM-mennyiséghez illő
+        menüpont, végül a 3 megerősítő kérdésre Y, Y, N (lásd start_stress_tests
+        docstringje / a felhasználóval egyeztetett menüsorrend)."""
+        total_gb = self._get_total_ram_gb()
+        ram_option = self._pick_linpack_ram_option(total_gb)
+        logging.info(f"[STRESSTOOLS] Linpack RAM-automatizálás: észlelt RAM={total_gb} GB -> {ram_option}. opció")
+        return ['2', str(ram_option), 'Y', 'Y', 'N']
+
+    def _launch_stress_exe(self, exe, display_name, stdin_lines=None):
         """Egy stressz-teszt/monitor .exe elindítása, UAC-elutasítás (WinError 740) esetén
         'runas'-os újrapróbálással. Visszaadási érték:
           - PID (pozitív int), ha sikerült elindítani és ismerjük a PID-jét (normál eset),
           - -1, ha sikerült elindítani, de nem ismerjük a PID-jét (UAC 'runas' eset -
             a ShellExecuteW nem ad vissza process handle-t/PID-et), ilyenkor az ablak
             automatikus pozicionálása (lásd _position_stress_windows) ki fog maradni,
-          - None, ha nem sikerült elindítani."""
+          - None, ha nem sikerült elindítani.
+        stdin_lines: opcionális sorlista (pl. Linpack RAM-menüjéhez) - ha meg van adva, a
+        program stdin-jét pipe-ra kötjük, és a sorokat kis késleltetéssel, sorban
+        "begépeljük", hogy a konzolos menüt felügyelet nélkül végig lehessen navigálni.
+        A konzolablak (stdout/stderr) NEM kerül átirányításra, tehát a felhasználó
+        továbbra is látja élőben a program kimenetét. UAC-os ('runas') indításnál a
+        stdin-automatizálás nem működik (nincs kézben tartott process handle), ilyenkor
+        egyszerűen kimarad."""
         try:
-            proc = subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
+            if stdin_lines:
+                proc = subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE,
+                                         cwd=os.path.dirname(exe), stdin=subprocess.PIPE, text=True)
+
+                def _feed_stdin():
+                    try:
+                        for line in stdin_lines:
+                            time.sleep(0.6)
+                            # text=True mellett a '\n' automatikusan os.linesep-re (Windows-on
+                            # '\r\n'-re) fordul íráskor - kézzel '\r\n'-t írni ide dupla CR-t adna.
+                            proc.stdin.write(line + '\n')
+                            proc.stdin.flush()
+                    except Exception as e:
+                        logging.warning(f"[STRESSTOOLS] stdin-automatizálási hiba ({display_name}): {e}")
+                threading.Thread(target=_feed_stdin, daemon=True).start()
+            else:
+                proc = subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
             logging.info(f"[STRESSTOOLS] Elindítva: {display_name} ({exe}), pid={proc.pid}")
             return proc.pid
         except OSError as e:
@@ -689,6 +774,10 @@ del "%~f0"
         user32.SetWindowPos.restype = BOOL
         user32.SystemParametersInfoW.argtypes = [UINT, UINT, ctypes.wintypes.LPVOID, UINT]
         user32.SystemParametersInfoW.restype = BOOL
+        user32.GetClassNameW.argtypes = [HWND, ctypes.wintypes.LPWSTR, ctypes.c_int]
+        user32.GetClassNameW.restype = ctypes.c_int
+        user32.IsIconic.argtypes = [HWND]
+        user32.IsIconic.restype = BOOL
         return user32
 
     def _find_window_for_pid(self, pid):
@@ -723,15 +812,23 @@ del "%~f0"
         return result['hwnd']
 
     def _position_stress_windows(self, pid_map, task_id='stress'):
-        """A négy stressz-teszt ablakot 2x2 rácsba rendezi a fő monitor hasznos területén
-        (tálca nélkül): FurMark bal-fent (DE z-sorrendben leghátulra küldve, mert a
-        render-felülete valójában nem méretezhető szabadon - így legalább a másik 3
-        ablak jól látszik felette), Prime95 jobb-fent, Linpack bal-lent, HWiNFO jobb-lent.
+        """A négy stressz-teszt ablakot rendezi a fő monitor hasznos területén (tálca
+        nélkül): Prime95 jobb-fent, Linpack bal-lent, HWiNFO jobb-lent - ezek a 3 a
+        maguk negyedére vannak méretezve. A FurMarkot NEM méretezzük/mozgatjuk - a
+        render-felülete fix (a kiválasztott felbontáshoz kötött) belső méretű, egy
+        kényszerített átméretezés csak levágja/eltolja a képet (pl. az FPS-kijelzést),
+        nem skálázza - ezért a FurMark ablakát a natív méretében/helyén hagyjuk, csak
+        z-sorrendben legalulra küldjük (SWP_NOMOVE|SWP_NOSIZE), hogy a másik 3 jól
+        látsszon felette. A végén minden egyéb (nem ide tartozó, pl. a DriverVarázsló
+        saját ablaka vagy egy program nyitva maradt beállító-dialógusa) ablakot tálcára
+        teszünk, hogy tiszta legyen a képernyő.
         pid_map: {STRESS_TOOLS kulcs: pid}. A hiányzó/‑1 (UAC) PID-ű vagy meg nem található
         ablakú tételeket egyszerűen kihagyja, nem buktatja el a többit."""
         HWND_BOTTOM = 1
         SWP_NOZORDER = 0x0004
         SWP_NOACTIVATE = 0x0010
+        SWP_NOMOVE = 0x0002
+        SWP_NOSIZE = 0x0001
         SW_RESTORE = 9
         SPI_GETWORKAREA = 0x0030
         user32 = self._stress_user32()
@@ -749,13 +846,15 @@ del "%~f0"
         # A sorrend itt számít: a FurMarkot kell ELŐSZÖR HWND_BOTTOM-ra küldeni, utána a
         # többit SWP_NOZORDER-rel (érintetlenül hagyva a z-sorrendjüket) - így garantált,
         # hogy a másik 3 a FurMark FÖLÖTT marad, nem kell nekik explicit HWND_TOP.
+        # A furmark bejegyzésnél x/y/w/h nem releváns (SWP_NOMOVE|SWP_NOSIZE miatt).
         layout = [
-            ('furmark', left, top, w, h, True),
+            ('furmark', None, None, None, None, True),
             ('prime95', left + w, top, w, h, False),
             ('linpack', left, top + h, w, h, False),
             ('hwinfo', left + w, top + h, w, h, False),
         ]
 
+        positioned_hwnds = []
         for key, x, y, ww, hh, send_back in layout:
             pid = pid_map.get(key)
             display_name = STRESS_TOOLS[key][0]
@@ -768,13 +867,60 @@ del "%~f0"
                 continue
             try:
                 user32.ShowWindow(hwnd, SW_RESTORE)
-                z = HWND_BOTTOM if send_back else 0
-                flags = SWP_NOACTIVATE | (0 if send_back else SWP_NOZORDER)
-                user32.SetWindowPos(hwnd, z, x, y, ww, hh, flags)
-                logging.info(f"[STRESSTOOLS] Ablak pozicionálva: {display_name} -> ({x},{y},{ww}x{hh}), hátra={send_back}")
+                if key == 'furmark':
+                    # Csak a z-sorrendet változtatjuk, méretet/pozíciót nem.
+                    user32.SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE)
+                else:
+                    user32.SetWindowPos(hwnd, 0, x, y, ww, hh, SWP_NOACTIVATE | SWP_NOZORDER)
+                positioned_hwnds.append(hwnd)
+                logging.info(f"[STRESSTOOLS] Ablak elrendezve: {display_name} (hátra={send_back})")
                 self.emit('task_progress', {'task': task_id, 'log': f'🪟 {display_name} elrendezve.'})
             except Exception as e:
                 logging.warning(f"[STRESSTOOLS] Pozicionálási hiba ({display_name}): {e}")
+
+        self._minimize_other_windows(positioned_hwnds, task_id=task_id)
+
+    def _minimize_other_windows(self, keep_hwnds, task_id='stress'):
+        """Minden egyéb látható, címsoros felső szintű ablakot tálcára tesz (minimalizál),
+        KIVÉVE a keep_hwnds-ben szereplőket - hogy a stressz teszt elrendezése után tiszta
+        legyen a képernyő (ez a DriverVarázsló saját ablakát és pl. egy program nyitva
+        maradt beállító-dialógusát is érinti). A rendszer héj-ablakait (tálca, asztal)
+        osztálynév alapján kihagyjuk, nehogy azokat is "minimalizáljuk"."""
+        SW_MINIMIZE = 6
+        SHELL_CLASSES = {'Progman', 'Shell_TrayWnd', 'Shell_SecondaryTrayWnd', 'WorkerW', 'Button'}
+        user32 = self._stress_user32()
+        keep = set(h for h in keep_hwnds if h)
+        to_minimize = []
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+
+        def _callback(hwnd, _lparam):
+            if hwnd in keep:
+                return True
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            if user32.GetWindowTextLengthW(hwnd) == 0:
+                return True
+            if user32.IsIconic(hwnd):
+                return True
+            buf = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, buf, 256)
+            if buf.value in SHELL_CLASSES:
+                return True
+            to_minimize.append(hwnd)
+            return True
+
+        try:
+            user32.EnumWindows(WNDENUMPROC(_callback), 0)
+            for hwnd in to_minimize:
+                try:
+                    user32.ShowWindow(hwnd, SW_MINIMIZE)
+                except Exception:
+                    pass
+            logging.info(f"[STRESSTOOLS] {len(to_minimize)} egyéb ablak tálcára helyezve.")
+            if to_minimize:
+                self.emit('task_progress', {'task': task_id, 'log': f'📥 {len(to_minimize)} egyéb ablak tálcára helyezve.'})
+        except Exception as e:
+            logging.warning(f"[STRESSTOOLS] Egyéb ablakok minimalizálási hiba: {e}")
 
     def _download_stresstools(self):
         import tempfile, urllib.request, zipfile, ssl, shutil
@@ -858,11 +1004,14 @@ del "%~f0"
                                     f.write("[Settings]\nSensorsOnly=1\n")
                             except Exception:
                                 pass
-                        pid = self._launch_stress_exe(exe, display_name)
+                        stdin_lines = self._build_linpack_stdin() if key == 'linpack' else None
+                        pid = self._launch_stress_exe(exe, display_name, stdin_lines=stdin_lines)
                         if pid:
                             launched += 1
                             pid_map[key] = pid
                             self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva: {display_name}'})
+                            if stdin_lines:
+                                self.emit('task_progress', {'task': 'stress', 'log': '  🤖 Linpack menü automatikusan kitöltve (RAM-választás + megerősítés).'})
                         else:
                             self.emit('task_progress', {'task': 'stress', 'log': f'❌ Hiba indításnál: {display_name}'})
                     else:
@@ -939,7 +1088,8 @@ del "%~f0"
                     except Exception:
                         pass
 
-                if self._launch_stress_exe(exe_path, display_name):
+                stdin_lines = self._build_linpack_stdin() if name == 'linpack' else None
+                if self._launch_stress_exe(exe_path, display_name, stdin_lines=stdin_lines):
                     self.emit('toast', {'message': f'✅ {display_name} elindítva!', 'type': 'success'})
                 else:
                     self.emit('toast', {'message': f'❌ Hiba a(z) {display_name} indításakor!', 'type': 'error'})
