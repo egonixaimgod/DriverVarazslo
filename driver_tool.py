@@ -17,7 +17,7 @@ import math
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 174
+BUILD_NUMBER = 175
 
 try:
     import webview
@@ -1244,6 +1244,49 @@ del "%~f0"
                 logging.warning(f"[STRESSTOOLS] Gombnyomási hiba ('{labels}', pid={pid}): {e}")
                 return
             time.sleep(1)  # a következő dialógus (ha van) megjelenéséhez
+            if step_idx == len(steps):
+                # Az UTOLSÓ lépés kattintásának hatás-ellenőrzése: a közbülső lépéseknél a
+                # következő lépés keresése önmagában visszaigazolás (ha az előző kattintás
+                # elveszett, a következő dialógus sosem jelenik meg, és az kiderül a logból),
+                # az utolsónál viszont senki nem ellenőrizne - pedig terepen előfordult,
+                # hogy a HWiNFO 'Indítás' gombjának PostMessage-elt kattintása egy 4 másik
+                # stressz-teszttel párhuzamosan terhelt gépen hatástalan maradt, és a
+                # startup ablak csak ült ott érintetlenül.
+                self._verify_final_click(pid, btn, labels)
+
+    def _verify_final_click(self, pid, btn, labels, retries=3, wait_secs=6):
+        """A kattintás-sorozat utolsó gombjának (pl. HWiNFO 'Indítás', Prime95 'OK',
+        FurMark 'GO') megnyomása mindig bezárja a saját dialógusát - tehát a gombnak
+        rövid időn belül el kell tűnnie (megszűnik vagy láthatatlanná válik). Ha
+        'wait_secs' után is látható, a kattintás valószínűleg elveszett: újrapróbáljuk
+        PostMessageW-vel, majd ráadásként SendMessageTimeoutW-vel is - utóbbi a régi,
+        szinkron kézbesítés (ami a HWiNFO-nál bizonyítottan működött), de korlátos
+        várakozással, így modális dialógust nyitó gombnál sem ragadhat be örökre.
+        A dupla kattintás veszélytelen: ha az első hatott, a dialógus bezárult, és a
+        második már egy halott/láthatatlan gombra megy (no-op)."""
+        user32 = self._stress_user32()
+        SMTO_NORMAL = 0x0000
+        for attempt in range(1, retries + 1):
+            deadline = time.time() + wait_secs
+            while time.time() < deadline:
+                if not user32.IsWindow(btn) or not user32.IsWindowVisible(btn):
+                    logging.info(f"[STRESSTOOLS-DEBUG] Utolsó lépés ('{labels}') visszaigazolva (pid={pid}): a gomb/dialógus eltűnt ({attempt}. próbálkozási körben).")
+                    return True
+                time.sleep(0.5)
+            if attempt >= retries:
+                break
+            logging.warning(f"[STRESSTOOLS] Az utolsó lépés ('{labels}') gombja {wait_secs} mp után is látható (pid={pid}) - a kattintás valószínűleg elveszett, újrapróbálás ({attempt + 1}/{retries}. kör)...")
+            try:
+                posted = user32.PostMessageW(btn, BM_CLICK, 0, 0)
+                smto_result = ctypes.c_size_t(0)
+                delivered = user32.SendMessageTimeoutW(btn, BM_CLICK, 0, 0, SMTO_NORMAL, 3000, ctypes.byref(smto_result))
+                logging.info(f"[STRESSTOOLS-DEBUG] Újra-kattintás elküldve ('{labels}', pid={pid}): PostMessageW={bool(posted)}, SendMessageTimeoutW kézbesítve={bool(delivered)} (0=timeout/hiba, az üzenet ettől még feldolgozás alatt lehet).")
+            except Exception as e:
+                logging.warning(f"[STRESSTOOLS] Újra-kattintási hiba ('{labels}', pid={pid}): {e}")
+                return False
+        logging.warning(f"[STRESSTOOLS] Az utolsó lépés ('{labels}') dialógusa {retries} próbálkozási kör után SEM tűnt el (pid={pid}) - a program valószínűleg nem indult el rendesen.")
+        self._debug_dump_pid_windows(pid, f"_verify_final_click: '{labels}' dialógusa nem záródott be")
+        return False
 
     def _launch_stress_exe(self, exe, display_name, console_script=None, click_sequence=None, thread_sink=None):
         """Egy stressz-teszt/monitor .exe elindítása, UAC-elutasítás (WinError 740) esetén
@@ -1346,6 +1389,9 @@ del "%~f0"
         user32.SendMessageW.restype = ctypes.wintypes.LPARAM
         user32.PostMessageW.argtypes = [HWND, UINT, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM]
         user32.PostMessageW.restype = BOOL
+        user32.SendMessageTimeoutW.argtypes = [HWND, UINT, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM,
+                                               UINT, UINT, ctypes.POINTER(ctypes.c_size_t)]
+        user32.SendMessageTimeoutW.restype = ctypes.wintypes.LPARAM
         user32.GetForegroundWindow.argtypes = []
         user32.GetForegroundWindow.restype = HWND
         user32.IsWindow.argtypes = [HWND]
@@ -1506,7 +1552,7 @@ del "%~f0"
             logging.warning(f"[STRESSTOOLS] Egyéb ablakok minimalizálási hiba: {e}")
 
     def _download_stresstools(self):
-        import tempfile, urllib.request, zipfile, ssl, shutil
+        import tempfile, urllib.request, urllib.error, zipfile, ssl, shutil
         # WinPE-ben a %TEMP% az X: RAM-diskre mutat - a stressztesztek zip-jét a valódi C: meghajtóra tesszük.
         is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
         if is_pe:
@@ -1537,8 +1583,32 @@ del "%~f0"
                 ssl_ctx = ssl.create_default_context()
 
                 req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-                with urllib.request.urlopen(req, context=ssl_ctx, timeout=60) as resp, open(zip_path, 'wb') as f:
-                    shutil.copyfileobj(resp, f)
+                try:
+                    with urllib.request.urlopen(req, context=ssl_ctx, timeout=60) as resp, open(zip_path, 'wb') as f:
+                        shutil.copyfileobj(resp, f)
+                except urllib.error.URLError as dl_err:
+                    # Vadonatúj Windows-telepítésen a gyökértanúsítvány-tár még hiányos: a
+                    # Windows a gyökereket igény szerint tölti le, de ezt csak a schannel-
+                    # alapú kliensek (böngésző, PowerShell, .NET) váltják ki - a Python
+                    # OpenSSL-je nem, ezért nála CERTIFICATE_VERIFY_FAILED lesz. Tipikus
+                    # tünet: a github.com (Sectigo/USERTrust gyökér) elhasal, miközben a
+                    # raw.githubusercontent.com (DigiCert gyökér) működik - ezért megy az
+                    # update-ellenőrzés ugyanazon a friss gépen, amin ez a letöltés nem.
+                    # Ilyenkor PowerShell Invoke-WebRequest-tel (schannel) töltünk le: a
+                    # tanúsítvány-ellenőrzés ott is teljes értékű (SEMMIT nem kapcsolunk
+                    # ki!), és mellékhatásként a hiányzó gyökér bekerül a Windows tárba,
+                    # így a gép későbbi Python-letöltései is meggyógyulnak.
+                    if 'CERTIFICATE_VERIFY_FAILED' not in str(dl_err):
+                        raise
+                    logging.warning(f"[STRESSTOOLS] Python SSL tanúsítvány-hiba ({dl_err}) - friss Windows tanúsítvány-tár gyanú, áttérés PowerShell (schannel) letöltésre, teljes tanúsítvány-ellenőrzéssel...")
+                    ps_cmd = ("$ProgressPreference='SilentlyContinue'; "
+                              "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; "
+                              f"Invoke-WebRequest -Uri '{_ps_quote(download_url)}' -OutFile '{_ps_quote(zip_path)}' -UseBasicParsing")
+                    result = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps_cmd], timeout=600)
+                    if not result or result.returncode != 0 or not os.path.exists(zip_path):
+                        logging.error("[STRESSTOOLS] A PowerShell (schannel) letöltés is sikertelen.")
+                        return None
+                    logging.info("[STRESSTOOLS] PowerShell (schannel) letöltés sikeres.")
 
                 if not zipfile.is_zipfile(zip_path):
                     return None
