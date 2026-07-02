@@ -207,6 +207,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
     <button class="nav-btn" onclick="switchView('wu')" data-view="wu"><span class="icon">🔄</span>Windows Update</button>
     <button class="nav-btn" onclick="switchView('hw')" data-view="hw"><span class="icon">🖥️</span>Hardver Info & Telepítés</button>
     <button class="nav-btn" onclick="switchView('ghost')" data-view="ghost"><span class="icon">👻</span>Szellemeszközök</button>
+    <button class="nav-btn" onclick="switchView('tempclean')" data-view="tempclean"><span class="icon">🧹</span>Temp Fájlok Törlése</button>
     <button class="nav-btn" onclick="switchView('bitlocker')" data-view="bitlocker"><span class="icon">🔒</span>BitLocker Kezelő</button>
     <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Fix</button>
     <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stabilitás Teszt</button>
@@ -338,6 +339,78 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
           <div class="panel-title"><span class="emoji">👻</span> Szellem- és Fantomeszközök Törlése</div>
           <p style="margin-bottom: 16px; color: var(--text3);">Eltávolítja a Registry-ből és az Eszközkezelőből (Device Manager) mindazokat a hardvereket, amelyek korábban csatlakoztatva voltak, de fizikailag már nincsenek a gépben (pl. klónozott rendszereknél megmaradt régi hardverek). Tisztább lesz tőle a Windows és gyorsulhat a rendszer.</p>
           <button class="btn btn-big btn-primary" onclick="deleteGhostDevices()" id="btn-ghost">👻 Szellemeszközök Törlése</button>
+        </div>
+      </div>
+
+      <!-- VIEW: Temp Fájlok Törlése -->
+      <div class="view" id="view-tempclean">
+        <div class="panel glass">
+          <div class="panel-title"><span class="emoji">🧹</span> Temp Fájlok Törlése (Lemez Felszabadítás)</div>
+          <p style="margin-bottom: 16px; color: var(--text3);">Kitakarítja a Windows ideiglenes fájljait, hogy helyet szabadítson fel a meghajtón. A zárolt (épp használatban lévő) fájlokat automatikusan kihagyja, ezekkel nem áll le a törlés. Válaszd ki, mit takarítson ki:</p>
+
+          <div style="display:flex; flex-direction:column; gap:14px; margin-bottom:20px;">
+            <label class="toggle" title="A jelenlegi felhasználó ideiglenes fájljai (%TEMP% mappa) - böngésző/telepítő/egyéb programok által hátrahagyott törmelék.">
+              <input type="checkbox" id="tc-user-temp" checked>
+              <span class="toggle-track"></span>
+              👤 Felhasználói TEMP mappa (%TEMP%)
+            </label>
+            <label class="toggle" title="A rendszerszintű C:\Windows\Temp mappa tartalma - telepítők és rendszerfolyamatok ideiglenes fájljai.">
+              <input type="checkbox" id="tc-windows-temp" checked>
+              <span class="toggle-track"></span>
+              🖥️ Rendszer TEMP mappa (Windows\Temp)
+            </label>
+            <label class="toggle" title="A Windows Update letöltött (de már telepített/felesleges) frissítés-csomagjai. Biztonságos: a Windows Update magától újraépíti, ha kell.">
+              <input type="checkbox" id="tc-wu-cache" checked>
+              <span class="toggle-track"></span>
+              🔄 Windows Update letöltési gyorsítótár
+            </label>
+          </div>
+
+          <p style="margin:4px 0 10px; color: var(--text3); font-size:12px;">További, alapból KIKAPCSOLT extra kategóriák - csak akkor pipáld be, ha tudod, hogy kell:</p>
+          <div style="display:flex; flex-direction:column; gap:14px; margin-bottom:20px;">
+            <label class="toggle" title="Fájl-/mappaikonok és előnézeti képek gyorsítótára - törlés után a Windows Intéző újra legenerálja, amikor szükség van rá (első megnyitáskor kicsit lassabb lehet).">
+              <input type="checkbox" id="tc-thumbnail-cache">
+              <span class="toggle-track"></span>
+              🖼️ Miniatűr (thumbnail) gyorsítótár
+            </label>
+            <label class="toggle" title="FIGYELEM: ez véglegesen kiüríti a Lomtárat - a benne lévő fájlok utólag NEM állíthatók vissza!">
+              <input type="checkbox" id="tc-recycle-bin">
+              <span class="toggle-track"></span>
+              🗑️ Lomtár (Recycle Bin) ürítése
+            </label>
+            <label class="toggle" title="A P2P Windows Update letöltési gyorsítótára (Delivery Optimization). Biztonságos: a szolgáltatás magától újraépíti.">
+              <input type="checkbox" id="tc-delivery-opt">
+              <span class="toggle-track"></span>
+              📦 Delivery Optimization gyorsítótár
+            </label>
+            <label class="toggle" title="Összegyűlt programösszeomlás-jelentések (Windows Error Reporting) - diagnosztikai adat, biztonságosan törölhető.">
+              <input type="checkbox" id="tc-wer">
+              <span class="toggle-track"></span>
+              ⚠️ Hibajelentések (Windows Error Reporting)
+            </label>
+            <label class="toggle" title="Videokártya driver által legenerált shader-gyorsítótár - törlés után játékok/appok újra legenerálják (első indításkor kicsit lassabb betöltés jöhet).">
+              <input type="checkbox" id="tc-shader-cache">
+              <span class="toggle-track"></span>
+              🎮 DirectX Shader Cache
+            </label>
+            <label class="toggle" title="Windows telepítési/frissítési naplófájlok (CBS logok) - csak diagnosztikai adat, hibakereséshez szokott kelleni.">
+              <input type="checkbox" id="tc-cbs-logs">
+              <span class="toggle-track"></span>
+              📜 Windows telepítési naplók (CBS logok)
+            </label>
+            <label class="toggle" title="Programösszeomláskor keletkezett memória-dump fájlok (%LOCALAPPDATA%\CrashDumps) - hibakereséshez szokott kelleni, egyébként simán törölhető.">
+              <input type="checkbox" id="tc-crash-dumps">
+              <span class="toggle-track"></span>
+              💥 Programösszeomlás-dumpok (Crash Dumps)
+            </label>
+            <label class="toggle" title="Az elavult Internet Explorer/Edge (legacy) böngésző-gyorsítótára.">
+              <input type="checkbox" id="tc-inet-cache">
+              <span class="toggle-track"></span>
+              🌐 Internet Explorer/Edge (legacy) gyorsítótár
+            </label>
+          </div>
+
+          <button class="btn btn-big btn-primary" onclick="cleanTempFiles()" id="btn-tempclean">🧹 Kiválasztott Kategóriák Törlése</button>
         </div>
       </div>
 
@@ -1107,6 +1180,38 @@ async function deleteGhostDevices() {
   if (ok) {
     try {
       await api().delete_ghost_devices();
+    } catch (e) {
+      toast('Hiba a törlés során: ' + e, 'error');
+    }
+  }
+}
+
+async function cleanTempFiles() {
+  const options = {
+    user_temp: document.getElementById('tc-user-temp').checked,
+    windows_temp: document.getElementById('tc-windows-temp').checked,
+    wu_cache: document.getElementById('tc-wu-cache').checked,
+    thumbnail_cache: document.getElementById('tc-thumbnail-cache').checked,
+    recycle_bin: document.getElementById('tc-recycle-bin').checked,
+    delivery_opt: document.getElementById('tc-delivery-opt').checked,
+    wer: document.getElementById('tc-wer').checked,
+    shader_cache: document.getElementById('tc-shader-cache').checked,
+    cbs_logs: document.getElementById('tc-cbs-logs').checked,
+    crash_dumps: document.getElementById('tc-crash-dumps').checked,
+    inet_cache: document.getElementById('tc-inet-cache').checked,
+  };
+  if (!Object.values(options).some(v => v)) {
+    toast('⚠️ Válassz ki legalább egy kategóriát!', 'warning');
+    return;
+  }
+  let msg = 'Biztosan törlöd a kiválasztott ideiglenes fájlokat?';
+  if (options.recycle_bin) {
+    msg += '\n\n⚠️ FIGYELEM: a Lomtár ürítése is be van jelölve - az abban lévő fájlok utólag NEM állíthatók vissza!';
+  }
+  const ok = await showConfirm('Temp Fájlok Törlése', msg);
+  if (ok) {
+    try {
+      await api().clean_temp_files(options);
     } catch (e) {
       toast('Hiba a törlés során: ' + e, 'error');
     }

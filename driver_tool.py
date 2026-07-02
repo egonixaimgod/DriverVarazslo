@@ -17,7 +17,7 @@ import math
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 177
+BUILD_NUMBER = 178
 
 try:
     import webview
@@ -348,6 +348,158 @@ KEYEVENTF_UNICODE = 0x0004
 KEYEVENTF_KEYUP = 0x0002
 VK_RETURN = 0x0D
 BM_CLICK = 0x00F5  # natív Win32 gomb-vezérlők "megnyomása" üzenettel (pl. FurMark GUI-ja)
+
+
+# ShellExecuteExW-hez szükséges struktúra - ez kell ahhoz, hogy egy UAC 'runas' verbbel
+# (adminként) indított exe (pl. HWiNFO64, aminek requireAdministrator a manifestje) valódi
+# PID-jét megkapjuk: a sima ShellExecuteW nem ad vissza process handle-t, csak
+# ShellExecuteExW SEE_MASK_NOCLOSEPROCESS maszkkal - ld. _launch_stress_exe.
+SEE_MASK_NOCLOSEPROCESS = 0x00000040
+SW_SHOWNORMAL = 1
+
+
+class _SHELLEXECUTEINFOW(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", ctypes.wintypes.DWORD),
+        ("fMask", ctypes.c_ulong),
+        ("hwnd", ctypes.wintypes.HWND),
+        ("lpVerb", ctypes.wintypes.LPCWSTR),
+        ("lpFile", ctypes.wintypes.LPCWSTR),
+        ("lpParameters", ctypes.wintypes.LPCWSTR),
+        ("lpDirectory", ctypes.wintypes.LPCWSTR),
+        ("nShow", ctypes.c_int),
+        ("hInstApp", ctypes.wintypes.HINSTANCE),
+        ("lpIDList", ctypes.c_void_p),
+        ("lpClass", ctypes.wintypes.LPCWSTR),
+        ("hKeyClass", ctypes.wintypes.HANDLE),
+        ("dwHotKey", ctypes.wintypes.DWORD),
+        ("hIcon", ctypes.wintypes.HANDLE),
+        ("hProcess", ctypes.wintypes.HANDLE),
+    ]
+
+
+# SHQueryRecycleBinW-hez (a Temp Törlés funkció Lomtár-ürítés kategóriájához) - ürítés
+# ELŐTT kérdezzük le a Lomtár méretét, mert az ürítő hívás (SHEmptyRecycleBinW) magától
+# nem adja vissza, mennyi hely szabadult fel.
+class _SHQUERYRBINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", ctypes.wintypes.DWORD),
+        ("i64Size", ctypes.c_int64),
+        ("i64NumItems", ctypes.c_int64),
+    ]
+
+
+# Temp Törlés funkció - modul-szintű (nem osztálymetódus) segédfüggvények, mert a
+# DriverToolApi (GUI) és a CliApi (szöveges menü) egymástól független osztályok, de
+# mindkettőnek ugyanez kell (ld. clean_temp_files mindkét osztályban) - így egy helyen
+# módosítva nem tud a kettő szétdriftelni.
+def _fmt_bytes(n):
+    """Bájt -> emberi olvasható méret (KB/MB/GB) - a Temp Törlés progress-logjához/kiírásához."""
+    n = float(max(n, 0))
+    for unit in ('B', 'KB', 'MB', 'GB'):
+        if n < 1024 or unit == 'GB':
+            return f"{int(n)} B" if unit == 'B' else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} TB"
+
+
+def _clean_folder_contents(folder, cancel_check=None):
+    """Egy mappa TARTALMÁNAK (nem magának a mappának) törlése, elemenként próbálkozva -
+    így egy zárolt (épp használatban lévő) fájl/almappa nem akasztja meg a többi elem
+    törlését, csak kimarad a számlálásból. cancel_check: opcionális () -> bool (a GUI
+    megszakítás-jelzőjéhez) - CLI hívásnál nincs ilyen, ott sosem szakad meg félúton.
+    Visszaadja: (felszabadított_bájt, törölt_elemek, kihagyott_elemek)."""
+    freed = 0
+    removed = 0
+    failed = 0
+    if not folder or not os.path.isdir(folder):
+        return freed, removed, failed
+    try:
+        entries = os.listdir(folder)
+    except Exception as e:
+        logging.warning(f"[TEMPCLEAN] Mappa nem olvasható ({folder}): {e}")
+        return freed, removed, failed
+    for name in entries:
+        if cancel_check and cancel_check():
+            break
+        full = os.path.join(folder, name)
+        try:
+            if os.path.isdir(full) and not os.path.islink(full):
+                size = 0
+                for root, _dirs, files in os.walk(full):
+                    for f in files:
+                        try:
+                            size += os.path.getsize(os.path.join(root, f))
+                        except OSError:
+                            pass
+                shutil.rmtree(full)
+            else:
+                size = os.path.getsize(full)
+                os.remove(full)
+            freed += size
+            removed += 1
+        except Exception as e:
+            failed += 1
+            logging.debug(f"[TEMPCLEAN] Nem törölhető ({full}): {e}")
+    return freed, removed, failed
+
+
+def _empty_recycle_bin():
+    """Lomtár ürítése SHEmptyRecycleBinW-vel. Előtte SHQueryRecycleBinW-vel lekérdezi a
+    méretét (bájtban), mert az ürítő hívás magától nem adja vissza, mennyi hely szabadult
+    fel - ez csak a progress-logban/kiírásban megjelenő becsléshez kell, az ürítés akkor
+    is lefut, ha a lekérdezés valamiért hibázna."""
+    freed = 0
+    try:
+        info = _SHQUERYRBINFO()
+        info.cbSize = ctypes.sizeof(_SHQUERYRBINFO)
+        hr = ctypes.windll.shell32.SHQueryRecycleBinW(None, ctypes.byref(info))
+        if hr == 0:
+            freed = info.i64Size
+    except Exception as e:
+        logging.debug(f"[TEMPCLEAN] SHQueryRecycleBinW hiba: {e}")
+    try:
+        SHERB_NOCONFIRMATION = 0x00000001
+        SHERB_NOPROGRESSUI = 0x00000002
+        SHERB_NOSOUND = 0x00000004
+        ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND)
+    except Exception as e:
+        logging.warning(f"[TEMPCLEAN] SHEmptyRecycleBinW hiba: {e}")
+    return freed
+
+
+def _temp_clean_category_defs(sys_drive):
+    """Temp Törlés kategóriák definíciója - EGY helyen (a GUI clean_temp_files és a CLI
+    clean_temp_files is ezt hívja), hogy a kettő ne driftelhessen szét. Elemek:
+    (kulcs, címke, [törlendő mappák], [leállítandó szolgáltatások], alapból_bepipálva).
+    A 3 "alapból_bepipálva" kategória (user_temp/windows_temp/wu_cache) a törzs-tartalom,
+    a többi opcionális extra - felhasználói kérésre bővítve, de tudatosan kikapcsolva
+    alapból, mert vagy specifikusabb (pl. csak DirectX-es játékosoknak van D3DSCache-e),
+    vagy csak diagnosztikai adat (CBS log, crash dump), amit nem mindenki akar automatikusan
+    elveszíteni."""
+    import tempfile
+    local = os.environ.get('LOCALAPPDATA', '')
+    wer_base = os.path.join(sys_drive, 'ProgramData', 'Microsoft', 'Windows', 'WER')
+    return [
+        ('user_temp', '👤 Felhasználói TEMP mappa (%TEMP%)',
+         [tempfile.gettempdir()], [], True),
+        ('windows_temp', '🖥️ Rendszer TEMP mappa (Windows\\Temp)',
+         [os.path.join(sys_drive, 'Windows', 'Temp')], [], True),
+        ('wu_cache', '🔄 Windows Update letöltési gyorsítótár',
+         [os.path.join(sys_drive, 'Windows', 'SoftwareDistribution', 'Download')], ['wuauserv', 'bits'], True),
+        ('delivery_opt', '📦 Delivery Optimization gyorsítótár',
+         [os.path.join(sys_drive, 'Windows', 'SoftwareDistribution', 'DeliveryOptimization')], ['DoSvc'], False),
+        ('wer', '⚠️ Hibajelentések (Windows Error Reporting)',
+         [os.path.join(wer_base, 'ReportQueue'), os.path.join(wer_base, 'ReportArchive')], [], False),
+        ('shader_cache', '🎮 DirectX Shader Cache',
+         [os.path.join(local, 'D3DSCache')] if local else [], [], False),
+        ('cbs_logs', '📜 Windows telepítési naplók (CBS logok)',
+         [os.path.join(sys_drive, 'Windows', 'Logs', 'CBS')], [], False),
+        ('crash_dumps', '💥 Programösszeomlás-dumpok (Crash Dumps)',
+         [os.path.join(local, 'CrashDumps')] if local else [], [], False),
+        ('inet_cache', '🌐 Internet Explorer/Edge (legacy) gyorsítótár',
+         [os.path.join(local, 'Microsoft', 'Windows', 'INetCache')] if local else [], [], False),
+    ]
 
 
 # Stabilitás Teszt közben letiltandó energiagazdálkodási beállítások (powercfg alias-ok -
@@ -1347,12 +1499,19 @@ del "%~f0"
         return False
 
     def _launch_stress_exe(self, exe, display_name, console_script=None, click_sequence=None, thread_sink=None):
-        """Egy stressz-teszt/monitor .exe elindítása, UAC-elutasítás (WinError 740) esetén
-        'runas'-os újrapróbálással. Visszaadási érték:
-          - PID (pozitív int), ha sikerült elindítani és ismerjük a PID-jét (normál eset),
-          - -1, ha sikerült elindítani, de nem ismerjük a PID-jét (UAC 'runas' eset -
-            a ShellExecuteW nem ad vissza process handle-t/PID-et), ilyenkor az ablak
-            automatikus pozicionálása (lásd _position_stress_windows) ki fog maradni,
+        """Egy stressz-teszt/monitor .exe elindítása, UAC-elutasítás (WinError 740, pl.
+        HWiNFO64.exe requireAdministrator manifestje) esetén ShellExecuteExW-es 'runas'
+        újrapróbálással. Visszaadási érték:
+          - PID (pozitív int), ha sikerült elindítani és ismerjük a PID-jét - ez a normál
+            (nem emelt) eset ÉS a 'runas' eset is: utóbbinál ShellExecuteExW-et
+            SEE_MASK_NOCLOSEPROCESS maszkkal hívjuk (a sima ShellExecuteW nem adna vissza
+            semmilyen handle-t/PID-et), a kapott hProcess-ből GetProcessId-vel kinyerjük a
+            valódi PID-et, ugyanúgy, mint a nem emelt ágon,
+          - -1, ha sikerült indítani 'runas'-sal, de a ShellExecuteExW mégsem adott vissza
+            process handle-t (pl. a felhasználó elutasította a UAC-promptot, vagy
+            AppCompat-tükrözés zajlik) - ilyenkor sem az ablak automatikus pozicionálása
+            (lásd _position_stress_windows), sem a console_script/click_sequence
+            automatizálás nem tud lefutni (nincs PID-ünk),
           - None, ha nem sikerült elindítani.
         console_script: opcionális (prompt, válasz) párlista (pl. Linpack menüjéhez) - ha
         meg van adva, egy háttérszálon _auto_answer_console navigálja végig a program
@@ -1362,8 +1521,8 @@ del "%~f0"
         van adva, egy háttérszálon _auto_click_sequence sorban megkeresi és BM_CLICK
         üzenettel megnyomja az egymás után megjelenő ablakok/dialógusok gombjait. Egy
         lépés lehet egyetlen felirat vagy alternatívák listája (localizált szövegekhez).
-        Mindkettő (console_script/click_sequence) UAC ('runas') indításnál kimarad (nincs
-        PID-ünk).
+        A 'runas' ágon is lefut, amíg van valódi PID-ünk (lásd fent) - csak a ritka
+        handle-hiány esetén marad ki.
         thread_sink: opcionális lista - ha meg van adva, az elindított automatizálási
         háttérszál belekerül, hogy a hívó (start_stress_tests) bevárhassa a dialógus-
         nyomkodás végét, MIELŐTT az ablakokat rendezné/minimalizálná."""
@@ -1392,10 +1551,47 @@ del "%~f0"
             return proc.pid
         except OSError as e:
             if getattr(e, 'winerror', None) == 740:
+                # ERROR_ELEVATION_REQUIRED - az exe manifestje requireAdministrator (pl.
+                # HWiNFO64.exe), sima Popen nem tudja elindítani. ShellExecuteExW-et
+                # SEE_MASK_NOCLOSEPROCESS maszkkal hívjuk (sima ShellExecuteW nem adna
+                # vissza semmilyen handle-t/PID-et) - a kapott hProcess-ből GetProcessId-vel
+                # kinyerjük a VALÓDI PID-et, hogy az indító-dialógus automatizálás (
+                # console_script/click_sequence) ugyanúgy tudjon futni rá, mint egy nem
+                # emelt szintű indításnál. Korábban itt sima ShellExecuteW volt és -1-et
+                # adtunk vissza (nincs PID) - emiatt a HWiNFO-nál sosem indult el az
+                # automata kattintás-szekvencia, a felhasználónak kézzel kellett nyomnia az
+                # "Indítás" gombot.
                 try:
-                    ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, None, os.path.dirname(exe), 1)
-                    logging.info(f"[STRESSTOOLS] Elindítva (Admin): {display_name} ({exe})")
-                    return -1
+                    sei = _SHELLEXECUTEINFOW()
+                    sei.cbSize = ctypes.sizeof(_SHELLEXECUTEINFOW)
+                    sei.fMask = SEE_MASK_NOCLOSEPROCESS
+                    sei.hwnd = None
+                    sei.lpVerb = "runas"
+                    sei.lpFile = exe
+                    sei.lpParameters = None
+                    sei.lpDirectory = os.path.dirname(exe)
+                    sei.nShow = SW_SHOWNORMAL
+                    sei.hInstApp = None
+
+                    ok = ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(sei))
+                    if not ok or not sei.hProcess:
+                        logging.warning(f"[STRESSTOOLS] Elindítva (Admin): {display_name} ({exe}) - ShellExecuteExW nem adott vissza process handle-t (pl. a felhasználó elutasította a UAC-promptot vagy AppCompat-tükrözés zajlik), automatizálás kimarad.")
+                        return -1
+
+                    real_pid = ctypes.windll.kernel32.GetProcessId(sei.hProcess)
+                    ctypes.windll.kernel32.CloseHandle(sei.hProcess)
+                    logging.info(f"[STRESSTOOLS] Elindítva (Admin): {display_name} ({exe}), pid={real_pid}")
+
+                    auto_thread = None
+                    if console_script:
+                        auto_thread = threading.Thread(target=_run_automation_safely, args=(self._auto_answer_console, real_pid, console_script), daemon=True, name=f"auto:{display_name}")
+                    elif click_sequence:
+                        auto_thread = threading.Thread(target=_run_automation_safely, args=(self._auto_click_sequence, real_pid, click_sequence), daemon=True, name=f"auto:{display_name}")
+                    if auto_thread:
+                        auto_thread.start()
+                        if thread_sink is not None:
+                            thread_sink.append(auto_thread)
+                    return real_pid if real_pid else -1
                 except Exception as e2:
                     logging.error(f"[STRESSTOOLS] Indítási hiba (Admin) - {display_name}: {e2}")
                     return None
@@ -2298,6 +2494,109 @@ Write-Output "DONE: Törölve: $count / $total"
             self.emit('task_complete', {'task': 'ghost', 'status': f'Kész! Törölve: {success} / {total}'})
 
         self._safe_thread('ghost', worker)
+
+    # ================================================================
+    # TEMP FÁJLOK TÖRLÉSE (lemez felszabadítás)
+    # ================================================================
+    def clean_temp_files(self, options=None):
+        """Windows ideiglenes fájlok törlése a bejelölt kategóriák szerint - lásd
+        _temp_clean_category_defs a teljes listáért (felhasználói/rendszer TEMP, WU/
+        Delivery Optimization cache, hibajelentések, Shader Cache, CBS logok, Crash
+        Dumpok, IE/Edge cache), plusz a két speciális kategória (miniatűr-gyorsítótár,
+        Lomtár). Csak élő (online) rendszeren értelmezhető - ua. mint a
+        szellemeszköz-törlésnél: egy célzott offline OS TEMP mappáinak törlése minden
+        felhasználói profilra kiterjedne (nem tudnánk, melyik "aktuális" felhasználóé a
+        %TEMP%), ezért nem támogatott."""
+        logging.info(f"[API] clean_temp_files(options={options})")
+        if self.target_os_path:
+            self.emit('toast', {'message': '❌ Hiba: Ez a funkció csak Élő (Online) rendszeren működik!', 'type': 'error'})
+            return
+
+        opts = options or {}
+        folder_categories = []
+        for key, label, paths, services, default_checked in _temp_clean_category_defs(self.sys_drive):
+            if opts.get(key, default_checked) and paths:
+                folder_categories.append((label, paths, services))
+        do_thumbnails = opts.get('thumbnail_cache', False)
+        do_recycle_bin = opts.get('recycle_bin', False)
+
+        if not folder_categories and not do_thumbnails and not do_recycle_bin:
+            self.emit('toast', {'message': '⚠️ Nincs kiválasztva egyetlen törlendő kategória sem!', 'type': 'warning'})
+            return
+
+        def worker():
+            self.emit('task_start', {'task': 'tempclean', 'title': 'Temp Fájlok Törlése'})
+            total_freed = 0
+            total_removed = 0
+            total_failed = 0
+
+            # Néhány kategória (WU cache, Delivery Optimization) mappáját egy szolgáltatás
+            # tartja zárolva - ezeket egyszerre, egy körben állítjuk le/indítjuk újra (nem
+            # kategóriánként), hogy egy szolgáltatást ne kelljen kétszer le-/felkapcsolni,
+            # ha véletlenül több kategória is hivatkozna rá.
+            services_to_stop = sorted({s for _, _, services in folder_categories for s in services})
+            if services_to_stop:
+                self.emit('task_progress', {'task': 'tempclean', 'log': f'⏸️ Szolgáltatások leállítása a cache törléséhez ({", ".join(services_to_stop)})...', 'indeterminate': True})
+                self._run(['powershell', '-NoProfile', '-Command', f'Stop-Service {",".join(services_to_stop)} -Force -ErrorAction SilentlyContinue'])
+
+            for label, paths, _services in folder_categories:
+                if self._check_cancel():
+                    break
+                cat_freed = cat_removed = cat_failed = 0
+                for path in paths:
+                    self.emit('task_progress', {'task': 'tempclean', 'log': f'{label} törlése ({path})...', 'indeterminate': True})
+                    freed, removed, failed = _clean_folder_contents(path, self._check_cancel)
+                    cat_freed += freed
+                    cat_removed += removed
+                    cat_failed += failed
+                self.emit('task_progress', {'task': 'tempclean', 'log': f'  ✅ {cat_removed} elem törölve, {cat_failed} zárolt/hozzáférhetetlen elem kihagyva ({_fmt_bytes(cat_freed)} felszabadítva).'})
+                total_freed += cat_freed
+                total_removed += cat_removed
+                total_failed += cat_failed
+
+            if services_to_stop:
+                self.emit('task_progress', {'task': 'tempclean', 'log': '▶️ Szolgáltatások újraindítása...'})
+                self._run(['powershell', '-NoProfile', '-Command', f'Start-Service {",".join(services_to_stop)} -ErrorAction SilentlyContinue'])
+
+            if do_thumbnails and not self._check_cancel():
+                self.emit('task_progress', {'task': 'tempclean', 'log': '🖼️ Miniatűr (thumbnail) gyorsítótár törlése...', 'indeterminate': True})
+                freed = removed = failed = 0
+                local = os.environ.get('LOCALAPPDATA')
+                explorer_dir = os.path.join(local, 'Microsoft', 'Windows', 'Explorer') if local else None
+                if explorer_dir and os.path.isdir(explorer_dir):
+                    for name in os.listdir(explorer_dir):
+                        if not (name.startswith('thumbcache_') or name.startswith('iconcache_')):
+                            continue
+                        full = os.path.join(explorer_dir, name)
+                        try:
+                            size = os.path.getsize(full)
+                            os.remove(full)
+                            freed += size
+                            removed += 1
+                        except Exception as e:
+                            failed += 1
+                            logging.debug(f"[TEMPCLEAN] Nem törölhető ({full}): {e}")
+                self.emit('task_progress', {'task': 'tempclean', 'log': f'  ✅ {removed} fájl törölve, {failed} kihagyva ({_fmt_bytes(freed)} felszabadítva).'})
+                total_freed += freed
+                total_removed += removed
+                total_failed += failed
+
+            if do_recycle_bin and not self._check_cancel():
+                self.emit('task_progress', {'task': 'tempclean', 'log': '🗑️ Lomtár ürítése...', 'indeterminate': True})
+                rb_freed = _empty_recycle_bin()
+                self.emit('task_progress', {'task': 'tempclean', 'log': f'  ✅ Lomtár kiürítve ({_fmt_bytes(rb_freed)} felszabadítva).'})
+                total_freed += rb_freed
+                total_removed += 1
+
+            if self._check_cancel():
+                self.emit('task_progress', {'task': 'tempclean', 'log': '\n❗ Megszakítva!'})
+                self.emit('task_complete', {'task': 'tempclean', 'status': f'❗ Megszakítva! Eddig felszabadítva: {_fmt_bytes(total_freed)}'})
+                return
+
+            self.emit('task_progress', {'task': 'tempclean', 'log': f'\n✅ Kész! Összesen {total_removed} elem törölve, {total_failed} kihagyva (zárolt/hozzáférhetetlen fájlok - ez normális, ha épp használatban vannak).'})
+            self.emit('task_complete', {'task': 'tempclean', 'status': f'🧹 Felszabadított hely: {_fmt_bytes(total_freed)}'})
+
+        self._safe_thread('tempclean', worker)
 
     def _check_internet(self):
         """Megbízható TCP port alapú internet ellenőrzés."""
@@ -5003,7 +5302,39 @@ try { $data.BB = Get-CimInstance Win32_BaseBoard | Select-Object Manufacturer, P
 try { $data.CPU = Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors | ConvertTo-Json -Compress } catch {}
 try { $data.RAM = @(Get-CimInstance Win32_PhysicalMemory | Select-Object Capacity, Speed, Manufacturer, PartNumber) | ConvertTo-Json -Compress } catch {}
 try { $data.RAMTotal = Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory | ConvertTo-Json -Compress } catch {}
-try { $data.GPU = @(Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM) | ConvertTo-Json -Compress } catch {}
+try {
+    # Win32_VideoController.AdapterRAM egy 32 bites (UInt32) WMI mezo, ami max. kb. 4 GB-ot
+    # tud kifejezni - 4 GB-nal tobb VRAM eseten (pl. egy 12 GB-os RTX 3060-nal) a legtobb
+    # modern driver (kulonosen NVIDIA) emiatt egy 0xFFFFFFFF "tullepes" ertekkel ter vissza,
+    # ami byte-ban ertelmezve pont ~4.0 GB-nak nez ki - EZ HAMIS, nem a tenyleges VRAM meret.
+    # A valodi (64 bites) ertek a registry-ben van, ugyanott, ahonnan a GPU-Z/HWiNFO is
+    # kiolvassa: a video-adapter osztaly (Class GUID) alatti szamozott almappak
+    # HardwareInformation.qwMemorySize erteke - a megfelelo almappat a MatchingDeviceId
+    # (PNPDeviceID elotag) alapjan azonositjuk.
+    $gpus = Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM, PNPDeviceID
+    $result = @()
+    $regBase = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+    foreach ($gpu in $gpus) {
+        $vram = [int64]0
+        if ($gpu.AdapterRAM) { $vram = [int64]$gpu.AdapterRAM }
+        if (Test-Path $regBase) {
+            $matched = $null
+            Get-ChildItem $regBase -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^\d{4}$' } | ForEach-Object {
+                if (-not $matched) {
+                    $props = Get-ItemProperty -Path $_.PSPath -ErrorAction SilentlyContinue
+                    if ($props.MatchingDeviceId -and $gpu.PNPDeviceID -and $gpu.PNPDeviceID.ToLower().StartsWith($props.MatchingDeviceId.ToLower())) {
+                        if ($props.'HardwareInformation.qwMemorySize') {
+                            $matched = [int64]$props.'HardwareInformation.qwMemorySize'
+                        }
+                    }
+                }
+            }
+            if ($matched -and $matched -gt 0) { $vram = $matched }
+        }
+        $result += [PSCustomObject]@{ Name = $gpu.Name; AdapterRAM = $vram }
+    }
+    $data.GPU = (@($result) | ConvertTo-Json -Compress)
+} catch {}
 try { $data.OS = Get-CimInstance Win32_OperatingSystem | Select-Object Caption, OSArchitecture | ConvertTo-Json -Compress } catch {}
 ConvertTo-Json $data
 """
@@ -6301,6 +6632,91 @@ Write-Output "DONE: Törölve: $count / $total"
         return success, total
 
     # ================================================================
+    # TEMP FÁJLOK TÖRLÉSE (lemez felszabadítás) - a GUI clean_temp_files
+    # megfelelője, szinkron kiírással, a modul-szintű _clean_folder_contents /
+    # _fmt_bytes / _empty_recycle_bin segédfüggvényeket a GUI-verzióval megosztva.
+    # ================================================================
+    def clean_temp_files(self, thumbnail_cache=False, recycle_bin=False, **overrides):
+        """Windows ideiglenes fájlok törlése (mint a GUI Temp Törlés funkciója). Csak élő
+        (online) rendszeren fut - ua. az indoklás, mint a szellemeszköz-törlésnél.
+        overrides: a _temp_clean_category_defs kulcsai szerint felülírható, hogy melyik
+        kategória fusson (alapértelmezésben a defs-ben megjelölt 3 "alapból bepipálva"
+        kategória fut - user_temp/windows_temp/wu_cache)."""
+        if self.target_os_path:
+            print("\n❌ Hiba: Ez a funkció csak Élő (Online) rendszeren működik!")
+            return
+
+        folder_categories = []
+        for key, label, paths, services, default_checked in _temp_clean_category_defs(self.sys_drive):
+            if overrides.get(key, default_checked) and paths:
+                folder_categories.append((label, paths, services))
+
+        if not folder_categories and not thumbnail_cache and not recycle_bin:
+            print("\n⚠️ Nincs kiválasztva egyetlen törlendő kategória sem!")
+            return
+
+        print("\n🧹 Temp fájlok törlése...")
+        print("-" * 50)
+        total_freed = 0
+        total_removed = 0
+        total_failed = 0
+
+        services_to_stop = sorted({s for _, _, services in folder_categories for s in services})
+        if services_to_stop:
+            print(f"⏸️ Szolgáltatások leállítása a cache törléséhez ({', '.join(services_to_stop)})...")
+            self._run(['powershell', '-NoProfile', '-Command', f'Stop-Service {",".join(services_to_stop)} -Force -ErrorAction SilentlyContinue'])
+
+        for label, paths, _services in folder_categories:
+            cat_freed = cat_removed = cat_failed = 0
+            for path in paths:
+                print(f"{label} törlése ({path})...", end=" ", flush=True)
+                freed, removed, failed = _clean_folder_contents(path)
+                print(f"✅ {removed} elem törölve, {failed} kihagyva ({_fmt_bytes(freed)} felszabadítva).")
+                cat_freed += freed
+                cat_removed += removed
+                cat_failed += failed
+            total_freed += cat_freed
+            total_removed += cat_removed
+            total_failed += cat_failed
+
+        if services_to_stop:
+            print("▶️ Szolgáltatások újraindítása...")
+            self._run(['powershell', '-NoProfile', '-Command', f'Start-Service {",".join(services_to_stop)} -ErrorAction SilentlyContinue'])
+
+        if thumbnail_cache:
+            print("🖼️ Miniatűr (thumbnail) gyorsítótár törlése...", end=" ", flush=True)
+            freed = removed = failed = 0
+            local = os.environ.get('LOCALAPPDATA')
+            explorer_dir = os.path.join(local, 'Microsoft', 'Windows', 'Explorer') if local else None
+            if explorer_dir and os.path.isdir(explorer_dir):
+                for name in os.listdir(explorer_dir):
+                    if not (name.startswith('thumbcache_') or name.startswith('iconcache_')):
+                        continue
+                    full = os.path.join(explorer_dir, name)
+                    try:
+                        size = os.path.getsize(full)
+                        os.remove(full)
+                        freed += size
+                        removed += 1
+                    except Exception:
+                        failed += 1
+            print(f"✅ {removed} fájl törölve, {failed} kihagyva ({_fmt_bytes(freed)} felszabadítva).")
+            total_freed += freed
+            total_removed += removed
+            total_failed += failed
+
+        if recycle_bin:
+            print("🗑️ Lomtár ürítése...", end=" ", flush=True)
+            rb_freed = _empty_recycle_bin()
+            print(f"✅ Kiürítve ({_fmt_bytes(rb_freed)} felszabadítva).")
+            total_freed += rb_freed
+            total_removed += 1
+
+        print("-" * 50)
+        print(f"🧹 Kész! Összesen {total_removed} elem törölve, {total_failed} kihagyva. Felszabadított hely: {_fmt_bytes(total_freed)}")
+        return total_freed, total_removed, total_failed
+
+    # ================================================================
     # AUTOFIX (1 kattintásos driver fix)
     # ================================================================
     def autofix(self):
@@ -6553,9 +6969,10 @@ def run_cli_mode():
     💾  2. Mentés és Visszaállítás
     🔄  3. Windows Update
     ⚡  4. 1 Kattintásos Driver Fix
+    🧹  5. Temp fájlok törlése (lemez felszabadítás)
 
-    ⚙️   5. Cél OS váltása (offline mód)
-    ℹ️   6. GUI-only funkciók (mik nem érhetők el itt)
+    ⚙️   6. Cél OS váltása (offline mód)
+    ℹ️   7. GUI-only funkciók (mik nem érhetők el itt)
     ❌  0. Kilépés
 """)
     
@@ -6748,8 +7165,17 @@ def run_cli_mode():
             api.autofix()
             input("\nNyomj ENTER-t a folytatáshoz...")
         elif choice == '5':
-            target_menu()
+            print_header()
+            extra1 = input("Miniatűr (thumbnail) gyorsítótár törlése is? (i/n): ").strip().lower() == 'i'
+            extra2 = input("Lomtár (Recycle Bin) ürítése is? (i/n): ").strip().lower() == 'i'
+            extra3 = input("Egyéb extra kategóriák is (Delivery Optimization, hibajelentések, DirectX Shader Cache, CBS logok, Crash Dumpok, IE/Edge cache)? (i/n): ").strip().lower() == 'i'
+            api.clean_temp_files(thumbnail_cache=extra1, recycle_bin=extra2,
+                                  delivery_opt=extra3, wer=extra3, shader_cache=extra3,
+                                  cbs_logs=extra3, crash_dumps=extra3, inet_cache=extra3)
+            input("\nNyomj ENTER-t a folytatáshoz...")
         elif choice == '6':
+            target_menu()
+        elif choice == '7':
             print_header()
             print("""
   ℹ️  CSAK A GRAFIKUS FELÜLETEN (GUI) ELÉRHETŐ FUNKCIÓK
