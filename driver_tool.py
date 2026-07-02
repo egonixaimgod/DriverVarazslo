@@ -17,7 +17,7 @@ import math
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 172
+BUILD_NUMBER = 173
 
 try:
     import webview
@@ -744,25 +744,93 @@ del "%~f0"
         logging.info(f"[STRESSTOOLS] Linpack RAM-automatizálás: észlelt RAM={total_gb} GB -> {ram_option}. opció")
         return ['2', str(ram_option), 'Y', 'Y', 'N']
 
+    def _window_title(self, hwnd):
+        """Egy ablak feliratának lekérdezése (debug-loghoz) - sosem dob kivételt."""
+        try:
+            user32 = self._stress_user32()
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length <= 0:
+                return ''
+            buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buf, length + 1)
+            return buf.value
+        except Exception:
+            return '?'
+
+    def _debug_dump_pid_windows(self, pid, context=''):
+        """DIAGNOSZTIKA: kilistázza az adott PID-hez tartozó ÖSSZES felső szintű ablakot
+        (látható/láthatatlan, cím, osztálynév, méret) és mindegyik gyermek-vezérlőjét
+        (osztálynév + felirat) - akkor hívjuk, amikor egy keresés ("nem található gomb/
+        dialógus") sikertelen, hogy lássuk, mi VOLT ténylegesen ott, ahelyett hogy csak
+        annyit tudnánk, hogy "nem találtuk meg"."""
+        user32 = self._stress_user32()
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        rows = []
+
+        def _child_cb(hwnd, _lparam):
+            cls = ctypes.create_unicode_buffer(128)
+            user32.GetClassNameW(hwnd, cls, 128)
+            rows.append(f"      child hwnd={hwnd} class='{cls.value}' text='{self._window_title(hwnd)}' visible={bool(user32.IsWindowVisible(hwnd))}")
+            return True
+
+        def _top_cb(hwnd, _lparam):
+            found_pid = ctypes.wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(found_pid))
+            if found_pid.value != pid:
+                return True
+            cls = ctypes.create_unicode_buffer(128)
+            user32.GetClassNameW(hwnd, cls, 128)
+            rect = ctypes.wintypes.RECT()
+            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            rows.append(f"    top hwnd={hwnd} class='{cls.value}' text='{self._window_title(hwnd)}' "
+                        f"visible={bool(user32.IsWindowVisible(hwnd))} rect=({rect.left},{rect.top},{rect.right},{rect.bottom})")
+            try:
+                user32.EnumChildWindows(hwnd, WNDENUMPROC(_child_cb), 0)
+            except Exception as e:
+                rows.append(f"      (EnumChildWindows hiba: {e})")
+            return True
+
+        try:
+            user32.EnumWindows(WNDENUMPROC(_top_cb), 0)
+        except Exception as e:
+            rows.append(f"  (EnumWindows hiba: {e})")
+
+        if rows:
+            logging.warning(f"[STRESSTOOLS-DEBUG] {context} - pid={pid} ablak/vezérlő leltár:\n" + "\n".join(rows))
+        else:
+            logging.warning(f"[STRESSTOOLS-DEBUG] {context} - pid={pid}: EGYETLEN felső szintű ablakot sem talált EnumWindows ehhez a PID-hez (a folyamat vagy még nem hozott létre ablakot, vagy már nem fut).")
+
     def _send_unicode_char(self, user32, char):
         """Egyetlen Unicode karakter (le+fel) szimulálása SendInput-tal - a KEYEVENTF_UNICODE
         közvetlenül a karaktert küldi, nem virtuális billentyűkódot, így Shift-állapot
-        (kis/nagybetű) kezelése nélkül is pontosan a kívánt karakter jelenik meg."""
+        (kis/nagybetű) kezelése nélkül is pontosan a kívánt karakter jelenik meg.
+        Visszaadja, hogy mindkét (le+fel) SendInput hívás sikeresen beszúrta-e az eseményt
+        (a SendInput a ténylegesen beszúrt események számával tér vissza - 0, ha az egész
+        bemenetet a rendszer blokkolta, pl. UIPI/más folyamat által)."""
         extra = ctypes.c_ulong(0)
         down = _Input(INPUT_KEYBOARD, _InputUnion(ki=_KeyBdInput(0, ord(char), KEYEVENTF_UNICODE, 0, ctypes.pointer(extra))))
         up = _Input(INPUT_KEYBOARD, _InputUnion(ki=_KeyBdInput(0, ord(char), KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, ctypes.pointer(extra))))
-        user32.SendInput(1, ctypes.byref(down), ctypes.sizeof(_Input))
-        user32.SendInput(1, ctypes.byref(up), ctypes.sizeof(_Input))
+        r1 = user32.SendInput(1, ctypes.byref(down), ctypes.sizeof(_Input))
+        r2 = user32.SendInput(1, ctypes.byref(up), ctypes.sizeof(_Input))
+        ok = (r1 == 1 and r2 == 1)
+        if not ok:
+            logging.warning(f"[STRESSTOOLS-DEBUG] SendInput ('{char}') sikertelen/blokkolt - le={r1}, fel={r2} (1 lenne a várt mindkettőnél)")
+        return ok
 
     def _send_vk(self, user32, vk):
         """Egy virtuális billentyűkód (pl. Enter) le+fel eseménye - erre azért van szükség
         külön (nem KEYEVENTF_UNICODE-dal), mert az Enter/vezérlő billentyűket a konzolos
-        sor-beviteli logika a valódi VK_RETURN esemény alapján ismeri fel megbízhatóan."""
+        sor-beviteli logika a valódi VK_RETURN esemény alapján ismeri fel megbízhatóan.
+        Visszaadja, hogy sikeres volt-e (lásd _send_unicode_char)."""
         extra = ctypes.c_ulong(0)
         down = _Input(INPUT_KEYBOARD, _InputUnion(ki=_KeyBdInput(vk, 0, 0, 0, ctypes.pointer(extra))))
         up = _Input(INPUT_KEYBOARD, _InputUnion(ki=_KeyBdInput(vk, 0, KEYEVENTF_KEYUP, 0, ctypes.pointer(extra))))
-        user32.SendInput(1, ctypes.byref(down), ctypes.sizeof(_Input))
-        user32.SendInput(1, ctypes.byref(up), ctypes.sizeof(_Input))
+        r1 = user32.SendInput(1, ctypes.byref(down), ctypes.sizeof(_Input))
+        r2 = user32.SendInput(1, ctypes.byref(up), ctypes.sizeof(_Input))
+        ok = (r1 == 1 and r2 == 1)
+        if not ok:
+            logging.warning(f"[STRESSTOOLS-DEBUG] SendInput (VK={vk}) sikertelen/blokkolt - le={r1}, fel={r2} (1 lenne a várt mindkettőnél)")
+        return ok
 
     def _find_console_window_for_pid(self, pid):
         """Egy KONZOLOS (nem GUI) program ablak-handle-jének megbízható lekérdezése.
@@ -788,11 +856,21 @@ del "%~f0"
         kernel32.GetConsoleWindow.restype = ctypes.wintypes.HWND
         with self._console_attach_lock:
             try:
-                kernel32.FreeConsole()
-                if not kernel32.AttachConsole(pid):
+                free_ok = kernel32.FreeConsole()
+                logging.debug(f"[STRESSTOOLS-DEBUG] FreeConsole (saját konzolról leválás) eredmény={bool(free_ok)}")
+                attach_ok = kernel32.AttachConsole(pid)
+                if not attach_ok:
+                    err = ctypes.GetLastError()
+                    logging.warning(f"[STRESSTOOLS-DEBUG] AttachConsole(pid={pid}) sikertelen, GetLastError={err} "
+                                     f"(5=ACCESS_DENIED gyakran azt jelenti, hogy a folyamatnak MÁR van/volt konzolja, "
+                                     f"6=INVALID_HANDLE hogy a PID-nek nincs is konzolja, pl. mert még nem jött létre)")
                     return None
                 try:
                     hwnd = kernel32.GetConsoleWindow()
+                    if hwnd:
+                        logging.debug(f"[STRESSTOOLS-DEBUG] AttachConsole(pid={pid}) sikeres, GetConsoleWindow hwnd={hwnd} title='{self._window_title(hwnd)}'")
+                    else:
+                        logging.warning(f"[STRESSTOOLS-DEBUG] AttachConsole(pid={pid}) sikeres volt, de GetConsoleWindow NULL-t adott vissza (a konzolnak nincs saját ablaka?).")
                     return hwnd if hwnd else None
                 finally:
                     kernel32.FreeConsole()
@@ -812,26 +890,53 @@ del "%~f0"
         elszállt. A SendInput-os "valódi begépelés" ezt elkerüli, mert a program szemszögéből
         megkülönböztethetetlen attól, mintha egy felhasználó ülne a gép előtt és gépelne."""
         user32 = self._stress_user32()
+        logging.info(f"[STRESSTOOLS-DEBUG] _auto_answer_console indul (pid={pid}, sorok={lines})")
         hwnd = None
         deadline = time.time() + 60  # a rendszer terheltségétől függően ez akár fél percig is eltarthat
+        attempt = 0
         while time.time() < deadline:
+            attempt += 1
             hwnd = self._find_console_window_for_pid(pid)
             if hwnd:
                 break
+            if attempt % 10 == 0:  # kb. 5 mp-enként egy "még mindig keresem" jelzés
+                logging.info(f"[STRESSTOOLS-DEBUG] Konzolablak keresése folyamatban (pid={pid}), {attempt}. próba, még nincs meg...")
             time.sleep(0.5)
         if not hwnd:
             logging.warning(f"[STRESSTOOLS] Automatikus bevitel kihagyva - nem található konzolablak (pid={pid})")
+            self._debug_dump_pid_windows(pid, "_auto_answer_console: konzolablak sosem került elő")
             return
+        logging.info(f"[STRESSTOOLS-DEBUG] Konzolablak megtalálva (pid={pid}): hwnd={hwnd} title='{self._window_title(hwnd)}'")
         for line in lines:
             time.sleep(2)
             try:
-                user32.SetForegroundWindow(hwnd)
+                # Ellenőrizzük, hogy az ablak még mindig létezik-e - ha a program időközben
+                # bezáródott/összeomlott (pl. mert egy korábbi sor rossz választ adott neki),
+                # ennek itt, konkrét hibaüzenettel kell kiderülnie, nem csendben tovább küldeni
+                # a semmibe a következő sorokat.
+                if not user32.IsWindow(hwnd):
+                    logging.warning(f"[STRESSTOOLS-DEBUG] A konzolablak (hwnd={hwnd}, pid={pid}) már NEM létezik a(z) '{line}' sor előtt - a program valószínűleg bezáródott/összeomlott. Automatizálás megszakítva.")
+                    self._debug_dump_pid_windows(pid, f"_auto_answer_console: ablak eltűnt a(z) '{line}' sor előtt")
+                    return
+
+                fg_ok = user32.SetForegroundWindow(hwnd)
                 time.sleep(0.15)
+                actual_fg = user32.GetForegroundWindow()
+                if actual_fg != hwnd:
+                    logging.warning(f"[STRESSTOOLS-DEBUG] SetForegroundWindow (hwnd={hwnd}) NEM állította előtérbe a konzolablakot a(z) '{line}' sor előtt! "
+                                     f"SetForegroundWindow visszatérési értéke={bool(fg_ok)}, a TÉNYLEGES előtérben lévő ablak most: hwnd={actual_fg} title='{self._window_title(actual_fg)}'. "
+                                     f"A begépelt karakterek valószínűleg NEM a Linpackbe mentek.")
+                else:
+                    logging.debug(f"[STRESSTOOLS-DEBUG] SetForegroundWindow sikeres, hwnd={hwnd} tényleg előtérben van a(z) '{line}' sor előtt.")
+
+                all_ok = True
                 for ch in line:
-                    self._send_unicode_char(user32, ch)
+                    if not self._send_unicode_char(user32, ch):
+                        all_ok = False
                     time.sleep(0.03)
-                self._send_vk(user32, VK_RETURN)
-                logging.debug(f"[STRESSTOOLS] Automatikus bevitel elküldve: '{line}' (pid={pid})")
+                if not self._send_vk(user32, VK_RETURN):
+                    all_ok = False
+                logging.info(f"[STRESSTOOLS] Automatikus bevitel elküldve: '{line}' (pid={pid}), minden SendInput esemény sikeres={all_ok}")
             except Exception as e:
                 logging.warning(f"[STRESSTOOLS] Automatikus bevitel hiba ('{line}', pid={pid}): {e}")
 
@@ -885,8 +990,12 @@ del "%~f0"
         user32 = self._stress_user32()
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
         deadline = time.time() + timeout
+        attempt = 0
+        logging.info(f"[STRESSTOOLS-DEBUG] _find_pid_window_with_child_text indul: pid={pid}, keresett szöveg(ek)={self._text_alternatives(text_or_alts)}, timeout={timeout}s")
         while time.time() < deadline:
+            attempt += 1
             result = {'hwnd': None, 'btn': None}
+            windows_seen = []
 
             def _callback(hwnd, _lparam):
                 found_pid = ctypes.wintypes.DWORD()
@@ -895,6 +1004,7 @@ del "%~f0"
                     return True
                 if not user32.IsWindowVisible(hwnd):
                     return True
+                windows_seen.append((hwnd, self._window_title(hwnd)))
                 btn = self._find_child_by_text(hwnd, text_or_alts)
                 if btn:
                     result['hwnd'] = hwnd
@@ -907,7 +1017,11 @@ del "%~f0"
             except Exception as e:
                 logging.warning(f"[STRESSTOOLS] EnumWindows hiba (pid={pid}): {e}")
             if result['btn']:
+                logging.info(f"[STRESSTOOLS-DEBUG] Találat: pid={pid} ablak hwnd={result['hwnd']} title='{self._window_title(result['hwnd'])}', gomb hwnd={result['btn']} ({attempt}. próbálkozásra, {time.time() - (deadline - timeout):.1f}mp alatt)")
                 return result['hwnd'], result['btn']
+            if attempt % 10 == 0:  # kb. 3 mp-enként egy állapotjelzés
+                titles = [f"'{t}'" for _, t in windows_seen] or ['(egy sem)']
+                logging.info(f"[STRESSTOOLS-DEBUG] Még keresem (pid={pid}, {attempt}. próba): jelenleg látható ablakai ehhez a PID-hez: {', '.join(titles)} - egyikben sincs '{text_or_alts}' feliratú vezérlő.")
             time.sleep(0.3)
         return None, None
 
@@ -921,14 +1035,20 @@ del "%~f0"
         FFTs" rádiógomb -> "OK"). Egy 'steps'-beli elem lehet egyetlen string, vagy
         alternatívák listája (lokalizált feliratokhoz, pl. HWiNFO "Indítás"/"Start")."""
         user32 = self._stress_user32()
-        for step in steps:
+        logging.info(f"[STRESSTOOLS-DEBUG] _auto_click_sequence indul: pid={pid}, lépések={steps}")
+        for step_idx, step in enumerate(steps, 1):
+            logging.info(f"[STRESSTOOLS-DEBUG] {step_idx}/{len(steps)}. lépés keresése: pid={pid}, cél='{step}'")
             hwnd, btn = self._find_pid_window_with_child_text(pid, step)
             if not btn:
                 logging.warning(f"[STRESSTOOLS] '{step}' gomb/dialógus nem található (pid={pid}), automatizálás megszakítva.")
+                self._debug_dump_pid_windows(pid, f"_auto_click_sequence: {step_idx}/{len(steps)}. lépés ('{step}') sosem került elő")
                 return
             try:
-                user32.SendMessageW(btn, BM_CLICK, 0, 0)
-                logging.info(f"[STRESSTOOLS] '{step}' megnyomva (pid={pid}).")
+                cls = ctypes.create_unicode_buffer(128)
+                user32.GetClassNameW(btn, cls, 128)
+                btn_text = self._window_title(btn)
+                result = user32.SendMessageW(btn, BM_CLICK, 0, 0)
+                logging.info(f"[STRESSTOOLS] '{step}' megnyomva (pid={pid}): gomb hwnd={btn} class='{cls.value}' text='{btn_text}', SendMessageW eredmény={result}, ablak='{self._window_title(hwnd)}'.")
             except Exception as e:
                 logging.warning(f"[STRESSTOOLS] Gombnyomási hiba ('{step}', pid={pid}): {e}")
                 return
@@ -952,13 +1072,23 @@ del "%~f0"
         lépés lehet egyetlen felirat vagy alternatívák listája (localizált szövegekhez).
         Mindkettő (stdin_lines/click_sequence) UAC ('runas') indításnál kimarad (nincs
         PID-ünk)."""
+        def _run_automation_safely(func, *args):
+            # A háttérszál céljának védőrétege - ha bármi a try/except-eken KÍVÜL dobna
+            # kivételt (pl. egy elgépelés egy jövőbeli módosításban), az itt látszódjon a
+            # logban teljes traceback-kel, ne csendben tűnjön el egy daemon szálban.
+            try:
+                func(*args)
+            except Exception as e:
+                logging.error(f"[STRESSTOOLS-DEBUG] Automatizálási háttérszál ELSZÁLLT ({func.__name__}, args={args}): {e}")
+                logging.error(traceback.format_exc())
+
         try:
             proc = subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
             logging.info(f"[STRESSTOOLS] Elindítva: {display_name} ({exe}), pid={proc.pid}")
             if stdin_lines:
-                threading.Thread(target=self._auto_answer_console, args=(proc.pid, stdin_lines), daemon=True).start()
+                threading.Thread(target=_run_automation_safely, args=(self._auto_answer_console, proc.pid, stdin_lines), daemon=True).start()
             elif click_sequence:
-                threading.Thread(target=self._auto_click_sequence, args=(proc.pid, click_sequence), daemon=True).start()
+                threading.Thread(target=_run_automation_safely, args=(self._auto_click_sequence, proc.pid, click_sequence), daemon=True).start()
             return proc.pid
         except OSError as e:
             if getattr(e, 'winerror', None) == 740:
@@ -1015,6 +1145,10 @@ del "%~f0"
         user32.GetWindowTextW.restype = ctypes.c_int
         user32.SendMessageW.argtypes = [HWND, UINT, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM]
         user32.SendMessageW.restype = ctypes.wintypes.LPARAM
+        user32.GetForegroundWindow.argtypes = []
+        user32.GetForegroundWindow.restype = HWND
+        user32.IsWindow.argtypes = [HWND]
+        user32.IsWindow.restype = BOOL
         return user32
 
     def _find_window_for_pid(self, pid):
@@ -1046,6 +1180,10 @@ del "%~f0"
             user32.EnumWindows(WNDENUMPROC(_callback), 0)
         except Exception as e:
             logging.warning(f"[STRESSTOOLS] EnumWindows hiba (pid={pid}): {e}")
+        if result['hwnd']:
+            logging.debug(f"[STRESSTOOLS-DEBUG] _find_window_for_pid(pid={pid}) -> hwnd={result['hwnd']} title='{self._window_title(result['hwnd'])}' area={result['area']}")
+        else:
+            logging.debug(f"[STRESSTOOLS-DEBUG] _find_window_for_pid(pid={pid}) -> nincs látható, feliratos felső szintű ablak.")
         return result['hwnd']
 
     def _position_stress_windows(self, pid_map, task_id='stress'):
@@ -1104,6 +1242,7 @@ del "%~f0"
             if not hwnd:
                 logging.warning(f"[STRESSTOOLS] Nem található ablak a pozicionáláshoz: {display_name} (pid={pid})")
                 self.emit('task_progress', {'task': task_id, 'log': f'⚠️ {display_name}: nem található ablak a pozicionáláshoz.'})
+                self._debug_dump_pid_windows(pid, f"_position_stress_windows: {display_name} ablaka nem található")
                 continue
             try:
                 user32.ShowWindow(hwnd, SW_RESTORE)
