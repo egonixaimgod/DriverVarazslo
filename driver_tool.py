@@ -17,7 +17,7 @@ import math
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 171
+BUILD_NUMBER = 172
 
 try:
     import webview
@@ -288,6 +288,7 @@ class DriverToolApi:
         self._cancel_flag = False  # Flag for cancelling long-running tasks
         self._task_busy = None  # None, vagy a jelenleg futó feladat neve (lásd _safe_thread)
         self._stresstools_download_lock = threading.Lock()
+        self._console_attach_lock = threading.Lock()
         self.resume_mode = '--resume-autofix' in sys.argv
         self.resume_step1 = '--resume-step1' in sys.argv
         self.skip_printer_drivers = '--skip-printer-drivers' in sys.argv
@@ -763,6 +764,42 @@ del "%~f0"
         user32.SendInput(1, ctypes.byref(down), ctypes.sizeof(_Input))
         user32.SendInput(1, ctypes.byref(up), ctypes.sizeof(_Input))
 
+    def _find_console_window_for_pid(self, pid):
+        """Egy KONZOLOS (nem GUI) program ablak-handle-jének megbízható lekérdezése.
+
+        A sima EnumWindows + GetWindowThreadProcessId (lásd _find_window_for_pid) itt NEM
+        feltétlenül működik: egy konzolablakot a klasszikus Windows-modellben nem maga a
+        konzolos program, hanem egy külön, rejtett conhost.exe-folyamat "birtokol" - így a
+        spawnolt folyamat (pl. Linpack) saját PID-je nem biztos, hogy megegyezik az ablakot
+        ténylegesen birtokló folyamat PID-jével. (Ezt debug logban is megerősítettük: a GUI
+        programok - FurMark, Prime95, HWiNFO - ablaka PID alapján előbb-utóbb mindig
+        megtalálható volt, a Linpické soha, még 30 mp várakozás után sem.)
+
+        Az AttachConsole+GetConsoleWindow ezt megkerüli: a hívó folyamat (mi) átmenetileg
+        "csatlakozik" a célfolyamat konzoljához, lekérdezi a hozzá tartozó ablakot, majd
+        leválik. Mivel ez folyamat-szintű (nem szálankénti) állapot, self._console_attach_lock
+        védi a párhuzamos hívásokat."""
+        kernel32 = ctypes.windll.kernel32
+        kernel32.AttachConsole.argtypes = [ctypes.wintypes.DWORD]
+        kernel32.AttachConsole.restype = ctypes.wintypes.BOOL
+        kernel32.FreeConsole.argtypes = []
+        kernel32.FreeConsole.restype = ctypes.wintypes.BOOL
+        kernel32.GetConsoleWindow.argtypes = []
+        kernel32.GetConsoleWindow.restype = ctypes.wintypes.HWND
+        with self._console_attach_lock:
+            try:
+                kernel32.FreeConsole()
+                if not kernel32.AttachConsole(pid):
+                    return None
+                try:
+                    hwnd = kernel32.GetConsoleWindow()
+                    return hwnd if hwnd else None
+                finally:
+                    kernel32.FreeConsole()
+            except Exception as e:
+                logging.warning(f"[STRESSTOOLS] AttachConsole hiba (pid={pid}): {e}")
+                return None
+
     def _auto_answer_console(self, pid, lines, task_id=None):
         """Egy konzolos program (pl. Linpack) menüjét navigálja végig automatikusan: minden
         sor előtt előtérbe hozza az ablakot (SetForegroundWindow), majd valódi billentyű-
@@ -776,8 +813,9 @@ del "%~f0"
         megkülönböztethetetlen attól, mintha egy felhasználó ülne a gép előtt és gépelne."""
         user32 = self._stress_user32()
         hwnd = None
-        for _ in range(20):  # max ~10 mp, amíg a konzolablak megjelenik
-            hwnd = self._find_window_for_pid(pid)
+        deadline = time.time() + 60  # a rendszer terheltségétől függően ez akár fél percig is eltarthat
+        while time.time() < deadline:
+            hwnd = self._find_console_window_for_pid(pid)
             if hwnd:
                 break
             time.sleep(0.5)
@@ -831,14 +869,18 @@ del "%~f0"
             logging.warning(f"[STRESSTOOLS] EnumChildWindows hiba: {e}")
         return result['hwnd']
 
-    def _find_pid_window_with_child_text(self, pid, text_or_alts, timeout=15):
+    def _find_pid_window_with_child_text(self, pid, text_or_alts, timeout=60):
         """Megkeresi az adott PID-hez tartozó BÁRMELYIK (nem feltétlenül a legnagyobb)
         felső szintű, látható ablakot, aminek van a megadott feliratú (vagy alternatívák
         egyikének megfelelő) gyermek-vezérlője - pl. egy épp megjelenő modális
         figyelmeztető/megerősítő dialógusablakot a rajta lévő gomb alapján. Eltér a
         _find_window_for_pid-től, ami mindig a legnagyobb ablakot választja - egy
         dialógus viszont jellemzően KISEBB, mint a program főablaka, arra a logika itt
-        nem használható. Legfeljebb 'timeout' másodpercig vár, amíg a dialógus megjelenik.
+        nem használható. Legfeljebb 'timeout' másodpercig vár, amíg a dialógus megjelenik -
+        ez a hosszú alapérték szándékos: ha a gép egyszerre 4 stressz-teszt programot (és
+        esetleg egy párhuzamosan futó DISM lekérdezést) indít, a rendszer erősen
+        leterhelődhet, és egy dialógus akár fél percig is késhet (ezt debug logban is
+        megfigyeltük - a FurMark gombja végül 56 mp késéssel, de sikeresen megnyomódott).
         Visszaad: (ablak hwnd, gomb hwnd) vagy (None, None)."""
         user32 = self._stress_user32()
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
@@ -1055,7 +1097,10 @@ del "%~f0"
             display_name = STRESS_TOOLS[key][0]
             if not pid or pid <= 0:
                 continue  # nem indult el, vagy UAC-os indítás volt (nincs PID)
-            hwnd = self._find_window_for_pid(pid)
+            # A Linpack konzolablakát a conhost.exe "birtokolja" más PID alatt, ezért azt
+            # nem a sima PID-alapú EnumWindows-szal (_find_window_for_pid), hanem
+            # AttachConsole-lal (_find_console_window_for_pid) keressük meg.
+            hwnd = self._find_console_window_for_pid(pid) if key == 'linpack' else self._find_window_for_pid(pid)
             if not hwnd:
                 logging.warning(f"[STRESSTOOLS] Nem található ablak a pozicionáláshoz: {display_name} (pid={pid})")
                 self.emit('task_progress', {'task': task_id, 'log': f'⚠️ {display_name}: nem található ablak a pozicionáláshoz.'})
@@ -1188,7 +1233,7 @@ del "%~f0"
 
                 launched = 0
                 pid_map = {}
-                for key in STRESS_TOOLS_BULK:
+                for i, key in enumerate(STRESS_TOOLS_BULK):
                     display_name, _ = STRESS_TOOLS[key]
                     exe = found[key]
                     if exe and os.path.exists(exe):
@@ -1214,6 +1259,12 @@ del "%~f0"
                             self.emit('task_progress', {'task': 'stress', 'log': f'❌ Hiba indításnál: {display_name}'})
                     else:
                         self.emit('task_progress', {'task': 'stress', 'log': f'⚠️ Nem található a ZIP-ben: {display_name}'})
+                    # Egymás után, ne egyszerre indítsuk a 4 programot - ha mind egy pillanatban
+                    # próbál elindulni (GPU/CPU detektálás, ablak-létrehozás egyszerre), a gép
+                    # erősen leterhelődhet, és ez akár fél perces késéseket okozhat a dialógusok
+                    # megjelenésében (ezt debug logban is megfigyeltük).
+                    if i < len(STRESS_TOOLS_BULK) - 1:
+                        time.sleep(3)
 
                 # 30 mp várakozás, hogy a felhasználó végignyomkodhassa a Prime95
                 # induló dialógusait, MIELŐTT megpróbáljuk a helyükre igazítani az ablakokat -
