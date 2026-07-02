@@ -382,6 +382,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
           </div>
           <button class="btn btn-big btn-danger" onclick="startStressTests()" id="btn-stresstest">🔥 MINDEN TESZT INDÍTÁSA</button>
           <p style="margin-top:8px; color: var(--text3); font-size:11px;">(FurMark + Prime95 + Linpack + HWiNFO64 - a HD Sentinel csak egyenként indítható a fenti gombbal)</p>
+          <button class="btn btn-big btn-danger" onclick="stopStressTests()" id="btn-stress-stopall" style="margin-top:14px" title="Az összes elindított teszt-/monitor program (FurMark, Prime95, Linpack, HWiNFO, HD Sentinel...) azonnali bezárása">🛑 ÖSSZES TESZT BEZÁRÁSA</button>
         </div>
       </div>
 
@@ -410,7 +411,8 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
     </div>
     <div class="modal-footer">
       <button class="btn btn-danger" id="mp-cancel-btn" onclick="cancelTask()" style="display:inline-flex">🛑 Folyamat Leállítása</button>
-      <button class="btn btn-primary" id="mp-close-btn" onclick="closeProgressModal()" style="display:none">✓ Bezárás</button>
+      <button class="btn btn-danger" id="mp-stop-stress-btn" onclick="stopStressTests()" style="display:none" title="Az összes elindított teszt-/monitor program (FurMark, Prime95, Linpack, HWiNFO...) azonnali bezárása">🛑 ÖSSZES TESZT BEZÁRÁSA</button>
+      <button class="btn btn-primary" id="mp-close-btn" onclick="closeProgressModal()" style="display:none">✓ OK</button>
     </div>
   </div>
 </div>
@@ -570,6 +572,9 @@ window.handlePyEvent = function(payload) {
       document.getElementById('mp-status').textContent = '❌ Hiba történt!';
       document.getElementById('mp-close-btn').style.display = 'inline-flex';
       document.getElementById('mp-cancel-btn').style.display = 'none';
+      // Stressz-hibánál is felajánljuk az összes teszt bezárását - lehet, hogy a hiba
+      // előtt már elindult néhány program.
+      if (currentTask === 'stress') document.getElementById('mp-stop-stress-btn').style.display = 'inline-flex';
       currentTask = null;
       break;
     case 'hw_scan_progress':
@@ -1088,6 +1093,16 @@ async function startStressTool(name) {
   }
 }
 
+async function stopStressTests() {
+  // Az összes stressz-teszt/monitor program azonnali bezárása (a visszajelzés a
+  // backend által küldött toast). A modal nyitva maradhat - az OK gombbal zárható.
+  try {
+    await api().stop_stress_tests();
+  } catch (e) {
+    toast('Bezárási hiba: ' + e, 'error');
+  }
+}
+
 async function deleteGhostDevices() {
   const ok = await showConfirm('Szellemeszközök Törlése', 'Biztosan véglegesen törölni akarod az összes fizikailag nem csatlakoztatott (fantom) hardver bejegyzését a rendszerből?');
   if (ok) {
@@ -1122,6 +1137,7 @@ function showProgressModal(title, phase) {
   cancelBtn.style.display = 'inline-flex';
   cancelBtn.disabled = false;
   cancelBtn.textContent = '🛑 Folyamat Leállítása';
+  document.getElementById('mp-stop-stress-btn').style.display = 'none';
   
   document.getElementById('modal-progress').classList.add('active');
   progressStartTime = Date.now();
@@ -1164,6 +1180,9 @@ function onTaskComplete(data) {
   // Show close button, hide cancel button
   document.getElementById('mp-close-btn').style.display = 'inline-flex';
   document.getElementById('mp-cancel-btn').style.display = 'none';
+  // Stressz teszt után: piros "összes teszt bezárása" gomb is (a felhasználó innen
+  // tudja egy kattintással leállítani a most elindított 4 programot).
+  if (data.task === 'stress') document.getElementById('mp-stop-stress-btn').style.display = 'inline-flex';
   
   if (data.task !== 'autofix') {
     if (data.log) appendLog(data.log);

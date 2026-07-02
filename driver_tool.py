@@ -17,7 +17,7 @@ import math
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 175
+BUILD_NUMBER = 176
 
 try:
     import webview
@@ -198,6 +198,20 @@ STRESS_TOOLS = {
 # (start_stress_tool) érhető el.
 STRESS_TOOLS_BULK = ['furmark', 'prime95', 'linpack', 'hwinfo']
 
+# A "Minden teszt bezárása" (stop_stress_tests) által név szerint is kilövendő programok -
+# biztonsági háló arra az esetre, ha egy folyamatot nem az általunk eltárolt PID-fa alól
+# indítottak (pl. UAC 'runas' út, ahol nincs PID-ünk, vagy kézzel indított példány). A
+# Linpack tényleges terhelő motorja (linpack_amd64/intel64) és az opcionális HWMonitor a
+# Linpack.exe gyerekfolyamatai - a PID-fa kilövése normál esetben elviszi őket, ez itt
+# csak tartalék.
+STRESS_KILL_IMAGES = [
+    'furmark.exe', 'prime95.exe',
+    'linpack.exe', 'linpackxtreme.exe', 'linpack_amd64.exe', 'linpack_intel64.exe',
+    'linpack_amd32.exe', 'linpack_intel32.exe', 'HWMonitor_x64.exe',
+    'hwinfo64.exe', 'hwinfo32.exe',
+    'hdsentinel.exe', 'hdsentinel_x64.exe', 'hdsentinel64.exe',
+]
+
 # Linpack Xtreme RAM-választó menüjének opciói (a program konzolos menüjéből, sorrendben):
 # (menüpont szám, GB). Az automatizálás a rendszer teljes RAM-jához a legnagyobb ide illő
 # (<= a ténylegesen meglévő RAM) opciót választja - lásd _pick_linpack_ram_option().
@@ -206,11 +220,18 @@ LINPACK_RAM_OPTIONS = [(1, 2), (2, 4), (3, 6), (4, 8), (5, 10), (6, 14), (7, 30)
 # GUI programok indítás utáni, egymást követő dialógusablakainak automatikus végignyomkodása
 # (lásd _auto_click_sequence). Egy lépés lehet egyetlen felirat, alternatívák listája
 # (localizált feliratokhoz - pl. HWiNFO a rendszer nyelvén jelenik meg, "Indítás" vagy "Start"),
-# vagy egy dict {'labels': [...], 'skip_if_found': [...]}: ha a keresés közben nem a 'labels',
-# hanem a 'skip_if_found' egyik felirata kerül elő, a lépés kattintás nélkül KIMARAD - erre a
-# Prime95 miatt van szükség: a GIMPS üdvözlő ("Just Stress Testing") CSAK a legelső indításkor
-# jelenik meg, a gomb megnyomása után a prime.txt-be írt StressTester=1 miatt minden további
-# indítás egyből a "Run a Torture Test" dialógussal (benne a Small FFTs rádiógombbal) kezdődik.
+# vagy egy dict az alábbi kulcsokkal:
+#   'labels':        felirat(ok), amelyik gombot meg kell nyomni
+#   'skip_if_found': ha a keresés közben nem a 'labels', hanem ezek egyike kerül elő, a lépés
+#                    kattintás nélkül KIMARAD - a Prime95 miatt kell: a GIMPS üdvözlő ("Just
+#                    Stress Testing") CSAK a legelső indításkor jelenik meg, a gomb megnyomása
+#                    után a prime.txt-be írt StressTester=1 miatt minden további indítás
+#                    egyből a "Run a Torture Test" dialógussal (Small FFTs rádiógomb) kezdődik
+#   'optional':      ha a lépés dialógusa a saját timeoutján belül nem jelenik meg, az NEM
+#                    hiba - a lépés kimarad, a sorozat nem szakad meg
+#   'timeout':       a lépés saját keresési időkorlátja mp-ben (alapértelmezés: 60)
+#   'exact':         csak TELJES felirat-egyezés számít (rövid feliratoknál - 'OK', 'Igen' -
+#                    véd a részleges hamis találatoktól, pl. 'ventilátorok' vége 'ok')
 STRESS_CLICK_SEQUENCES = {
     'furmark': ['GPU stress test', 'GO'],  # beállító-ablak -> "*** CAUTION ***" figyelmeztetés
     'prime95': [
@@ -218,7 +239,13 @@ STRESS_CLICK_SEQUENCES = {
         'small ffts (tests l1/l2/l3',  # torture test típus rádiógomb
         'OK',
     ],
-    'hwinfo': [['Indítás', 'Start']],  # a HWiNFO64.INI SensorsOnly=1 már kiválasztja a módot, csak indítani kell
+    'hwinfo': [
+        ['Indítás', 'Start'],  # a HWiNFO64.INI SensorsOnly=1 már kiválasztja a módot
+        # Indítás után a HWiNFO időnként még feldob egy megerősítő ablakot (terepen látott
+        # viselkedés) - ha 20 mp-en belül megjelenik egy OK/Igen gombos ablak, azt is
+        # lenyomjuk; ha nem jön ilyen, a lépés hang nélkül kimarad.
+        {'labels': ['OK', 'Igen', 'Yes'], 'optional': True, 'timeout': 20, 'exact': True},
+    ],
 }
 
 # A Linpack Xtreme v1.1.8 konzolos stressz-teszt menüjének (valódi gépen, a konzol
@@ -343,6 +370,7 @@ class DriverToolApi:
         self._task_busy = None  # None, vagy a jelenleg futó feladat neve (lásd _safe_thread)
         self._stresstools_download_lock = threading.Lock()
         self._console_attach_lock = threading.Lock()
+        self._stress_pids = {}  # az általunk indított stressz-programok PID-jei (stop_stress_tests-hez)
         self.resume_mode = '--resume-autofix' in sys.argv
         self.resume_step1 = '--resume-step1' in sys.argv
         self.skip_printer_drivers = '--skip-printer-drivers' in sys.argv
@@ -1105,17 +1133,22 @@ del "%~f0"
 
     @staticmethod
     def _normalize_ctrl_text(text):
-        """Vezérlő-felirat normalizálása összehasonlításhoz: kisbetűsít és eltávolítja a
-        gyorsbillentyű-jelölő '&' karaktereket. Ez utóbbi NEM elhagyható: a Win32 a
-        gombfeliratban tárolja az aláhúzott gyorsbillentyű jelét (pl. a Prime95 Small FFTs
-        rádiógombjának valódi szövege 'Small FFTs (tests L1/L2/L&3 caches, ...') - anélkül
-        a 'l1/l2/l3'-ra keresés soha nem találná meg (valós gépen bizonyított hiba)."""
-        return text.replace('&', '').lower()
+        """Vezérlő-felirat normalizálása összehasonlításhoz: kisbetűsít, eltávolítja a
+        gyorsbillentyű-jelölő '&' karaktereket, és minden szóköz-sorozatot egyetlen
+        szóközre von össze. Egyik lépés sem elhagyható, mindkettő valós gépen bizonyított
+        hibát javít: a Prime95 Small FFTs rádiógombjának valódi szövege 'Small FFTs
+        (tests L1/L2/L&3 caches, ...' (rejtett '&'), a GIMPS üdvözlő gombjáé pedig
+        'Just  &Stress Testing' - DUPLA szóközzel a 'Just' után! Anélkül a 'l1/l2/l3',
+        illetve a 'Just Stress Testing' keresés soha nem találná meg őket."""
+        return ' '.join(text.replace('&', '').lower().split())
 
-    def _find_child_by_text(self, hwnd_parent, text_or_alts):
+    def _find_child_by_text(self, hwnd_parent, text_or_alts, exact=False):
         """Megkeresi a hwnd_parent egy közvetlen gyermek-vezérlőjét (pl. gombot), aminek a
-        felirata (kis/nagybetűtől és gyorsbillentyű-jelölő '&'-től függetlenül) tartalmazza
-        a megadott szövegek bármelyikét."""
+        felirata (kis/nagybetűtől, gyorsbillentyű-jelölő '&'-től és dupla szóközöktől
+        függetlenül) tartalmazza a megadott szövegek bármelyikét. exact=True esetén csak a
+        TELJES felirat-egyezés számít találatnak - nagyon rövid keresett szövegnél (pl.
+        'OK', 'Igen') ez véd a hamis találatoktól: részleges kereséssel bármely '...ok'
+        végű magyar felirat (pl. 'ventilátorok' egy HWiNFO szenzorlistában) találat lenne."""
         user32 = self._stress_user32()
         result = {'hwnd': None}
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
@@ -1127,7 +1160,7 @@ del "%~f0"
                 buf = ctypes.create_unicode_buffer(length + 1)
                 user32.GetWindowTextW(hwnd, buf, length + 1)
                 text_lower = self._normalize_ctrl_text(buf.value)
-                if any(needle in text_lower for needle in needles):
+                if any((needle == text_lower if exact else needle in text_lower) for needle in needles):
                     result['hwnd'] = hwnd
                     return False  # megvan, leállítjuk a bejárást
             return True
@@ -1138,7 +1171,7 @@ del "%~f0"
             logging.warning(f"[STRESSTOOLS] EnumChildWindows hiba: {e}")
         return result['hwnd']
 
-    def _find_pid_window_with_child_text(self, pid, text_or_alts, timeout=60):
+    def _find_pid_window_with_child_text(self, pid, text_or_alts, timeout=60, exact=False):
         """Megkeresi az adott PID-hez tartozó BÁRMELYIK (nem feltétlenül a legnagyobb)
         felső szintű, látható ablakot, aminek van a megadott feliratú (vagy alternatívák
         egyikének megfelelő) gyermek-vezérlője - pl. egy épp megjelenő modális
@@ -1169,7 +1202,7 @@ del "%~f0"
                 if not user32.IsWindowVisible(hwnd):
                     return True
                 windows_seen.append((hwnd, self._window_title(hwnd)))
-                btn = self._find_child_by_text(hwnd, text_or_alts)
+                btn = self._find_child_by_text(hwnd, text_or_alts, exact=exact)
                 if btn:
                     result['hwnd'] = hwnd
                     result['btn'] = btn
@@ -1212,16 +1245,31 @@ del "%~f0"
         jelentkezett, amit csak az ablak kézi bezárása oldott fel."""
         user32 = self._stress_user32()
         logging.info(f"[STRESSTOOLS-DEBUG] _auto_click_sequence indul: pid={pid}, lépések={steps}")
+        last_clicked = None  # (gomb hwnd, labels) - az utoljára TÉNYLEGESEN megnyomott lépés
         for step_idx, step in enumerate(steps, 1):
             if isinstance(step, dict):
                 labels = self._text_alternatives(step['labels'])
                 skip_markers = self._text_alternatives(step.get('skip_if_found', []))
+                optional = bool(step.get('optional'))
+                timeout = step.get('timeout', 60)
+                exact = bool(step.get('exact'))
             else:
                 labels = self._text_alternatives(step)
                 skip_markers = []
-            logging.info(f"[STRESSTOOLS-DEBUG] {step_idx}/{len(steps)}. lépés keresése: pid={pid}, cél='{labels}'" + (f", kihagyás-jelzők='{skip_markers}'" if skip_markers else ""))
-            hwnd, btn = self._find_pid_window_with_child_text(pid, labels + skip_markers)
+                optional = False
+                timeout = 60
+                exact = False
+            logging.info(f"[STRESSTOOLS-DEBUG] {step_idx}/{len(steps)}. lépés keresése: pid={pid}, cél='{labels}'" + (f", kihagyás-jelzők='{skip_markers}'" if skip_markers else "") + (" (opcionális)" if optional else ""))
+            hwnd, btn = self._find_pid_window_with_child_text(pid, labels + skip_markers, timeout=timeout, exact=exact)
             if not btn:
+                if optional:
+                    # Az opcionális lépés dialógusa nem mindig jelenik meg (pl. a HWiNFO
+                    # indítás utáni figyelmeztetése) - ha nincs, az nem hiba. A leltár-dump
+                    # csak diagnosztika: ha a felugró ablak gombfelirata más, mint amire
+                    # számítunk, ebből derül ki, mi volt ott valójában.
+                    logging.info(f"[STRESSTOOLS] {step_idx}/{len(steps)}. (opcionális) lépés ('{labels}') nem jelent meg {timeout} mp alatt (pid={pid}) - kihagyva, ez nem hiba.")
+                    self._debug_dump_pid_windows(pid, f"_auto_click_sequence: opcionális '{labels}' lépés nem került elő (diagnosztikai leltár, NEM hiba)")
+                    continue
                 logging.warning(f"[STRESSTOOLS] '{labels}' gomb/dialógus nem található (pid={pid}), automatizálás megszakítva.")
                 self._debug_dump_pid_windows(pid, f"_auto_click_sequence: {step_idx}/{len(steps)}. lépés ('{labels}') sosem került elő")
                 return
@@ -1240,19 +1288,20 @@ del "%~f0"
                 logging.info(f"[STRESSTOOLS] '{labels}' megnyomva (pid={pid}): gomb hwnd={btn} class='{cls.value}' text='{btn_text}', PostMessageW eredmény={bool(posted)}, ablak='{self._window_title(hwnd)}'.")
                 if not posted:
                     logging.warning(f"[STRESSTOOLS-DEBUG] PostMessageW(BM_CLICK) sikertelen (pid={pid}, gomb hwnd={btn}), GetLastError={ctypes.GetLastError()}")
+                last_clicked = (btn, labels)
             except Exception as e:
                 logging.warning(f"[STRESSTOOLS] Gombnyomási hiba ('{labels}', pid={pid}): {e}")
                 return
             time.sleep(1)  # a következő dialógus (ha van) megjelenéséhez
-            if step_idx == len(steps):
-                # Az UTOLSÓ lépés kattintásának hatás-ellenőrzése: a közbülső lépéseknél a
-                # következő lépés keresése önmagában visszaigazolás (ha az előző kattintás
-                # elveszett, a következő dialógus sosem jelenik meg, és az kiderül a logból),
-                # az utolsónál viszont senki nem ellenőrizne - pedig terepen előfordult,
-                # hogy a HWiNFO 'Indítás' gombjának PostMessage-elt kattintása egy 4 másik
-                # stressz-teszttel párhuzamosan terhelt gépen hatástalan maradt, és a
-                # startup ablak csak ült ott érintetlenül.
-                self._verify_final_click(pid, btn, labels)
+        # Az utoljára megnyomott lépés hatás-ellenőrzése: a közbülső lépéseknél a következő
+        # lépés keresése önmagában visszaigazolás (ha az előző kattintás elveszett, a
+        # következő dialógus sosem jelenik meg, és az kiderül a logból), az utolsó
+        # kattintásnál viszont senki nem ellenőrizne - pedig terepen előfordult, hogy a
+        # HWiNFO 'Indítás' gombjának PostMessage-elt kattintása egy 4 másik stressz-teszttel
+        # párhuzamosan terhelt gépen hatástalan maradt, és a startup ablak csak ült ott.
+        # (Kihagyott opcionális utolsó lépésnél így a megelőző valódi kattintás ellenőrződik.)
+        if last_clicked:
+            self._verify_final_click(pid, last_clicked[0], last_clicked[1])
 
     def _verify_final_click(self, pid, btn, labels, retries=3, wait_secs=6):
         """A kattintás-sorozat utolsó gombjának (pl. HWiNFO 'Indítás', Prime95 'OK',
@@ -1664,6 +1713,7 @@ del "%~f0"
                         if pid:
                             launched += 1
                             pid_map[key] = pid
+                            self._stress_pids[key] = pid  # stop_stress_tests innen tudja, mit kell kilőni
                             self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva: {display_name}'})
                             if console_script:
                                 self.emit('task_progress', {'task': 'stress', 'log': '  🤖 Linpack menü automatikus kitöltése elindult (RAM-választás + megerősítések).'})
@@ -1769,13 +1819,53 @@ del "%~f0"
 
                 console_script = self._build_linpack_console_script() if name == 'linpack' else None
                 click_sequence = STRESS_CLICK_SEQUENCES.get(name)
-                if self._launch_stress_exe(exe_path, display_name, console_script=console_script, click_sequence=click_sequence):
+                pid = self._launch_stress_exe(exe_path, display_name, console_script=console_script, click_sequence=click_sequence)
+                if pid:
+                    if pid > 0:
+                        self._stress_pids[name] = pid  # stop_stress_tests innen tudja, mit kell kilőni
                     self.emit('toast', {'message': f'✅ {display_name} elindítva!', 'type': 'success'})
                 else:
                     self.emit('toast', {'message': f'❌ Hiba a(z) {display_name} indításakor!', 'type': 'error'})
             except Exception as e:
                 logging.error(f"[STRESSTOOLS] start_stress_tool hiba ({name}): {e}")
                 self.emit('toast', {'message': f'❌ Hiba: {e}', 'type': 'error'})
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def stop_stress_tests(self):
+        """Az ÖSSZES futó stressz-teszt/monitor program azonnali bezárása (a Stabilitás
+        Teszt nézet és a stressz-folyamat modal piros gombja hívja). Két rétegben öl:
+        (1) az általunk indított, eltárolt PID-ek teljes folyamatfája (taskkill /T - ez a
+        Linpack cmd+linpack_engine gyerekeit is elviszi), (2) biztonsági hálóként a jól
+        ismert programnevek szerint is (STRESS_KILL_IMAGES - pl. UAC 'runas' úton indított
+        példány, ahol nincs PID-ünk). Végül visszaállítja a stressz-teszt által letiltott
+        energiagazdálkodási beállításokat (képernyő-kikapcsolás/alvás), hiszen a tesztnek
+        vége. Szándékosan nem megy át a _task_busy kapun: egy még futó (pl. ablakrendezésre
+        váró) stressz-task mellett is azonnal működnie kell."""
+        logging.info("[API] stop_stress_tests()")
+
+        def worker():
+            try:
+                for key, pid in list(self._stress_pids.items()):
+                    if pid and pid > 0:
+                        self._run(['taskkill', '/PID', str(pid), '/T', '/F'])
+                self._stress_pids = {}
+                # Egyetlen taskkill hívás az összes ismert programnévre (a taskkill több
+                # /IM kapcsolót is elfogad) - a "nem fut ilyen" esetek várható, ártalmatlan
+                # hibakódot adnak, ezért nem egyenként hívjuk és nem is ellenőrizzük.
+                image_args = []
+                for image in STRESS_KILL_IMAGES:
+                    image_args += ['/IM', image]
+                self._run(['taskkill', '/F', '/T'] + image_args)
+                try:
+                    self._restore_power_after_stress()
+                except Exception as e:
+                    logging.warning(f"[STRESSTOOLS] Energiagazdálkodás visszaállítási hiba a leállítás után: {e}")
+                logging.info("[STRESSTOOLS] Minden stressz-teszt program bezárva (stop_stress_tests).")
+                self.emit('toast', {'message': '🛑 Minden stressz-teszt program bezárva.', 'type': 'success'})
+            except Exception as e:
+                logging.error(f"[STRESSTOOLS] stop_stress_tests hiba: {e}")
+                self.emit('toast', {'message': f'❌ Hiba a tesztek bezárásakor: {e}', 'type': 'error'})
 
         threading.Thread(target=worker, daemon=True).start()
 
