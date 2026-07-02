@@ -17,7 +17,7 @@ import math
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 176
+BUILD_NUMBER = 177
 
 try:
     import webview
@@ -241,10 +241,13 @@ STRESS_CLICK_SEQUENCES = {
     ],
     'hwinfo': [
         ['Indítás', 'Start'],  # a HWiNFO64.INI SensorsOnly=1 már kiválasztja a módot
-        # Indítás után a HWiNFO időnként még feldob egy megerősítő ablakot (terepen látott
-        # viselkedés) - ha 20 mp-en belül megjelenik egy OK/Igen gombos ablak, azt is
-        # lenyomjuk; ha nem jön ilyen, a lépés hang nélkül kimarad.
-        {'labels': ['OK', 'Igen', 'Yes'], 'optional': True, 'timeout': 20, 'exact': True},
+        # Indítás után a HWiNFO még feldobhat egy ablakot: terepen (debug leltárból
+        # azonosítva) ez a "HWiNFO® 64 Update" frissítés-értesítő volt, aminek a gombja
+        # 'Bezárás'/'Close' - de más megerősítő popup (OK/Igen/Yes gombbal) is előfordulhat.
+        # Ha 20 mp-en belül megjelenik ezek egyike, lenyomjuk; ha nem, a lépés hang nélkül
+        # kimarad. (Az INI-be írt CheckForUpdate=0 elvileg magát az update-ablakot is
+        # letiltja - ez a lépés a biztonsági háló, ha az INI-kulcsot nem venné figyelembe.)
+        {'labels': ['OK', 'Igen', 'Yes', 'Bezárás', 'Close'], 'optional': True, 'timeout': 20, 'exact': True},
     ],
 }
 
@@ -457,6 +460,12 @@ class DriverToolApi:
         # Log minden parancs futtatását
         cmd_str = cmd if isinstance(cmd, str) else ' '.join(str(c) for c in cmd)
         logging.debug(f"[CMD] Futtatás: {cmd_str[:300]}")
+        # stdin alapból DEVNULL: egyik parancsunk sem olvas stdin-t, VISZONT a stressz-teszt
+        # automatizálás AttachConsole/FreeConsole hívásai után a folyamat örökölt stdin
+        # handle-je érvénytelenné válik, és az örökölt-stdin + capture_output kombináció
+        # ettől kezdve MINDEN parancsindítást "[WinError 6] A leíró érvénytelen" hibával
+        # buktatna el (terepen bizonyított: stressz teszt után a taskkill sem futott le).
+        kwargs.setdefault('stdin', subprocess.DEVNULL)
         start = time.time()
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, errors='replace',
@@ -1702,9 +1711,12 @@ del "%~f0"
                     if exe and os.path.exists(exe):
                         if key == 'hwinfo':
                             try:
+                                # CheckForUpdate=0: az indítás után felugró "HWiNFO Update"
+                                # értesítő letiltása (ha a kulcsot nem venné figyelembe, a
+                                # kattintás-szekvencia opcionális Bezárás-lépése a háló).
                                 ini_path = os.path.join(os.path.dirname(exe), "HWiNFO64.INI")
                                 with open(ini_path, "w") as f:
-                                    f.write("[Settings]\nSensorsOnly=1\n")
+                                    f.write("[Settings]\nSensorsOnly=1\nCheckForUpdate=0\n")
                             except Exception:
                                 pass
                         console_script = self._build_linpack_console_script() if key == 'linpack' else None
@@ -1750,9 +1762,13 @@ del "%~f0"
                             still_running = [t.name.replace('auto:', '') for t in auto_threads if t.is_alive()]
                             self.emit('task_progress', {'task': 'stress', 'log': f'  ⏳ Még folyamatban: {", ".join(still_running)}...'})
                     # Rövid türelmi idő az UTOLSÓ kattintás után létrejövő végleges ablakoknak
-                    # (pl. a FurMark render-ablaka a GO megnyomása után pár mp-cel jelenik meg,
-                    # a Prime95 torture-ablakai az OK után) - csak ezután érdemes pozicionálni.
-                    for _ in range(10):
+                    # (pl. a FurMark render-ablaka a GO megnyomása után pár mp-cel jelenik
+                    # meg). Rövid lehet: az automatizálási szálak a saját utolsó kattintásuk
+                    # HATÁSÁT is bevárják (_verify_final_click), tehát mire ideérünk, a
+                    # dialógusok bizonyítottan bezárultak - ez csak a fő ablakok megjelenési
+                    # ideje, a felhasználói elvárás pedig az, hogy a nyomkodás után AZONNAL
+                    # jöjjön a rendezés.
+                    for _ in range(3):
                         if self._check_cancel():
                             break
                         time.sleep(1)
@@ -1811,9 +1827,10 @@ del "%~f0"
 
                 if name == 'hwinfo':
                     try:
+                        # CheckForUpdate=0 - lásd a start_stress_tests azonos sorát.
                         ini_path = os.path.join(os.path.dirname(exe_path), "HWiNFO64.INI")
                         with open(ini_path, "w") as f:
-                            f.write("[Settings]\nSensorsOnly=1\n")
+                            f.write("[Settings]\nSensorsOnly=1\nCheckForUpdate=0\n")
                     except Exception:
                         pass
 
@@ -5226,6 +5243,9 @@ class CliApi:
         """Parancs futtatás (CLI verzió)."""
         cmd_str = cmd if isinstance(cmd, str) else ' '.join(str(c) for c in cmd)
         logging.debug(f"[CMD_CLI] Futtatás: {cmd_str[:300]}")
+        # stdin alapból DEVNULL - lásd DriverToolApi._run azonos sorát (érvénytelenné vált
+        # örökölt stdin handle elleni védelem; CLI-ben konzisztencia okán ugyanígy).
+        kwargs.setdefault('stdin', subprocess.DEVNULL)
         start = time.time()
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, errors='replace',
