@@ -17,7 +17,7 @@ import math
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 182
+BUILD_NUMBER = 183
 
 try:
     import webview
@@ -6810,7 +6810,7 @@ Write-Output "DONE: Törölve: $count / $total"
     def autofix(self):
         """Teljes automatikus driver fix (mint a GUI-ban)."""
         if self.target_os_path:
-            print("\n❌ Hiba: Az 1 Kattintásos Fix (Autofix) csak Élő (Online) rendszeren futtatható!")
+            print("\n❌ Hiba: Az 1 Kattintásos Driver Fix (Autofix) csak Élő (Online) rendszeren futtatható!")
             return
             
         print("\n" + "=" * 60)
