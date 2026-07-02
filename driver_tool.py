@@ -17,7 +17,7 @@ import math
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 178
+BUILD_NUMBER = 179
 
 try:
     import webview
