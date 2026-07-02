@@ -42,7 +42,9 @@ body::after{content:'';position:fixed;width:700px;height:700px;background:radial
 .nav-btn:hover{background:rgba(180,100,255,0.12);color:var(--text);border-color:rgba(180,100,255,0.2)}
 .nav-btn.active{background:linear-gradient(135deg,rgba(180,100,255,0.3),rgba(160,80,255,0.2));color:#fff;box-shadow:0 0 25px rgba(180,100,255,0.2);border-color:rgba(180,100,255,0.4)}
 .nav-btn .icon{font-size:17px;width:24px;text-align:center;flex-shrink:0}
-.sidebar-bottom{margin-top:auto;padding:10px 12px;text-align:center;color:var(--green);font-size:11px;font-weight:600}
+.sidebar-bottom{margin-top:auto;padding:10px 12px 4px;text-align:center;color:var(--green);font-size:11px;font-weight:600}
+.sidebar-datadir{padding:0 12px 12px;text-align:center;color:var(--text3);font-size:10.5px;cursor:pointer;transition:color var(--t)}
+.sidebar-datadir:hover{color:var(--accent)}
 
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
 
@@ -100,16 +102,53 @@ body::after{content:'';position:fixed;width:700px;height:700px;background:radial
 .toggle input:checked+.toggle-track::after{left:18px}
 
 /* Table */
-.table-wrap{overflow-y:auto;max-height:calc(100vh - 300px);border-radius:var(--r-sm);border:1px solid var(--glass-border);scrollbar-width:thin;scrollbar-color:rgba(180,100,255,0.3) transparent;background:rgba(25,15,45,0.5)}
+.table-wrap{overflow-y:auto;max-height:430px;border-radius:var(--r-sm);border:1px solid var(--glass-border);scrollbar-width:thin;scrollbar-color:rgba(180,100,255,0.3) transparent;background:rgba(25,15,45,0.5)}
 .table-wrap::-webkit-scrollbar{width:6px}
 .table-wrap::-webkit-scrollbar-thumb{background:rgba(180,100,255,0.3);border-radius:3px}
 table{width:100%;border-collapse:collapse}
+tbody tr:nth-child(even) td{background:rgba(255,255,255,0.02)}
 th{position:sticky;top:0;padding:12px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--green);background:rgba(35,20,60,0.95);backdrop-filter:blur(10px);border-bottom:1px solid var(--glass-border);z-index:1}
+th.sortable{cursor:pointer;user-select:none;transition:color var(--t)}
+th.sortable:hover{color:var(--text)}
+th.sortable.sorted{color:var(--accent);text-shadow:0 0 8px rgba(212,136,255,0.4)}
+th.sortable .sort-arrow{display:inline-block;margin-left:5px;font-size:9px}
 td{padding:10px 14px;border-bottom:1px solid rgba(180,100,255,0.1);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}
 tr{transition:background var(--t)}
-tr:hover td{background:rgba(180,100,255,0.08)}
-tr.selected td{background:rgba(180,100,255,0.2)}
-td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
+tr:hover td{background:rgba(180,100,255,0.1)!important}
+tr.selected td{background:rgba(180,100,255,0.22)!important}
+td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;cursor:pointer}
+
+/* Class/provider chips in the driver table */
+.class-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:rgba(180,100,255,0.14);border:1px solid rgba(180,100,255,0.25);font-size:12px;white-space:nowrap;color:var(--text2)}
+
+/* Panel header row: title + live count badge */
+.panel-header-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.panel-header-row .panel-title{margin-bottom:0}
+.count-badge{background:rgba(180,100,255,0.16);border:1px solid var(--glass-border);color:var(--green);font-size:12px;font-weight:700;padding:6px 14px;border-radius:999px;white-space:nowrap}
+
+/* Live search box in toolbars */
+.search-box{position:relative;flex:1;min-width:160px;max-width:260px}
+.search-box input{width:100%;padding:8px 12px 8px 30px;border-radius:999px;border:1px solid var(--glass-border);background:rgba(20,12,38,0.6);color:var(--text);font:13px var(--font);transition:all var(--t)}
+.search-box input::placeholder{color:var(--text3)}
+.search-box input:focus{outline:none;border-color:var(--glass-border-hover);box-shadow:0 0 0 3px rgba(180,100,255,0.15)}
+.search-box .icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:12px;opacity:0.6;pointer-events:none}
+
+/* Danger-zone wrapper for the "list all/inbox drivers" toggle */
+.danger-zone{display:flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;background:rgba(255,100,90,0.1);border:1px solid rgba(255,100,90,0.3)}
+.danger-zone .toggle{color:#ffcfc9}
+.danger-zone .toggle-track{background:rgba(255,100,90,0.25);border-color:rgba(255,100,90,0.35)}
+.danger-zone .toggle input:checked+.toggle-track{background:var(--red);border-color:var(--red)}
+
+/* Welcome / intro banner on the Drivers landing view */
+.welcome-panel{padding:16px 22px}
+.welcome-header{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+.welcome-emoji{font-size:28px;line-height:1;filter:drop-shadow(0 0 12px rgba(212,136,255,0.5))}
+.welcome-title{font-size:16px;font-weight:800;color:var(--text)}
+.welcome-sub{font-size:12.5px;color:var(--text3);margin-top:2px}
+.welcome-features{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.welcome-feature{display:flex;align-items:flex-start;gap:8px;padding:8px 12px;border-radius:var(--r-sm);background:rgba(255,255,255,0.03);border:1px solid rgba(180,100,255,0.15);font-size:12px;color:var(--text2);line-height:1.4}
+.welcome-feature .fi{font-size:16px;flex-shrink:0}
+.welcome-feature b{color:var(--text)}
 
 /* Status bar */
 .status-bar{display:flex;align-items:center;gap:12px;padding:12px 0 0;color:var(--text2);font-size:13px;font-weight:500}
@@ -213,6 +252,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
     <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stabilitás Teszt</button>
     <button class="nav-btn" onclick="switchView('report')" data-view="report"><span class="icon">📊</span>Rendszer Riport (PDF)</button>
     <div class="sidebar-bottom" id="build-label">Build ---</div>
+    <div class="sidebar-datadir" id="data-dir-label" title="Ide menti a program a debug naplót és a Rendszer Riport HTML fájlokat - kattints a megnyitáshoz" onclick="openAppDataDir()">📁 ...</div>
   </nav>
 
   <div class="main">
@@ -227,31 +267,66 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
       <!-- VIEW: Drivers -->
       <div class="view active" id="view-drivers">
         <div class="panel glass">
+          <div class="panel-header-row">
+            <div class="panel-title"><span class="emoji">💿</span> Harmadik féltől származó driverek</div>
+            <span class="count-badge" id="driver-count-badge">0 driver</span>
+          </div>
           <div class="toolbar">
             <button class="btn" onclick="loadDrivers()">🔄 Frissítés</button>
             <button class="btn btn-danger" onclick="deleteSelected()" id="btn-delete" disabled>🗑 Kijelöltek Törlése</button>
-            <label class="toggle" title="Törlés után automatikusan újraindítja a gépet" style="margin-left:10px;">
+            <button class="btn" onclick="selectAllDrivers()">☑ Mind Kijelölése</button>
+            <label class="toggle" title="Törlés után automatikusan újraindítja a gépet">
               <input type="checkbox" id="reboot-after-delete">
               <span class="toggle-track"></span>
-              Törlés után azonnali újraindítás
+              Újraindítás törlés után
             </label>
-            <button class="btn" onclick="selectAllDrivers()">☑ Mind Kijelölése</button>
+            <div class="search-box">
+              <span class="icon">🔎</span>
+              <input type="text" id="driver-search" placeholder="Keresés név/gyártó/típus szerint..." oninput="filterDrivers()">
+            </div>
             <div class="toolbar-right">
-              <label class="toggle" title="FIGYELEM: Gyári driverek törlése tönkreteheti a rendszert!">
-                <input type="checkbox" id="toggle-all-drivers" onchange="toggleAllDrivers()">
-                <span class="toggle-track"></span>
-                Minden Driver (veszélyes!)
-              </label>
+              <div class="danger-zone" title="FIGYELEM: Gyári driverek törlése tönkreteheti a rendszert!">
+                <label class="toggle">
+                  <input type="checkbox" id="toggle-all-drivers" onchange="toggleAllDrivers()">
+                  <span class="toggle-track"></span>
+                  ⚠️ Minden Driver (veszélyes!)
+                </label>
+              </div>
             </div>
           </div>
           <div class="table-wrap" id="driver-table-wrap">
             <table>
-              <thead><tr><th style="width:30px"></th><th>Published Name</th><th>Original Name</th><th>Provider</th><th>Class</th><th>Version</th></tr></thead>
+              <thead><tr>
+                <th style="width:30px"></th>
+                <th class="sortable" data-sort-key="published" onclick="sortDriversBy('published')">Published Name<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort-key="original" onclick="sortDriversBy('original')">Original Name<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort-key="provider" onclick="sortDriversBy('provider')">Provider<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort-key="class" onclick="sortDriversBy('class')">Class<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort-key="version" onclick="sortDriversBy('version')">Version<span class="sort-arrow"></span></th>
+              </tr></thead>
               <tbody id="driver-tbody"></tbody>
             </table>
           </div>
           <div class="status-bar" id="driver-status"><span class="status-dot"></span> Kattints a Frissítés gombra a driverek betöltéséhez.</div>
           <div id="driver-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
+        </div>
+
+        <div class="panel glass welcome-panel">
+          <div class="welcome-header">
+            <div class="welcome-emoji">🧙‍♂️</div>
+            <div>
+              <div class="welcome-title">Üdvözöllek a DriverVarázsló programban!</div>
+              <div class="welcome-sub">Egyetlen program, ami a legtöbb driveres és rendszer-karbantartási fejfájást megoldja neked.</div>
+            </div>
+          </div>
+          <div class="welcome-features">
+            <div class="welcome-feature"><span class="fi">💿</span><span><b>Driverkezelés</b> — listázás, erőszakos törlés, mentés/visszaállítás, akár offline (WinPE) módban is</span></div>
+            <div class="welcome-feature"><span class="fi">⚡</span><span><b>1 Kattintásos Fix</b> — automatikus driver-frissítés, reteszelt lépésekkel és újraindítás-lánccal</span></div>
+            <div class="welcome-feature"><span class="fi">🔄</span><span><b>Windows Update felügyelet</b> — driverfrissítések letiltása vagy szüneteltetése</span></div>
+            <div class="welcome-feature"><span class="fi">👻</span><span><b>Szellemeszközök</b> és <b>Temp fájlok</b> takarítása egy kattintással</span></div>
+            <div class="welcome-feature"><span class="fi">🔥</span><span><b>Stabilitás Teszt</b> és <b>Rendszer Riport</b> — S.M.A.R.T. adatokkal, automatikusan</span></div>
+            <div class="welcome-feature"><span class="fi">🔧</span><span><b>BCD Boot-hiba Javítás</b> — ha a Windows driver miatt nem indul el</span></div>
+          </div>
         </div>
       </div>
 
@@ -462,7 +537,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
       <div class="view" id="view-report">
         <div class="panel glass">
           <div class="panel-title"><span class="emoji">📊</span> Rendszer Riport (HTML Gépkönyv)</div>
-          <p style="margin-bottom: 16px; color: var(--text3);">Egy szép, modern HTML dokumentumot generál a számítógép hardveres adatairól (CPU, Memória, Videókártyák, és Háttértárak S.M.A.R.T. adatai), amit a böngésződben megnyitva akár PDF-be is lementhetsz vagy kinyomtathatsz. A fájl a program mellé kerül mentésre.</p>
+          <p style="margin-bottom: 16px; color: var(--text3);">Egy szép, modern HTML dokumentumot generál a számítógép hardveres adatairól (CPU, Memória, Videókártyák, és Háttértárak S.M.A.R.T. adatai), amit a böngésződben megnyitva akár PDF-be is lementhetsz vagy kinyomtathatsz. A fájl a <code>C:\DriverVarazslo</code> mappába kerül mentésre.</p>
           <button class="btn btn-big btn-success" onclick="generateSystemReport()" id="btn-report">📄 HTML Riport Generálása</button>
         </div>
       </div>
@@ -500,6 +575,9 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
         <span class="toggle-track"></span>
         Nyomtató és szkenner driverek kihagyása (ajánlott)
       </label>
+      <div id="mc-note-row" style="display:none;margin-top:14px">
+        <textarea id="mc-note-input" rows="3" placeholder="Pl.: időszakos fagyás játék közben, gyanús kattogó hang a gépből..." style="width:100%;padding:10px 12px;border-radius:var(--r-sm);border:1px solid var(--glass-border);background:rgba(20,12,38,0.6);color:var(--text);font:13px var(--font);resize:vertical"></textarea>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn" id="mc-cancel" onclick="resolveConfirm(null)">Mégse</button>
@@ -524,9 +602,27 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
 <script>
 /* ========== STATE ========== */
 let currentView = 'drivers';
+let appDataDir = '';
 let drivers = [];
 let selectedDrivers = new Set();
 let listAll = false;  // Synced with toggle-all-drivers checkbox
+let driverFilterText = '';
+// Alapból Class szerint rendezve töltődik be a lista, hogy az azonos típusú driverek
+// (pl. az összes Printer) egymás mellett legyenek, ne összevissza.
+let driverSortKey = 'class';
+let driverSortDir = 'asc';
+// Gyors vizuális ikon a Class oszlophoz - csak esztétikai segédlet, ismeretlen/új
+// Class értékekre a generikus 🧩-ra esik vissza, sosem hibázik/dob kivételt.
+const CLASS_ICONS = {
+  printer: '🖨️', scsiadapter: '💽', securitydevices: '🛡️', bluetooth: '📶',
+  display: '🖥️', media: '🔊', softwaredevice: '🧩', usb: '🔌',
+  audioprocessingobject: '🎚️', hsm: '🎮', system: '⚙️', net: '🌐',
+  hidclass: '🕹️', mouse: '🖱️', keyboard: '⌨️', monitor: '🖥️',
+  biometric: '🔒', sensor: '📡', camera: '📷', modem: '📠'
+};
+function classIcon(cls) {
+  return CLASS_ICONS[(cls || '').toLowerCase()] || '🧩';
+}
 let hwPool = [];
 let hwInstalled = [];
 let hwSelectedIndices = new Set();
@@ -586,6 +682,8 @@ window.addEventListener('pywebviewready', async () => {
   try {
     const data = await api().get_init_data();
     document.getElementById('build-label').textContent = 'Build ' + String(data.build).padStart(3, '0');
+    appDataDir = data.app_data_dir || '';
+    document.getElementById('data-dir-label').textContent = '📁 ' + (appDataDir || 'Naplók/Riportok');
     updateTargetLabel(data.target_os, data.sys_drive);
     loadDrivers();
     
@@ -767,21 +865,78 @@ async function loadDrivers() {
     toast('Driver lista betöltési hiba: ' + e, 'error');
   }
 }
+function getFilteredDriverIndices() {
+  let out;
+  if (!driverFilterText) {
+    out = drivers.map((_, i) => i);
+  } else {
+    const q = driverFilterText.toLowerCase();
+    out = [];
+    drivers.forEach((d, i) => {
+      const hay = [d.published, d.original, d.provider, d.class, d.version].join(' ').toLowerCase();
+      if (hay.includes(q)) out.push(i);
+    });
+  }
+  const dir = driverSortDir === 'desc' ? -1 : 1;
+  out.sort((a, b) => {
+    const va = (drivers[a][driverSortKey] || '').toLowerCase();
+    const vb = (drivers[b][driverSortKey] || '').toLowerCase();
+    if (va < vb) return -1 * dir;
+    if (va > vb) return 1 * dir;
+    // Másodlagos rendezés Published Name szerint - ha az elsődleges kulcs (pl. Class)
+    // egyezik, akkor is stabil, kiszámítható sorrendben jelenjenek meg a driverek.
+    const pa = (drivers[a].published || '').toLowerCase();
+    const pb = (drivers[b].published || '').toLowerCase();
+    return pa < pb ? -1 : pa > pb ? 1 : 0;
+  });
+  return out;
+}
+function filterDrivers() {
+  driverFilterText = document.getElementById('driver-search').value.trim();
+  renderDriverTable();
+}
+function sortDriversBy(key) {
+  if (driverSortKey === key) {
+    driverSortDir = driverSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    driverSortKey = key;
+    driverSortDir = 'asc';
+  }
+  renderDriverTable();
+}
+function updateSortHeaders() {
+  document.querySelectorAll('#driver-table-wrap th.sortable').forEach(th => {
+    const key = th.getAttribute('data-sort-key');
+    const arrow = th.querySelector('.sort-arrow');
+    const active = key === driverSortKey;
+    th.classList.toggle('sorted', active);
+    if (arrow) arrow.textContent = active ? (driverSortDir === 'asc' ? '▲' : '▼') : '';
+  });
+}
 function renderDriverTable() {
   const tbody = document.getElementById('driver-tbody');
   tbody.innerHTML = '';
-  drivers.forEach((d, i) => {
+  const indices = getFilteredDriverIndices();
+  indices.forEach(i => {
+    const d = drivers[i];
     const tr = document.createElement('tr');
     tr.onclick = () => toggleDriverSel(i);
     tr.innerHTML = '<td><input type="checkbox" '+(selectedDrivers.has(i)?'checked':'')+' onclick="event.stopPropagation();toggleDriverSel('+i+')"></td>'
       + '<td title="'+esc(d.published||'')+'">'+esc(d.published||'')+'</td>'
       + '<td title="'+esc(d.original||'')+'">'+esc(d.original||'')+'</td>'
       + '<td>'+esc(d.provider||'')+'</td>'
-      + '<td>'+esc(d.class||'')+'</td>'
+      + '<td><span class="class-chip">'+classIcon(d.class)+' '+esc(d.class||'')+'</span></td>'
       + '<td>'+esc(d.version||'')+'</td>';
     if (selectedDrivers.has(i)) tr.classList.add('selected');
     tbody.appendChild(tr);
   });
+  const badge = document.getElementById('driver-count-badge');
+  if (badge) {
+    badge.textContent = driverFilterText
+      ? indices.length + ' / ' + drivers.length + ' driver'
+      : drivers.length + ' driver';
+  }
+  updateSortHeaders();
 }
 function toggleDriverSel(i) {
   if (selectedDrivers.has(i)) selectedDrivers.delete(i); else selectedDrivers.add(i);
@@ -789,7 +944,7 @@ function toggleDriverSel(i) {
   updateDeleteBtn();
 }
 function selectAllDrivers() {
-  drivers.forEach((_, i) => selectedDrivers.add(i));
+  getFilteredDriverIndices().forEach(i => selectedDrivers.add(i));
   renderDriverTable();
   updateDeleteBtn();
 }
@@ -1046,10 +1201,12 @@ async function resumeWu() {
 
 /* ========== HTML REPORT ========== */
 async function generateSystemReport() {
+  const note = await showPromptTextarea('Rendszer Riport Generálása', 'Írhatsz egy rövid megjegyzést a géphez (pl. amit tapasztaltál), ami bekerül a riportba is - vagy hagyd üresen és nyomd meg a gombot.');
+  if (note === null) return;
   document.getElementById('btn-report').disabled = true;
   document.getElementById('btn-report').textContent = '⏳ Adatok letapogatása...';
   try {
-    const res = await api().generate_system_report();
+    const res = await api().generate_system_report(note);
     if (res && res.success) {
       const openFile = await showConfirm('Kész!', 'A rendszer riport sikeresen elkészült:\n' + res.path + '\n\nMegnyitod most a fájlt a böngésződben?');
       if (openFile) {
@@ -1218,6 +1375,15 @@ async function cleanTempFiles() {
   }
 }
 
+async function openAppDataDir() {
+  if (!appDataDir) return;
+  try {
+    await api().open_file(appDataDir);
+  } catch (e) {
+    toast('Nem sikerült megnyitni a mappát: ' + e, 'error');
+  }
+}
+
 /* ========== PROGRESS MODAL ========== */
 function showProgressModal(title, phase) {
   document.getElementById('mp-title').textContent = title || 'Folyamat';
@@ -1372,6 +1538,25 @@ function showAutoFixConfirm(title, message) {
 function resolveConfirm(val) {
   document.getElementById('modal-confirm').classList.remove('active');
   if (confirmResolver) { confirmResolver(val); confirmResolver = null; }
+}
+// Szöveges megjegyzés bekérése egy textarea-val kiegészített confirm modal-lal (pl. a
+// Rendszer Riport előtt) - null-t ad vissza Mégse esetén, egyébként a beírt (esetleg üres) szöveget.
+function showPromptTextarea(title, message) {
+  return new Promise(resolve => {
+    confirmResolver = (val) => {
+      const note = document.getElementById('mc-note-input').value;
+      document.getElementById('mc-note-row').style.display = 'none';
+      document.getElementById('mc-note-input').value = '';
+      resolve(val ? note : null);
+    };
+    document.getElementById('mc-title').textContent = title;
+    document.getElementById('mc-message').textContent = message;
+    document.getElementById('mc-no').style.display = 'none';
+    document.getElementById('mc-cancel').textContent = 'Mégse';
+    document.getElementById('mc-yes').textContent = 'Riport Generálása';
+    document.getElementById('mc-note-row').style.display = 'block';
+    document.getElementById('modal-confirm').classList.add('active');
+  });
 }
 
 /* ========== ALERT MODAL ========== */

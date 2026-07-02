@@ -17,7 +17,7 @@ import math
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 179
+BUILD_NUMBER = 180
 
 try:
     import webview
@@ -502,6 +502,21 @@ def _temp_clean_category_defs(sys_drive):
     ]
 
 
+def _app_data_dir():
+    """A DriverVarázsló saját adatmappája (debug log, HTML rendszer riportok) - a
+    rendszerlemez gyökerében, NEM a program (exe) mellett. Így mindig ugyanott van (a
+    felhasználó/szerviz megszokhatja, hova nézzen), függetlenül attól, honnan futtatják
+    épp az exe-t (Asztal, letöltések mappa, USB stick, hálózati megosztás - utóbbi kettő
+    akár írásvédett is lehet, ahova maga az exe mellé semmiképp nem tudna írni)."""
+    sys_drive = os.environ.get('SystemDrive', 'C:') + '\\'
+    path = os.path.join(sys_drive, 'DriverVarazslo')
+    try:
+        os.makedirs(path, exist_ok=True)
+    except Exception:
+        pass
+    return path
+
+
 # Stabilitás Teszt közben letiltandó energiagazdálkodási beállítások (powercfg alias-ok -
 # ezek a kulcsszavak nyelvfüggetlenek, minden Windows-nyelven ugyanígy kell megadni őket).
 # SUB_VIDEO/VIDEOIDLE = kijelző kikapcsolása, SUB_SLEEP/STANDBYIDLE = alvó mód,
@@ -691,32 +706,46 @@ class DriverToolApi:
         logging.log(log_lvl, f"[JS_UI] {msg}")
 
     def check_for_updates(self):
+        """Update-ellenőrzés a GitHub-on lévő driver_tool.py BUILD_NUMBER-je alapján.
+        Legfeljebb UPDATE_CHECK_ATTEMPTS-szor próbálkozik, próbálkozások közt
+        UPDATE_CHECK_RETRY_SEC másodperc szünettel - a raw.githubusercontent.com egy
+        Fastly CDN mögött fut, aminek edge-cache-e egy friss push után még percekig a
+        RÉGI tartalmat adhatja vissza (a lekérésbe rakott ?t=<timestamp> csak a
+        kliens/böngésző-oldali cache-t kerüli meg, a CDN edge-cache-ét nem) - emiatt
+        közvetlenül egy rebuild.bat futtatása utáni azonnali indításkor az első próbálkozás
+        könnyen a még nem frissült verziót kaphatja vissza. Ez a retry nem garantált fix
+        (a CDN-lag néha percekben mérhető, ennél tovább a felhasználót nem várakoztatjuk
+        induláskor), de a gyakori pár-másodperces eseteket lefedi."""
         logging.info("[UPDATE] check_for_updates()")
-        try:
-            import urllib.request
-            import ssl
-            ssl_ctx = ssl.create_default_context()
-            # Bypassing GitHub cache with a timestamp
-            url = f"https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t={int(time.time())}"
-            logging.info(f"[UPDATE] Update ellenőrzése erről a címről: {url}")
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-            with urllib.request.urlopen(req, context=ssl_ctx, timeout=10) as resp:
-                content = resp.read().decode('utf-8')
-            m = re.search(r'^BUILD_NUMBER\s*=\s*(\d+)', content, re.MULTILINE)
-            if m:
-                new_build = int(m.group(1))
-                logging.info(f"[UPDATE] Letöltött BUILD_NUMBER: {new_build}, Helyi: {BUILD_NUMBER}")
-                if new_build > BUILD_NUMBER:
-                    logging.info(f"[UPDATE] Új verzió elérhető: {new_build} (Jelenlegi: {BUILD_NUMBER})")
-                    return {'has_update': True, 'new_version': new_build}
+        import urllib.request
+        import ssl
+        ssl_ctx = ssl.create_default_context()
+        UPDATE_CHECK_ATTEMPTS = 3
+        UPDATE_CHECK_RETRY_SEC = 3
+        for attempt in range(1, UPDATE_CHECK_ATTEMPTS + 1):
+            try:
+                # Bypassing GitHub cache with a timestamp
+                url = f"https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t={int(time.time())}"
+                logging.info(f"[UPDATE] Update ellenőrzése erről a címről ({attempt}/{UPDATE_CHECK_ATTEMPTS}. próbálkozás): {url}")
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+                with urllib.request.urlopen(req, context=ssl_ctx, timeout=10) as resp:
+                    content = resp.read().decode('utf-8')
+                m = re.search(r'^BUILD_NUMBER\s*=\s*(\d+)', content, re.MULTILINE)
+                if m:
+                    new_build = int(m.group(1))
+                    logging.info(f"[UPDATE] Letöltött BUILD_NUMBER: {new_build}, Helyi: {BUILD_NUMBER}")
+                    if new_build > BUILD_NUMBER:
+                        logging.info(f"[UPDATE] Új verzió elérhető: {new_build} (Jelenlegi: {BUILD_NUMBER})")
+                        return {'has_update': True, 'new_version': new_build}
+                    else:
+                        logging.info("[UPDATE] Nincs újabb verzió.")
                 else:
-                    logging.info("[UPDATE] Nincs újabb verzió.")
-            else:
-                logging.error(f"[UPDATE] Nem található BUILD_NUMBER a letöltött fájlban!")
-            return {'has_update': False}
-        except Exception as e:
-            logging.error(f"[UPDATE] Ellenőrzési hiba:", exc_info=True)
-            return {'has_update': False}
+                    logging.error("[UPDATE] Nem található BUILD_NUMBER a letöltött fájlban!")
+            except Exception:
+                logging.error(f"[UPDATE] Ellenőrzési hiba ({attempt}/{UPDATE_CHECK_ATTEMPTS}. próbálkozás):", exc_info=True)
+            if attempt < UPDATE_CHECK_ATTEMPTS:
+                time.sleep(UPDATE_CHECK_RETRY_SEC)
+        return {'has_update': False}
 
     def perform_update(self):
         logging.info("[UPDATE] perform_update indítása...")
@@ -813,7 +842,7 @@ del "%~f0"
 
     def get_init_data(self):
         logging.info(f"[API] get_init_data() hívás - build={BUILD_NUMBER}, target={self.target_os_path}")
-        return {'build': BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path, 'resume_mode': getattr(self, 'resume_mode', False), 'resume_step1': getattr(self, 'resume_step1', False)}
+        return {'build': BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path, 'resume_mode': getattr(self, 'resume_mode', False), 'resume_step1': getattr(self, 'resume_step1', False), 'app_data_dir': _app_data_dir()}
 
     def reboot_system(self):
         logging.info("[API] reboot_system() - Felhasználó újraindítást kért")
@@ -2179,7 +2208,7 @@ del "%~f0"
                     current["provider"] = val
                 elif "Class Name" in key:
                     current["class"] = val
-                elif "Date and Version" in key:
+                elif "Version" in key:
                     current["version"] = val
         if current and "published" in current:
             drivers.append(current)
@@ -2243,7 +2272,7 @@ del "%~f0"
                     current["provider"] = val
                 elif "Class Name" in key:
                     current["class"] = val
-                elif "Date and Version" in key:
+                elif "Version" in key:
                     current["version"] = val
         if current and "published" in current:
             drivers.append(current)
@@ -5104,8 +5133,8 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
             logging.error(f"Cannot open file: {e}")
             return False
 
-    def generate_system_report(self):
-        logging.info("[API] generate_system_report()")
+    def generate_system_report(self, note=None):
+        logging.info(f"[API] generate_system_report(note={'igen' if note else 'nem'})")
         try:
             # S.M.A.R.T adatok begyűjtése (smartctl - stress tools zipből)
             stress_dir = self._download_stresstools()
@@ -5386,11 +5415,15 @@ ConvertTo-Json $data
 <meta charset="UTF-8">
 <style>
 @page {{ size: A4; margin: 15mm; }}
+/* Nyomtatáskor a böngészők alapból eldobják a háttérszíneket (tintaspórolás) - enélkül a
+sötét "Gyors Összefoglaló" doboz és a színes badge-ek is simán fehérré válnának nyomtatva/
+PDF-be mentve, pedig pont a kontraszt a lényegük. */
+* {{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }}
 body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #fff; color: #333; margin: 0; padding: 20px; font-size: 13px; }}
 h1 {{ color: #46286e; border-bottom: 2px solid #d488ff; padding-bottom: 5px; font-size: 24px; margin-bottom: 5px; }}
 .subtitle {{ color: #666; font-size: 13px; margin-top: 0; margin-bottom: 20px; }}
-.grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; align-items: start; }}
-.section {{ background: #f9f6ff; padding: 12px 15px; border-radius: 6px; border-left: 4px solid #b855ff; margin-bottom: 15px; }}
+.grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }}
+.section {{ background: #f9f6ff; padding: 10px 14px; border-radius: 6px; border-left: 4px solid #b855ff; margin-bottom: 10px; }}
 .section h2 {{ margin-top: 0; color: #46286e; font-size: 16px; margin-bottom: 10px; border-bottom: 1px solid #e0d8f0; padding-bottom: 4px; }}
 table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
 th, td {{ padding: 6px 8px; text-align: left; border-bottom: 1px solid #e0d8f0; }}
@@ -5400,6 +5433,17 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
 .health-Healthy {{ background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }}
 .health-Warning {{ background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }}
 .health-Unhealthy {{ background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }}
+.section.summary-box {{ background: #2b2b30; border: 2px solid #111; border-left: 4px solid #6b6b74; color: #eaeaea; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }}
+.section.summary-box h2 {{ color: #fff; border-bottom: 1px solid #55555c; }}
+.summary-list {{ list-style: none; margin: 0; padding: 0; }}
+.summary-list li {{ padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 12.5px; }}
+.summary-list li:last-child {{ border-bottom: none; }}
+.summary-list b {{ color: #d488ff; font-weight: 600; }}
+.summary-list .si {{ display: inline-block; width: 22px; }}
+.note-section {{ margin-top: 4px; padding: 10px 14px; border: 1px dashed #999; border-radius: 6px; background: #fafafa; page-break-inside: avoid; }}
+.note-section h2 {{ margin: 0 0 6px 0; color: #46286e; font-size: 14px; }}
+.note-content {{ font-family: 'Roboto', 'Segoe UI', -apple-system, sans-serif; font-weight: 500; font-size: 19px; color: #2a2a2a; }}
+.note-line {{ min-height: 28px; line-height: 28px; border-bottom: 1px solid #ccc; white-space: pre-wrap; word-break: break-word; }}
 </style>
 </head>
 <body>
@@ -5484,6 +5528,7 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
         <div class="section">
             <h2>🎮 Videókártyák (GPU)</h2>"""
             
+            gpu_summary_list = []
             if not gpu_list:
                 html += "<p>Nem található dedikált/integrált videókártya.</p>"
             else:
@@ -5500,12 +5545,14 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
                         ram_gb_str = "Ismeretlen"
 
                     gpu_blocks.append(f"<table><tr><th>Modell</th><td>{e(name)}</td></tr><tr><th>VRAM</th><td>{e(ram_gb_str)}</td></tr></table>")
+                    gpu_summary_list.append(f"{name} ({ram_gb_str})")
                 html += "<br>".join(gpu_blocks)
 
             html += """</div>
         <div class="section">
             <h2>💾 Háttértárak (S.M.A.R.T. Adatok)</h2>"""
 
+            storage_summary_list = []
             if not smart_data:
                 html += "<p>Nem található háttértár információ vagy nem olvasható a S.M.A.R.T.</p>"
             else:
@@ -5531,16 +5578,57 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
                     <tr><th>Kond. / Telj.</th><td><span class="badge {h_class}">❤️ {e(h)}</span> <span class="badge {p_class}">⚡ {e(p)}</span></td></tr>
                     <tr><th>Üzemidő / Hőm.</th><td>{e(g(s, 'Hours'))} / {e(g(s, 'Temp'))}</td></tr>
                 </table>""")
+                    storage_summary_list.append(f"{g(s, 'Name', 'Ismeretlen')} ({g(s, 'Size', '?')}, {g(s, 'Type', '?')})")
                 html += "<br>".join(smart_blocks)
 
-            html += "</div>\n    </div>\n</div>\n</body></html>"
+            # Gyors összefoglaló doboz - szándékosan sötét/szürke, hogy elüssön a riport
+            # világos "papíros" stílusától, mint egy gyors terminál-jellegű kivonat a lap alján.
+            summary_rows = [
+                ("🖥️", "Alaplap", pc_model),
+                ("🧠", "Processzor", g(cpu, 'Name', 'Ismeretlen')),
+                ("🎮", "Videokártya", ", ".join(gpu_summary_list) if gpu_summary_list else "Nincs adat"),
+                ("🧩", "Memória", f"{tot_gb} ({len(ram_list)} db modul)"),
+                ("💾", "Háttértár", ", ".join(storage_summary_list) if storage_summary_list else "Nincs adat"),
+                ("🪟", "Operációs rendszer", f"{g(os_info, 'Caption', 'Ismeretlen')} ({g(os_info, 'OSArchitecture', 'Ismeretlen')})"),
+            ]
+            summary_items = "".join(
+                f'<li><span class="si">{icon}</span><b>{e(label)}:</b> {e(value)}</li>'
+                for icon, label, value in summary_rows
+            )
+            html += f"""</div>
+        <div class="section summary-box">
+            <h2>📋 Gyors Összefoglaló</h2>
+            <ul class="summary-list">{summary_items}</ul>
+        </div>"""
+
+            html += "\n    </div>\n</div>"
+
+            # Soronként külön <div>, mindegyik saját alsó szegéllyel (border-bottom) - EZ ad
+            # egyenletes vastagságú vonalakat nyomtatásban is. Egy repeating-linear-gradient
+            # háttérkép helyette a nyomtatási átméretezés (fractional DPI) miatt hol vékonyabb,
+            # hol vastagabb vonalat rajzolt ki (böngészőnként/nyomtatásonként eltérő
+            # kerekítéssel) - a border-bottom ezzel szemben minden sorban egyformán 1px.
+            # Legalább 4 sor mindig látszik (üresen is, ha a megjegyzés rövidebb), hogy legyen
+            # hely tollal írni - ha a megjegyzés hosszabb, minden sora megjelenik, plusz még
+            # egy üres sor a végén a folytatáshoz.
+            note_lines = (note or '').split('\n')
+            while len(note_lines) < 4:
+                note_lines.append('')
+            note_lines.append('')
+            note_lines_html = "".join(f'<div class="note-line">{e(line)}</div>' for line in note_lines)
+
+            html += f"""
+<div class="note-section">
+    <h2>📝 Megjegyzés</h2>
+    <div class="note-content">{note_lines_html}</div>
+</div>
+</body></html>"""
 
             comp_name = os.environ.get('COMPUTERNAME', 'PC')
             safe_name = f"Rendszer_Riport_{comp_name}"
 
-            # A program mellé mentjük
-            exe_dir = os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__))
-            final_path = os.path.join(exe_dir, f"{safe_name}.html")
+            # A DriverVarázsló saját adatmappájába mentjük (nem az exe mellé - lásd _app_data_dir).
+            final_path = os.path.join(_app_data_dir(), f"{safe_name}.html")
 
             with open(final_path, "w", encoding="utf-8") as f:
                 f.write(html)
@@ -5636,7 +5724,7 @@ class CliApi:
                     current["provider"] = val
                 elif "Class Name" in key:
                     current["class"] = val
-                elif "Date and Version" in key:
+                elif "Version" in key:
                     current["version"] = val
         if current and "published" in current:
             drivers.append(current)
@@ -5707,7 +5795,7 @@ class CliApi:
                     current["provider"] = val
                 elif "Class Name" in key:
                     current["class"] = val
-                elif "Date and Version" in key:
+                elif "Version" in key:
                     current["version"] = val
         if current and "published" in current:
             drivers.append(current)
@@ -7271,7 +7359,7 @@ if __name__ == "__main__":
     # Logging - RotatingFileHandler, hogy a DEBUG-szintű, minden subprocess-kimenetet logoló
     # fájl ne nőhessen korlátlanul (egy hosszú élettartamú szerviz-USB-n/WinPE-n, sok gépen,
     # sok futtatás alatt évekig gyűlő log könnyen több száz MB-ra hízhatna rotáció nélkül).
-    log_filename = os.path.join(os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)), "DriverVarázsló_debug.log")
+    log_filename = os.path.join(_app_data_dir(), "DriverVarázsló_debug.log")
     try:
         from logging.handlers import RotatingFileHandler
         log_handler = RotatingFileHandler(log_filename, maxBytes=5 * 1024 * 1024, backupCount=2, encoding='utf-8')
