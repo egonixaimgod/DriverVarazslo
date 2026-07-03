@@ -1208,7 +1208,7 @@ async function generateSystemReport() {
   try {
     const res = await api().generate_system_report(note);
     if (res && res.success) {
-      const choice = await showConfirm3('Kész!', 'A rendszer riport sikeresen elkészült:\n' + res.path + '\n\nMegnyitod most a fájlt a böngésződben?', 'Megnyitás böngészőben', '🖨️ Microstore bolti nyomtatóval nyomtatás', 'Mégse');
+      const choice = await showConfirm3('Kész!', 'A rendszer riport sikeresen elkészült:\n' + res.path + '\n\nMegnyitod most a fájlt a böngésződben?', 'Megnyitás böngészőben', '🖨️ Microstore bolti nyomtatóval nyomtatás', 'Mégse', 'btn-warning');
       if (choice === true) {
         api().open_file(res.path);
       } else if (choice === false) {
@@ -1509,12 +1509,13 @@ function showConfirm(title, message) {
     document.getElementById('modal-confirm').classList.add('active');
   });
 }
-function showConfirm3(title, message, yesText, noText, cancelText) {
+function showConfirm3(title, message, yesText, noText, cancelText, noClass) {
   return new Promise(resolve => {
     confirmResolver = resolve;
     document.getElementById('mc-title').textContent = title;
     document.getElementById('mc-message').textContent = message;
     document.getElementById('mc-no').style.display = '';
+    document.getElementById('mc-no').className = 'btn ' + (noClass || 'btn-danger');
     document.getElementById('mc-no').textContent = noText;
     document.getElementById('mc-cancel').textContent = cancelText;
     document.getElementById('mc-yes').textContent = yesText;

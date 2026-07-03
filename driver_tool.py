@@ -18,7 +18,7 @@ import socket
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 185
+BUILD_NUMBER = 186
 
 try:
     import webview
@@ -223,7 +223,13 @@ STRESS_KILL_IMAGES = [
 STORE_PRINTER_IP = "192.168.35.12"
 STORE_PRINTER_PORT_NAME = "IP_192.168.35.12"
 STORE_PRINTER_NAME = "Microstore Bolti Nyomtató"
+# STORE_PRINTER_REFERENCE_NAME csak ott segít, ahol ÉPPEN ez a nyomtató már fel van véve
+# (terepen bizonyítva: egy másik gépen sem ez a nyomtató, sem a hozzá tartozó driver nem
+# volt jelen - lásd _resolve_store_printer_driver, ami emiatt NEM állhat meg ennél az
+# egyetlen lehetőségnél, hanem megpróbálja a HP drivert magától a Windowstól/Windows
+# Update-től is beszerezni, mielőtt hibát adna).
 STORE_PRINTER_REFERENCE_NAME = "BOLT hp LaserJet 1320 PCL 6"
+STORE_PRINTER_HP_DRIVER_NAME = "hp LaserJet 1320 PCL 6"
 SUMATRA_PDF_FILENAMES = ['sumatrapdf.exe']
 
 # Linpack Xtreme RAM-választó menüjének opciói (a program konzolos menüjéből, sorrendben):
@@ -5701,6 +5707,43 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             logging.error(traceback.format_exc())
             raise Exception(str(e))
 
+    def _resolve_store_printer_driver(self):
+        """Eldönti, melyik drivert használja a bolti nyomtató felvételéhez, ha az még nincs
+        felvéve. Terepen bizonyított tapasztalat (egy random gépen tesztelve): NEM
+        garantált, hogy a HP LaserJet 1320 drivere - vagy akár maga a referenciaként
+        vett nyomtató - jelen van bármelyik gépen, ahol ez a funkció fut, ezért egyre
+        általánosabb, egyre kevésbé jó (de még mindig működő) lehetőségeket próbálunk
+        sorban, ahelyett hogy az elsőre hagyatkoznánk:
+          1) ha VÉLETLENÜL már fel van véve egy nyomtató ezzel a referencia névvel ezen a
+             gépen, az ő drivere (legjobb eset - pontosan ez a modell)
+          2) a HP driver telepítése magától a Windowstól (Add-PrinterDriver a helyi
+             driver store-ból vagy Windows Update-ről, ha van net) - ez a normális "Nyomtató
+             hozzáadása" varázsló is pont ezt teszi automatikus felismeréskor
+        Ha egyik sem sikerül (nincs net és a driver store-ban sincs meg), Exception-t dob -
+        ez esetben a nyomtatót egyszer manuálisan, kézzel kell hozzáadni ezen a gépen."""
+        ref_ps = f"(Get-Printer -Name '{_ps_quote(STORE_PRINTER_REFERENCE_NAME)}' -ErrorAction Stop).DriverName"
+        res = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ref_ps], encoding='utf-8')
+        driver_name = (res.stdout or '').strip() if res else ''
+        if driver_name:
+            self.emit('task_progress', {'task': 'store_print', 'log': f'✅ Meglévő HP driver újrahasznosítva: {driver_name}'})
+            return driver_name
+
+        self.emit('task_progress', {'task': 'store_print', 'log': f'⬇️ HP driver telepítése ({STORE_PRINTER_HP_DRIVER_NAME})...'})
+        install_ps = f"Add-PrinterDriver -Name '{_ps_quote(STORE_PRINTER_HP_DRIVER_NAME)}' -ErrorAction Stop"
+        ires = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', install_ps], encoding='utf-8', timeout=120)
+        if ires and ires.returncode == 0:
+            self.emit('task_progress', {'task': 'store_print', 'log': f'✅ HP driver telepítve: {STORE_PRINTER_HP_DRIVER_NAME}'})
+            return STORE_PRINTER_HP_DRIVER_NAME
+
+        err_detail = (ires.stderr or ires.stdout or 'ismeretlen hiba') if ires else 'ismeretlen hiba'
+        raise Exception(
+            f"Nem található és nem is telepíthető a HP LaserJet 1320 driver ezen a gépen "
+            f"(nincs net, vagy a Windows driver store-jában sincs meg): {err_detail}\n"
+            f"Egyszer, ezen a gépen, kézzel kell hozzáadni a nyomtatót (Nyomtatók és "
+            f"szkennerek -> Nyomtató hozzáadása -> IP-cím: {STORE_PRINTER_IP}) - utána a "
+            f"program már felismeri és újra tudja használni."
+        )
+
     def _find_msedge_exe(self):
         """Megkeresi a telepített Edge böngészőt (msedge.exe) - a riport HTML->PDF
         alakításához kell. FONTOS: ez NEM ugyanaz, mint a WebView2 Runtime, amit az app
@@ -5731,10 +5774,10 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
     def print_via_store_printer(self):
         """A legutóbb generált Rendszer Riport kinyomtatása a Microstore bolti hálózati
         nyomtatójára, egyetlen kattintással. Ha a nyomtató még nincs felvéve a Windows
-        nyomtatói közé, felveszi - a fizikailag ugyanaz a HP LaserJet 1320 modell lévén,
-        mint ami már telepítve van "BOLT hp LaserJet 1320 PCL 6" néven, ezért NEM próbálunk
-        hálózati driver-detektálást (WSD/SNMP), hanem egyszerűen újrahasznosítjuk a már
-        telepített nyomtató driverét egy, a bolti IP-re mutató új porthoz. A nyomtatás maga
+        nyomtatói közé, felveszi - a driver kiválasztását lásd _resolve_store_printer_driver
+        (terepen bizonyítva: NEM garantált, hogy a HP LaserJet 1320 drivere - vagy akár
+        maga a referencia nyomtató - jelen van azon a gépen, ahol ez fut, ezért ott több,
+        egyre általánosabb lehetőséget próbálunk sorban, nem csak egyet). A nyomtatás maga
         headless Edge-dzsel PDF-be alakítja a riportot (ugyanaz a motor, ami a report
         egy-oldalas zoom-alapú tördelését is renderelte - a nyomtatott PDF pontosan azt
         adja, amit böngészőben látni), majd a SumatraPDF-fel (stresstools.zip) néma
@@ -5773,12 +5816,8 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
                 printer_name = existing_name
                 self.emit('task_progress', {'task': 'store_print', 'log': f'✅ A nyomtató már fel van véve: {printer_name}'})
             else:
-                self.emit('task_progress', {'task': 'store_print', 'log': '➕ A nyomtató még nincs felvéve - hozzáadás a meglévő HP LaserJet 1320 driverrel...'})
-                driver_ps = f"(Get-Printer -Name '{_ps_quote(STORE_PRINTER_REFERENCE_NAME)}' -ErrorAction Stop).DriverName"
-                dres = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', driver_ps], encoding='utf-8')
-                driver_name = (dres.stdout or '').strip() if dres else ''
-                if not driver_name:
-                    raise Exception(f"A referencia nyomtató ('{STORE_PRINTER_REFERENCE_NAME}') nem található ezen a gépen - nem tudom, melyik drivert kellene használni.")
+                self.emit('task_progress', {'task': 'store_print', 'log': '➕ A nyomtató még nincs felvéve - driver előkészítése...'})
+                driver_name = self._resolve_store_printer_driver()
 
                 add_ps = (
                     f"Add-PrinterPort -Name '{_ps_quote(STORE_PRINTER_PORT_NAME)}' -PrinterHostAddress '{STORE_PRINTER_IP}' -ErrorAction Stop; "
