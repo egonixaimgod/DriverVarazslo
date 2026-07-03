@@ -1208,9 +1208,11 @@ async function generateSystemReport() {
   try {
     const res = await api().generate_system_report(note);
     if (res && res.success) {
-      const openFile = await showConfirm('Kész!', 'A rendszer riport sikeresen elkészült:\n' + res.path + '\n\nMegnyitod most a fájlt a böngésződben?');
-      if (openFile) {
+      const choice = await showConfirm3('Kész!', 'A rendszer riport sikeresen elkészült:\n' + res.path + '\n\nMegnyitod most a fájlt a böngésződben?', 'Megnyitás böngészőben', '🖨️ Microstore bolti nyomtatóval nyomtatás', 'Mégse');
+      if (choice === true) {
         api().open_file(res.path);
+      } else if (choice === false) {
+        api().print_via_store_printer();
       }
     }
   } catch (e) {

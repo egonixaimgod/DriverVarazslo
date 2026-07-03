@@ -14,10 +14,11 @@ import traceback
 import winreg
 import queue
 import math
+import socket
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 184
+BUILD_NUMBER = 185
 
 try:
     import webview
@@ -211,6 +212,19 @@ STRESS_KILL_IMAGES = [
     'hwinfo64.exe', 'hwinfo32.exe',
     'hdsentinel.exe', 'hdsentinel_x64.exe', 'hdsentinel64.exe',
 ]
+
+# Microstore bolti hálózati nyomtató - "1 kattintás" nyomtatás a Rendszer Riporthoz
+# (print_via_store_printer). A bolti nyomtató fizikailag ugyanaz a HP LaserJet 1320
+# modell, mint ami már telepítve van ezen a gépen STORE_PRINTER_REFERENCE_NAME néven -
+# ezért driver-detektálás helyett egyszerűen újrahasznosítjuk azt a drivert egy, a bolti
+# IP-re mutató új porthoz. SUMATRA_PDF_FILENAMES a stresstools.zip-ben keresett néma
+# (dialógus nélküli) PDF-nyomtató segédprogram - ugyanabból a ZIP-ből, mint a stabilitás-
+# teszt eszközök, hogy ne kelljen külön letöltési URL egy apró segédprogramért.
+STORE_PRINTER_IP = "192.168.35.12"
+STORE_PRINTER_PORT_NAME = "IP_192.168.35.12"
+STORE_PRINTER_NAME = "Microstore Bolti Nyomtató"
+STORE_PRINTER_REFERENCE_NAME = "BOLT hp LaserJet 1320 PCL 6"
+SUMATRA_PDF_FILENAMES = ['sumatrapdf.exe']
 
 # Linpack Xtreme RAM-választó menüjének opciói (a program konzolos menüjéből, sorrendben):
 # (menüpont szám, GB). Az automatizálás a rendszer teljes RAM-jához a legnagyobb ide illő
@@ -541,6 +555,7 @@ class DriverToolApi:
         self._stresstools_download_lock = threading.Lock()
         self._console_attach_lock = threading.Lock()
         self._stress_pids = {}  # az általunk indított stressz-programok PID-jei (stop_stress_tests-hez)
+        self._last_report_path = None  # a legutóbb generált Rendszer Riport útvonala (print_via_store_printer-hez)
         self.resume_mode = '--resume-autofix' in sys.argv
         self.resume_step1 = '--resume-step1' in sys.argv
         self.skip_printer_drivers = '--skip-printer-drivers' in sys.argv
@@ -1848,9 +1863,16 @@ del "%~f0"
         zip_path = os.path.join(temp_dir, "stresstools.zip")
         download_url = "https://github.com/egonixaimgod/DriverVarazslo/releases/download/stresstools.zip/stresstools.zip"
 
-        # Csak akkor fogadjuk el a cache-t, ha a kicsomagolás korábban teljesen lefutott.
-        # Egy félbeszakadt (pl. AV által megszakított) kicsomagolás mappáját ne ragadjunk be örökre.
-        if os.path.exists(marker_path):
+        # Csak akkor fogadjuk el a cache-t, ha a kicsomagolás korábban teljesen lefutott ÉS
+        # a SumatraPDF is megvan benne. Ez utóbbi külön feltétel azért kell, mert a
+        # SumatraPDF.exe-t a stresstools.zip-hez UTÓLAG adtuk hozzá (print_via_store_printer
+        # miatt) - egy olyan gépen, ahol a stressz-teszt funkciót MÁR HASZNÁLTÁK a frissítés
+        # előtt, a marker fájl a régi (Sumatra nélküli) ZIP-ből származik, és anélkül a
+        # sima marker-ellenőrzés örökre a régi, hiányos cache-t adná vissza - a friss ZIP-et
+        # sosem töltené le újra. Enélkül a plusz feltétel nélkül ez terepen bizonyítottan
+        # előfordul (ezen a gépen is: a marker megvolt egy korábbi, Sumatra nélküli
+        # letöltésből).
+        if os.path.exists(marker_path) and self._find_sumatra_exe(stress_dir):
             return stress_dir
 
         # A "Minden teszt indítása" és az egyenkénti gombok is idekerülhetnek egyszerre
@@ -1859,7 +1881,7 @@ del "%~f0"
         # mappába írna/csomagolna ki párhuzamosan, ami korrupciót okozhatna.
         with self._stresstools_download_lock:
             # Amíg a lock-ra vártunk, egy másik szál esetleg már befejezte a letöltést.
-            if os.path.exists(marker_path):
+            if os.path.exists(marker_path) and self._find_sumatra_exe(stress_dir):
                 return stress_dir
             try:
                 logging.info("[STRESSTOOLS] Letöltés INNEN: " + download_url)
@@ -5667,6 +5689,9 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
                 f.write(html)
 
             if os.path.exists(final_path):
+                # A "Bolti nyomtatóval nyomtatás" gomb (print_via_store_printer) ebből
+                # tudja, melyik fájlt kell kinyomtatnia - nem kér újra útvonalat a UI-tól.
+                self._last_report_path = final_path
                 return {'success': True, 'path': final_path}
             else:
                 raise Exception("A fájl mentése sikertelen volt!")
@@ -5675,6 +5700,130 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             logging.error(f"Hiba a jelentés generálásánál: {e}")
             logging.error(traceback.format_exc())
             raise Exception(str(e))
+
+    def _find_msedge_exe(self):
+        """Megkeresi a telepített Edge böngészőt (msedge.exe) - a riport HTML->PDF
+        alakításához kell. FONTOS: ez NEM ugyanaz, mint a WebView2 Runtime, amit az app
+        amúgy is megkövetel (check_webview2_runtime) - az egy beágyazható futtatókörnyezet,
+        önálló msedge.exe nélkül is jelen lehet, ezért ezt külön, a szokásos telepítési
+        útvonalakon keressük."""
+        candidates = [
+            os.path.join(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'), 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+            os.path.join(os.environ.get('ProgramFiles', r'C:\Program Files'), 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+        ]
+        for c in candidates:
+            if c and os.path.exists(c):
+                return c
+        return None
+
+    def _find_sumatra_exe(self, stress_dir):
+        """Megkeresi a SumatraPDF.exe-t a stresstools.zip kicsomagolt mappájában - a néma
+        (dialógus nélküli) PDF-nyomtatáshoz kell (print_via_store_printer). Ugyanabba a
+        ZIP-be kerül, mint a stabilitás-teszt eszközök, hogy ne kelljen külön letöltési
+        logika/URL egy apró segédprogramért."""
+        for root, dirs, files in os.walk(stress_dir):
+            for file in files:
+                if file.lower() in SUMATRA_PDF_FILENAMES:
+                    return os.path.join(root, file)
+        return None
+
+    def print_via_store_printer(self):
+        """A legutóbb generált Rendszer Riport kinyomtatása a Microstore bolti hálózati
+        nyomtatójára, egyetlen kattintással. Ha a nyomtató még nincs felvéve a Windows
+        nyomtatói közé, felveszi - a fizikailag ugyanaz a HP LaserJet 1320 modell lévén,
+        mint ami már telepítve van "BOLT hp LaserJet 1320 PCL 6" néven, ezért NEM próbálunk
+        hálózati driver-detektálást (WSD/SNMP), hanem egyszerűen újrahasznosítjuk a már
+        telepített nyomtató driverét egy, a bolti IP-re mutató új porthoz. A nyomtatás maga
+        headless Edge-dzsel PDF-be alakítja a riportot (ugyanaz a motor, ami a report
+        egy-oldalas zoom-alapú tördelését is renderelte - a nyomtatott PDF pontosan azt
+        adja, amit böngészőben látni), majd a SumatraPDF-fel (stresstools.zip) néma
+        nyomtatással a nyomtatóra küldi."""
+        logging.info("[API] print_via_store_printer()")
+        report_path = self._last_report_path
+        if not report_path or not os.path.exists(report_path):
+            self.emit('toast', {'message': '⚠️ Nincs elérhető generált riport - előbb generáld le a Rendszer Riportot!', 'type': 'warning'})
+            return
+
+        def worker():
+            self.emit('task_start', {'task': 'store_print', 'title': 'Nyomtatás a Bolti Nyomtatóra'})
+            self.emit('task_progress', {'task': 'store_print', 'log': f'📡 Nyomtató keresése a hálózaton ({STORE_PRINTER_IP})...', 'indeterminate': True})
+
+            # 1) Elérhető-e egyáltalán a nyomtató a hálózaton? A nyers nyomtatási (JetDirect,
+            # 9100/tcp) porthoz csatlakozunk - ez megbízhatóbb jel, mint egy ICMP ping, mert
+            # sok nyomtató blokkolja/nem válaszol pingre, de a nyomtatási portot figyeli.
+            reachable = False
+            try:
+                with socket.create_connection((STORE_PRINTER_IP, 9100), timeout=3):
+                    reachable = True
+            except OSError:
+                reachable = False
+            if not reachable:
+                raise Exception(f"A bolti nyomtató ({STORE_PRINTER_IP}) nem érhető el a hálózaton - lehet, hogy nem a bolt hálózatán vagy, vagy a nyomtató ki van kapcsolva.")
+
+            # 2) Már fel van-e véve Windows nyomtatóként ehhez az IP-hez?
+            find_ps = (
+                f"$port = Get-PrinterPort | Where-Object {{ $_.PrinterHostAddress -eq '{STORE_PRINTER_IP}' }} | Select-Object -First 1; "
+                "if ($port) { $p = Get-Printer | Where-Object { $_.PortName -eq $port.Name } | Select-Object -First 1; if ($p) { Write-Output $p.Name } }"
+            )
+            res = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', find_ps], encoding='utf-8')
+            existing_name = (res.stdout or '').strip() if res else ''
+
+            if existing_name:
+                printer_name = existing_name
+                self.emit('task_progress', {'task': 'store_print', 'log': f'✅ A nyomtató már fel van véve: {printer_name}'})
+            else:
+                self.emit('task_progress', {'task': 'store_print', 'log': '➕ A nyomtató még nincs felvéve - hozzáadás a meglévő HP LaserJet 1320 driverrel...'})
+                driver_ps = f"(Get-Printer -Name '{_ps_quote(STORE_PRINTER_REFERENCE_NAME)}' -ErrorAction Stop).DriverName"
+                dres = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', driver_ps], encoding='utf-8')
+                driver_name = (dres.stdout or '').strip() if dres else ''
+                if not driver_name:
+                    raise Exception(f"A referencia nyomtató ('{STORE_PRINTER_REFERENCE_NAME}') nem található ezen a gépen - nem tudom, melyik drivert kellene használni.")
+
+                add_ps = (
+                    f"Add-PrinterPort -Name '{_ps_quote(STORE_PRINTER_PORT_NAME)}' -PrinterHostAddress '{STORE_PRINTER_IP}' -ErrorAction Stop; "
+                    f"Add-Printer -Name '{_ps_quote(STORE_PRINTER_NAME)}' -DriverName '{_ps_quote(driver_name)}' -PortName '{_ps_quote(STORE_PRINTER_PORT_NAME)}' -ErrorAction Stop"
+                )
+                ares = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', add_ps], encoding='utf-8')
+                if not ares or ares.returncode != 0:
+                    err_detail = (ares.stderr or ares.stdout or 'ismeretlen hiba') if ares else 'ismeretlen hiba'
+                    raise Exception(f"Nem sikerült felvenni a nyomtatót: {err_detail}")
+                printer_name = STORE_PRINTER_NAME
+                self.emit('task_progress', {'task': 'store_print', 'log': f'✅ Nyomtató felvéve: {printer_name}'})
+
+            # 3) HTML -> PDF headless Edge-dzsel.
+            self.emit('task_progress', {'task': 'store_print', 'log': '🖨️ PDF előállítása a riportból...'})
+            msedge = self._find_msedge_exe()
+            if not msedge:
+                raise Exception("Nem található az Edge böngésző (msedge.exe) ezen a gépen - a PDF-generáláshoz szükséges.")
+
+            pdf_path = os.path.splitext(report_path)[0] + '_print.pdf'
+            file_url = 'file:///' + report_path.replace('\\', '/')
+            pdf_cmd = [
+                msedge, '--headless', '--disable-gpu', '--no-sandbox',
+                f'--print-to-pdf={pdf_path}', '--no-pdf-header-footer',
+                '--run-all-compositor-stages-before-draw', '--virtual-time-budget=3000',
+                file_url,
+            ]
+            self._run(pdf_cmd, timeout=60)
+            if not os.path.exists(pdf_path):
+                raise Exception("A riport PDF-be alakítása sikertelen.")
+
+            # 4) PDF -> néma nyomtatás a bolti nyomtatóra.
+            self.emit('task_progress', {'task': 'store_print', 'log': '📤 Nyomtatás küldése...'})
+            stress_dir = self._download_stresstools()
+            sumatra = self._find_sumatra_exe(stress_dir) if stress_dir else None
+            if not sumatra:
+                raise Exception("A SumatraPDF nem található (a stresstools.zip-ben kell lennie) - néma nyomtatás nem lehetséges.")
+
+            self._run([sumatra, '-print-to', printer_name, '-silent', '-exit-on-print', pdf_path], timeout=60)
+            try: os.remove(pdf_path)
+            except: pass
+
+            self.emit('task_progress', {'task': 'store_print', 'log': f'✅ Kinyomtatva: {printer_name}'})
+            self.emit('task_complete', {'task': 'store_print', 'status': f'✅ Riport kinyomtatva a bolti nyomtatóra ({printer_name})!'})
+
+        self._safe_thread('store_print', worker)
 
 
 # ================================================================
