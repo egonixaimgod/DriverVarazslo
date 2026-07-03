@@ -18,7 +18,7 @@ import socket
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 186
+BUILD_NUMBER = 187
 
 try:
     import webview
@@ -214,23 +214,26 @@ STRESS_KILL_IMAGES = [
 ]
 
 # Microstore bolti hálózati nyomtató - "1 kattintás" nyomtatás a Rendszer Riporthoz
-# (print_via_store_printer). A bolti nyomtató fizikailag ugyanaz a HP LaserJet 1320
-# modell, mint ami már telepítve van ezen a gépen STORE_PRINTER_REFERENCE_NAME néven -
-# ezért driver-detektálás helyett egyszerűen újrahasznosítjuk azt a drivert egy, a bolti
-# IP-re mutató új porthoz. SUMATRA_PDF_FILENAMES a stresstools.zip-ben keresett néma
-# (dialógus nélküli) PDF-nyomtató segédprogram - ugyanabból a ZIP-ből, mint a stabilitás-
-# teszt eszközök, hogy ne kelljen külön letöltési URL egy apró segédprogramért.
+# (print_via_store_printer). SUMATRA_PDF_FILENAMES a stresstools.zip-ben keresett néma
+# (dialógus nélküli) PDF-nyomtató segédprogram, HP_DRIVER_INF_FILENAMES a szintén a
+# ZIP-be csomagolt HP LaserJet 1320 PCL6 driver (pnputil /export-driver-rel exporttal
+# kinyerve egy már működő gépről) INF fájlja - mindkettő ugyanabból a ZIP-ből, mint a
+# stabilitás-teszt eszközök, hogy ne kelljen külön letöltési URL egy-egy apró fájlért.
 STORE_PRINTER_IP = "192.168.35.12"
 STORE_PRINTER_PORT_NAME = "IP_192.168.35.12"
 STORE_PRINTER_NAME = "Microstore Bolti Nyomtató"
 # STORE_PRINTER_REFERENCE_NAME csak ott segít, ahol ÉPPEN ez a nyomtató már fel van véve
-# (terepen bizonyítva: egy másik gépen sem ez a nyomtató, sem a hozzá tartozó driver nem
-# volt jelen - lásd _resolve_store_printer_driver, ami emiatt NEM állhat meg ennél az
-# egyetlen lehetőségnél, hanem megpróbálja a HP drivert magától a Windowstól/Windows
-# Update-től is beszerezni, mielőtt hibát adna).
+# - lásd _resolve_store_printer_driver. Terepen bizonyítva (egy random gépen tesztelve):
+# sem ez a nyomtató, sem a hozzá tartozó driver NEM garantált egyetlen más gépen sem, és
+# az `Add-PrinterDriver -Name` MAGÁBAN NEM tölt le semmit a Windows Update-ről (az
+# interaktív "Nyomtató hozzáadása" varázsló automatikus driver-felismerése egy MÁSIK,
+# PowerShell-ből el nem érhető mechanizmust használ) - csak akkor sikerül, ha a driver
+# MÁR a driver store-ban van. Emiatt a becsomagolt INF-et `pnputil /add-driver`-rel kell
+# előbb odastageelni, utána sikerül csak az Add-PrinterDriver/Add-Printer.
 STORE_PRINTER_REFERENCE_NAME = "BOLT hp LaserJet 1320 PCL 6"
 STORE_PRINTER_HP_DRIVER_NAME = "hp LaserJet 1320 PCL 6"
 SUMATRA_PDF_FILENAMES = ['sumatrapdf.exe']
+HP_DRIVER_INF_FILENAMES = ['hpc1320u.inf']
 
 # Linpack Xtreme RAM-választó menüjének opciói (a program konzolos menüjéből, sorrendben):
 # (menüpont szám, GB). Az automatizálás a rendszer teljes RAM-jához a legnagyobb ide illő
@@ -1870,15 +1873,14 @@ del "%~f0"
         download_url = "https://github.com/egonixaimgod/DriverVarazslo/releases/download/stresstools.zip/stresstools.zip"
 
         # Csak akkor fogadjuk el a cache-t, ha a kicsomagolás korábban teljesen lefutott ÉS
-        # a SumatraPDF is megvan benne. Ez utóbbi külön feltétel azért kell, mert a
-        # SumatraPDF.exe-t a stresstools.zip-hez UTÓLAG adtuk hozzá (print_via_store_printer
-        # miatt) - egy olyan gépen, ahol a stressz-teszt funkciót MÁR HASZNÁLTÁK a frissítés
-        # előtt, a marker fájl a régi (Sumatra nélküli) ZIP-ből származik, és anélkül a
-        # sima marker-ellenőrzés örökre a régi, hiányos cache-t adná vissza - a friss ZIP-et
-        # sosem töltené le újra. Enélkül a plusz feltétel nélkül ez terepen bizonyítottan
-        # előfordul (ezen a gépen is: a marker megvolt egy korábbi, Sumatra nélküli
-        # letöltésből).
-        if os.path.exists(marker_path) and self._find_sumatra_exe(stress_dir):
+        # a SumatraPDF, ÉS a HP driver is megvan benne. Ez utóbbi két feltétel azért kell,
+        # mert mindkettőt UTÓLAG adtuk a stresstools.zip-hez (print_via_store_printer
+        # miatt) - egy olyan gépen, ahol a stressz-teszt funkciót MÁR HASZNÁLTÁK a
+        # frissítés(ek) előtt, a marker fájl egy régebbi, hiányos ZIP-ből származik, és
+        # enélkül a plusz feltétel nélkül a sima marker-ellenőrzés örökre a régi cache-t
+        # adná vissza - a friss ZIP-et sosem töltené le újra (terepen bizonyítottan
+        # előfordul: ezen a gépen is, illetve egy random teszt-gépen is).
+        if os.path.exists(marker_path) and self._find_sumatra_exe(stress_dir) and self._find_hp_driver_inf(stress_dir):
             return stress_dir
 
         # A "Minden teszt indítása" és az egyenkénti gombok is idekerülhetnek egyszerre
@@ -1887,7 +1889,7 @@ del "%~f0"
         # mappába írna/csomagolna ki párhuzamosan, ami korrupciót okozhatna.
         with self._stresstools_download_lock:
             # Amíg a lock-ra vártunk, egy másik szál esetleg már befejezte a letöltést.
-            if os.path.exists(marker_path) and self._find_sumatra_exe(stress_dir):
+            if os.path.exists(marker_path) and self._find_sumatra_exe(stress_dir) and self._find_hp_driver_inf(stress_dir):
                 return stress_dir
             try:
                 logging.info("[STRESSTOOLS] Letöltés INNEN: " + download_url)
@@ -5707,20 +5709,38 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             logging.error(traceback.format_exc())
             raise Exception(str(e))
 
+    def _find_hp_driver_inf(self, stress_dir):
+        """Megkeresi a becsomagolt HP LaserJet 1320 driver INF fájlját (HPDriver mappa a
+        stresstools.zip-ben, egy már működő gépről `pnputil /export-driver` exporttal
+        kinyerve) - _resolve_store_printer_driver ezzel stageeli a drivert a driver
+        store-ba `pnputil /add-driver`-rel, mielőtt Add-PrinterDriver hivatkozna rá."""
+        for root, dirs, files in os.walk(stress_dir):
+            for file in files:
+                if file.lower() in HP_DRIVER_INF_FILENAMES:
+                    return os.path.join(root, file)
+        return None
+
     def _resolve_store_printer_driver(self):
         """Eldönti, melyik drivert használja a bolti nyomtató felvételéhez, ha az még nincs
-        felvéve. Terepen bizonyított tapasztalat (egy random gépen tesztelve): NEM
-        garantált, hogy a HP LaserJet 1320 drivere - vagy akár maga a referenciaként
-        vett nyomtató - jelen van bármelyik gépen, ahol ez a funkció fut, ezért egyre
-        általánosabb, egyre kevésbé jó (de még mindig működő) lehetőségeket próbálunk
-        sorban, ahelyett hogy az elsőre hagyatkoznánk:
+        felvéve. Terepen bizonyított tapasztalat (két különböző random gépen tesztelve):
+        NEM garantált, hogy a HP LaserJet 1320 drivere - vagy akár maga a referenciaként
+        vett nyomtató - jelen van bármelyik gépen, ahol ez a funkció fut, ÉS az
+        `Add-PrinterDriver -Name` ÖNMAGÁBAN NEM tölt le semmit a Windows Update-ről (ezt
+        elsőre feltételeztük, de éles hiba - "The specified driver does not exist in the
+        driver store" - bizonyította a tévedést: az interaktív "Nyomtató hozzáadása"
+        varázsló automatikus driver-felismerése egy MÁS, PowerShell-ből el nem érhető
+        mechanizmust használ). Emiatt egyre általánosabb, egyre kevésbé kényelmes (de még
+        mindig működő) lehetőségeket próbálunk sorban:
           1) ha VÉLETLENÜL már fel van véve egy nyomtató ezzel a referencia névvel ezen a
-             gépen, az ő drivere (legjobb eset - pontosan ez a modell)
-          2) a HP driver telepítése magától a Windowstól (Add-PrinterDriver a helyi
-             driver store-ból vagy Windows Update-ről, ha van net) - ez a normális "Nyomtató
-             hozzáadása" varázsló is pont ezt teszi automatikus felismeréskor
-        Ha egyik sem sikerül (nincs net és a driver store-ban sincs meg), Exception-t dob -
-        ez esetben a nyomtatót egyszer manuálisan, kézzel kell hozzáadni ezen a gépen."""
+             gépen, az ő drivere (legjobb eset - pontosan ez a modell, semmi extra munka)
+          2) a stresstools.zip-be csomagolt HP driver (HPDriver mappa) `pnputil
+             /add-driver ... /install`-lal a driver store-ba stageelve, majd
+             Add-PrinterDriver-rel regisztrálva - ez internet nélkül, BÁRMELYIK gépen
+             működik, mert nem külső forrásra (Windows Update), hanem a saját
+             becsomagolt fájljainkra támaszkodik
+        Ha egyik sem sikerül (a ZIP-ben sincs meg az INF, vagy a pnputil stageelés
+        elhasal), Exception-t dob - ez esetben a nyomtatót egyszer manuálisan, kézzel kell
+        hozzáadni ezen a gépen."""
         ref_ps = f"(Get-Printer -Name '{_ps_quote(STORE_PRINTER_REFERENCE_NAME)}' -ErrorAction Stop).DriverName"
         res = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ref_ps], encoding='utf-8')
         driver_name = (res.stdout or '').strip() if res else ''
@@ -5728,20 +5748,41 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             self.emit('task_progress', {'task': 'store_print', 'log': f'✅ Meglévő HP driver újrahasznosítva: {driver_name}'})
             return driver_name
 
-        self.emit('task_progress', {'task': 'store_print', 'log': f'⬇️ HP driver telepítése ({STORE_PRINTER_HP_DRIVER_NAME})...'})
+        self.emit('task_progress', {'task': 'store_print', 'log': '📦 HP driver keresése a becsomagolt fájlok között...'})
+        stress_dir = self._download_stresstools()
+        inf_path = self._find_hp_driver_inf(stress_dir) if stress_dir else None
+        if not inf_path:
+            raise Exception(
+                f"Nincs meg a becsomagolt HP LaserJet 1320 driver (HPDriver mappa) a "
+                f"stresstools.zip-ben, és ezen a gépen sincs máshonnan telepítve. Egyszer, "
+                f"ezen a gépen, kézzel kell hozzáadni a nyomtatót (Nyomtatók és szkennerek "
+                f"-> Nyomtató hozzáadása -> IP-cím: {STORE_PRINTER_IP}) - utána a program "
+                f"már felismeri és újra tudja használni."
+            )
+
+        self.emit('task_progress', {'task': 'store_print', 'log': '⬇️ HP driver telepítése a driver store-ba (pnputil)...'})
+        stage_res = self._run(['pnputil', '/add-driver', inf_path, '/install'], timeout=120)
+        # A pnputil kilépési kódja NEM megbízható sikerjelzés: élesben tesztelve, ha a
+        # driver már staged, "Driver package added successfully. (Already exists in the
+        # system)" szöveggel tér vissza, miközben a kilépési kódja 5 (nem 0!) - a szöveges
+        # kimenetet kell nézni, nem a returncode-ot.
+        stage_out = (stage_res.stdout or '') if stage_res else ''
+        if not stage_res or 'successfully' not in stage_out.lower():
+            err_detail = (stage_res.stderr or stage_res.stdout or 'ismeretlen hiba') if stage_res else 'ismeretlen hiba'
+            raise Exception(f"A HP driver telepítése (pnputil /add-driver) sikertelen: {err_detail}")
+
         install_ps = f"Add-PrinterDriver -Name '{_ps_quote(STORE_PRINTER_HP_DRIVER_NAME)}' -ErrorAction Stop"
-        ires = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', install_ps], encoding='utf-8', timeout=120)
+        ires = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', install_ps], encoding='utf-8', timeout=60)
         if ires and ires.returncode == 0:
             self.emit('task_progress', {'task': 'store_print', 'log': f'✅ HP driver telepítve: {STORE_PRINTER_HP_DRIVER_NAME}'})
             return STORE_PRINTER_HP_DRIVER_NAME
 
         err_detail = (ires.stderr or ires.stdout or 'ismeretlen hiba') if ires else 'ismeretlen hiba'
         raise Exception(
-            f"Nem található és nem is telepíthető a HP LaserJet 1320 driver ezen a gépen "
-            f"(nincs net, vagy a Windows driver store-jában sincs meg): {err_detail}\n"
-            f"Egyszer, ezen a gépen, kézzel kell hozzáadni a nyomtatót (Nyomtatók és "
-            f"szkennerek -> Nyomtató hozzáadása -> IP-cím: {STORE_PRINTER_IP}) - utána a "
-            f"program már felismeri és újra tudja használni."
+            f"A HP driver a pnputil stageelés után sem regisztrálható nyomtató-driverként: "
+            f"{err_detail}\nEgyszer, ezen a gépen, kézzel kell hozzáadni a nyomtatót "
+            f"(Nyomtatók és szkennerek -> Nyomtató hozzáadása -> IP-cím: {STORE_PRINTER_IP}) "
+            f"- utána a program már felismeri és újra tudja használni."
         )
 
     def _find_msedge_exe(self):
