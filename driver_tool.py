@@ -17,7 +17,7 @@ import math
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 183
+BUILD_NUMBER = 184
 
 try:
     import webview
@@ -5419,11 +5419,12 @@ ConvertTo-Json $data
 sötét "Gyors Összefoglaló" doboz és a színes badge-ek is simán fehérré válnának nyomtatva/
 PDF-be mentve, pedig pont a kontraszt a lényegük. */
 * {{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }}
-body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #fff; color: #333; margin: 0; padding: 20px; font-size: 13px; }}
+body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #fff; color: #333; margin: 0 auto; padding: 20px; font-size: 13px; overflow-x: hidden; max-width: 180mm; box-sizing: border-box; }}
 h1 {{ color: #46286e; border-bottom: 2px solid #d488ff; padding-bottom: 5px; font-size: 24px; margin-bottom: 5px; }}
 .subtitle {{ color: #666; font-size: 13px; margin-top: 0; margin-bottom: 20px; }}
 .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }}
-.section {{ background: #f9f6ff; padding: 10px 14px; border-radius: 6px; border-left: 4px solid #b855ff; margin-bottom: 10px; }}
+.section {{ background: #f9f6ff; padding: 10px 14px; border-radius: 6px; border-left: 4px solid #b855ff; margin-bottom: 10px; page-break-inside: avoid; break-inside: avoid; }}
+.item-block {{ page-break-inside: avoid; break-inside: avoid; }}
 .section h2 {{ margin-top: 0; color: #46286e; font-size: 16px; margin-bottom: 10px; border-bottom: 1px solid #e0d8f0; padding-bottom: 4px; }}
 table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
 th, td {{ padding: 6px 8px; text-align: left; border-bottom: 1px solid #e0d8f0; }}
@@ -5447,6 +5448,8 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
 </style>
 </head>
 <body>
+<div id="page-ruler" style="position:absolute; visibility:hidden; height:267mm; width:1px; top:0; left:0;"></div>
+<div id="report-root">
 <h1>DriverVarázsló - Rendszer Adatlap</h1>
 <p class="subtitle">Gép típusa: <strong style="color:#000; font-size:14px;">{e(pc_model)}</strong> | Generálva: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
 
@@ -5544,7 +5547,7 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
                     else:
                         ram_gb_str = "Ismeretlen"
 
-                    gpu_blocks.append(f"<table><tr><th>Modell</th><td>{e(name)}</td></tr><tr><th>VRAM</th><td>{e(ram_gb_str)}</td></tr></table>")
+                    gpu_blocks.append(f"<div class='item-block'><table><tr><th>Modell</th><td>{e(name)}</td></tr><tr><th>VRAM</th><td>{e(ram_gb_str)}</td></tr></table></div>")
                     gpu_summary_list.append(f"{name} ({ram_gb_str})")
                 html += "<br>".join(gpu_blocks)
 
@@ -5573,11 +5576,11 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
                             p_class = "health-Healthy" if p == "100%" else "health-Warning"
                     except: pass
 
-                    smart_blocks.append(f"""<div class="item-title">{e(g(s, 'Name', 'Ismeretlen'))} <span class="badge">{e(g(s, 'Size'))}</span> <span class="badge">{e(g(s, 'Type'))}</span></div>
+                    smart_blocks.append(f"""<div class="item-block"><div class="item-title">{e(g(s, 'Name', 'Ismeretlen'))} <span class="badge">{e(g(s, 'Size'))}</span> <span class="badge">{e(g(s, 'Type'))}</span></div>
                 <table>
                     <tr><th>Kond. / Telj.</th><td><span class="badge {h_class}">❤️ {e(h)}</span> <span class="badge {p_class}">⚡ {e(p)}</span></td></tr>
                     <tr><th>Üzemidő / Hőm.</th><td>{e(g(s, 'Hours'))} / {e(g(s, 'Temp'))}</td></tr>
-                </table>""")
+                </table></div>""")
                     storage_summary_list.append(f"{g(s, 'Name', 'Ismeretlen')} ({g(s, 'Size', '?')}, {g(s, 'Type', '?')})")
                 html += "<br>".join(smart_blocks)
 
@@ -5617,11 +5620,41 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             note_lines.append('')
             note_lines_html = "".join(f'<div class="note-line">{e(line)}</div>' for line in note_lines)
 
+            # Egy oldalra kényszerítő "shrink-to-fit": #page-ruler egy 267mm-es (A4 mínusz a
+            # @page 15mm margói) rejtett elem, aminek a lemért px-magassága adja a valódi
+            # nyomtatható területet DPI-találgatás nélkül. A root.scrollHeight ehhez képest
+            # méri a tényleges tartalmat, és ha túlcsordulna, zsugorítja - de csak 0.75-ös
+            # olvashatósági padlóig, az alatt inkább szépen 2. oldalra csúszik (lásd .section/
+            # .item-block page-break-inside:avoid), mintsem olvashatatlanná váljon.
+            # FONTOS: ez `zoom`-mal megy, NEM `transform: scale()`-lel - élesben tesztelve
+            # (Chrome headless --print-to-pdf) kiderült, hogy a transform pusztán vizuális
+            # (nem befolyásolja a nyomtatási lapszámítást, ami a transzformáció ELŐTTI
+            # magassággal dolgozik), így a tartalom vizuálisan zsugorodna, de nyomtatáskor
+            # mégis 2 oldalra törne. A `zoom` Chromium-ban valódi layout-újraszámolást vált ki
+            # (a body ezért van rögzítve 180mm szélességre is - így képernyőn és nyomtatáskor
+            # ugyanaz a sortördelés, nem téveszti meg a mérést egy szélesebb böngészőablak).
             html += f"""
 <div class="note-section">
     <h2>📝 Megjegyzés</h2>
     <div class="note-content">{note_lines_html}</div>
 </div>
+</div>
+<script>
+(function() {{
+    var root = document.getElementById('report-root');
+    var ruler = document.getElementById('page-ruler');
+    if (!root || !ruler) return;
+    var bodyStyle = getComputedStyle(document.body);
+    var vPad = parseFloat(bodyStyle.paddingTop) + parseFloat(bodyStyle.paddingBottom);
+    var targetHeight = ruler.getBoundingClientRect().height - vPad;
+    var actualHeight = root.scrollHeight;
+    var MIN_SCALE = 0.75;
+    if (targetHeight > 0 && actualHeight > targetHeight) {{
+        var scale = Math.max(MIN_SCALE, targetHeight / actualHeight);
+        root.style.zoom = scale;
+    }}
+}})();
+</script>
 </body></html>"""
 
             comp_name = os.environ.get('COMPUTERNAME', 'PC')
