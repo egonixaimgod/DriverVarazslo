@@ -18,7 +18,7 @@ import socket
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 187
+BUILD_NUMBER = 188
 
 try:
     import webview
@@ -5709,6 +5709,45 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             logging.error(traceback.format_exc())
             raise Exception(str(e))
 
+    def _cleanup_store_printer(self, printer_name, staged_driver_published_name):
+        """Eltávolítja a bolti nyomtatót (és ha mi stageeltük, a drivert is) erről a
+        gépről, miután a nyomtatás megtörtént - ez a program tipikusan idegen (ügyfél-)
+        gépeken fut szervizelés közben, nem szabad rajta hagyni a bolti nyomtatót/drivert.
+        Csak print_via_store_printer hívja, és csak akkor, ha MI adtuk hozzá ezt a
+        nyomtatót ebben a futásban (we_added_printer) - a bolt saját, állandó gépén már
+        eleve meglévő nyomtatóhoz ez sosem nyúl. Előbb megvárja, amíg a nyomtatási sor
+        kiürül (a SumatraPDF `-exit-on-print`-je csak a nyomtatás API-hívás visszatéréséig
+        vár, nem addig, amíg a spooler ténylegesen elküldi a bájtokat a hálózati
+        nyomtatónak - ha a nyomtatót a job ténylegesen elküldése előtt távolítanánk el, a
+        nyomtatás félbeszakadhatna)."""
+        self.emit('task_progress', {'task': 'store_print', 'log': '🧹 Nyomtatási sor ürülésére várakozás...'})
+        wait_ps = (
+            f"$deadline = (Get-Date).AddSeconds(60); "
+            f"while ((Get-Date) -lt $deadline) {{ "
+            f"$jobs = Get-PrintJob -PrinterName '{_ps_quote(printer_name)}' -ErrorAction SilentlyContinue; "
+            f"if (-not $jobs) {{ break }}; Start-Sleep -Milliseconds 500 }}"
+        )
+        self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', wait_ps], timeout=70)
+
+        self.emit('task_progress', {'task': 'store_print', 'log': '🧹 Bolti nyomtató eltávolítása erről a gépről...'})
+        remove_ps = (
+            f"Remove-Printer -Name '{_ps_quote(printer_name)}' -ErrorAction SilentlyContinue; "
+            f"Remove-PrinterPort -Name '{_ps_quote(STORE_PRINTER_PORT_NAME)}' -ErrorAction SilentlyContinue"
+        )
+        if staged_driver_published_name:
+            remove_ps += f"; Remove-PrinterDriver -Name '{_ps_quote(STORE_PRINTER_HP_DRIVER_NAME)}' -ErrorAction SilentlyContinue"
+        self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', remove_ps], timeout=60)
+
+        # A Remove-PrinterDriver csak a nyomtatási alrendszerből veszi ki a drivert - az
+        # INF-csomag maga még ott marad a driver store-ban, amíg pnputil /delete-driver
+        # ki nem törli onnan is. Csak akkor tesszük, ha MI stageeltük (staged_driver_
+        # published_name) - egy máshonnan (pl. Windows Update-ről korábban) már megvolt
+        # driver csomagját nem töröljük, azt nem mi hoztuk létre.
+        if staged_driver_published_name:
+            self._run(['pnputil', '/delete-driver', staged_driver_published_name, '/uninstall', '/force'], timeout=60)
+
+        self.emit('task_progress', {'task': 'store_print', 'log': '✅ Bolti nyomtató eltávolítva erről a gépről.'})
+
     def _find_hp_driver_inf(self, stress_dir):
         """Megkeresi a becsomagolt HP LaserJet 1320 driver INF fájlját (HPDriver mappa a
         stresstools.zip-ben, egy már működő gépről `pnputil /export-driver` exporttal
@@ -5740,13 +5779,21 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
              becsomagolt fájljainkra támaszkodik
         Ha egyik sem sikerül (a ZIP-ben sincs meg az INF, vagy a pnputil stageelés
         elhasal), Exception-t dob - ez esetben a nyomtatót egyszer manuálisan, kézzel kell
-        hozzáadni ezen a gépen."""
+        hozzáadni ezen a gépen.
+
+        Visszatérési érték: (driver_name, staged_published_name). staged_published_name
+        None, ha a driver már eleve megvolt (1. eset) - ilyenkor a hívó (print_via_
+        store_printer) NEM törölheti a drivert nyomtatás után, hiszen az nem általunk lett
+        stageelve, más (pl. a referencia nyomtató) is használhatja. Ha viszont mi
+        stageeltük most (2. eset), a "oemXX.inf" publikált nevet adjuk vissza, hogy a hívó
+        ezzel pontosan visszatudja vonni (`pnputil /delete-driver`) - lásd a "ne maradjon
+        rajta az ügyfél gépén a mi driverünk" elvárást a print_via_store_printer végén."""
         ref_ps = f"(Get-Printer -Name '{_ps_quote(STORE_PRINTER_REFERENCE_NAME)}' -ErrorAction Stop).DriverName"
         res = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ref_ps], encoding='utf-8')
         driver_name = (res.stdout or '').strip() if res else ''
         if driver_name:
             self.emit('task_progress', {'task': 'store_print', 'log': f'✅ Meglévő HP driver újrahasznosítva: {driver_name}'})
-            return driver_name
+            return driver_name, None
 
         self.emit('task_progress', {'task': 'store_print', 'log': '📦 HP driver keresése a becsomagolt fájlok között...'})
         stress_dir = self._download_stresstools()
@@ -5771,11 +5818,17 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             err_detail = (stage_res.stderr or stage_res.stdout or 'ismeretlen hiba') if stage_res else 'ismeretlen hiba'
             raise Exception(f"A HP driver telepítése (pnputil /add-driver) sikertelen: {err_detail}")
 
+        # A "Published Name:  oemXX.inf" sor kell ahhoz, hogy a hívó nyomtatás után
+        # pontosan EZT a stageelt csomagot tudja visszavonni (pnputil /delete-driver) -
+        # az oemXX szám gépenként/futásonként más lehet, nem lehet előre feltételezni.
+        published_match = re.search(r'Published Name\s*:\s*(oem\d+\.inf)', stage_out, re.IGNORECASE)
+        staged_published_name = published_match.group(1) if published_match else None
+
         install_ps = f"Add-PrinterDriver -Name '{_ps_quote(STORE_PRINTER_HP_DRIVER_NAME)}' -ErrorAction Stop"
         ires = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', install_ps], encoding='utf-8', timeout=60)
         if ires and ires.returncode == 0:
             self.emit('task_progress', {'task': 'store_print', 'log': f'✅ HP driver telepítve: {STORE_PRINTER_HP_DRIVER_NAME}'})
-            return STORE_PRINTER_HP_DRIVER_NAME
+            return STORE_PRINTER_HP_DRIVER_NAME, staged_published_name
 
         err_detail = (ires.stderr or ires.stdout or 'ismeretlen hiba') if ires else 'ismeretlen hiba'
         raise Exception(
@@ -5853,12 +5906,20 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             res = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', find_ps], encoding='utf-8')
             existing_name = (res.stdout or '').strip() if res else ''
 
+            # we_added_printer/staged_driver_published_name: mit hoztunk létre MI EBBEN a
+            # futásban, hogy a végén pontosan azt (és csakis azt) takarítsuk el - lásd a
+            # "ne maradjon rajta az ügyfél gépén a bolti nyomtató/driver" elvárást lentebb.
+            # Ha a nyomtató már eleve ott volt (pl. a bolt saját, állandó gépén), ahhoz
+            # NEM nyúlunk hozzá utólag sem.
+            we_added_printer = False
+            staged_driver_published_name = None
+
             if existing_name:
                 printer_name = existing_name
                 self.emit('task_progress', {'task': 'store_print', 'log': f'✅ A nyomtató már fel van véve: {printer_name}'})
             else:
                 self.emit('task_progress', {'task': 'store_print', 'log': '➕ A nyomtató még nincs felvéve - driver előkészítése...'})
-                driver_name = self._resolve_store_printer_driver()
+                driver_name, staged_driver_published_name = self._resolve_store_printer_driver()
 
                 add_ps = (
                     f"Add-PrinterPort -Name '{_ps_quote(STORE_PRINTER_PORT_NAME)}' -PrinterHostAddress '{STORE_PRINTER_IP}' -ErrorAction Stop; "
@@ -5869,6 +5930,7 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
                     err_detail = (ares.stderr or ares.stdout or 'ismeretlen hiba') if ares else 'ismeretlen hiba'
                     raise Exception(f"Nem sikerült felvenni a nyomtatót: {err_detail}")
                 printer_name = STORE_PRINTER_NAME
+                we_added_printer = True
                 self.emit('task_progress', {'task': 'store_print', 'log': f'✅ Nyomtató felvéve: {printer_name}'})
 
             # 3) HTML -> PDF headless Edge-dzsel.
@@ -5886,7 +5948,17 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
                 file_url,
             ]
             self._run(pdf_cmd, timeout=60)
-            if not os.path.exists(pdf_path):
+            # A msedge --print-to-pdf hívás visszatérése nem mindig jelenti azt, hogy a
+            # PDF fájl írása is befejeződött (terepen bizonyítva: a subprocess ~0.6mp
+            # alatt visszatért, miközben a PDF ténylegesen csak egy kicsit később jelent
+            # meg a lemezen - valószínűleg egy háttérben tovább futó gyerekfolyamat
+            # fejezte csak be az írást) - ezért rövid ideig újrapróbálkozunk ahelyett,
+            # hogy egyetlen azonnali ellenőrzés után hibát adnánk.
+            for _ in range(20):
+                if os.path.exists(pdf_path):
+                    break
+                time.sleep(0.5)
+            else:
                 raise Exception("A riport PDF-be alakítása sikertelen.")
 
             # 4) PDF -> néma nyomtatás a bolti nyomtatóra.
@@ -5901,6 +5973,19 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             except: pass
 
             self.emit('task_progress', {'task': 'store_print', 'log': f'✅ Kinyomtatva: {printer_name}'})
+
+            # 5) Takarítás: az ügyfél gépén ne maradjon rajta a mi bolti nyomtatónk/driverünk
+            # - csak azt távolítjuk el, amit MI adtunk hozzá ebben a futásban (we_added_
+            # printer/staged_driver_published_name), a bolt saját, állandó gépén már eleve
+            # ott lévő nyomtatóhoz/driverhez nem nyúlunk. Egy esetleges takarítási hiba nem
+            # rontja el a már megtörtént, sikeres nyomtatást - csak figyelmeztetésként logolva.
+            if we_added_printer:
+                try:
+                    self._cleanup_store_printer(printer_name, staged_driver_published_name)
+                except Exception as cleanup_err:
+                    logging.warning(f"[STORE_PRINT] Takarítási hiba (a nyomtatás maga sikeres volt): {cleanup_err}")
+                    self.emit('task_progress', {'task': 'store_print', 'log': f'⚠️ A nyomtatás sikeres volt, de a bolti nyomtató eltávolítása ezen a gépen nem sikerült: {cleanup_err}'})
+
             self.emit('task_complete', {'task': 'store_print', 'status': f'✅ Riport kinyomtatva a bolti nyomtatóra ({printer_name})!'})
 
         self._safe_thread('store_print', worker)
