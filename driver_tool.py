@@ -18,7 +18,7 @@ import socket
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 188
+BUILD_NUMBER = 189
 
 try:
     import webview
@@ -5913,80 +5913,99 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             # NEM nyúlunk hozzá utólag sem.
             we_added_printer = False
             staged_driver_published_name = None
+            printer_name = existing_name or None
 
-            if existing_name:
-                printer_name = existing_name
-                self.emit('task_progress', {'task': 'store_print', 'log': f'✅ A nyomtató már fel van véve: {printer_name}'})
-            else:
-                self.emit('task_progress', {'task': 'store_print', 'log': '➕ A nyomtató még nincs felvéve - driver előkészítése...'})
-                driver_name, staged_driver_published_name = self._resolve_store_printer_driver()
+            # A takarítást (5. lépés) `finally`-ben végezzük, NEM csak a sikeres út végén -
+            # terepen bizonyítva: ha a nyomtató/driver hozzáadása után VALAMI MÁS lépés
+            # (pl. a PDF-generálás) hasal el, az a régi kód mellett félig hozzáadott
+            # állapotban hagyta a gépet (nyomtató+port megvan, de a program hibával leáll)
+            # - ez nemcsak az "ügyfél gépén ne maradjon nyoma" elvárást sérti, hanem egy
+            # következő próbálkozást is elront (lásd: "Add-PrinterPort: The specified port
+            # already exists" - a leftover port miatt). A `finally` biztosítja, hogy amit MI
+            # adtunk hozzá, az sikeres ÉS sikertelen kilépéskor is eltakarodjon.
+            try:
+                if existing_name:
+                    self.emit('task_progress', {'task': 'store_print', 'log': f'✅ A nyomtató már fel van véve: {printer_name}'})
+                else:
+                    self.emit('task_progress', {'task': 'store_print', 'log': '➕ A nyomtató még nincs felvéve - driver előkészítése...'})
+                    driver_name, staged_driver_published_name = self._resolve_store_printer_driver()
 
-                add_ps = (
-                    f"Add-PrinterPort -Name '{_ps_quote(STORE_PRINTER_PORT_NAME)}' -PrinterHostAddress '{STORE_PRINTER_IP}' -ErrorAction Stop; "
-                    f"Add-Printer -Name '{_ps_quote(STORE_PRINTER_NAME)}' -DriverName '{_ps_quote(driver_name)}' -PortName '{_ps_quote(STORE_PRINTER_PORT_NAME)}' -ErrorAction Stop"
-                )
-                ares = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', add_ps], encoding='utf-8')
-                if not ares or ares.returncode != 0:
-                    err_detail = (ares.stderr or ares.stdout or 'ismeretlen hiba') if ares else 'ismeretlen hiba'
-                    raise Exception(f"Nem sikerült felvenni a nyomtatót: {err_detail}")
-                printer_name = STORE_PRINTER_NAME
-                we_added_printer = True
-                self.emit('task_progress', {'task': 'store_print', 'log': f'✅ Nyomtató felvéve: {printer_name}'})
+                    # A porthoz ÉS a nyomtató nevéhez is külön, idempotens ellenőrzés kell:
+                    # terepen bizonyítva, hogy a port és a nyomtató objektum egymástól
+                    # függetlenül is szinkronon kívülre kerülhet (egy korábbi, félbeszakadt
+                    # próbálkozásból a port megmaradt, miközben a nyomtató objektum már nem
+                    # volt megtalálható a fenti existing_name lekérdezéssel) - egy sima,
+                    # feltétel nélküli `Add-PrinterPort`/`Add-Printer -ErrorAction Stop`
+                    # ilyenkor rögtön elhasalna ("already exists"), mielőtt egyáltalán
+                    # esélyt kapna az egyébként ártalmatlan újrahasznosításra.
+                    add_ps = (
+                        f"if (-not (Get-PrinterPort -Name '{_ps_quote(STORE_PRINTER_PORT_NAME)}' -ErrorAction SilentlyContinue)) "
+                        f"{{ Add-PrinterPort -Name '{_ps_quote(STORE_PRINTER_PORT_NAME)}' -PrinterHostAddress '{STORE_PRINTER_IP}' -ErrorAction Stop }}; "
+                        f"if (-not (Get-Printer -Name '{_ps_quote(STORE_PRINTER_NAME)}' -ErrorAction SilentlyContinue)) "
+                        f"{{ Add-Printer -Name '{_ps_quote(STORE_PRINTER_NAME)}' -DriverName '{_ps_quote(driver_name)}' -PortName '{_ps_quote(STORE_PRINTER_PORT_NAME)}' -ErrorAction Stop }}"
+                    )
+                    ares = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', add_ps], encoding='utf-8')
+                    if not ares or ares.returncode != 0:
+                        err_detail = (ares.stderr or ares.stdout or 'ismeretlen hiba') if ares else 'ismeretlen hiba'
+                        raise Exception(f"Nem sikerült felvenni a nyomtatót: {err_detail}")
+                    printer_name = STORE_PRINTER_NAME
+                    we_added_printer = True
+                    self.emit('task_progress', {'task': 'store_print', 'log': f'✅ Nyomtató felvéve: {printer_name}'})
 
-            # 3) HTML -> PDF headless Edge-dzsel.
-            self.emit('task_progress', {'task': 'store_print', 'log': '🖨️ PDF előállítása a riportból...'})
-            msedge = self._find_msedge_exe()
-            if not msedge:
-                raise Exception("Nem található az Edge böngésző (msedge.exe) ezen a gépen - a PDF-generáláshoz szükséges.")
+                # 3) HTML -> PDF headless Edge-dzsel.
+                self.emit('task_progress', {'task': 'store_print', 'log': '🖨️ PDF előállítása a riportból...'})
+                msedge = self._find_msedge_exe()
+                if not msedge:
+                    raise Exception("Nem található az Edge böngésző (msedge.exe) ezen a gépen - a PDF-generáláshoz szükséges.")
 
-            pdf_path = os.path.splitext(report_path)[0] + '_print.pdf'
-            file_url = 'file:///' + report_path.replace('\\', '/')
-            pdf_cmd = [
-                msedge, '--headless', '--disable-gpu', '--no-sandbox',
-                f'--print-to-pdf={pdf_path}', '--no-pdf-header-footer',
-                '--run-all-compositor-stages-before-draw', '--virtual-time-budget=3000',
-                file_url,
-            ]
-            self._run(pdf_cmd, timeout=60)
-            # A msedge --print-to-pdf hívás visszatérése nem mindig jelenti azt, hogy a
-            # PDF fájl írása is befejeződött (terepen bizonyítva: a subprocess ~0.6mp
-            # alatt visszatért, miközben a PDF ténylegesen csak egy kicsit később jelent
-            # meg a lemezen - valószínűleg egy háttérben tovább futó gyerekfolyamat
-            # fejezte csak be az írást) - ezért rövid ideig újrapróbálkozunk ahelyett,
-            # hogy egyetlen azonnali ellenőrzés után hibát adnánk.
-            for _ in range(20):
-                if os.path.exists(pdf_path):
-                    break
-                time.sleep(0.5)
-            else:
-                raise Exception("A riport PDF-be alakítása sikertelen.")
+                pdf_path = os.path.splitext(report_path)[0] + '_print.pdf'
+                file_url = 'file:///' + report_path.replace('\\', '/')
+                pdf_cmd = [
+                    msedge, '--headless', '--disable-gpu', '--no-sandbox',
+                    f'--print-to-pdf={pdf_path}', '--no-pdf-header-footer',
+                    '--run-all-compositor-stages-before-draw', '--virtual-time-budget=3000',
+                    file_url,
+                ]
+                self._run(pdf_cmd, timeout=60)
+                # A msedge --print-to-pdf hívás visszatérése nem mindig jelenti azt, hogy a
+                # PDF fájl írása is befejeződött (terepen bizonyítva: a subprocess ~0.6mp
+                # alatt visszatért, miközben a PDF ténylegesen csak egy kicsit később jelent
+                # meg a lemezen - valószínűleg egy háttérben tovább futó gyerekfolyamat
+                # fejezte csak be az írást) - ezért rövid ideig újrapróbálkozunk ahelyett,
+                # hogy egyetlen azonnali ellenőrzés után hibát adnánk.
+                for _ in range(20):
+                    if os.path.exists(pdf_path):
+                        break
+                    time.sleep(0.5)
+                else:
+                    raise Exception("A riport PDF-be alakítása sikertelen.")
 
-            # 4) PDF -> néma nyomtatás a bolti nyomtatóra.
-            self.emit('task_progress', {'task': 'store_print', 'log': '📤 Nyomtatás küldése...'})
-            stress_dir = self._download_stresstools()
-            sumatra = self._find_sumatra_exe(stress_dir) if stress_dir else None
-            if not sumatra:
-                raise Exception("A SumatraPDF nem található (a stresstools.zip-ben kell lennie) - néma nyomtatás nem lehetséges.")
+                # 4) PDF -> néma nyomtatás a bolti nyomtatóra.
+                self.emit('task_progress', {'task': 'store_print', 'log': '📤 Nyomtatás küldése...'})
+                stress_dir = self._download_stresstools()
+                sumatra = self._find_sumatra_exe(stress_dir) if stress_dir else None
+                if not sumatra:
+                    raise Exception("A SumatraPDF nem található (a stresstools.zip-ben kell lennie) - néma nyomtatás nem lehetséges.")
 
-            self._run([sumatra, '-print-to', printer_name, '-silent', '-exit-on-print', pdf_path], timeout=60)
-            try: os.remove(pdf_path)
-            except: pass
+                self._run([sumatra, '-print-to', printer_name, '-silent', '-exit-on-print', pdf_path], timeout=60)
+                try: os.remove(pdf_path)
+                except: pass
 
-            self.emit('task_progress', {'task': 'store_print', 'log': f'✅ Kinyomtatva: {printer_name}'})
-
-            # 5) Takarítás: az ügyfél gépén ne maradjon rajta a mi bolti nyomtatónk/driverünk
-            # - csak azt távolítjuk el, amit MI adtunk hozzá ebben a futásban (we_added_
-            # printer/staged_driver_published_name), a bolt saját, állandó gépén már eleve
-            # ott lévő nyomtatóhoz/driverhez nem nyúlunk. Egy esetleges takarítási hiba nem
-            # rontja el a már megtörtént, sikeres nyomtatást - csak figyelmeztetésként logolva.
-            if we_added_printer:
-                try:
-                    self._cleanup_store_printer(printer_name, staged_driver_published_name)
-                except Exception as cleanup_err:
-                    logging.warning(f"[STORE_PRINT] Takarítási hiba (a nyomtatás maga sikeres volt): {cleanup_err}")
-                    self.emit('task_progress', {'task': 'store_print', 'log': f'⚠️ A nyomtatás sikeres volt, de a bolti nyomtató eltávolítása ezen a gépen nem sikerült: {cleanup_err}'})
-
-            self.emit('task_complete', {'task': 'store_print', 'status': f'✅ Riport kinyomtatva a bolti nyomtatóra ({printer_name})!'})
+                self.emit('task_progress', {'task': 'store_print', 'log': f'✅ Kinyomtatva: {printer_name}'})
+                self.emit('task_complete', {'task': 'store_print', 'status': f'✅ Riport kinyomtatva a bolti nyomtatóra ({printer_name})!'})
+            finally:
+                # 5) Takarítás: az ügyfél gépén ne maradjon rajta a mi bolti nyomtatónk/
+                # driverünk - csak azt távolítjuk el, amit MI adtunk hozzá ebben a futásban
+                # (we_added_printer/staged_driver_published_name), a bolt saját, állandó
+                # gépén már eleve ott lévő nyomtatóhoz/driverhez nem nyúlunk. Egy esetleges
+                # takarítási hiba nem írja felül/nyeli el a fenti try-ban ténylegesen
+                # történteket (sikert vagy hibát) - csak figyelmeztetésként logolva.
+                if we_added_printer:
+                    try:
+                        self._cleanup_store_printer(printer_name, staged_driver_published_name)
+                    except Exception as cleanup_err:
+                        logging.warning(f"[STORE_PRINT] Takarítási hiba: {cleanup_err}")
+                        self.emit('task_progress', {'task': 'store_print', 'log': f'⚠️ A bolti nyomtató eltávolítása ezen a gépen nem sikerült: {cleanup_err}'})
 
         self._safe_thread('store_print', worker)
 
