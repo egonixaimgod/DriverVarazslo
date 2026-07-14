@@ -484,6 +484,11 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
               <span class="toggle-track"></span>
               🌐 Internet Explorer/Edge (legacy) gyorsítótár
             </label>
+            <label class="toggle" title="A C:\Windows\System32\spool\drivers\color mappa tartalma - főleg nyomtatódriverek (tipikusan HP) szemetelik tele akár több GB színprofillal. FIGYELEM: a monitor/nyomtató telepített ICC színprofiljai is törlődnek - a driverek újratelepítése visszateszi őket.">
+              <input type="checkbox" id="tc-color-profiles">
+              <span class="toggle-track"></span>
+              🎨 Színprofilok (spool\drivers\color)
+            </label>
           </div>
 
           <button class="btn btn-big btn-primary" onclick="cleanTempFiles()" id="btn-tempclean">🧹 Kiválasztott Kategóriák Törlése</button>
@@ -545,9 +550,9 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 
       <div class="view" id="view-blockscript">
         <div class="panel glass">
-          <div class="panel-title"><span class="emoji">🚫</span> Net Blokkoló Script (block.ps1)</div>
-          <p style="margin-bottom: 16px; color: var(--text3);">Letölti a <code>block.ps1</code> PowerShell scriptet a <code>C:\DriverVarazslo</code> mappába. A script - ha később futtatod - a saját mappájában (és az összes almappájában) található minden <code>.exe</code> kimenő internet-elérését letiltja a Windows tűzfalban. A gomb <b>csak letölti</b> a fájlt, nem futtatja: másold be abba a mappába, amit blokkolni akarsz, és admin PowerShell-ből indítsd.</p>
-          <button class="btn btn-big btn-primary" onclick="downloadBlockScript()" id="btn-blockscript">⬇️ block.ps1 Letöltése</button>
+          <div class="panel-title"><span class="emoji">🚫</span> Net Blokkoló Script (block.bat)</div>
+          <p style="margin-bottom: 16px; color: var(--text3);">Letölti a <code>block.bat</code> scriptet a <code>C:\DriverVarazslo</code> mappába. A script - ha később futtatod - a saját mappájában (és az összes almappájában) található minden <code>.exe</code> kimenő internet-elérését letiltja a Windows tűzfalban. A gomb <b>csak letölti</b> a fájlt, nem futtatja: másold be abba a mappába, amit blokkolni akarsz, és dupla kattintással indítsd - az admin jogot magától kéri (UAC), csak fogadd el.</p>
+          <button class="btn btn-big btn-primary" onclick="downloadBlockScript()" id="btn-blockscript">⬇️ block.bat Letöltése</button>
         </div>
       </div>
 
@@ -1240,7 +1245,7 @@ async function downloadBlockScript() {
   try {
     const res = await api().download_block_script();
     if (res && res.success) {
-      toast('block.ps1 letöltve ide: ' + res.path, 'success');
+      toast('block.bat letöltve ide: ' + res.path, 'success');
     } else {
       toast('Letöltési hiba: ' + ((res && res.error) || 'ismeretlen hiba'), 'error');
     }
@@ -1248,7 +1253,7 @@ async function downloadBlockScript() {
     toast('Letöltési hiba: ' + e, 'error');
   } finally {
     btn.disabled = false;
-    btn.textContent = '⬇️ block.ps1 Letöltése';
+    btn.textContent = '⬇️ block.bat Letöltése';
   }
 }
 
@@ -1387,6 +1392,7 @@ async function cleanTempFiles() {
     cbs_logs: document.getElementById('tc-cbs-logs').checked,
     crash_dumps: document.getElementById('tc-crash-dumps').checked,
     inet_cache: document.getElementById('tc-inet-cache').checked,
+    color_profiles: document.getElementById('tc-color-profiles').checked,
   };
   if (!Object.values(options).some(v => v)) {
     toast('⚠️ Válassz ki legalább egy kategóriát!', 'warning');

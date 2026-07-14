@@ -18,7 +18,7 @@ import socket
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 190
+BUILD_NUMBER = 191
 
 try:
     import webview
@@ -522,6 +522,12 @@ def _temp_clean_category_defs(sys_drive):
          [os.path.join(local, 'CrashDumps')] if local else [], [], False),
         ('inet_cache', '🌐 Internet Explorer/Edge (legacy) gyorsítótár',
          [os.path.join(local, 'Microsoft', 'Windows', 'INetCache')] if local else [], [], False),
+        # Színprofil-mappa: főleg nyomtatódriverek (tipikusan HP) szemetelik tele akár
+        # több GB ICC-profillal. A Spoolert leállítjuk törlés előtt, mert a nyomtató-
+        # driverek profiljait zárolhatja. A Windows beépített profiljai (pl. sRGB) is
+        # törlődnek, ezért csak opt-in extra - a driverek újratelepítése visszateszi őket.
+        ('color_profiles', '🎨 Színprofilok (spool\\drivers\\color)',
+         [os.path.join(sys_drive, 'Windows', 'System32', 'spool', 'drivers', 'color')], ['Spooler'], False),
     ]
 
 
@@ -540,19 +546,24 @@ def _app_data_dir():
     return path
 
 
-# Net Blokkoló script (block.ps1) - GitHub release-ből letölthető PowerShell script, ami
-# a saját mappájában (és almappáiban) lévő összes .exe kimenő internet-elérését letiltja
-# a Windows tűzfalban. A program CSAK letölti a _app_data_dir() mappába, NEM futtatja.
-BLOCK_SCRIPT_URL = "https://github.com/egonixaimgod/DriverVarazslo/releases/download/block.ps1/block.ps1"
+# Net Blokkoló script (block.bat) - GitHub release-ből letölthető batch script, ami a
+# saját mappájában (és almappáiban) lévő összes .exe kimenő internet-elérését letiltja a
+# Windows tűzfalban (netsh advfirewall). A program CSAK letölti a _app_data_dir()
+# mappába, NEM futtatja. Szándékosan .bat és nem .ps1: a batch fájlokra nem vonatkozik a
+# PowerShell execution policy (ami alapértelmezetten Restricted, azaz a sima dupla katt
+# / "Futtatás PowerShell-lel" egy azonnal bezáruló ablakkal elhal - terepen bizonyított),
+# és a .bat magától kéri az admin jogot (UAC) is, így az ügyfélgépen tényleg csak dupla
+# kattintás kell hozzá.
+BLOCK_SCRIPT_URL = "https://github.com/egonixaimgod/DriverVarazslo/releases/download/block.bat/block.bat"
 
 
 def _download_block_script(run_fn):
-    """Letölti a block.ps1 scriptet a _app_data_dir() mappába - EGY helyen (a GUI
+    """Letölti a block.bat scriptet a _app_data_dir() mappába - EGY helyen (a GUI
     download_block_script és a CLI download_block_script is ezt hívja), hogy a kettő ne
     driftelhessen szét. Visszaadja a mentett fájl teljes útvonalát, hibánál kivételt dob.
     run_fn: a hívó API-osztály _run metódusa (a friss-Windows tanúsítvány-fallbackhez)."""
     import urllib.request, urllib.error, ssl
-    dest = os.path.join(_app_data_dir(), 'block.ps1')
+    dest = os.path.join(_app_data_dir(), 'block.bat')
     logging.info("[BLOCK-SCRIPT] Letöltés INNEN: " + BLOCK_SCRIPT_URL)
     ssl_ctx = ssl.create_default_context()
     req = urllib.request.Request(BLOCK_SCRIPT_URL, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
@@ -5204,10 +5215,10 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
             return False
 
     # ================================================================
-    # NET BLOKKOLÓ SCRIPT (block.ps1) LETÖLTÉSE
+    # NET BLOKKOLÓ SCRIPT (block.bat) LETÖLTÉSE
     # ================================================================
     def download_block_script(self):
-        """Letölti a block.ps1 scriptet a C:\\DriverVarazslo mappába (csak letöltés,
+        """Letölti a block.bat scriptet a C:\\DriverVarazslo mappába (csak letöltés,
         futtatás nélkül). Kicsi fájl, ezért szinkron hívás - a pywebview úgyis saját
         szálon futtatja az API-hívásokat, a UI nem fagy be tőle."""
         logging.info("[API] download_block_script()")
@@ -7226,19 +7237,20 @@ Write-Output "DONE: Törölve: $count / $total"
         return total_freed, total_removed, total_failed
 
     # ================================================================
-    # NET BLOKKOLÓ SCRIPT (block.ps1) LETÖLTÉSE - a GUI download_block_script
+    # NET BLOKKOLÓ SCRIPT (block.bat) LETÖLTÉSE - a GUI download_block_script
     # megfelelője, a modul-szintű _download_block_script-et megosztva vele.
     # ================================================================
     def download_block_script(self):
-        """Letölti a block.ps1 scriptet a C:\\DriverVarazslo mappába (csak letöltés,
+        """Letölti a block.bat scriptet a C:\\DriverVarazslo mappába (csak letöltés,
         futtatás nélkül)."""
-        print("\n🚫 Net Blokkoló script (block.ps1) letöltése...")
+        print("\n🚫 Net Blokkoló script (block.bat) letöltése...")
         try:
             path = _download_block_script(self._run)
             print(f"✅ Letöltve: {path}")
-            print("   (A script futtatásakor a SAJÁT mappájában és almappáiban lévő összes")
+            print("   (A script futtatáskor a SAJÁT mappájában és almappáiban lévő összes")
             print("   .exe kimenő internet-elérését letiltja a Windows tűzfalban - másold")
-            print("   abba a mappába, amit blokkolni akarsz, és admin PowerShell-ből futtasd.)")
+            print("   abba a mappába, amit blokkolni akarsz, és dupla kattintás: az admin")
+            print("   jogot magától kéri (UAC), csak el kell fogadni.)")
         except Exception as e:
             print(f"❌ Letöltési hiba: {e}")
 
@@ -7496,7 +7508,7 @@ def run_cli_mode():
     🔄  3. Windows Update
     ⚡  4. 1 Kattintásos Driver Fix
     🧹  5. Temp fájlok törlése (lemez felszabadítás)
-    🚫  6. Net Blokkoló script (block.ps1) letöltése
+    🚫  6. Net Blokkoló script (block.bat) letöltése
 
     ⚙️   7. Cél OS váltása (offline mód)
     ℹ️   8. GUI-only funkciók (mik nem érhetők el itt)
@@ -7695,10 +7707,11 @@ def run_cli_mode():
             print_header()
             extra1 = input("Miniatűr (thumbnail) gyorsítótár törlése is? (i/n): ").strip().lower() == 'i'
             extra2 = input("Lomtár (Recycle Bin) ürítése is? (i/n): ").strip().lower() == 'i'
-            extra3 = input("Egyéb extra kategóriák is (Delivery Optimization, hibajelentések, DirectX Shader Cache, CBS logok, Crash Dumpok, IE/Edge cache)? (i/n): ").strip().lower() == 'i'
+            extra3 = input("Egyéb extra kategóriák is (Delivery Optimization, hibajelentések, DirectX Shader Cache, CBS logok, Crash Dumpok, IE/Edge cache, színprofilok)? (i/n): ").strip().lower() == 'i'
             api.clean_temp_files(thumbnail_cache=extra1, recycle_bin=extra2,
                                   delivery_opt=extra3, wer=extra3, shader_cache=extra3,
-                                  cbs_logs=extra3, crash_dumps=extra3, inet_cache=extra3)
+                                  cbs_logs=extra3, crash_dumps=extra3, inet_cache=extra3,
+                                  color_profiles=extra3)
             input("\nNyomj ENTER-t a folytatáshoz...")
         elif choice == '6':
             print_header()
