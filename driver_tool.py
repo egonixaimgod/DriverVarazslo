@@ -18,7 +18,7 @@ import socket
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 189
+BUILD_NUMBER = 190
 
 try:
     import webview
@@ -538,6 +538,46 @@ def _app_data_dir():
     except Exception:
         pass
     return path
+
+
+# Net Blokkoló script (block.ps1) - GitHub release-ből letölthető PowerShell script, ami
+# a saját mappájában (és almappáiban) lévő összes .exe kimenő internet-elérését letiltja
+# a Windows tűzfalban. A program CSAK letölti a _app_data_dir() mappába, NEM futtatja.
+BLOCK_SCRIPT_URL = "https://github.com/egonixaimgod/DriverVarazslo/releases/download/block.ps1/block.ps1"
+
+
+def _download_block_script(run_fn):
+    """Letölti a block.ps1 scriptet a _app_data_dir() mappába - EGY helyen (a GUI
+    download_block_script és a CLI download_block_script is ezt hívja), hogy a kettő ne
+    driftelhessen szét. Visszaadja a mentett fájl teljes útvonalát, hibánál kivételt dob.
+    run_fn: a hívó API-osztály _run metódusa (a friss-Windows tanúsítvány-fallbackhez)."""
+    import urllib.request, urllib.error, ssl
+    dest = os.path.join(_app_data_dir(), 'block.ps1')
+    logging.info("[BLOCK-SCRIPT] Letöltés INNEN: " + BLOCK_SCRIPT_URL)
+    ssl_ctx = ssl.create_default_context()
+    req = urllib.request.Request(BLOCK_SCRIPT_URL, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+    try:
+        with urllib.request.urlopen(req, context=ssl_ctx, timeout=60) as resp, open(dest, 'wb') as f:
+            shutil.copyfileobj(resp, f)
+    except urllib.error.URLError as dl_err:
+        # Ugyanaz a friss-Windows gyökértanúsítvány-probléma, mint a _download_stresstools-nál
+        # (a github.com Sectigo/USERTrust gyökere hiányzik a vadonatúj gép tárából, amit csak
+        # schannel-kliens tölt le igény szerint) - ezért CSAK erre a hibára esünk vissza
+        # PowerShell Invoke-WebRequest-re, teljes tanúsítvány-ellenőrzéssel (SEMMIT nem
+        # kapcsolunk ki!).
+        if 'CERTIFICATE_VERIFY_FAILED' not in str(dl_err):
+            raise
+        logging.warning(f"[BLOCK-SCRIPT] Python SSL tanúsítvány-hiba ({dl_err}) - áttérés PowerShell (schannel) letöltésre, teljes tanúsítvány-ellenőrzéssel...")
+        ps_cmd = ("$ProgressPreference='SilentlyContinue'; "
+                  "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; "
+                  f"Invoke-WebRequest -Uri '{_ps_quote(BLOCK_SCRIPT_URL)}' -OutFile '{_ps_quote(dest)}' -UseBasicParsing")
+        result = run_fn(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps_cmd], timeout=120)
+        if not result or result.returncode != 0 or not os.path.exists(dest):
+            raise Exception("A letöltés sikertelen (nincs internet, vagy a GitHub nem elérhető).")
+    if not os.path.exists(dest) or os.path.getsize(dest) == 0:
+        raise Exception("A letöltött fájl üres vagy hiányzik.")
+    logging.info(f"[BLOCK-SCRIPT] Letöltve: {dest}")
+    return dest
 
 
 # Stabilitás Teszt közben letiltandó energiagazdálkodási beállítások (powercfg alias-ok -
@@ -5163,6 +5203,21 @@ if ($ps -eq 'On' -or $vs -eq 'FullyEncrypted') {
             logging.error(f"Cannot open file: {e}")
             return False
 
+    # ================================================================
+    # NET BLOKKOLÓ SCRIPT (block.ps1) LETÖLTÉSE
+    # ================================================================
+    def download_block_script(self):
+        """Letölti a block.ps1 scriptet a C:\\DriverVarazslo mappába (csak letöltés,
+        futtatás nélkül). Kicsi fájl, ezért szinkron hívás - a pywebview úgyis saját
+        szálon futtatja az API-hívásokat, a UI nem fagy be tőle."""
+        logging.info("[API] download_block_script()")
+        try:
+            path = _download_block_script(self._run)
+            return {'success': True, 'path': path}
+        except Exception as e:
+            logging.error(f"[BLOCK-SCRIPT] Letöltési hiba: {e}")
+            return {'success': False, 'error': str(e)}
+
     def generate_system_report(self, note=None):
         logging.info(f"[API] generate_system_report(note={'igen' if note else 'nem'})")
         try:
@@ -7171,6 +7226,23 @@ Write-Output "DONE: Törölve: $count / $total"
         return total_freed, total_removed, total_failed
 
     # ================================================================
+    # NET BLOKKOLÓ SCRIPT (block.ps1) LETÖLTÉSE - a GUI download_block_script
+    # megfelelője, a modul-szintű _download_block_script-et megosztva vele.
+    # ================================================================
+    def download_block_script(self):
+        """Letölti a block.ps1 scriptet a C:\\DriverVarazslo mappába (csak letöltés,
+        futtatás nélkül)."""
+        print("\n🚫 Net Blokkoló script (block.ps1) letöltése...")
+        try:
+            path = _download_block_script(self._run)
+            print(f"✅ Letöltve: {path}")
+            print("   (A script futtatásakor a SAJÁT mappájában és almappáiban lévő összes")
+            print("   .exe kimenő internet-elérését letiltja a Windows tűzfalban - másold")
+            print("   abba a mappába, amit blokkolni akarsz, és admin PowerShell-ből futtasd.)")
+        except Exception as e:
+            print(f"❌ Letöltési hiba: {e}")
+
+    # ================================================================
     # AUTOFIX (1 kattintásos driver fix)
     # ================================================================
     def autofix(self):
@@ -7424,9 +7496,10 @@ def run_cli_mode():
     🔄  3. Windows Update
     ⚡  4. 1 Kattintásos Driver Fix
     🧹  5. Temp fájlok törlése (lemez felszabadítás)
+    🚫  6. Net Blokkoló script (block.ps1) letöltése
 
-    ⚙️   6. Cél OS váltása (offline mód)
-    ℹ️   7. GUI-only funkciók (mik nem érhetők el itt)
+    ⚙️   7. Cél OS váltása (offline mód)
+    ℹ️   8. GUI-only funkciók (mik nem érhetők el itt)
     ❌  0. Kilépés
 """)
     
@@ -7628,8 +7701,12 @@ def run_cli_mode():
                                   cbs_logs=extra3, crash_dumps=extra3, inet_cache=extra3)
             input("\nNyomj ENTER-t a folytatáshoz...")
         elif choice == '6':
-            target_menu()
+            print_header()
+            api.download_block_script()
+            input("\nNyomj ENTER-t a folytatáshoz...")
         elif choice == '7':
+            target_menu()
+        elif choice == '8':
             print_header()
             print("""
   ℹ️  CSAK A GRAFIKUS FELÜLETEN (GUI) ELÉRHETŐ FUNKCIÓK

@@ -251,6 +251,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
     <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Driver Fix</button>
     <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stabilitás Teszt</button>
     <button class="nav-btn" onclick="switchView('report')" data-view="report"><span class="icon">📊</span>Rendszer Riport (PDF)</button>
+    <button class="nav-btn" onclick="switchView('blockscript')" data-view="blockscript"><span class="icon">🚫</span>Net Blokkoló Script</button>
     <div class="sidebar-bottom" id="build-label">Build ---</div>
     <div class="sidebar-datadir" id="data-dir-label" title="Ide menti a program a debug naplót és a Rendszer Riport HTML fájlokat - kattints a megnyitáshoz" onclick="openAppDataDir()">📁 ...</div>
   </nav>
@@ -539,6 +540,14 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
           <div class="panel-title"><span class="emoji">📊</span> Rendszer Riport (HTML Gépkönyv)</div>
           <p style="margin-bottom: 16px; color: var(--text3);">Egy szép, modern HTML dokumentumot generál a számítógép hardveres adatairól (CPU, Memória, Videókártyák, és Háttértárak S.M.A.R.T. adatai), amit a böngésződben megnyitva akár PDF-be is lementhetsz vagy kinyomtathatsz. A fájl a <code>C:\DriverVarazslo</code> mappába kerül mentésre.</p>
           <button class="btn btn-big btn-success" onclick="generateSystemReport()" id="btn-report">📄 HTML Riport Generálása</button>
+        </div>
+      </div>
+
+      <div class="view" id="view-blockscript">
+        <div class="panel glass">
+          <div class="panel-title"><span class="emoji">🚫</span> Net Blokkoló Script (block.ps1)</div>
+          <p style="margin-bottom: 16px; color: var(--text3);">Letölti a <code>block.ps1</code> PowerShell scriptet a <code>C:\DriverVarazslo</code> mappába. A script - ha később futtatod - a saját mappájában (és az összes almappájában) található minden <code>.exe</code> kimenő internet-elérését letiltja a Windows tűzfalban. A gomb <b>csak letölti</b> a fájlt, nem futtatja: másold be abba a mappába, amit blokkolni akarsz, és admin PowerShell-ből indítsd.</p>
+          <button class="btn btn-big btn-primary" onclick="downloadBlockScript()" id="btn-blockscript">⬇️ block.ps1 Letöltése</button>
         </div>
       </div>
 
@@ -1220,6 +1229,26 @@ async function generateSystemReport() {
   } finally {
     document.getElementById('btn-report').disabled = false;
     document.getElementById('btn-report').textContent = '📄 HTML Riport Generálása';
+  }
+}
+
+/* ========== NET BLOKKOLÓ SCRIPT (block.ps1) ========== */
+async function downloadBlockScript() {
+  const btn = document.getElementById('btn-blockscript');
+  btn.disabled = true;
+  btn.textContent = '⏳ Letöltés...';
+  try {
+    const res = await api().download_block_script();
+    if (res && res.success) {
+      toast('block.ps1 letöltve ide: ' + res.path, 'success');
+    } else {
+      toast('Letöltési hiba: ' + ((res && res.error) || 'ismeretlen hiba'), 'error');
+    }
+  } catch (e) {
+    toast('Letöltési hiba: ' + e, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '⬇️ block.ps1 Letöltése';
   }
 }
 
