@@ -18,7 +18,7 @@ import socket
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 192
+BUILD_NUMBER = 193
 
 try:
     import webview
@@ -2917,7 +2917,12 @@ Write-Output "DONE: Törölve: $count / $total"
                                 matched_hwids.add(dev['id'])
                                 self.hw_updates_pool.append({
                                     "name": dev['name'], "cat": dev['cat'], "hwid": dev['id'],
-                                    "wu_title": wu_title, "pnp_id": dev.get('pnp_id', '')
+                                    "wu_title": wu_title, "pnp_id": dev.get('pnp_id', ''),
+                                    # A pontos WU UpdateID a telepítéshez: e nélkül a telepítő csak
+                                    # HWID-prefix alapján tudna szűrni, ami azonos HWID-jű csomagoknál
+                                    # (pl. Realtek Extension + MEDIA ugyanazon hdaudio ID-n) többet
+                                    # telepítene, mint amit a felhasználó kijelölt.
+                                    "update_id": wu.get('UpdateID', '')
                                 })
                                 break
                     # Unmatched WU updates kihagyása a ghost eszközök miatt
@@ -3168,15 +3173,30 @@ try {
             self.emit('task_start', {'task': 'wu_install', 'title': f'Driver Telepítés WU Szerverekről ({len(selected_pool)} db)'})
             self.emit('task_progress', {'task': 'wu_install', 'log': 'Windows Update szervereiről történő telepítés indítása...', 'indeterminate': True})
 
-            # Gyűjtsük össze az összes HWID-t a kiválasztott eszközökhöz
+            # A kiválasztott driverek azonosítói: elsődlegesen a pontos WU UpdateID
+            # (a hardver-szkennelés eredményéből), HWID-prefix egyezés csak azokra a
+            # bejegyzésekre, amelyeknek nincs UpdateID-ja - a kettő NEM vagylagos egy
+            # elemen belül, mert azonos HWID-n több különböző csomag is lóghat.
+            pool_uids = []
             pool_hwids = []
             for drv in selected_pool:
-                if drv.get('hwid'):
-                    pool_hwids.append(drv.get('hwid').upper())
-            
-            hwid_list_ps = ','.join(f'"{h}"' for h in pool_hwids)
+                if drv.get('update_id'):
+                    pool_uids.append(str(drv['update_id']))
+                elif drv.get('hwid'):
+                    pool_hwids.append(str(drv['hwid']).upper())
 
-            ps_script = '$TargetHWIDs = @(' + hwid_list_ps + ')\n' + r"""
+            if not pool_uids and not pool_hwids:
+                logging.warning("[WU_INSTALL] A kiválasztott elemekhez nincs UpdateID/HWID - telepítés megszakítva.")
+                self.emit('toast', {'message': '⚠️ A kiválasztott driverekhez nincs azonosító, futtass új hardver-szkennelést!', 'type': 'warning'})
+                self.emit('task_complete', {'task': 'wu_install', 'success': 0, 'fail': 0,
+                                            'status': '⚠️ Hiányzó azonosítók - futtass új szkennelést!'})
+                return
+
+            uid_list_ps = ','.join(f"'{_ps_quote(u)}'" for u in pool_uids)
+            hwid_list_ps = ','.join(f"'{_ps_quote(h)}'" for h in pool_hwids)
+
+            ps_script = ('$TargetUIDs = @(' + uid_list_ps + ')\n'
+                         '$TargetHWIDs = @(' + hwid_list_ps + ')\n') + r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 try {
     Write-Output "INIT: Windows Update Session létrehozása..."
@@ -3188,24 +3208,17 @@ try {
     Write-Output "SEARCH: Driver frissítések keresése..."
     $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
     if ($Result.Updates.Count -eq 0) { Write-Output "EMPTY: Nem található elérhető driver frissítés."; return }
-    
-    $pnpDevs = Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $true -and $_.ConfigManagerErrorCode -ne 45 }
-    $systemHWIDs = @()
-    foreach ($dev in $pnpDevs) {
-        if ($dev.HardwareID) {
-            foreach ($hid in $dev.HardwareID) { $systemHWIDs += $hid.ToUpper() }
-        }
-        if ($dev.PNPDeviceID) { $systemHWIDs += $dev.PNPDeviceID.ToUpper() }
-    }
 
     $ToInstall = New-Object -ComObject Microsoft.Update.UpdateColl
     foreach ($U in $Result.Updates) {
         $matchFound = $false
-        if ($TargetHWIDs.Count -eq 0) { $matchFound = $true } else {
+        if ($TargetUIDs.Count -gt 0 -and $TargetUIDs -contains $U.Identity.UpdateID) { $matchFound = $true }
+        if (-not $matchFound -and $TargetHWIDs.Count -gt 0) {
             foreach ($hwid in $U.DriverHardwareID) {
-                $hUpper = $hwid.ToUpper()
-                foreach ($sys_hid in $systemHWIDs) {
-                    if ($sys_hid.StartsWith($hUpper) -or $hUpper.StartsWith($sys_hid)) {
+                if (-not $hwid) { continue }
+                $hUpper = "$hwid".ToUpper()
+                foreach ($tgt in $TargetHWIDs) {
+                    if ($tgt.StartsWith($hUpper) -or $hUpper.StartsWith($tgt)) {
                         $matchFound = $true; break
                     }
                 }
@@ -3217,7 +3230,7 @@ try {
         $ToInstall.Add($U) | Out-Null
         Write-Output "FOUND: $($U.Title)"
     }
-    if ($ToInstall.Count -eq 0) { Write-Output "EMPTY: Nem található egyező driver."; return }
+    if ($ToInstall.Count -eq 0) { Write-Output "EMPTY: Nem található egyező driver. (Lehet, hogy időközben települt vagy lekerült a szerverről - futtass új szkennelést!)"; return }
     $total = $ToInstall.Count; Write-Output "TOTAL: $total"
     $s = 0; $f = 0
     for ($i = 0; $i -lt $total; $i++) {
@@ -3225,17 +3238,8 @@ try {
         Write-Output "DLONE: $idx/$total $t"
         $SC = New-Object -ComObject Microsoft.Update.UpdateColl; $SC.Add($U) | Out-Null
         $DL = $Session.CreateUpdateDownloader(); $DL.Updates = $SC
-        $Job = $DL.BeginDownload($null, $null, $null)
-        $noProgressSec = 0; $lastPct = -1
-        while (-not $Job.IsCompleted) { 
-            Start-Sleep -Seconds 1
-            try { $pct = $DL.GetProgress().PercentComplete } catch { $pct = 0 }
-            if ($pct -ne $lastPct) { $lastPct = $pct; $noProgressSec = 0 } else { $noProgressSec++ }
-            if ($noProgressSec -gt 180) { break } 
-        }
-        if (-not $Job.IsCompleted) { try { $DL.EndDownload($Job) | Out-Null } catch {}; Write-Output "FAIL: [LETÖLTÉS FAGYÁS 3p] $t"; $f++; continue }
-        try { $DR = $DL.EndDownload($Job) } catch { Write-Output "FAIL: [LETÖLTÉS HIBA] $t"; $f++; continue }
-        if ($DR.ResultCode -ne 2 -and $DR.ResultCode -ne 3) { Write-Output "FAIL: [LETÖLTÉS HIBA kód=$($DR.ResultCode)] $t"; $f++; continue }
+        try { $DR = $DL.Download() } catch { Write-Output "FAIL: [LETÖLTÉS HIBA] $t - $($_.Exception.Message)"; $f++; continue }
+        if (-not $DR -or ($DR.ResultCode -ne 2 -and $DR.ResultCode -ne 3)) { Write-Output "FAIL: [LETÖLTÉS HIBA kód=$($DR.ResultCode)] $t"; $f++; continue }
         Write-Output "INSTONE: $idx/$total $t"
         $Inst = $Session.CreateUpdateInstaller(); $Inst.Updates = $SC
         try { $IR = $Inst.Install() } catch { Write-Output "FAIL: [TELEPÍTÉS HIBA] $t"; $f++; continue }
@@ -3253,6 +3257,7 @@ try {
             success = 0
             fail = 0
             install_total = 0
+            had_error = False
 
             try:
                 for line in process.stdout:
@@ -3296,6 +3301,8 @@ try {
                     elif line.startswith("EMPTY:"):
                         self.emit('task_progress', {'task': 'wu_install', 'log': line[6:].strip()})
                     elif line.startswith("ERROR:"):
+                        had_error = True
+                        logging.error(f"[WU_INSTALL] PowerShell hiba: {line[6:].strip()}")
                         self.emit('task_progress', {'task': 'wu_install', 'log': f'❌ HIBA: {line[6:].strip()}'})
                     else:
                         self.emit('task_progress', {'task': 'wu_install', 'log': line})
@@ -3308,7 +3315,10 @@ try {
                 self._run(['pnputil', '/scan-devices'])
                 self.emit('task_progress', {'task': 'wu_install', 'log': '✅ Eszközök frissítve!'})
 
-            msg = f'Sikeres: {success}, Sikertelen: {fail}'
+            if had_error and success == 0 and fail == 0:
+                msg = '❌ A telepítés hibával leállt! (részletek fent a naplóban)'
+            else:
+                msg = f'Sikeres: {success}, Sikertelen: {fail}'
             self.emit('task_complete', {'task': 'wu_install', 'success': success, 'fail': fail,
                                         'status': msg, 'counter': msg})
 
@@ -7398,17 +7408,8 @@ try {
         $SC = New-Object -ComObject Microsoft.Update.UpdateColl; $SC.Add($U) | Out-Null
         Write-Output "DL: $($U.Title)"
         $DL = $Session.CreateUpdateDownloader(); $DL.Updates = $SC
-        $Job = $DL.BeginDownload($null, $null, $null)
-        $noProgressSec = 0; $lastPct = -1
-        while (-not $Job.IsCompleted) { 
-            Start-Sleep -Seconds 1
-            try { $pct = $DL.GetProgress().PercentComplete } catch { $pct = 0 }
-            if ($pct -ne $lastPct) { $lastPct = $pct; $noProgressSec = 0 } else { $noProgressSec++ }
-            if ($noProgressSec -gt 180) { break } 
-        }
-        if (-not $Job.IsCompleted) { try { $DL.EndDownload($Job) | Out-Null } catch {}; Write-Output "FAIL: $($U.Title) [FAGYÁS]"; $f++; continue }
-        try { $DR = $DL.EndDownload($Job) } catch { Write-Output "FAIL: $($U.Title)"; $f++; continue }
-        if ($DR.ResultCode -ne 2 -and $DR.ResultCode -ne 3) { Write-Output "FAIL: $($U.Title)"; $f++; continue }
+        try { $DR = $DL.Download() } catch { Write-Output "FAIL: $($U.Title)"; $f++; continue }
+        if (-not $DR -or ($DR.ResultCode -ne 2 -and $DR.ResultCode -ne 3)) { Write-Output "FAIL: $($U.Title)"; $f++; continue }
         Write-Output "INST: $($U.Title)"
         $Inst = $Session.CreateUpdateInstaller(); $Inst.Updates = $SC
         try { $IR = $Inst.Install() } catch { Write-Output "FAIL: $($U.Title)"; $f++; continue }
