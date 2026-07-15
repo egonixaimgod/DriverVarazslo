@@ -18,7 +18,7 @@ import socket
 from datetime import datetime, timezone
 from html import escape as html_escape
 
-BUILD_NUMBER = 194
+BUILD_NUMBER = 195
 
 try:
     import webview
