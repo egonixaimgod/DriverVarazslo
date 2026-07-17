@@ -18,6 +18,10 @@ from app.wu_core import WU_PNP_QUERY_PS
 from app.wu_core import _build_wu_install_ps
 from app.wu_core import _filter_wu_scan_devices
 from app.wu_core import _match_wu_updates_to_devices
+from app.wu_core import _collect_printer_protection
+from app.wu_core import _is_printer_protected
+from app.wu_core import _export_net_driver_backup
+from app.wu_core import _restore_net_driver_backup
 from datetime import datetime
 # === /AUTO-IMPORTS ===
 
@@ -123,12 +127,25 @@ Write-Output "DONE: Törölve: $count / $total"
         drivers = self._get_third_party_drivers()
         skip_classes = skip_classes or set()
         if skip_classes:
-            skipped = [d for d in drivers if d.get('class', '') in skip_classes]
-            drivers = [d for d in drivers if d.get('class', '') not in skip_classes]
+            # Nyomtató-védelem 2.0: az osztály-alapú kihagyás mellett a jelenlévő
+            # nyomtatási/szkennelési komponensek által TÉNYLEGESEN használt INF-eket és
+            # a nyomtatóval jelen lévő gyártók összes csomagját is védjük - a multifunkciós
+            # csomagok segéd-driverei (USB/Ports/SYSTEM osztály) különben törlődnének,
+            # és az ügyfél nyomtatója/szkennere a fix után megsérülhetne.
+            protected_infs, printing_vendors = _collect_printer_protection(self._run)
+            skipped = [d for d in drivers if _is_printer_protected(d, protected_infs, printing_vendors, skip_classes)]
+            skipped_keys = {id(d) for d in skipped}
+            drivers = [d for d in drivers if id(d) not in skipped_keys]
             if skipped:
-                self.emit('task_progress', {'task': task_id, 'log': f'ℹ️ {len(skipped)} db nyomtató/szkenner driver kihagyva (felhasználói beállítás szerint).\n'})
+                self.emit('task_progress', {'task': task_id, 'log': f'🖨️ {len(skipped)} db nyomtatóhoz/szkennerhez tartozó driver védve (osztály + INF + gyártó alapú védelem).\n'})
         total = len(drivers)
         if total > 0:
+            # 🛟 Hálózati mentőöv: a Net-driverek exportja törlés előtt - ha a lánc
+            # folytatásánál nem lenne internet (a WU/beépített driver nem fedi le a
+            # hálózati kártyát), ebből állítjuk vissza őket.
+            backed_up = _export_net_driver_backup(self._run, drivers)
+            if backed_up:
+                self.emit('task_progress', {'task': task_id, 'log': f'🛟 {backed_up} db hálózati driver biztonsági mentése kész (vész-visszaállításhoz).\n'})
             self.emit('task_progress', {'task': task_id, 'log': f'{total} db third-party driver eltávolítása...\n'})
             for i, drv in enumerate(drivers):
                 if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
@@ -421,6 +438,23 @@ Write-Output "DONE: Törölve: $count / $total"
                     self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'])
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Láncolt folytatás gépújraindítás után. Régi driverek törlése kihagyva, hogy ne töröljünk friss drivereket.\n'})
                     self._disable_sleep_sync()
+
+                    # 🛟 Hálózati mentőöv: ha a driver-törlés után a gép internet nélkül
+                    # maradt (a WU/beépített driver nem fedte le a hálózati kártyát -
+                    # terepen látott eset friss AM5-ös Realtek 2.5GbE-vel), a törlés előtt
+                    # elmentett Net-drivereket visszatöltjük, különben a lánc WU-keresése
+                    # esélytelen lenne.
+                    if not self._check_internet():
+                        self.emit('task_progress', {'task': 'autofix', 'log': '🛟 Nincs internet a driver-törlés után! Mentett hálózati driverek visszaállítása...'})
+                        if _restore_net_driver_backup(self._run):
+                            self._run(['pnputil', '/scan-devices'])
+                            time.sleep(15)
+                            if self._check_internet():
+                                self.emit('task_progress', {'task': 'autofix', 'log': '✅ Hálózat helyreállítva a mentett driverekből!\n'})
+                            else:
+                                self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ A hálózat még mindig nem él - a WU keresés így valószínűleg üres lesz. Ellenőrizd a kábelt/Wi-Fi-t!\n'})
+                        else:
+                            self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ Nincs mentett hálózati driver - a WU keresés internet nélkül valószínűleg üres lesz.\n'})
 
                 # 4. Átmenetileg engedélyezzük a WU-t és unpause a driverkereséshez
                 self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update ideiglenes felébresztése a szükséges driverek lekéréséhez...', 'indeterminate': True})

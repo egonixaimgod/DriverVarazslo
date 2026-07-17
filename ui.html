@@ -400,11 +400,14 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
             <button class="btn btn-success" onclick="installSelectedHw()" id="btn-install-hw" disabled>🚀 Kijelöltek Telepítése</button>
             <button class="btn btn-sm" onclick="selectAllHw()" id="btn-sel-all-hw" disabled>☑ Összes</button>
             <button class="btn btn-sm" onclick="deselectAllHw()" id="btn-desel-all-hw" disabled>☐ Törlés</button>
+            <button class="btn btn-sm" onclick="installNicPack()" id="btn-nicpack" title="LAN/Wi-Fi vész-driverek telepítése a nicpack.zip-ből - akkor kell, ha a gépnek nincs hálózati drivere, ezért internetje sincs. A csomagot az exe mellett vagy a C:\DriverVarazslo mappában keresi, végszükségben letölti.">🛟 LAN Mentőcsomag</button>
           </div>
           <div style="margin-bottom:10px">
             <div class="progress" id="hw-progress" style="display:none"><div class="progress-fill" id="hw-progress-fill"></div></div>
             <div id="hw-status" style="color:var(--text2);font-size:12px;margin-top:6px"></div>
           </div>
+          <div id="nvidia-card" style="display:none"></div>
+          <div id="hw-problems"></div>
           <div class="hw-tree" id="hw-tree"></div>
         </div>
       </div>
@@ -767,6 +770,9 @@ window.handlePyEvent = function(payload) {
     case 'hw_scan_result':
       onHwScanResult(data);
       break;
+    case 'nvidia_driver_info':
+      renderNvidiaCard(data);
+      break;
     case 'bitlocker_status':
       const blEl = document.getElementById('bl-status');
       if (blEl) {
@@ -998,6 +1004,9 @@ async function deleteSelected() {
 async function startHwScan() {
   hwPool = []; hwInstalled = []; hwSelectedIndices.clear();
   document.getElementById('hw-tree').innerHTML = '';
+  document.getElementById('hw-problems').innerHTML = '';
+  document.getElementById('nvidia-card').style.display = 'none';
+  document.getElementById('nvidia-card').innerHTML = '';
   document.getElementById('hw-progress').style.display = 'block';
   document.getElementById('hw-progress').classList.add('progress-indeterminate');
   document.getElementById('hw-progress-fill').style.width = '30%';
@@ -1025,6 +1034,7 @@ function updateHwScanProgress(data) {
 function onHwScanResult(data) {
   hwPool = data.pool || [];
   hwInstalled = data.installed || [];
+  renderHwProblems(data.problems || []);
   document.getElementById('btn-hw-scan').disabled = false;
   document.getElementById('hw-progress').classList.remove('progress-indeterminate');
   document.getElementById('hw-progress-fill').style.width = '100%';
@@ -1061,7 +1071,9 @@ function renderHwTree() {
           '<div class="hw-item">'
           + '<input type="checkbox" data-idx="'+it.idx+'" '+(hwSelectedIndices.has(it.idx)?'checked':'')+' onchange="toggleHwItem('+it.idx+')">'
           + '<span class="name" title="'+esc(it.name)+'">'+esc(it.name)+'</span>'
-          + '<span class="wu" title="'+esc(it.wu_title||'')+'">'+esc(it.wu_title||'')+'</span>'
+          + '<span class="wu" title="'+esc(it.wu_title||'')+'">'+esc(it.wu_title||'')
+          + (it.installed_version ? ' <span style="color:var(--text3);font-size:11px" title="Jelenleg telepített driver-verzió ehhez az eszközhöz">(telepítve: '+esc(it.installed_version)+')</span>' : '')
+          + '</span>'
           + '<span class="hwid">'+esc(it.hwid||'')+'</span></div>'
         ).join('') + '</div>';
       container.appendChild(catDiv);
@@ -1118,6 +1130,57 @@ function toggleHwItem(idx) {
 }
 function selectAllHw() { hwPool.forEach((_,i)=>hwSelectedIndices.add(i)); renderHwTree(); updateHwButtons(); }
 function deselectAllHw() { hwSelectedIndices.clear(); renderHwTree(); updateHwButtons(); }
+
+/* Problémás (hibakódos) eszközök kiemelése - akkor is látszik, ha egyik driver-forrás
+   sem adott rá találatot, hogy sose maradjon észrevétlen lyuk a gépben. */
+function renderHwProblems(problems) {
+  const box = document.getElementById('hw-problems');
+  box.innerHTML = '';
+  if (!problems || !problems.length) return;
+  const rows = problems.map(p =>
+    '<div style="display:flex;gap:8px;align-items:center;padding:4px 0;font-size:12px">'
+    + '<span>' + (p.has_fix ? '🟡' : '🔴') + '</span>'
+    + '<span style="font-weight:600" title="'+esc(p.hwid||'')+'">'+esc(p.name)+'</span>'
+    + '<span style="color:var(--text3)">— '+esc(p.desc)+' (Code '+p.code+')</span>'
+    + '<span style="margin-left:auto;color:'+(p.has_fix?'var(--green)':'var(--red)')+'">'
+    + (p.has_fix ? 'van rá driver a listában ⬇' : 'NINCS automatikus megoldás - kézi driver kell!')
+    + '</span></div>'
+  ).join('');
+  box.innerHTML = '<div style="border:1px solid rgba(255,80,80,.35);background:rgba(255,80,80,.07);'
+    + 'border-radius:10px;padding:10px 14px;margin-bottom:10px">'
+    + '<div style="font-weight:700;margin-bottom:4px">⚠️ Problémás eszközök ('+problems.length+' db)</div>'
+    + rows + '</div>';
+}
+
+/* NVIDIA gyári driver kártya - a szken végén érkező nvidia_driver_info event tölti. */
+function renderNvidiaCard(data) {
+  const card = document.getElementById('nvidia-card');
+  if (!data || !data.gpu) { card.style.display = 'none'; return; }
+  if (data.update_available) {
+    card.innerHTML = '<div style="border:1px solid rgba(118,185,0,.45);background:rgba(118,185,0,.08);'
+      + 'border-radius:10px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+      + '<span style="font-size:20px">🎮</span>'
+      + '<div style="flex:1;min-width:200px"><div style="font-weight:700">'+esc(data.gpu)+' — új GYÁRI driver érhető el!</div>'
+      + '<div style="font-size:12px;color:var(--text3)">Telepítve: '+esc(data.installed)+' → NVIDIA legfrissebb: <b style="color:var(--green)">'+esc(data.latest)+'</b>'
+      + ' <span title="A Windows Update a videókártya-drivereknél hónapokkal lemaradhat - ez a hivatalos nvidia.com-os legfrissebb WHQL driver.">ⓘ</span></div></div>'
+      + '<button class="btn btn-success" onclick="installNvidiaDriver()">⬇ Letöltés és csendes telepítés</button>'
+      + '</div>';
+    card.style.display = 'block';
+  } else {
+    card.innerHTML = '<div style="border:1px solid rgba(118,185,0,.25);background:rgba(118,185,0,.04);'
+      + 'border-radius:10px;padding:8px 14px;margin-bottom:10px;font-size:12px;color:var(--text2)">'
+      + '🎮 '+esc(data.gpu)+': a gyári driver naprakész ('+esc(data.installed)+').</div>';
+    card.style.display = 'block';
+  }
+}
+async function installNvidiaDriver() {
+  try { await api().install_nvidia_driver(); }
+  catch (e) { toast('NVIDIA telepítési hiba: ' + e, 'error'); }
+}
+async function installNicPack() {
+  try { await api().install_nic_pack(); }
+  catch (e) { toast('LAN mentőcsomag hiba: ' + e, 'error'); }
+}
 function updateHwButtons() {
   const hasPool = hwPool.length > 0;
   const hasSel = hwSelectedIndices.size > 0;

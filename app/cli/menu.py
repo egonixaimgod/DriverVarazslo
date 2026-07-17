@@ -55,6 +55,7 @@ def run_cli_mode():
     3. Driver(ek) törlése
     4. Hardver újraszkennelés
     5. Szellemeszközök (ghost device) törlése
+    6. 🛟 LAN driver mentőcsomag telepítése (nicpack.zip)
 
     0. Vissza a főmenübe
 """)
@@ -99,6 +100,9 @@ def run_cli_mode():
                 input("\nNyomj ENTER-t a folytatáshoz...")
             elif choice == '5':
                 api.delete_ghost_devices()
+                input("\nNyomj ENTER-t a folytatáshoz...")
+            elif choice == '6':
+                api.install_nic_pack()
                 input("\nNyomj ENTER-t a folytatáshoz...")
 
     def backup_menu():

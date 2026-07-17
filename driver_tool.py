@@ -17,7 +17,7 @@ import threading
 import time
 import logging
 
-BUILD_NUMBER = 196
+BUILD_NUMBER = 197
 
 from app import common
 common.BUILD_NUMBER = BUILD_NUMBER
@@ -85,7 +85,24 @@ if __name__ == "__main__":
     log_filename = os.path.join(_app_data_dir(), "DriverVarázsló_debug.log")
     try:
         from logging.handlers import RotatingFileHandler
-        log_handler = RotatingFileHandler(log_filename, maxBytes=5 * 1024 * 1024, backupCount=2, encoding='utf-8')
+
+        class _BomRotatingFileHandler(RotatingFileHandler):
+            """UTF-8 BOM-ot ír minden ÚJ (üres) log fájl elejére - enélkül a sima
+            Jegyzettömb/más szerkesztők a BOM nélküli UTF-8 fájlt gyakran ANSI-ként
+            találgatják, és a magyar ékezetek "Ã¡"-szerű szemétként jelennek meg
+            (terepen bizonyított). A BOM csak a fájl legelejére kerül (új fájl vagy
+            rotáció utáni friss fájl), meglévő fájl folytatásakor nem szúrunk be
+            semmit a közepére."""
+            def _open(self):
+                stream = super()._open()
+                try:
+                    if stream.tell() == 0:
+                        stream.write('﻿')
+                except Exception:
+                    pass
+                return stream
+
+        log_handler = _BomRotatingFileHandler(log_filename, maxBytes=5 * 1024 * 1024, backupCount=2, encoding='utf-8')
         logging.basicConfig(level=logging.DEBUG, handlers=[log_handler],
                             format='%(asctime)s [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     except Exception:

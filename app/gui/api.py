@@ -25,13 +25,16 @@ from app.gui.bitlocker import GuiBitlockerMixin
 from app.gui.report import GuiReportMixin
 from app.gui.storeprint import GuiStorePrintMixin
 from app.gui.blockscript import GuiBlockScriptMixin
+from app.gui.nvidia import GuiNvidiaMixin
+from app.gui.nicpack import GuiNicPackMixin
 
 
 class DriverToolApi(GuiBaseMixin, GuiUpdaterMixin, GuiStressMixin,
                     GuiStressAutomationMixin, GuiDriversMixin, GuiBcdMixin,
                     GuiGhostMixin, GuiTempCleanMixin, GuiHwScanMixin, GuiWuMixin,
                     GuiAutofixMixin, GuiBackupMixin, GuiBitlockerMixin,
-                    GuiReportMixin, GuiStorePrintMixin, GuiBlockScriptMixin):
+                    GuiReportMixin, GuiStorePrintMixin, GuiBlockScriptMixin,
+                    GuiNvidiaMixin, GuiNicPackMixin):
     """A GUI backend - a pywebview js_api-ja. Minden feature a saját mixin-fájljában."""
     pass
 

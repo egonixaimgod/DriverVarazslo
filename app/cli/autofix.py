@@ -1,10 +1,16 @@
 """DriverVarázsló CLI - CLI: egyszerűsített, egymenetes AutoFix (szándékosan nincs reboot-lánc!)."""
 
 # === AUTO-IMPORTS ===
+import socket
 import subprocess
 import time
 import logging
+from app.wu_core import AUTOFIX_PRINTER_SKIP_CLASSES
 from app.wu_core import _build_wu_install_ps
+from app.wu_core import _collect_printer_protection
+from app.wu_core import _is_printer_protected
+from app.wu_core import _export_net_driver_backup
+from app.wu_core import _restore_net_driver_backup
 # === /AUTO-IMPORTS ===
 
 
@@ -87,8 +93,20 @@ manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkenne
         print("  FÁZIS 4: Third-party driverek törlése")
         print("=" * 50)
         drivers = self.get_third_party_drivers()
+        # Nyomtató-védelem 2.0 (közös mag, mint a GUI AutoFixben): a jelenlévő nyomtatók/
+        # szkennerek által használt INF-ek és a nyomtató-gyártók csomagjai nem törlődnek.
+        protected_infs, printing_vendors = _collect_printer_protection(self._run)
+        protected = [d for d in drivers if _is_printer_protected(d, protected_infs, printing_vendors, AUTOFIX_PRINTER_SKIP_CLASSES)]
+        protected_keys = {id(d) for d in protected}
+        drivers = [d for d in drivers if id(d) not in protected_keys]
+        if protected:
+            print(f"🖨️ {len(protected)} db nyomtatóhoz/szkennerhez tartozó driver védve (nem törlődik).")
         if drivers:
             print(f"Talált: {len(drivers)} db third-party driver")
+            # 🛟 Hálózati mentőöv: Net-driverek exportja törlés előtt (közös mag).
+            backed_up = _export_net_driver_backup(self._run, drivers)
+            if backed_up:
+                print(f"🛟 {backed_up} db hálózati driver elmentve vész-visszaállításhoz.")
             self.delete_drivers(drivers, reboot=False)
         else:
             print("Nincs third-party driver.")
@@ -151,11 +169,26 @@ manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkenne
                 pass  # csendes protokoll-sorok
         
         process.wait()
-        
+
         if install_success > 0:
             print("\n🔄 Eszközök újraszkennelése...")
             self._run(['pnputil', '/scan-devices'])
-        
+
+        # 🛟 Hálózati mentőöv: ha a törlés+telepítés után nincs internet, a mentett
+        # Net-drivereket visszatöltjük (közös mag, mint a GUI AutoFixben).
+        try:
+            socket.create_connection(("8.8.8.8", 53), timeout=3).close()
+            net_ok = True
+        except OSError:
+            net_ok = False
+        if not net_ok:
+            print("\n🛟 Nincs internet a fix után - mentett hálózati driverek visszaállítása...")
+            if _restore_net_driver_backup(self._run):
+                self._run(['pnputil', '/scan-devices'])
+                print("✅ Hálózati driverek visszatöltve, eszközök újraszkennelve.")
+            else:
+                print("⚠️ Nincs mentett hálózati driver - ellenőrizd kézzel a hálózatot!")
+
         # Összegzés
         elapsed = int(time.time() - start_time)
         print("\n" + "=" * 60)

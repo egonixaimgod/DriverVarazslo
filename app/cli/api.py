@@ -16,11 +16,12 @@ from app.cli.ghost import CliGhostMixin
 from app.cli.tempclean import CliTempCleanMixin
 from app.cli.blockscript import CliBlockScriptMixin
 from app.cli.autofix import CliAutofixMixin
+from app.cli.nicpack import CliNicPackMixin
 
 
 class CliApi(CliBaseMixin, CliDriversMixin, CliBackupMixin, CliBcdMixin,
              CliWuMixin, CliGhostMixin, CliTempCleanMixin, CliBlockScriptMixin,
-             CliAutofixMixin):
+             CliAutofixMixin, CliNicPackMixin):
     """CLI verzió API - ugyanazokat a funkciókat hívja mint a GUI, de konzolra ír."""
     pass
 

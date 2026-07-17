@@ -3,7 +3,12 @@ párosítás és a telepítő PowerShell script EGYETLEN példánya - a GUI manu
 a GUI AutoFix és a CLI AutoFix is EZT hívja. NE másold vissza osztályba (lásd CLAUDE.md)!"""
 
 # === AUTO-IMPORTS ===
+import os
+import json
+import shutil
+import logging
 from app.common import _ps_quote
+from app.common import _app_data_dir
 # === /AUTO-IMPORTS ===
 
 
@@ -32,9 +37,12 @@ WU_SCAN_IGNORED_CLASSES = ['Volume', 'VolumeSnapshot', 'DiskDrive', 'CDROM', 'Mo
                            'LegacyDriver', 'Endpoint', 'AudioEndpoint', 'PrintQueue', 'Printer', 'WPD']
 
 # A jelenlévő PnP eszközök lekérdezése (a kimenetet a _filter_wu_scan_devices dolgozza fel).
+# A ConfigManagerErrorCode is jön: a hibakódos eszközök (28 = nincs driver, 10 = nem indul,
+# stb.) a manuális szken "Problémás eszközök" szekciójához és a hibrid katalógus-
+# kiegészítéshez kellenek.
 WU_PNP_QUERY_PS = ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
                    "Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $true -and $_.ConfigManagerErrorCode -ne 45 } | "
-                   "Select-Object Name, PNPClass, PNPDeviceID, HardwareID | ConvertTo-Json -Compress")
+                   "Select-Object Name, PNPClass, PNPDeviceID, HardwareID, ConfigManagerErrorCode | ConvertTo-Json -Compress")
 
 
 def _filter_wu_scan_devices(pnp_data):
@@ -77,7 +85,13 @@ def _filter_wu_scan_devices(pnp_data):
         elif pclass == "Biometric": cat = "🔒 Ujjlenyomat / Biometria"
         else: cat = f"🔧 Egyéb ({pclass})"
 
-        devices.append({"cat": cat, "name": n, "id": hwid_clean, "pnp_id": pid, "all_hwids": hwids_list})
+        try:
+            err_code = int(d.get("ConfigManagerErrorCode") or 0)
+        except (TypeError, ValueError):
+            err_code = 0
+
+        devices.append({"cat": cat, "name": n, "id": hwid_clean, "pnp_id": pid,
+                        "all_hwids": hwids_list, "err_code": err_code})
     return devices
 
 
@@ -224,3 +238,160 @@ try {
     Write-Output "DONE: Sikeres=$s, Sikertelen=$f"
 } catch { Write-Output "ERROR: $($_.Exception.Message)" }
 """
+
+
+# ============================================================================
+# NYOMTATÓ-VÉDELEM 2.0 - KÖZÖS MAG (GUI AutoFix + CLI AutoFix)
+# Terepi igény: az ügyfélgépeken a nyomtatónak a driver-fix UTÁN is működnie
+# kell. A puszta osztály-alapú kihagyás (Printer/PrintQueue/Image) NEM elég:
+# egy multifunkciós HP/Canon csomag segéd-driverei USB/Ports/SYSTEM osztályba
+# esnek (pl. mvusbews.inf, hppscnd.inf, hpbuio70l.inf - valós gépről), amiket a
+# régi szűrő törölt, és a WU nem feltétlenül rakja vissza a gyári csomagot.
+# ============================================================================
+
+# Nyomtató-gyártó kulcsszavak: ha egy jelenlévő nyomtatási/szkennelési komponens
+# szolgáltatója (provider) ezek egyikére illik, akkor a gépen lévő ÖSSZES ilyen
+# szolgáltatójú third-party csomag védetté válik. Szándékosan túl-védő: pl. HP
+# laptopon HP nyomtatóval a HP rendszer-driverek is megmaradnak - ezeket a WU
+# úgyis visszarakná, a nyomtató működése viszont pótolhatatlan.
+PRINTER_VENDOR_KEYWORDS = [
+    'hewlett', 'hp inc', 'canon', 'epson', 'seiko', 'brother', 'samsung',
+    'lexmark', 'kyocera', 'ricoh', 'xerox', 'oki ', 'okidata', 'zebra',
+    'pantum', 'konica', 'minolta', 'dymo', 'star micronics', 'citizen',
+    'bixolon', 'godex', 'tsc ', 'sagem', 'olivetti', 'toshiba tec', 'sharp',
+]
+
+_PRINTER_PROTECT_PS = r"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$out = @{ Infs = @(); Providers = @() }
+try {
+    Get-PrinterDriver -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.InfPath) { $out.Infs += [System.IO.Path]::GetFileName("$($_.InfPath)") }
+        if ($_.Manufacturer) { $out.Providers += "$($_.Manufacturer)" }
+    }
+} catch {}
+try {
+    $devs = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.Class -in @('Printer','PrintQueue','Image') }
+    foreach ($d in $devs) {
+        try {
+            $inf = (Get-PnpDeviceProperty -InstanceId $d.InstanceId -KeyName 'DEVPKEY_Device_DriverInfPath' -ErrorAction SilentlyContinue).Data
+            if ($inf) { $out.Infs += "$inf" }
+            $prov = (Get-PnpDeviceProperty -InstanceId $d.InstanceId -KeyName 'DEVPKEY_Device_DriverProvider' -ErrorAction SilentlyContinue).Data
+            if ($prov) { $out.Providers += "$prov" }
+        } catch {}
+    }
+} catch {}
+$out | ConvertTo-Json -Compress
+"""
+
+
+def _collect_printer_protection(run_fn):
+    """Összegyűjti, hogy a gépen JELENLÉVŐ nyomtatási/szkennelési komponensek ténylegesen
+    melyik driver-csomagokat használják. Visszatérés: (védett INF-nevek halmaza kisbetűvel,
+    pl. {'oem113.inf'}, érintett nyomtató-gyártó kulcsszavak halmaza). Forrás: minden felvett
+    nyomtató drivere (Get-PrinterDriver InfPath) + minden jelenlévő Printer/PrintQueue/Image
+    eszköz aktív INF-je és szolgáltatója. Hiba esetén üres halmazok - olyankor csak a
+    hagyományos osztály-alapú védelem él."""
+    protected_infs = set()
+    printing_vendors = set()
+    try:
+        res = run_fn(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", _PRINTER_PROTECT_PS],
+                     encoding='utf-8', timeout=120)
+        data = json.loads(res.stdout) if res and (res.stdout or '').strip() else {}
+        infs = data.get('Infs') or []
+        provs = data.get('Providers') or []
+        if isinstance(infs, str):
+            infs = [infs]
+        if isinstance(provs, str):
+            provs = [provs]
+        for inf in infs:
+            base = os.path.basename(str(inf)).strip().lower()
+            if base.endswith('.inf'):
+                protected_infs.add(base)
+        for p in provs:
+            pl = str(p).lower()
+            for kw in PRINTER_VENDOR_KEYWORDS:
+                if kw in pl:
+                    printing_vendors.add(kw)
+        logging.info(f"[PRINTER-PROTECT] Védett INF-ek: {sorted(protected_infs)}, nyomtató-gyártók: {sorted(printing_vendors)}")
+    except Exception as e:
+        logging.warning(f"[PRINTER-PROTECT] Védett lista gyűjtése sikertelen (marad az osztály-alapú védelem): {e}")
+    return protected_infs, printing_vendors
+
+
+def _is_printer_protected(drv, protected_infs, printing_vendors, skip_classes):
+    """Egy dism-listás third-party driver-bejegyzésről eldönti, hogy nyomtató-védelem alá
+    esik-e: (1) osztály szerint (a régi viselkedés), (2) a jelenlévő nyomtatási komponensek
+    által TÉNYLEGESEN használt INF-ek szerint, (3) a gépen nyomtatóval jelen lévő gyártó
+    minden csomagja szerint. Az INF-egyeztetés a publikált (oemXX.inf) ÉS az eredeti
+    (pl. hpc1320u.inf) névvel is fut: a Get-PrinterDriver InfPath-ja az EREDETI nevet
+    adja, a PnP-eszközök DriverInfPath-ja viszont a publikáltat - élesben mindkét forma
+    előfordul a védett halmazban."""
+    if drv.get('class', '') in (skip_classes or set()):
+        return True
+    if (drv.get('published', '') or '').lower() in protected_infs:
+        return True
+    if (drv.get('original', '') or '').lower() in protected_infs:
+        return True
+    prov = (drv.get('provider', '') or '').lower()
+    return any(kw in prov for kw in printing_vendors)
+
+
+# ============================================================================
+# HÁLÓZATI DRIVER MENTŐÖV - KÖZÖS MAG (GUI AutoFix + CLI AutoFix)
+# Terepen látott kockázat: az AutoFix a LAN/Wi-Fi drivert is törli, és ha sem a
+# beépített, sem a WU-s driver nem fedi le az adott kártyát (valós eset: friss
+# AM5-ös gép Realtek 2.5GbE-vel), a gép internet nélkül ragad - miközben a lánc
+# folytatása pont internetből dolgozna. Ezért törlés ELŐTT a Net-osztályú
+# drivereket pnputil /export-driver-rel elmentjük, és ha a folytatásnál nincs
+# net, visszatöltjük őket.
+# ============================================================================
+
+def _net_backup_dir():
+    return os.path.join(_app_data_dir(), 'netdrv_backup')
+
+
+def _export_net_driver_backup(run_fn, drivers):
+    """A törlésre váró listából a Net-osztályú driver-csomagokat exportálja a
+    _net_backup_dir()-be (előtte üríti, hogy ne keveredjen régi mentéssel).
+    Visszaadja a sikeresen exportált csomagok számát."""
+    net_drivers = [d for d in drivers if (d.get('class', '') or '').lower() == 'net' and d.get('published')]
+    if not net_drivers:
+        return 0
+    dest = _net_backup_dir()
+    try:
+        shutil.rmtree(dest, ignore_errors=True)
+        os.makedirs(dest, exist_ok=True)
+    except Exception as e:
+        logging.warning(f"[NET-BACKUP] Mentési mappa előkészítése sikertelen: {e}")
+        return 0
+    exported = 0
+    for d in net_drivers:
+        res = run_fn(['pnputil', '/export-driver', d['published'], dest], timeout=300)
+        if res and res.returncode == 0:
+            exported += 1
+        else:
+            logging.warning(f"[NET-BACKUP] Export sikertelen: {d.get('published')} ({d.get('original')})")
+    logging.info(f"[NET-BACKUP] {exported}/{len(net_drivers)} hálózati driver elmentve ide: {dest}")
+    return exported
+
+
+def _restore_net_driver_backup(run_fn):
+    """A korábban elmentett Net-driverek visszatelepítése (pnputil /add-driver /install).
+    Visszaadja, hogy volt-e egyáltalán mit visszatölteni (bool)."""
+    src = _net_backup_dir()
+    if not os.path.isdir(src):
+        logging.info("[NET-BACKUP] Nincs mentett hálózati driver, visszaállítás kihagyva.")
+        return False
+    has_inf = False
+    for _root, _dirs, files in os.walk(src):
+        if any(f.lower().endswith('.inf') for f in files):
+            has_inf = True
+            break
+    if not has_inf:
+        logging.info("[NET-BACKUP] A mentési mappa üres, visszaállítás kihagyva.")
+        return False
+    res = run_fn(['pnputil', '/add-driver', os.path.join(src, '*.inf'), '/subdirs', '/install'], timeout=600)
+    ok = bool(res) and ('successfully' in (res.stdout or '').lower() or res.returncode in (0, 259, 3010))
+    logging.info(f"[NET-BACKUP] Visszaállítás {'sikeres' if ok else 'részben/nem sikerült'} innen: {src}")
+    return True
