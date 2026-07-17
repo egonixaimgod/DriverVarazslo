@@ -1,0 +1,178 @@
+"""DriverVarázsló CLI - CLI: egyszerűsített, egymenetes AutoFix (szándékosan nincs reboot-lánc!)."""
+
+# === AUTO-IMPORTS ===
+import subprocess
+import time
+import logging
+from app.wu_core import _build_wu_install_ps
+# === /AUTO-IMPORTS ===
+
+
+class CliAutofixMixin:
+    """CLI: egyszerűsített, egymenetes AutoFix (szándékosan nincs reboot-lánc!). A CliApi része (összerakás: app/cli/api.py)."""
+
+    # ================================================================
+    # AUTOFIX (1 kattintásos driver fix)
+    # ================================================================
+    def autofix(self):
+        """Teljes automatikus driver fix (mint a GUI-ban)."""
+        if self.target_os_path:
+            print("\n❌ Hiba: Az 1 Kattintásos Driver Fix (Autofix) csak Élő (Online) rendszeren futtatható!")
+            return
+            
+        print("\n" + "=" * 60)
+        print("  ⚡ 1 KATTINTÁSOS AUTOMATIKUS DRIVER FIX")
+        print("=" * 60)
+        print("""
+Lépések:
+  0️⃣  Alvó mód és Gyors Rendszerindítás kikapcsolása
+  1️⃣  Visszaállítási pont létrehozása
+  2️⃣  Windows Update driver keresés LETILTÁSA
+  3️⃣  Szellemeszközök törlése
+  4️⃣  Összes third-party driver TÖRLÉSE
+  5️⃣  Hardver újraszkennelés
+  6️⃣  WU driver telepítés (friss driverek)
+  7️⃣  Újraindítás
+
+Megjegyzés: ez az egymenetes CLI változat - a GUI verzióval ellentétben nem
+iktat be automatikus újraindítás(oka)t a törlés és az újratelepítés közé,
+ezért ha egy driver csak egy közbenső reboot után enumerálódik újra, azt
+manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkennelés).
+""")
+
+        confirm = input("Biztosan elindítod? (igen/nem): ").strip().lower()
+        if confirm not in ['igen', 'i', 'yes', 'y']:
+            print("❌ Megszakítva.")
+            return
+
+        start_time = time.time()
+
+        # FÁZIS 0: Alvó mód + Fast Startup letiltása
+        print("\n" + "=" * 50)
+        print("  FÁZIS 0: Alvó mód és Gyors Rendszerindítás kikapcsolása")
+        print("=" * 50)
+        power_cmds = [
+            ['powercfg', '/change', 'monitor-timeout-ac', '0'],
+            ['powercfg', '/change', 'monitor-timeout-dc', '0'],
+            ['powercfg', '/change', 'standby-timeout-ac', '0'],
+            ['powercfg', '/change', 'standby-timeout-dc', '0'],
+            ['powercfg', '/change', 'hibernate-timeout-ac', '0'],
+            ['powercfg', '/change', 'hibernate-timeout-dc', '0']
+        ]
+        for cmd in power_cmds:
+            self._run(cmd)
+        self._run(["powercfg", "/h", "off"])
+        print("  ✅ Energiagazdálkodás beállítva, Gyors Rendszerindítás kikapcsolva.")
+
+        # FÁZIS 1: Visszaállítási pont
+        print("\n" + "=" * 50)
+        print("  FÁZIS 1: Visszaállítási pont létrehozása")
+        print("=" * 50)
+        self.create_restore_point()
+
+        # FÁZIS 2: WU letiltás
+        print("\n" + "=" * 50)
+        print("  FÁZIS 2: WU driver letiltás")
+        print("=" * 50)
+        self.disable_wu_drivers()
+
+        # FÁZIS 3: Szellemeszközök törlése
+        print("\n" + "=" * 50)
+        print("  FÁZIS 3: Szellemeszközök törlése")
+        print("=" * 50)
+        self.delete_ghost_devices()
+
+        # FÁZIS 4: Third-party driverek törlése
+        print("\n" + "=" * 50)
+        print("  FÁZIS 4: Third-party driverek törlése")
+        print("=" * 50)
+        drivers = self.get_third_party_drivers()
+        if drivers:
+            print(f"Talált: {len(drivers)} db third-party driver")
+            self.delete_drivers(drivers, reboot=False)
+        else:
+            print("Nincs third-party driver.")
+
+        # FÁZIS 5: Hardver scan
+        print("\n" + "=" * 50)
+        print("  FÁZIS 5: Hardver újraszkennelés")
+        print("=" * 50)
+        print("🔄 pnputil /scan-devices...")
+        self._run(['pnputil', '/scan-devices'])
+        time.sleep(5)
+        print("✅ Kész!")
+
+        # FÁZIS 6: WU driver telepítés
+        print("\n" + "=" * 50)
+        print("  FÁZIS 6: WU driver telepítés")
+        print("=" * 50)
+        print("🔄 Driver frissítések keresése és telepítése...")
+        print("   (Ez akár 5-10 percig is tarthat)")
+        
+        # A telepítő script a KÖZÖS _build_wu_install_ps-ből jön - ugyanaz, mint a GUI-s
+        # manuális telepítésnél és AutoFixnél; itt a gép összes jelenlévő eszközéhez
+        # párosít a scripten belül (a CLI-ben nincs Python-oldali előszűrés).
+        ps_script = _build_wu_install_ps(match_system_devices=True)
+        logging.debug(f"[CMD] Popen futtatása: {ps_script[:300]}...")
+        process = subprocess.Popen(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace',
+            startupinfo=self._si, creationflags=self._nw)
+        
+        install_success = 0
+        install_fail = 0
+        
+        # A közös script kimeneti protokollja (lásd _build_wu_install_ps docstring).
+        for line in process.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("FOUND:"):
+                print(f"  📦 {line[6:].strip()}")
+            elif line.startswith("TOTAL:"):
+                print(f"\n  Összesen {line[6:].strip()} driver telepítése...")
+            elif line.startswith("DLONE:"):
+                print(f"  ⬇ {line[6:].strip()}")
+            elif line.startswith("INSTONE:"):
+                print(f"  ⚙ {line[8:].strip()}")
+            elif line.startswith("OK:"):
+                install_success += 1
+                print(f"  ✅ {line[3:].strip()}")
+            elif line.startswith("FAIL:"):
+                install_fail += 1
+                print(f"  ❌ {line[5:].strip()}")
+            elif line.startswith("EMPTY:"):
+                print(f"  ℹ️  {line[6:].strip()}")
+            elif line.startswith("ERROR:"):
+                print(f"  ❌ HIBA: {line[6:].strip()}")
+            elif line.startswith("DONE:"):
+                print(f"\n  Telepítés kész: ✅ {install_success} sikeres, ❌ {install_fail} sikertelen")
+            elif line.startswith("INIT:") or line.startswith("SEARCH:") or line.startswith("SKIP:"):
+                pass  # csendes protokoll-sorok
+        
+        process.wait()
+        
+        if install_success > 0:
+            print("\n🔄 Eszközök újraszkennelése...")
+            self._run(['pnputil', '/scan-devices'])
+        
+        # Összegzés
+        elapsed = int(time.time() - start_time)
+        print("\n" + "=" * 60)
+        print(f"  ⚡ AUTOFIX KÉSZ! (Idő: {elapsed // 60} perc {elapsed % 60} mp)")
+        print("=" * 60)
+        
+        # FÁZIS 7: Újraindítás
+        if install_success > 0 or len(drivers) > 0:
+            print("\n🔄 Újraindítás 30 másodperc múlva...")
+            print("   (Ctrl+C a megszakításhoz)")
+            try:
+                for i in range(30, 0, -1):
+                    print(f"\r   {i} másodperc...", end="", flush=True)
+                    time.sleep(1)
+                print("\n🔄 Újraindítás MOST!")
+                self._run(['shutdown', '/r', '/t', '0', '/f'])
+            except KeyboardInterrupt:
+                print("\n❌ Újraindítás megszakítva.")
+        else:
+            print("\nNem történt változás - újraindítás nem szükséges.")
