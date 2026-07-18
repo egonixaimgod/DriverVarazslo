@@ -19,8 +19,9 @@ class CliBaseMixin:
         self._nw = subprocess.CREATE_NO_WINDOW
         self._cancel_flag = False
     
-    def _run(self, cmd, **kwargs):
-        """Parancs futtatás (CLI verzió)."""
+    def _run(self, cmd, *, ok_codes=(0,), **kwargs):
+        """Parancs futtatás (CLI verzió). ok_codes: a hívó által várt (nem hibának
+        számító) visszatérési kódok - lásd DriverToolApi._run azonos paraméterét."""
         cmd_str = cmd if isinstance(cmd, str) else ' '.join(str(c) for c in cmd)
         logging.debug(f"[CMD_CLI] Futtatás: {cmd_str[:300]}")
         # stdin alapból DEVNULL - lásd DriverToolApi._run azonos sorát (érvénytelenné vált
@@ -31,10 +32,12 @@ class CliBaseMixin:
             result = subprocess.run(cmd, capture_output=True, text=True, errors='replace',
                                   startupinfo=self._si, creationflags=self._nw, **kwargs)
             elapsed = time.time() - start
-            if result.returncode != 0:
+            if result.returncode not in ok_codes:
                 logging.warning(f"[CMD_CLI] Visszatérési kód: {result.returncode} ({elapsed:.1f}s)")
                 if result.stderr:
                     logging.warning(f"[CMD_CLI] stderr: {result.stderr[:4000]}")
+            elif result.returncode != 0:
+                logging.debug(f"[CMD_CLI] OK - várt kód: {result.returncode} ({elapsed:.1f}s)")
             else:
                 logging.debug(f"[CMD_CLI] OK ({elapsed:.1f}s)")
             

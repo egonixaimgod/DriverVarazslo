@@ -301,7 +301,7 @@ class GuiHwScanMixin:
                 self._task_busy = None
 
         try:
-            threading.Thread(target=worker, daemon=True).start()
+            threading.Thread(target=worker, daemon=True, name="hw-scan").start()
         except Exception as e:
             logging.error(f"[HW_SCAN] Thread indítási hiba: {e}")
             self._hw_scanning = False
@@ -566,7 +566,7 @@ try {
                     logging.debug(f"[CATALOG] Hiba: {dev.get('name')} - {e}")
                 q.task_done()
 
-        threads = [threading.Thread(target=cat_worker, daemon=True) for _ in range(10)]
+        threads = [threading.Thread(target=cat_worker, daemon=True, name=f"catalog-{i}") for i in range(10)]
         for t in threads:
             t.start()
         for t in threads:
@@ -826,10 +826,10 @@ try {
                     # .msu: wusa csendes telepítés (offline cél-OS-nél dism /Add-Package).
                     self.emit('task_progress', {'task': task_id, 'log': f'  Telepítés (.msu): {name}...'})
                     if self.target_os_path:
-                        res = self._run(['dism', f'/Image:{self.target_os_path}', '/Add-Package', f'/PackagePath:{cab_path}'], timeout=1800)
+                        res = self._run(['dism', f'/Image:{self.target_os_path}', '/Add-Package', f'/PackagePath:{cab_path}'], timeout=1800, ok_codes=(0, 3010))
                         ok = bool(res) and res.returncode in (0, 3010)
                     else:
-                        res = self._run(['wusa', cab_path, '/quiet', '/norestart'], timeout=1800)
+                        res = self._run(['wusa', cab_path, '/quiet', '/norestart'], timeout=1800, ok_codes=(0, 3010))
                         ok = bool(res) and res.returncode in (0, 3010)
                     with counter_lock:
                         if ok:

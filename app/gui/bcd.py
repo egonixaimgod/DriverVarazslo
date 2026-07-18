@@ -111,4 +111,4 @@ class GuiBcdMixin:
                 self.emit('toast', {'message': f'❌ BootFixer.cmd letöltése sikertelen: {e}', 'type': 'error'})
 
         # Gyors, izolált letöltés - a load_drivers mintájára nem foglalja a _task_busy-t.
-        threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(target=worker, daemon=True, name="bootfixer-dl").start()

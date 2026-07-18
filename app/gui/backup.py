@@ -631,7 +631,7 @@ class GuiBackupMixin:
                 shutil.rmtree(mount_dir, ignore_errors=True)
                 if wim.lower().endswith('.esd') and 'wim_to_mount' in locals() and os.path.exists(wim_to_mount):
                     try: os.remove(wim_to_mount)
-                    except Exception: pass
+                    except Exception as e: logging.debug(f"[WIM] Ideiglenes konvertált WIM törlése sikertelen: {e}")
 
                 logging.info(f"[WIM] Kész! Kimenet: {target_folder}")
                 self.emit('task_complete', {'task': 'wim', 'status': f'✅ Gyári driverek kimentve: {target_folder}',
@@ -648,8 +648,8 @@ class GuiBackupMixin:
                 try:
                     if wim.lower().endswith('.esd') and 'wim_to_mount' in locals() and wim_to_mount != wim and os.path.exists(wim_to_mount):
                         os.remove(wim_to_mount)
-                except Exception:
-                    pass
+                except Exception as e2:
+                    logging.debug(f"[WIM] Ideiglenes konvertált WIM törlése sikertelen (hibaágban): {e2}")
                 self.emit('task_error', {'task': 'wim', 'error': str(e)})
                 self.emit('task_complete', {'task': 'wim', 'status': f'❌ Hiba: {e}'})
 

@@ -59,7 +59,7 @@ def _iter_process_lines(process, run_fn, cancel_check=None, inactivity_timeout=1
         finally:
             q.put(None)
 
-    threading.Thread(target=_reader, daemon=True).start()
+    threading.Thread(target=_reader, daemon=True, name="wu-reader").start()
 
     def _kill(why):
         logging.warning(f"[WU-WATCHDOG] Telepítő folyamat leállítása (PID={process.pid}, ok={why})")
@@ -69,8 +69,8 @@ def _iter_process_lines(process, run_fn, cancel_check=None, inactivity_timeout=1
             logging.error(f"[WU-WATCHDOG] taskkill hiba: {e}")
         try:
             process.wait(timeout=10)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"[WU-WATCHDOG] process.wait a taskkill után sem tért vissza: {e}")
 
     last_output = time.time()
     while True:

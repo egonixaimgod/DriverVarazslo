@@ -74,8 +74,8 @@ class GuiWuMixin:
                 res = self._run(['powershell', '-NoProfile', '-Command', '(Get-Service wuauserv).StartType'], encoding='utf-8')
                 if res.stdout and 'Disabled' in res.stdout:
                     service_disabled = True
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"[WU] wuauserv StartType lekérdezése sikertelen: {e}")
 
             paused_until = None
             try:
@@ -85,8 +85,8 @@ class GuiWuMixin:
                         dt = datetime.strptime(val, "%Y-%m-%dT%H:%M:%SZ")
                         if dt > datetime.now(timezone.utc).replace(tzinfo=None):
                             paused_until = val
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"[WU] PauseUpdatesExpiryTime olvasás/értelmezés sikertelen (nincs szünet beállítva?): {e}")
 
             drv_status = "ENGEDÉLYEZVE"
             if policy_disabled and search_disabled:
@@ -130,7 +130,8 @@ class GuiWuMixin:
             """
             self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", stop_svc])
             time.sleep(2)
-            self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'])
+            # ok_codes=(0, 1): az 1-es kód a "kulcs nem létezik" - nincs beragadt reboot-jelzés, várt eset.
+            self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'], ok_codes=(0, 1))
             
             self.emit('task_progress', {'task': 'disable_wu', 'log': 'Beragadt frissítések és WU gyorsítótár (SoftwareDistribution) ürítése...'})
             sysroot = os.environ.get('SYSTEMROOT', r'C:\Windows')
@@ -362,7 +363,8 @@ class GuiWuMixin:
             """
             self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", stop_svc])
             time.sleep(2)
-            self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'])
+            # ok_codes=(0, 1): az 1-es kód a "kulcs nem létezik" - nincs beragadt reboot-jelzés, várt eset.
+            self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'], ok_codes=(0, 1))
             
             self.emit('task_progress', {'task': 'pause_wu', 'log': 'Beragadt frissítések és WU gyorsítótár ürítése...'})
             sysroot = os.environ.get('SYSTEMROOT', r'C:\Windows')

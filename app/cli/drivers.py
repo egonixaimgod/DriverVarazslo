@@ -179,7 +179,8 @@ class CliDriversMixin:
             if is_offline:
                 res = self._run(['dism', f'/Image:{self.target_os_path}', '/Remove-Driver', f'/Driver:{pub}'])
             else:
-                res = self._run(['pnputil', '/delete-driver', pub, '/uninstall', '/force'])
+                # ok_codes 3010: siker, de reboot kell a lezáráshoz - a szöveg-ellenőrzés lent sikeresnek veszi.
+                res = self._run(['pnputil', '/delete-driver', pub, '/uninstall', '/force'], ok_codes=(0, 3010))
 
             if res.returncode == 0 or any(k in res.stdout.lower() for k in ['deleted', 'törölve', 'successfully']):
                 print("✅")

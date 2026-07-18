@@ -53,8 +53,8 @@ class GuiBaseMixin:
             if os.path.exists(old_path):
                 os.remove(old_path)
                 logging.info("[INIT] Régi verzió (update előtti) törölve.")
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"[INIT] Régi .exe.old törlése sikertelen (zárolt fájl?): {e}")
 
         # Ha egy korábbi Stabilitás Teszt indítás letiltotta a képernyő-kikapcsolást/alvó
         # módot, itt, a program (újra)indulásakor állítjuk vissza az akkor elmentett eredeti
@@ -120,8 +120,13 @@ class GuiBaseMixin:
                 else:
                     logging.error(f"[EMIT:{event}] Hiba: {e}")
 
-    def _run(self, cmd, **kwargs):
-        # Log minden parancs futtatását
+    def _run(self, cmd, *, ok_codes=(0,), **kwargs):
+        # Log minden parancs futtatását.
+        # ok_codes: a hívó által VÁRT (nem hibának számító) visszatérési kódok - pl. a
+        # "reg delete" 1-es kódja nemlétező kulcsnál, vagy a pnputil 3010-e (siker, de
+        # reboot kell). Ezek DEBUG-on logolódnak "várt kód" jelöléssel, hogy a WARNING
+        # szint tényleg csak a valódi anomáliákat tartalmazza. A visszatérési értéket
+        # nem befolyásolja, csak a log-szintet.
         cmd_str = cmd if isinstance(cmd, str) else ' '.join(str(c) for c in cmd)
         logging.debug(f"[CMD] Futtatás: {cmd_str[:300]}")
         # stdin alapból DEVNULL: egyik parancsunk sem olvas stdin-t, VISZONT a stressz-teszt
@@ -136,10 +141,12 @@ class GuiBaseMixin:
                                   startupinfo=self._si, creationflags=self._nw, **kwargs)
             elapsed = time.time() - start
             # Log eredmény
-            if result.returncode != 0:
+            if result.returncode not in ok_codes:
                 logging.warning(f"[CMD] Visszatérési kód: {result.returncode} ({elapsed:.1f}s)")
                 if result.stderr:
                     logging.warning(f"[CMD] stderr: {result.stderr[:4000]}")
+            elif result.returncode != 0:
+                logging.debug(f"[CMD] OK - várt kód: {result.returncode} ({elapsed:.1f}s)")
             else:
                 logging.debug(f"[CMD] OK ({elapsed:.1f}s)")
             
@@ -187,7 +194,7 @@ class GuiBaseMixin:
                 self.emit('task_complete', {'task': task, 'status': f'❌ Hiba: {e}'})
             finally:
                 self._task_busy = None
-        threading.Thread(target=wrapper, daemon=True).start()
+        threading.Thread(target=wrapper, daemon=True, name=f"task-{task}").start()
 
     # ================================================================
     # GENERAL

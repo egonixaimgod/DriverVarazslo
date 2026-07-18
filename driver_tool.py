@@ -17,7 +17,7 @@ import threading
 import time
 import logging
 
-BUILD_NUMBER = 199
+BUILD_NUMBER = 200
 
 from app import common
 common.BUILD_NUMBER = BUILD_NUMBER
@@ -103,8 +103,12 @@ if __name__ == "__main__":
                 return stream
 
         log_handler = _BomRotatingFileHandler(log_filename, maxBytes=5 * 1024 * 1024, backupCount=2, encoding='utf-8')
+        # %(threadName)s: párhuzamos szálak (pl. két egyszerre futó listázás) sorai a
+        # logban összefésülődnek - a szálnév nélkül a [CMD] parancs és a hozzá tartozó
+        # eredmény nem párosítható össze (terepen félrevezető volt: egy PowerShell
+        # parancs "eredményeként" egy másik szál DISM-kimenete látszott).
         logging.basicConfig(level=logging.DEBUG, handlers=[log_handler],
-                            format='%(asctime)s [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+                            format='%(asctime)s [%(levelname)s] [%(threadName)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     except Exception:
         logging.basicConfig(level=logging.DEBUG)
 
@@ -160,8 +164,8 @@ if __name__ == "__main__":
         try:
             pid = os.getpid()
             subprocess.run(['taskkill', '/F', '/T', '/PID', str(pid)], creationflags=subprocess.CREATE_NO_WINDOW)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"[MAIN] cleanup_zombies taskkill sikertelen: {e}")
 
     def thread_exception_handler(args):
         err_str = str(args.exc_value)

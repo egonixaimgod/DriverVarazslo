@@ -89,8 +89,8 @@ class GuiNvidiaMixin:
             try:
                 with open(cache_path, 'w', encoding='utf-8') as f:
                     f.write(xml)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"[NVIDIA] Lookup-cache írása sikertelen (cache nélkül folytatunk): {e}")
 
         rows = re.findall(r'<LookupValue[^>]*ParentID="(\d+)"[^>]*>.*?<Name>([^<]+)</Name>.*?<Value>(\d+)</Value>',
                           xml, re.S)
@@ -249,7 +249,7 @@ class GuiNvidiaMixin:
             finally:
                 try:
                     shutil.rmtree(temp_dir, ignore_errors=True)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.debug(f"[NVIDIA] Temp mappa törlése sikertelen: {e}")
 
         self._safe_thread('nvidia', worker)

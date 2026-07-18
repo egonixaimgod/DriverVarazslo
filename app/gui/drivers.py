@@ -40,7 +40,7 @@ class GuiDriversMixin:
                 logging.error(f"[DRIVERS] Betöltési hiba: {e}")
                 logging.error(traceback.format_exc())
                 self.emit('drivers_loaded', {'drivers': [], 'elapsed': 0, 'error': str(e)})
-        threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(target=worker, daemon=True, name="drivers-load").start()
 
     def _get_third_party_drivers(self):
         logging.debug("[DRIVERS] dism /English /Online /Get-Drivers futtatása...")
@@ -184,7 +184,8 @@ class GuiDriversMixin:
                     if is_offline:
                         res = self._run(['dism', f'/Image:{self.target_os_path}', '/Remove-Driver', f'/Driver:{pub}'])
                     else:
-                        res = self._run(['pnputil', '/delete-driver', pub, '/uninstall', '/force'])
+                        # ok_codes 3010: siker, de reboot kell a lezáráshoz - a szöveg-ellenőrzés lent sikeresnek veszi.
+                        res = self._run(['pnputil', '/delete-driver', pub, '/uninstall', '/force'], ok_codes=(0, 3010))
 
                     if res.returncode == 0 or any(k in res.stdout for k in ["Deleted", "törölve", "successfully"]):
                         success += 1

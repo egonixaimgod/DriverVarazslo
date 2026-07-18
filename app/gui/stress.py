@@ -118,8 +118,8 @@ class GuiStressMixin:
 
             try:
                 winreg.DeleteKey(winreg.HKEY_LOCAL_MACHINE, STRESS_POWER_REG_KEY)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"[STRESS_POWER] Mentett powercfg-kulcs törlése kihagyva (nem is létezett?): {e}")
         except Exception as e:
             logging.warning(f"[STRESS_POWER] Visszaállítási hiba: {e}")
 
@@ -369,7 +369,7 @@ class GuiStressMixin:
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                     zip_ref.extractall(stress_dir)
                 try: os.remove(zip_path)
-                except: pass
+                except Exception as e: logging.debug(f"[STRESSTOOLS] Letöltött ZIP törlése sikertelen: {e}")
                 with open(marker_path, 'w') as f:
                     f.write('ok')
                 return stress_dir
@@ -411,8 +411,8 @@ class GuiStressMixin:
                                 ini_path = os.path.join(os.path.dirname(exe), "HWiNFO64.INI")
                                 with open(ini_path, "w") as f:
                                     f.write("[Settings]\nSensorsOnly=1\nCheckForUpdate=0\n")
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logging.debug(f"[STRESSTOOLS] HWiNFO64.INI írása sikertelen (az update-értesítőt a kattintás-szekvencia kezeli): {e}")
                         console_script = self._build_linpack_console_script() if key == 'linpack' else None
                         click_sequence = STRESS_CLICK_SEQUENCES.get(key)
                         pid = self._launch_stress_exe(exe, display_name, console_script=console_script, click_sequence=click_sequence, thread_sink=auto_threads)
@@ -525,8 +525,8 @@ class GuiStressMixin:
                         ini_path = os.path.join(os.path.dirname(exe_path), "HWiNFO64.INI")
                         with open(ini_path, "w") as f:
                             f.write("[Settings]\nSensorsOnly=1\nCheckForUpdate=0\n")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logging.debug(f"[STRESSTOOLS] HWiNFO64.INI írása sikertelen (az update-értesítőt a kattintás-szekvencia kezeli): {e}")
 
                 console_script = self._build_linpack_console_script() if name == 'linpack' else None
                 click_sequence = STRESS_CLICK_SEQUENCES.get(name)
@@ -541,7 +541,7 @@ class GuiStressMixin:
                 logging.error(f"[STRESSTOOLS] start_stress_tool hiba ({name}): {e}")
                 self.emit('toast', {'message': f'❌ Hiba: {e}', 'type': 'error'})
 
-        threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(target=worker, daemon=True, name="stress-tool").start()
 
     def stop_stress_tests(self):
         """Az ÖSSZES futó stressz-teszt/monitor program azonnali bezárása (a Stabilitás
@@ -578,4 +578,4 @@ class GuiStressMixin:
                 logging.error(f"[STRESSTOOLS] stop_stress_tests hiba: {e}")
                 self.emit('toast', {'message': f'❌ Hiba a tesztek bezárásakor: {e}', 'type': 'error'})
 
-        threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(target=worker, daemon=True, name="stress-stop").start()

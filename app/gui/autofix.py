@@ -158,7 +158,8 @@ Write-Output "DONE: Törölve: $count / $total"
                 name = drv.get('published', '')
                 if not name: continue
                 self.emit('task_progress', {'task': task_id, 'log': f'🗑 Törlés ({i+1}/{total}): {name}', 'current': i+1, 'total': total})
-                self._run(['pnputil', '/delete-driver', name, '/uninstall', '/force'])
+                # ok_codes 3010: siker, de reboot kell a lezáráshoz - az AutoFix úgyis újraindít.
+                self._run(['pnputil', '/delete-driver', name, '/uninstall', '/force'], ok_codes=(0, 3010))
             self.emit('task_progress', {'task': task_id, 'log': '✅ Driverek eltávolítva.\n'})
         else:
             self.emit('task_progress', {'task': task_id, 'log': '✅ Nincs third-party driver a rendszerben.\n'})
@@ -194,8 +195,9 @@ Write-Output "DONE: Törölve: $count / $total"
             if res.stdout:
                 try:
                     pnp_data = json.loads(res.stdout)
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Nem néma: üres pnp_data = üres eszközlista = a WU-egyeztetés csendben kihagyna mindent.
+                    logging.warning(f"[AUTOFIX] PnP JSON értelmezési hiba (üres eszközlistával folytatunk): {e}")
             devices_to_check = _filter_wu_scan_devices(pnp_data)
 
             self.emit('task_progress', {'task': task_id, 'log': f'✅ {len(devices_to_check)} hardverelem azonosítva. Egyeztetés...'})
@@ -292,8 +294,8 @@ Write-Output "DONE: Törölve: $count / $total"
                 if res.stdout:
                     try:
                         pnp_data = json.loads(res.stdout)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logging.warning(f"[AUTOFIX] PnP JSON értelmezési hiba (előző körös eszközlistával folytatunk): {e}")
                 devices_now = _filter_wu_scan_devices(pnp_data) or devices_to_check
                 problem_devs = [d for d in devices_now if d.get('err_code')]
                 if watchdog_tripped and not problem_devs:
@@ -374,8 +376,8 @@ Write-Output "DONE: Törölve: $count / $total"
             if res.stdout:
                 try:
                     pnp_data = json.loads(res.stdout)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.warning(f"[AUTOFIX] PnP JSON értelmezési hiba (a maradék hibás eszközök listája üres marad): {e}")
             problems = [d for d in _filter_wu_scan_devices(pnp_data) if d.get('err_code')]
             if problems:
                 self.emit('task_progress', {'task': task_id, 'log': f'⚠️ Továbbra is hibakódos eszköz: {len(problems)} db'})
@@ -479,7 +481,7 @@ Write-Output "DONE: Törölve: $count / $total"
 
                 if not is_resume_mode:
                     if is_resume_step1:
-                        self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'])
+                        self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'], ok_codes=(0, 1))  # 1: a feladat már nem létezik (idempotens duplatörlés)
                     self.emit('task_progress', {'task': 'autofix', 'log': '0. LÉPÉS: Rendszer előkészítése és régi driverek törlése...'})
                     
                     self._disable_sleep_sync()
@@ -502,7 +504,8 @@ Write-Output "DONE: Törölve: $count / $total"
                     if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
                     
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Szolgáltatások leállítása és újraindítási jelzések (Pending Reboot) törlése...'})
-                    self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'])
+                    # ok_codes=(0, 1): az 1-es kód a "kulcs nem létezik" - nincs beragadt reboot-jelzés, várt eset.
+                    self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'], ok_codes=(0, 1))
 
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Beragadt frissítések és WU gyorsítótár (SoftwareDistribution) ürítése...'})
                     clear_cache = r"""
@@ -581,7 +584,7 @@ Write-Output "DONE: Törölve: $count / $total"
                     self._run(['shutdown', '/r', '/t', '0', '/f'])
                     return
                 else:
-                    self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'])
+                    self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'], ok_codes=(0, 1))  # 1: a feladat már nem létezik (idempotens duplatörlés)
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Láncolt folytatás gépújraindítás után. Régi driverek törlése kihagyva, hogy ne töröljünk friss drivereket.\n'})
                     self._disable_sleep_sync()
 
@@ -683,7 +686,7 @@ Write-Output "DONE: Törölve: $count / $total"
                     return
                 else:
                     self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 KÉSZ! Nulla újonnan fellelt driver, a konfiguráció végigért.'})
-                    self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'])
+                    self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'], ok_codes=(0, 1))  # 1: a feladat már nem létezik (idempotens duplatörlés)
 
                     # ZÁRÓ ÖSSZEFOGLALÓ: lánc-szintű telepítés-szám + maradék hibakódos eszközök.
                     self._emit_autofix_summary(self._autofix_stats_total_and_clear())
@@ -699,8 +702,8 @@ Write-Output "DONE: Törölve: $count / $total"
                     
                     try:
                         self.emit('task_progress', {'task': 'autofix', 'log': '\nA FOLYAMAT SIKERESEN BEFEJEZŐDÖTT!'})
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logging.debug(f"[AUTOFIX] Záró emit sikertelen (ablak már bezárva?): {e}")
                     
                     # If we were in resume mode, it means this was an automated post-boot check that found nothing.
                     # We can close the app or leave it open. Let's just finish the task.

@@ -4,13 +4,38 @@ ha --cli kapcsolóval indul a program, vagy nincs használható WebView2."""
 # === AUTO-IMPORTS ===
 import os
 import time
+import logging
+import builtins
 from app import common
 from app.cli.api import CliApi
 # === /AUTO-IMPORTS ===
 
 
+def _install_input_logging():
+    """Minden CLI input() hívás (menüválasztás, útvonal-megadás, i/n megerősítés)
+    bekerüljön a debug logba [CLI-INPUT]-ként - a GUI-oldali UI-akció logolás párja:
+    terepi hibakereséskor e nélkül nem rekonstruálható, mit választott a felhasználó.
+    A builtins.input-ot cseréljük, így a menu/autofix/backup/bcd modulok minden
+    beolvasása logolódik, hívóhelyenkénti módosítás nélkül. Csak a CLI mód futtatja
+    (run_cli_mode elején), és idempotens (kétszeri hívásra nem duplikál)."""
+    real_input = builtins.input
+    if getattr(real_input, '_dv_logged', False):
+        return
+    def _logged_input(prompt=''):
+        try:
+            val = real_input(prompt)
+        except (EOFError, KeyboardInterrupt) as e:
+            logging.info(f"[CLI-INPUT] {str(prompt).strip()!r} -> megszakítva ({type(e).__name__})")
+            raise
+        logging.info(f"[CLI-INPUT] {str(prompt).strip()!r} -> {val!r}")
+        return val
+    _logged_input._dv_logged = True
+    builtins.input = _logged_input
+
+
 def run_cli_mode():
     """Parancssoros mód - TELJES funkcionalitás (GUI tükör)."""
+    _install_input_logging()
     api = CliApi()
     
     def clear_screen():

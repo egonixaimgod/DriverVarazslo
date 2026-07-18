@@ -716,6 +716,39 @@ window.addEventListener('unhandledrejection', function(event) {
   }
 });
 
+/* ========== UI-AKCIÓ LOGOLÁS ==========
+   Minden felhasználói kattintás és mezőváltoztatás bekerül a Python debug logba
+   ([JS_UI] DEBUG-szintű sorok) - terepi hibakereséskor így visszajátszható, hogy a
+   felhasználó pontosan mit nyomott meg és milyen sorrendben, azelőtt is, hogy az
+   első api() hívás megtörténne. Capture fázisban fut, így akkor is logol, ha maga
+   a kattintás-kezelő utána hibára fut. Szöveges beviteli mezőknél csak 'change'
+   (elhagyáskor) logolunk, nem billentyűnként - a log nem hízik el tőle. */
+function _uiElemDesc(el) {
+  let d = el.tagName ? el.tagName.toLowerCase() : '?';
+  if (el.id) d += '#' + el.id;
+  if (el.dataset && el.dataset.view) d += '[view=' + el.dataset.view + ']';
+  if (el.type === 'checkbox' || el.type === 'radio') d += '(checked=' + el.checked + ')';
+  const txt = ((el.innerText || el.value || '') + '').trim().replace(/\s+/g, ' ').slice(0, 60);
+  if (txt) d += ' "' + txt + '"';
+  return d;
+}
+document.addEventListener('click', function(ev) {
+  try {
+    const el = ev.target.closest('button, a, .nav-item, input, select, label, [onclick]');
+    if (!el) return;
+    const a = window.pywebview && window.pywebview.api;
+    if (a) a.js_log('DEBUG', '[UI-AKCIO] Kattintás: ' + _uiElemDesc(el));
+  } catch (e) {}
+}, true);
+document.addEventListener('change', function(ev) {
+  try {
+    const el = ev.target;
+    if (!el || !el.tagName || !/^(input|select|textarea)$/i.test(el.tagName)) return;
+    const a = window.pywebview && window.pywebview.api;
+    if (a) a.js_log('DEBUG', '[UI-AKCIO] Mezőváltozás: ' + _uiElemDesc(el));
+  } catch (e) {}
+}, true);
+
 function api() { return window.pywebview ? window.pywebview.api : null; }
 
 window.addEventListener('pywebviewready', async () => {

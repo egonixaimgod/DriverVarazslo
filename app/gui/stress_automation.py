@@ -721,8 +721,8 @@ class GuiStressAutomationMixin:
             for hwnd in to_minimize:
                 try:
                     user32.ShowWindow(hwnd, SW_MINIMIZE)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.debug(f"[STRESSTOOLS] Ablak minimalizálás sikertelen (hwnd={hwnd}): {e}")
             logging.info(f"[STRESSTOOLS] {len(to_minimize)} egyéb ablak tálcára helyezve.")
             if to_minimize:
                 self.emit('task_progress', {'task': task_id, 'log': f'📥 {len(to_minimize)} egyéb ablak tálcára helyezve.'})

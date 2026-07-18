@@ -201,8 +201,13 @@ def _app_data_dir():
     path = os.path.join(sys_drive, 'DriverVarazslo')
     try:
         os.makedirs(path, exist_ok=True)
-    except Exception:
-        pass
+    except Exception as e:
+        # Nem logolható megbízhatóan: ez a függvény adja magát a log-mappát is,
+        # a logging ilyenkor még nincs feltétlenül beállítva - stderr-re írunk.
+        try:
+            print(f"[APP_DATA] Mappa létrehozási hiba ({path}): {e}", file=sys.stderr)
+        except Exception:
+            pass
     return path
 
 

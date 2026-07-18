@@ -202,7 +202,7 @@ finally {
             batt_data = {}
             if res_batt.stdout.strip():
                 try: batt_data = json.loads(res_batt.stdout.strip())
-                except: pass
+                except Exception as e: logging.debug(f"[REPORT] Akkumulátor JSON értelmezési hiba (akku-szekció kimarad): {e}")
 
             # Alapvető WMI hardver adatok
             ps_script = r"""
@@ -359,7 +359,7 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             try:
                 tot = json.loads(raw_data.get("RAMTotal", "{}")).get('TotalPhysicalMemory')
                 if tot: tot_gb = f"{round(int(tot)/(1024**3), 1)} GB"
-            except: pass
+            except Exception as e: logging.debug(f"[REPORT] RAM-összeg értelmezési hiba ('Ismeretlen' marad): {e}")
                 
             html += f"<p style='margin: 0 0 8px 0;'><strong>Összes fizikai memória:</strong> {tot_gb} ({len(ram_list)} db modul)</p>"
             if ram_list:
@@ -407,7 +407,7 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
                 <tr><th>Egészség</th><td><span style="font-size:18px; vertical-align:middle;">{batt_icon}</span> <span class="badge {h_class}" style="font-size:13px; padding:4px 8px;">{health_pct}%</span></td></tr>
             </table>
         </div>"""
-                except: pass
+                except Exception as e: logging.debug(f"[REPORT] Akkumulátor-szekció renderelési hiba (kimarad a riportból): {e}")
 
             html += """
         <div class="section">
@@ -456,7 +456,7 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
 
                         if pct >= 0:
                             p_class = "health-Healthy" if p == "100%" else "health-Warning"
-                    except: pass
+                    except Exception as e: logging.debug(f"[REPORT] S.M.A.R.T. health-érték értelmezési hiba (szín nélkül jelenik meg): {e}")
 
                     smart_blocks.append(f"""<div class="item-block"><div class="item-title">{e(g(s, 'Name', 'Ismeretlen'))} <span class="badge">{e(g(s, 'Size'))}</span> <span class="badge">{e(g(s, 'Type'))}</span></div>
                 <table>

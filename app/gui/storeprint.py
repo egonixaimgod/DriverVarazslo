@@ -71,7 +71,7 @@ class GuiStorePrintMixin:
         # published_name) - egy máshonnan (pl. Windows Update-ről korábban) már megvolt
         # driver csomagját nem töröljük, azt nem mi hoztuk létre.
         if staged_driver_published_name:
-            self._run(['pnputil', '/delete-driver', staged_driver_published_name, '/uninstall', '/force'], timeout=60)
+            self._run(['pnputil', '/delete-driver', staged_driver_published_name, '/uninstall', '/force'], timeout=60, ok_codes=(0, 3010))
 
         self.emit('task_progress', {'task': 'store_print', 'log': '✅ Bolti nyomtató eltávolítva erről a gépről.'})
 
@@ -316,7 +316,7 @@ class GuiStorePrintMixin:
 
                 self._run([sumatra, '-print-to', printer_name, '-silent', '-exit-on-print', pdf_path], timeout=60)
                 try: os.remove(pdf_path)
-                except: pass
+                except Exception as e: logging.debug(f"[STOREPRINT] Ideiglenes PDF törlése sikertelen: {e}")
 
                 self.emit('task_progress', {'task': 'store_print', 'log': f'✅ Kinyomtatva: {printer_name}'})
                 self.emit('task_complete', {'task': 'store_print', 'status': f'✅ Riport kinyomtatva a bolti nyomtatóra ({printer_name})!'})

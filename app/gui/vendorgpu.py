@@ -82,16 +82,16 @@ class GuiVendorGpuMixin:
             if os.path.exists(cache_path) and (time.time() - os.path.getmtime(cache_path)) < AMD_CACHE_DAYS * 86400:
                 with open(cache_path, 'r', encoding='utf-8', errors='replace') as f:
                     return f.read()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"[VENDORGPU] AMD cache olvasása sikertelen (friss letöltés jön): {e}")
         ssl_ctx = ssl.create_default_context()
         req = urllib.request.Request(AMD_VERSIONS_URL, headers={'User-Agent': 'Mozilla/5.0'})
         xml = urllib.request.urlopen(req, context=ssl_ctx, timeout=20).read().decode('utf-8', errors='replace')
         try:
             with open(cache_path, 'w', encoding='utf-8') as f:
                 f.write(xml)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"[VENDORGPU] AMD cache írása sikertelen (cache nélkül folytatunk): {e}")
         return xml
 
     def _amd_latest_driver(self):

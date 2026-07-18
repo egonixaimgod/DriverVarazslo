@@ -105,7 +105,7 @@ class GuiDupDriversMixin:
                 self.emit('dup_drivers_loaded', {'groups': [], 'error': str(e)})
 
         # Read-only listázás - a load_drivers mintájára nem foglalja a _task_busy-t.
-        threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(target=worker, daemon=True, name="dup-list").start()
 
     def delete_duplicate_drivers(self, published_names):
         """A kijelölt régi duplikátum-verziók törlése (pnputil /delete-driver).
@@ -137,12 +137,12 @@ class GuiDupDriversMixin:
                     skipped += 1
                     self.emit('task_progress', {'task': 'dupclean', 'log': f'  ⏭ {name} - időközben aktív lett, kihagyva', 'current': i + 1, 'total': total})
                     continue
-                res = self._run(['pnputil', '/delete-driver', name])
+                res = self._run(['pnputil', '/delete-driver', name], ok_codes=(0, 3010))
                 deleted = bool(res) and (res.returncode == 0 or 'deleted' in (res.stdout or '').lower() or 'törölve' in (res.stdout or '').lower())
                 if not deleted:
                     # Második kör /force-szal: a nem használt, de valamihez még bejegyzett
                     # régi verziókat csak így engedi el a pnputil.
-                    res = self._run(['pnputil', '/delete-driver', name, '/force'])
+                    res = self._run(['pnputil', '/delete-driver', name, '/force'], ok_codes=(0, 3010))
                     deleted = bool(res) and (res.returncode == 0 or 'deleted' in (res.stdout or '').lower() or 'törölve' in (res.stdout or '').lower())
                 if deleted:
                     ok += 1

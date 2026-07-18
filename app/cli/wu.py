@@ -52,8 +52,8 @@ class CliWuMixin:
                     dt = datetime.strptime(val, "%Y-%m-%dT%H:%M:%SZ")
                     if dt > datetime.now(timezone.utc).replace(tzinfo=None):
                         paused_until = val.split('T')[0] if 'T' in val else val
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"[WU_CLI] PauseUpdatesExpiryTime olvasás/értelmezés sikertelen (nincs szünet beállítva?): {e}")
             
         if paused_until:
             return f"SZÜNETELTETVE ({paused_until}) | Driverek: {drv_status}"
@@ -264,7 +264,8 @@ class CliWuMixin:
         """
         self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", stop_svc])
         time.sleep(2)
-        self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'])
+        # ok_codes=(0, 1): az 1-es kód a "kulcs nem létezik" - nincs beragadt reboot-jelzés, várt eset.
+        self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'], ok_codes=(0, 1))
 
         print("  Beragadt frissítések és WU gyorsítótár ürítése...")
         sysroot = os.environ.get('SYSTEMROOT', r'C:\Windows')
