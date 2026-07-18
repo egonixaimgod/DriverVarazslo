@@ -12,7 +12,7 @@ import logging
 import traceback
 import winreg
 import math
-from app.common import _ps_quote
+from app.common import download_with_cert_fallback
 from app.stress_defs import LINPACK_PROMPT_SCRIPT
 from app.stress_defs import LINPACK_RAM_OPTIONS
 from app.stress_defs import STRESS_CLICK_SEQUENCES
@@ -298,7 +298,7 @@ class GuiStressMixin:
             return None
 
     def _download_stresstools(self):
-        import tempfile, urllib.request, urllib.error, zipfile, ssl, shutil
+        import tempfile, zipfile, shutil
         # WinPE-ben a %TEMP% az X: RAM-diskre mutat - a stressztesztek zip-jét a valódi C: meghajtóra tesszük.
         is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
         if is_pe:
@@ -331,36 +331,10 @@ class GuiStressMixin:
             if os.path.exists(marker_path) and self._find_sumatra_exe(stress_dir) and self._find_hp_driver_inf(stress_dir):
                 return stress_dir
             try:
-                logging.info("[STRESSTOOLS] Letöltés INNEN: " + download_url)
-                ssl_ctx = ssl.create_default_context()
-
-                req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-                try:
-                    with urllib.request.urlopen(req, context=ssl_ctx, timeout=60) as resp, open(zip_path, 'wb') as f:
-                        shutil.copyfileobj(resp, f)
-                except urllib.error.URLError as dl_err:
-                    # Vadonatúj Windows-telepítésen a gyökértanúsítvány-tár még hiányos: a
-                    # Windows a gyökereket igény szerint tölti le, de ezt csak a schannel-
-                    # alapú kliensek (böngésző, PowerShell, .NET) váltják ki - a Python
-                    # OpenSSL-je nem, ezért nála CERTIFICATE_VERIFY_FAILED lesz. Tipikus
-                    # tünet: a github.com (Sectigo/USERTrust gyökér) elhasal, miközben a
-                    # raw.githubusercontent.com (DigiCert gyökér) működik - ezért megy az
-                    # update-ellenőrzés ugyanazon a friss gépen, amin ez a letöltés nem.
-                    # Ilyenkor PowerShell Invoke-WebRequest-tel (schannel) töltünk le: a
-                    # tanúsítvány-ellenőrzés ott is teljes értékű (SEMMIT nem kapcsolunk
-                    # ki!), és mellékhatásként a hiányzó gyökér bekerül a Windows tárba,
-                    # így a gép későbbi Python-letöltései is meggyógyulnak.
-                    if 'CERTIFICATE_VERIFY_FAILED' not in str(dl_err):
-                        raise
-                    logging.warning(f"[STRESSTOOLS] Python SSL tanúsítvány-hiba ({dl_err}) - friss Windows tanúsítvány-tár gyanú, áttérés PowerShell (schannel) letöltésre, teljes tanúsítvány-ellenőrzéssel...")
-                    ps_cmd = ("$ProgressPreference='SilentlyContinue'; "
-                              "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; "
-                              f"Invoke-WebRequest -Uri '{_ps_quote(download_url)}' -OutFile '{_ps_quote(zip_path)}' -UseBasicParsing")
-                    result = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps_cmd], timeout=600)
-                    if not result or result.returncode != 0 or not os.path.exists(zip_path):
-                        logging.error("[STRESSTOOLS] A PowerShell (schannel) letöltés is sikertelen.")
-                        return None
-                    logging.info("[STRESSTOOLS] PowerShell (schannel) letöltés sikeres.")
+                # A friss-Windows tanúsítvány-fallback a közös
+                # common.download_with_cert_fallback-ben él (hibánál kivétel -> lenti except -> None).
+                download_with_cert_fallback(self._run, download_url, zip_path,
+                                            timeout=60, ps_timeout=600, log_tag='STRESSTOOLS')
 
                 if not zipfile.is_zipfile(zip_path):
                     return None

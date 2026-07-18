@@ -211,6 +211,48 @@ def _app_data_dir():
     return path
 
 
+def download_with_cert_fallback(run_fn, url, dest, *, timeout=60, ps_timeout=120,
+                                log_tag='DOWNLOAD', error_msg=None):
+    """HTTPS letöltés a friss-Windows tanúsítvány-fallbackkel - KÖZÖS példány (korábban
+    4 másolatban élt: block.bat, nicpack.zip, BootFixer.cmd, stresstools.zip).
+
+    Vadonatúj Windows-telepítésen a gyökértanúsítvány-tár még hiányos: a Windows a
+    gyökereket igény szerint tölti le, de ezt csak a schannel-alapú kliensek (böngésző,
+    PowerShell, .NET) váltják ki - a Python OpenSSL-je nem, ezért nála
+    CERTIFICATE_VERIFY_FAILED lesz. Tipikus tünet: a github.com (Sectigo/USERTrust
+    gyökér) elhasal, miközben a raw.githubusercontent.com (DigiCert gyökér) működik.
+    CSAK erre a hibára esünk vissza PowerShell Invoke-WebRequest-re (schannel): a
+    tanúsítvány-ellenőrzés ott is TELJES értékű (SEMMIT nem kapcsolunk ki!), és
+    mellékhatásként a hiányzó gyökér bekerül a Windows tárba, így a gép későbbi
+    Python-letöltései is meggyógyulnak. Ez a fallback NEM ellenőrzés-megkerülés, és
+    tilos azzá alakítani (admin-jogon futtatott payloadokat töltünk le vele).
+
+    Visszaadja a dest-et; hibánál (vagy üres letöltött fájlnál) kivételt dob."""
+    import urllib.request
+    import urllib.error
+    import ssl
+    import shutil as _shutil
+    logging.info(f"[{log_tag}] Letöltés innen: {url}")
+    ssl_ctx = ssl.create_default_context()
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+    try:
+        with urllib.request.urlopen(req, context=ssl_ctx, timeout=timeout) as resp, open(dest, 'wb') as f:
+            _shutil.copyfileobj(resp, f)
+    except urllib.error.URLError as dl_err:
+        if 'CERTIFICATE_VERIFY_FAILED' not in str(dl_err):
+            raise
+        logging.warning(f"[{log_tag}] Python SSL tanúsítvány-hiba ({dl_err}) - friss Windows tanúsítvány-tár gyanú, áttérés PowerShell (schannel) letöltésre, teljes tanúsítvány-ellenőrzéssel...")
+        ps_cmd = ("$ProgressPreference='SilentlyContinue'; "
+                  "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; "
+                  f"Invoke-WebRequest -Uri '{_ps_quote(url)}' -OutFile '{_ps_quote(dest)}' -UseBasicParsing")
+        result = run_fn(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps_cmd], timeout=ps_timeout)
+        if not result or result.returncode != 0 or not os.path.exists(dest):
+            raise Exception(error_msg or "A letöltés sikertelen (nincs internet, vagy a GitHub nem elérhető).")
+        logging.info(f"[{log_tag}] PowerShell (schannel) letöltés sikeres.")
+    if not os.path.exists(dest) or os.path.getsize(dest) == 0:
+        raise Exception(error_msg or "A letöltött fájl üres vagy hiányzik.")
+    logging.info(f"[{log_tag}] Letöltve: {dest}")
+    return dest
 
 
 

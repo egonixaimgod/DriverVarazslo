@@ -63,9 +63,12 @@ def run_cli_mode():
     ⚡  4. 1 Kattintásos Driver Fix
     🧹  5. Temp fájlok törlése (lemez felszabadítás)
     🚫  6. Net Blokkoló script (block.bat) letöltése
+    🔐  7. BitLocker kezelő (állapot / kikapcsolás)
+    📄  8. Rendszer riport generálása (HTML)
+    ⬆️   9. Frissítés keresése (program update)
 
-    ⚙️   7. Cél OS váltása (offline mód)
-    ℹ️   8. GUI-only funkciók (mik nem érhetők el itt)
+    ⚙️  10. Cél OS váltása (offline mód)
+    ℹ️  11. GUI-only funkciók (mik nem érhetők el itt)
     ❌  0. Kilépés
 """)
     
@@ -81,6 +84,7 @@ def run_cli_mode():
     4. Hardver újraszkennelés
     5. Szellemeszközök (ghost device) törlése
     6. 🛟 LAN driver mentőcsomag telepítése (nicpack.zip)
+    7. 🧹 Driver-duplikátumok takarítása (DriverStore)
 
     0. Vissza a főmenübe
 """)
@@ -128,6 +132,9 @@ def run_cli_mode():
                 input("\nNyomj ENTER-t a folytatáshoz...")
             elif choice == '6':
                 api.install_nic_pack()
+                input("\nNyomj ENTER-t a folytatáshoz...")
+            elif choice == '7':
+                api.clean_duplicate_drivers()
                 input("\nNyomj ENTER-t a folytatáshoz...")
 
     def backup_menu():
@@ -276,8 +283,20 @@ def run_cli_mode():
             api.download_block_script()
             input("\nNyomj ENTER-t a folytatáshoz...")
         elif choice == '7':
-            target_menu()
+            print_header()
+            api.bitlocker_menu_cli()
+            input("\nNyomj ENTER-t a folytatáshoz...")
         elif choice == '8':
+            print_header()
+            api.generate_system_report_cli()
+            input("\nNyomj ENTER-t a folytatáshoz...")
+        elif choice == '9':
+            print_header()
+            api.check_for_updates_cli()
+            input("\nNyomj ENTER-t a folytatáshoz...")
+        elif choice == '10':
+            target_menu()
+        elif choice == '11':
             print_header()
             print("""
   ℹ️  CSAK A GRAFIKUS FELÜLETEN (GUI) ELÉRHETŐ FUNKCIÓK
@@ -286,11 +305,14 @@ def run_cli_mode():
   érhetők el, futtasd a programot --cli kapcsoló nélkül, ha ezekre
   van szükséged:
 
-    • BitLocker állapot lekérdezése / kikapcsolása
-    • HTML hardverjelentés generálása (S.M.A.R.T. adatokkal)
     • Célzott WU driver keresés és kiválasztásos telepítés
       (a CLI Autofix csak a teljes automatikus telepítést tudja)
     • Stabilitás (stressz) teszt indítása
+    • NVIDIA vendor-driver ellenőrzés/telepítés, AMD/Intel és
+      OEM (Dell/Lenovo/HP) driver-oldal linkek
+    • Riport nyomtatása a bolti nyomtatóra
+    • BootFixer.cmd letöltő gomb (a CLI-ben helyette a beépített
+      BCD javítás érhető el: Mentés és Visszaállítás > 6)
 """)
             input("\nNyomj ENTER-t a folytatáshoz...")
         else:

@@ -19,7 +19,7 @@ import zipfile
 import logging
 from app.common import _app_data_dir
 from app.common import _app_exe_path
-from app.common import _ps_quote
+from app.common import download_with_cert_fallback
 # === /AUTO-IMPORTS ===
 
 
@@ -45,32 +45,12 @@ def _find_nicpack_zip():
 
 def _download_nicpack(run_fn):
     """A nicpack.zip letöltése az app-adatmappába (csak ha van internet). Ugyanaz a
-    friss-Windows tanúsítvány-fallback, mint a block.bat letöltésnél: CERTIFICATE_
-    VERIFY_FAILED esetén PowerShell (schannel) letöltés, TELJES ellenőrzéssel."""
-    import urllib.request
-    import urllib.error
-    import ssl
+    friss-Windows tanúsítvány-fallback, mint a block.bat letöltésnél
+    (common.download_with_cert_fallback - TELJES tanúsítvány-ellenőrzéssel)."""
     dest = os.path.join(_app_data_dir(), NICPACK_FILENAME)
-    logging.info(f"[NICPACK] Letöltés innen: {NICPACK_URL}")
-    ssl_ctx = ssl.create_default_context()
-    req = urllib.request.Request(NICPACK_URL, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-    try:
-        with urllib.request.urlopen(req, context=ssl_ctx, timeout=120) as resp, open(dest, 'wb') as f:
-            shutil.copyfileobj(resp, f)
-    except urllib.error.URLError as dl_err:
-        if 'CERTIFICATE_VERIFY_FAILED' not in str(dl_err):
-            raise
-        logging.warning(f"[NICPACK] Python SSL tanúsítvány-hiba ({dl_err}) - PowerShell (schannel) letöltés, teljes ellenőrzéssel...")
-        ps_cmd = ("$ProgressPreference='SilentlyContinue'; "
-                  "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; "
-                  f"Invoke-WebRequest -Uri '{_ps_quote(NICPACK_URL)}' -OutFile '{_ps_quote(dest)}' -UseBasicParsing")
-        result = run_fn(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps_cmd], timeout=180)
-        if not result or result.returncode != 0 or not os.path.exists(dest):
-            raise Exception("A nicpack.zip letöltése sikertelen (nincs internet vagy nincs feltöltve a release).")
-    if not os.path.exists(dest) or os.path.getsize(dest) == 0:
-        raise Exception("A letöltött nicpack.zip üres vagy hiányzik.")
-    logging.info(f"[NICPACK] Letöltve: {dest}")
-    return dest
+    return download_with_cert_fallback(
+        run_fn, NICPACK_URL, dest, timeout=120, ps_timeout=180, log_tag='NICPACK',
+        error_msg="A nicpack.zip letöltése sikertelen (nincs internet vagy nincs feltöltve a release).")
 
 
 def _install_nicpack(run_fn, progress_fn):

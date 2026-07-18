@@ -1,14 +1,13 @@
-"""DriverVarázsló GUI - Driverek kezelése nézet: listázás (online/offline) és törlés."""
+"""DriverVarázsló GUI - Driverek kezelése nézet: listázás (online/offline) és törlés
+(a közös listázó/parzoló/törlő logika: app/drivers_core.py)."""
 
 # === AUTO-IMPORTS ===
 import os
 import threading
 import time
 import logging
-import shutil
-import json
-import glob
 import traceback
+from app import drivers_core
 # === /AUTO-IMPORTS ===
 
 
@@ -44,111 +43,19 @@ class GuiDriversMixin:
 
     def _get_third_party_drivers(self):
         logging.debug("[DRIVERS] dism /English /Online /Get-Drivers futtatása...")
-        res = self._run(['dism', '/English', '/Online', '/Get-Drivers'])
-        drivers = []
-        current = {}
-        for line in res.stdout.splitlines():
-            line = line.strip()
-            if not line:
-                if current and "published" in current:
-                    drivers.append(current)
-                    current = {}
-                continue
-            parts = line.split(":", 1)
-            if len(parts) == 2:
-                key, val = parts[0].strip(), parts[1].strip()
-                if "Published Name" in key:
-                    current["published"] = val
-                elif "Original File Name" in key:
-                    current["original"] = val
-                elif "Provider Name" in key:
-                    current["provider"] = val
-                elif "Class Name" in key:
-                    current["class"] = val
-                elif "Version" in key:
-                    current["version"] = val
-        if current and "published" in current:
-            drivers.append(current)
-        return drivers
+        return drivers_core.get_third_party_drivers(self._run)
 
     def _get_all_drivers(self):
         logging.debug("[DRIVERS] _get_all_drivers() indult")
-        cmd = ['powershell', '-NoProfile', '-Command',
-               '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-WindowsDriver -Online -All | Select-Object ProviderName, ClassName, Version, Driver, OriginalFileName | ConvertTo-Json -Depth 2 -WarningAction SilentlyContinue']
-        res = self._run(cmd, encoding='utf-8')
-        out = res.stdout.strip()
-        if not out:
-            logging.debug("[DRIVERS] _get_all_drivers: üres kimenet")
-            return []
-        data = json.loads(out)
-        if isinstance(data, dict):
-            data = [data]
-        parsed_drivers = [{"published": d.get("Driver", ""), "original": d.get("OriginalFileName", ""),
-                 "provider": d.get("ProviderName", ""), "class": d.get("ClassName", ""),
-                 "version": d.get("Version", "")} for d in data]
-
-        # Filter ghosts (force-deleted inbox drivers)
-        valid_drivers = []
-        rep = os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), "System32", "DriverStore", "FileRepository")
-        for d in parsed_drivers:
-            pub = d.get("published", "")
-            if not pub:
-                continue
-            if pub.lower().startswith("oem"):
-                valid_drivers.append(d)
-                continue
-            if glob.glob(os.path.join(rep, f"{pub}_*")):
-                valid_drivers.append(d)
-
-        logging.debug(f"[DRIVERS] _get_all_drivers: {len(valid_drivers)} valid driver")
-        return valid_drivers
+        drivers = drivers_core.get_all_drivers(self._run)
+        logging.debug(f"[DRIVERS] _get_all_drivers: {len(drivers)} valid driver")
+        return drivers
 
     def _get_offline_drivers(self, all_drivers=False):
         logging.debug(f"[DRIVERS] _get_offline_drivers(all_drivers={all_drivers})")
-        cmd = ['dism', '/English', f'/Image:{self.target_os_path}', '/Get-Drivers']
-        if all_drivers:
-            cmd.append('/all')
-        res = self._run(cmd)
-        drivers = []
-        current = {}
-        for line in res.stdout.splitlines():
-            line = line.strip()
-            if not line:
-                if current and "published" in current:
-                    drivers.append(current)
-                    current = {}
-                continue
-            parts = line.split(":", 1)
-            if len(parts) == 2:
-                key, val = parts[0].strip(), parts[1].strip()
-                if "Published Name" in key:
-                    current["published"] = val
-                elif "Original File Name" in key:
-                    current["original"] = val
-                elif "Provider Name" in key:
-                    current["provider"] = val
-                elif "Class Name" in key:
-                    current["class"] = val
-                elif "Version" in key:
-                    current["version"] = val
-        if current and "published" in current:
-            drivers.append(current)
-
-        # Filter ghosts (force-deleted inbox drivers)
-        valid_drivers = []
-        rep = os.path.join(self.target_os_path, "Windows", "System32", "DriverStore", "FileRepository")
-        for d in drivers:
-            pub = d.get("published", "")
-            if not pub:
-                continue
-            if pub.lower().startswith("oem"):
-                valid_drivers.append(d)
-                continue
-            if glob.glob(os.path.join(rep, f"{pub}_*")):
-                valid_drivers.append(d)
-
-        logging.debug(f"[DRIVERS] _get_offline_drivers: {len(valid_drivers)} valid driver")
-        return valid_drivers
+        drivers = drivers_core.get_offline_drivers(self._run, self.target_os_path, all_drivers)
+        logging.debug(f"[DRIVERS] _get_offline_drivers: {len(drivers)} valid driver")
+        return drivers
 
     # ================================================================
     # DRIVER DELETION
@@ -171,58 +78,24 @@ class GuiDriversMixin:
                     self.emit('task_progress', {'status': '❗ Megszakítva!', 'counter': f'{i} / {total}'})
                     cancelled = True
                     break
-                
+
                 self.emit('task_progress', {
                     'task': 'delete', 'current': i, 'total': total,
                     'status': f'Törlés: {pub}', 'counter': f'{i+1} / {total}',
                     'log': f'🗑 Törlés: {pub}'
                 })
                 try:
-                    is_offline = bool(self.target_os_path)
                     is_oem = pub.lower().startswith("oem")
+                    res = drivers_core.delete_driver_package(self._run, pub, self.target_os_path)
 
-                    if is_offline:
-                        res = self._run(['dism', f'/Image:{self.target_os_path}', '/Remove-Driver', f'/Driver:{pub}'])
-                    else:
-                        # ok_codes 3010: siker, de reboot kell a lezáráshoz - a szöveg-ellenőrzés lent sikeresnek veszi.
-                        res = self._run(['pnputil', '/delete-driver', pub, '/uninstall', '/force'], ok_codes=(0, 3010))
-
-                    if res.returncode == 0 or any(k in res.stdout for k in ["Deleted", "törölve", "successfully"]):
+                    if drivers_core.delete_succeeded(res):
                         success += 1
                         self.emit('task_progress', {'task': 'delete', 'log': f'  ✅ {pub} törölve'})
                     else:
+                        # Az agresszív force-fallback csak "ÖSSZES driver" módban, nem-oem
+                        # csomagra fut (lásd drivers_core.force_delete_driver_files).
                         if list_all and not is_oem:
-                            if is_offline:
-                                rep = os.path.join(self.target_os_path, "Windows", "System32", "DriverStore", "FileRepository")
-                                inf_dir = os.path.join(self.target_os_path, "Windows", "INF")
-                            else:
-                                rep = os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), "System32", "DriverStore", "FileRepository")
-                                inf_dir = os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), "INF")
-                            dirs = glob.glob(os.path.join(rep, f"{pub}_*"))
-                            
-                            found_any = False
-                            if dirs:
-                                for d in dirs:
-                                    self._run(f'takeown /f "{d}" /r /A', shell=True)
-                                    self._run(f'icacls "{d}" /grant *S-1-5-32-544:F /t', shell=True)
-                                    shutil.rmtree(d, ignore_errors=True)
-                                    self._run(f'rmdir /s /q "{d}"', shell=True)
-                                found_any = True
-
-                            bname = os.path.splitext(pub)[0]
-                            for ext in ['.inf', '.pnf', '.INF', '.PNF']:
-                                fpath = os.path.join(inf_dir, bname + ext)
-                                if os.path.exists(fpath):
-                                    self._run(f'takeown /f "{fpath}" /A', shell=True)
-                                    self._run(f'icacls "{fpath}" /grant *S-1-5-32-544:F', shell=True)
-                                    try:
-                                        os.remove(fpath)
-                                        found_any = True
-                                    except OSError:
-                                        self._run(f'del /f /q "{fpath}"', shell=True)
-                                        found_any = True
-
-                            if found_any:
+                            if drivers_core.force_delete_driver_files(self._run, pub, self.target_os_path):
                                 success += 1
                                 self.emit('task_progress', {'task': 'delete', 'log': f'  ✅ {pub} törölve (force)'})
                             else:
@@ -254,7 +127,7 @@ class GuiDriversMixin:
                 self.emit('task_complete', {'task': 'delete', 'success': success, 'fail': fail,
                                             'counter': f'✅ {success} / ❌ {fail}',
                                             'status': f'Kész! Sikeres: {success}, Sikertelen: {fail}'})
-                
+
                 # Újraindítás ha kérték
                 if reboot and success > 0:
                     self.emit('task_progress', {'task': 'delete', 'log': '\n🔄 Újraindítás 5 másodperc múlva...'})

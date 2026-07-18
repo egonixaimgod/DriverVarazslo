@@ -9,6 +9,7 @@ futások is teljes hívás-naplót írnak a debug logba.
 from app.common import install_call_logging
 from app.cli.base import CliBaseMixin
 from app.cli.drivers import CliDriversMixin
+from app.cli.dupdrivers import CliDupDriversMixin
 from app.cli.backup import CliBackupMixin
 from app.cli.bcd import CliBcdMixin
 from app.cli.wu import CliWuMixin
@@ -17,11 +18,15 @@ from app.cli.tempclean import CliTempCleanMixin
 from app.cli.blockscript import CliBlockScriptMixin
 from app.cli.autofix import CliAutofixMixin
 from app.cli.nicpack import CliNicPackMixin
+from app.cli.bitlocker import CliBitlockerMixin
+from app.cli.report import CliReportMixin
+from app.cli.updater import CliUpdaterMixin
 
 
-class CliApi(CliBaseMixin, CliDriversMixin, CliBackupMixin, CliBcdMixin,
-             CliWuMixin, CliGhostMixin, CliTempCleanMixin, CliBlockScriptMixin,
-             CliAutofixMixin, CliNicPackMixin):
+class CliApi(CliBaseMixin, CliDriversMixin, CliDupDriversMixin, CliBackupMixin,
+             CliBcdMixin, CliWuMixin, CliGhostMixin, CliTempCleanMixin,
+             CliBlockScriptMixin, CliAutofixMixin, CliNicPackMixin,
+             CliBitlockerMixin, CliReportMixin, CliUpdaterMixin):
     """CLI verzió API - ugyanazokat a funkciókat hívja mint a GUI, de konzolra ír."""
     pass
 

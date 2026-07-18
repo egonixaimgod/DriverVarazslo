@@ -14,7 +14,12 @@ import json
 from app.common import _app_data_dir
 from app.common import _app_exe_path
 from app.common import _ps_quote
+from app import backup_core
+from app import drivers_core
 from app import nicpack_core
+from app import wusettings_core
+from app.ghost_core import build_ghost_ps
+from app.ghost_core import parse_ghost_line
 from app.wu_core import AUTOFIX_PRINTER_SKIP_CLASSES
 from app.wu_core import WU_PNP_QUERY_PS
 from app.wu_core import WuProcessAborted
@@ -38,11 +43,9 @@ class GuiAutofixMixin:
     def _create_restore_point_sync(self, task_id='autofix'):
         desc = "DriverVarázsló AutoFix - " + datetime.now().strftime("%Y-%m-%d %H:%M")
         self.emit('task_progress', {'task': task_id, 'log': 'Registry Mentés (Restore Point) készítése folyamatban...', 'indeterminate': True})
-        self._run(["powershell", "-NoProfile", "-Command", 'Enable-ComputerRestore -Drive "$($env:SystemDrive)\\" -ErrorAction SilentlyContinue'])
-        self._run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore', '/v', 'SystemRestorePointCreationFrequency', '/t', 'REG_DWORD', '/d', '0', '/f'])
-        ps_cmd = f'Checkpoint-Computer -Description "{desc}" -RestorePointType "MODIFY_SETTINGS" -ErrorAction SilentlyContinue'
-        res1 = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd], encoding='utf-8')
-        if res1.returncode == 0:
+        # Gyors (nem ellenőrzött) változat a közös backup_core-ból - az AutoFix egy
+        # elutasított pont miatt nem áll meg.
+        if backup_core.create_restore_point_quick(self._run, desc):
             self.emit('task_progress', {'task': task_id, 'log': '✅ Registry mentés / Visszaállítási pont elkészült.\n'})
         else:
             self.emit('task_progress', {'task': task_id, 'log': '⚠️ Visszaállítási pont elutasítva a rendszer által. - FOLYTATÁS...\n'})
@@ -58,74 +61,40 @@ class GuiAutofixMixin:
 
     def _disable_wu_sync(self, task_id='autofix'):
         self.emit('task_progress', {'task': task_id, 'log': 'Windows automata driver frissítések letiltása a Registryben...', 'indeterminate': True})
-        reg_cmd = ['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching', '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f']
-        self._run(reg_cmd)
-        
-        # Ez a registry kulcs megakadályozza, hogy a Gépház "Frissítések keresése" gomb megnyomásakor a rendszer drivereket is lehúzzon
-        self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate', '/v', 'ExcludeWUDriversInQualityUpdate', '/t', 'REG_DWORD', '/d', '1', '/f'])
-        
+        # A registry-értékek a közös wusettings_core-ból (SearchOrderConfig=0 +
+        # ExcludeWUDriversInQualityUpdate=1 - utóbbi akadályozza meg, hogy a Gépház
+        # "Frissítések keresése" gombja drivereket is lehúzzon).
+        wusettings_core.set_wu_driver_policy(self._run, disabled=True)
         self.emit('task_progress', {'task': task_id, 'log': '✅ Automatikus driver telepítés letiltva.\n'})
 
     def _delete_ghost_devices_sync(self, task_id='autofix', skip_classes=None):
         self.emit('task_progress', {'task': task_id, 'log': 'Nem csatlakoztatott (fantom) eszközök azonosítása és törlése...', 'indeterminate': True})
-        skip_classes = skip_classes or set()
-        # A skip_classes mindig a hardcodeolt AUTOFIX_PRINTER_SKIP_CLASSES konstansból jön
-        # (nem felhasználói inputból), ezért biztonságos a PowerShell scriptbe fűzni.
-        extra_exclusions = ''.join(f" -and $_.PNPClass -ne '{c}'" for c in sorted(skip_classes))
-        if skip_classes:
-            skip_match = ' -or '.join(f"$_.PNPClass -eq '{c}'" for c in sorted(skip_classes))
-            skipped_count_expr = f"@(Get-PnpDevice -PresentOnly:$false | Where-Object {{ $_.Present -eq $false -and $_.InstanceId -ne $null -and ({skip_match}) }}).Count"
-        else:
-            skipped_count_expr = "0"
-        ps_script = r"""
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$skippedGhosts = """ + skipped_count_expr + r"""
-Write-Output "SKIPPED: $skippedGhosts"
-$ghosts = Get-PnpDevice -PresentOnly:$false | Where-Object { $_.Present -eq $false -and $_.InstanceId -ne $null -and $_.PNPClass -ne 'SoftwareDevice' -and $_.PNPClass -ne 'Net' -and $_.PNPClass -ne 'System'""" + extra_exclusions + r""" }
-$count = 0
-$total = @($ghosts).Count
-if ($total -eq 0) {
-    Write-Output "DONE: Nincs szellemeszköz a rendszerben."
-    exit
-}
-Write-Output "TOTAL: $total"
-foreach ($dev in $ghosts) {
-    $id = $dev.PNPDeviceID
-    $name = $dev.Name
-    if (-not $name) { $name = "Ismeretlen eszköz" }
-    $res = & pnputil /remove-device "$($id)" 2>&1
-    if ($LASTEXITCODE -eq 0 -or $res -match "deleted" -or $res -match "törölve" -or $res -match "successfully") {
-        $count++
-    }
-}
-Write-Output "DONE: Törölve: $count / $total"
-"""
+        # A közös scriptet használjuk (app/ghost_core.py) - az AutoFix csendesebb: a
+        # per-eszköz rm/ok/fail eseményeket nem írja ki, csak az összegzőket.
+        ps_script = build_ghost_ps(skip_classes)
         logging.debug(f"[CMD] Popen futtatása: {ps_script[:300]}...")
         process = subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace',
             startupinfo=self._si, creationflags=self._nw)
-        
+
         for line in process.stdout:
             if getattr(self, '_cancel_flag', False):
                 self._run(['taskkill', '/F', '/T', '/PID', str(process.pid)])
                 process.wait()
                 raise Exception("Magyar_Megszakit_Flag")
-            line = line.strip()
-            if not line:
+            parsed = parse_ghost_line(line)
+            if not parsed:
                 continue
-            if line.startswith("SKIPPED:"):
-                m = re.search(r'SKIPPED:\s*(\d+)', line)
-                if m and int(m.group(1)) > 0:
-                    self.emit('task_progress', {'task': task_id, 'log': f'ℹ️ {m.group(1)} db nyomtató/szkenner szellemeszköz kihagyva.\n'})
-            elif line.startswith("TOTAL:"):
-                m = re.search(r'TOTAL:\s*(\d+)', line)
-                if m:
-                    total = int(m.group(1))
-                self.emit('task_progress', {'task': task_id, 'log': f'{total} db szellemeszköz azonosítva. Törlés folyamatban...\n'})
-            elif line.startswith("DONE:"):
-                self.emit('task_progress', {'task': task_id, 'log': f'✅ {line[5:].strip()}\n'})
-        
+            event, data = parsed
+            if event == 'skipped':
+                if data > 0:
+                    self.emit('task_progress', {'task': task_id, 'log': f'ℹ️ {data} db nyomtató/szkenner szellemeszköz kihagyva.\n'})
+            elif event == 'total':
+                self.emit('task_progress', {'task': task_id, 'log': f'{data} db szellemeszköz azonosítva. Törlés folyamatban...\n'})
+            elif event == 'done':
+                self.emit('task_progress', {'task': task_id, 'log': f'✅ {data}\n'})
+
         process.wait()
 
     def _delete_third_party_sync(self, task_id='autofix', skip_classes=None):
@@ -158,8 +127,8 @@ Write-Output "DONE: Törölve: $count / $total"
                 name = drv.get('published', '')
                 if not name: continue
                 self.emit('task_progress', {'task': task_id, 'log': f'🗑 Törlés ({i+1}/{total}): {name}', 'current': i+1, 'total': total})
-                # ok_codes 3010: siker, de reboot kell a lezáráshoz - az AutoFix úgyis újraindít.
-                self._run(['pnputil', '/delete-driver', name, '/uninstall', '/force'], ok_codes=(0, 3010))
+                # A közös törlő (drivers_core) - 3010 = siker, de reboot kell; az AutoFix úgyis újraindít.
+                drivers_core.delete_driver_package(self._run, name)
             self.emit('task_progress', {'task': task_id, 'log': '✅ Driverek eltávolítva.\n'})
         else:
             self.emit('task_progress', {'task': task_id, 'log': '✅ Nincs third-party driver a rendszerben.\n'})
@@ -428,19 +397,11 @@ Write-Output "DONE: Törölve: $count / $total"
                     self._disable_sleep_sync()
                     
                     self.emit('task_progress', {'task': 'autofix', 'log': 'WU szüneteltetése 1 hétre...'})
-                    ps_pause = r"""
-                    $pauseDate = (Get-Date).AddDays(7).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-                    $nowDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseUpdatesExpiryTime' -Value $pauseDate -Type String -Force | Out-Null
-                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseFeatureUpdatesEndTime' -Value $pauseDate -Type String -Force | Out-Null
-                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseQualityUpdatesEndTime' -Value $pauseDate -Type String -Force | Out-Null
-                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
-                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseFeatureUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
-                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseQualityUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
-                    """
-                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_pause])
+                    # Fix (nem hosszabbító) 7 napos szünet a közös builderből.
+                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+                               wusettings_core.build_wu_pause_ps(7, additive=False)])
                     self.emit('task_progress', {'task': 'autofix', 'log': '✅ WU szüneteltetve 1 hétre.\n'})
-                    
+
                     self.emit('task_progress', {'task': 'autofix', 'log': '🔄 A számítógép újraindul, majd a folyamat a rendszer előkészítésével folytatódik!'})
                     
                     exe_path = _app_exe_path()
@@ -504,49 +465,17 @@ Write-Output "DONE: Törölve: $count / $total"
                     if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
                     
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Szolgáltatások leállítása és újraindítási jelzések (Pending Reboot) törlése...'})
+                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", wusettings_core.WU_STOP_SERVICES_PS])
                     # ok_codes=(0, 1): az 1-es kód a "kulcs nem létezik" - nincs beragadt reboot-jelzés, várt eset.
                     self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'], ok_codes=(0, 1))
 
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Beragadt frissítések és WU gyorsítótár (SoftwareDistribution) ürítése...'})
-                    clear_cache = r"""
-                    Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
-                    Stop-Service bits -Force -ErrorAction SilentlyContinue
-                    Stop-Service cryptsvc -Force -ErrorAction SilentlyContinue
-                    Stop-Service UsoSvc -Force -ErrorAction SilentlyContinue
-                    """
-                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", clear_cache])
-                    
-                    sysroot = os.environ.get('SYSTEMROOT', r'C:\Windows')
-                    sw_dist = os.path.join(sysroot, 'SoftwareDistribution')
-                    deleted_cache = False
-                    for _ in range(4):
-                        try:
-                            if os.path.exists(sw_dist):
-                                shutil.rmtree(sw_dist, ignore_errors=False)
-                                deleted_cache = True
-                                break
-                            else:
-                                deleted_cache = True
-                                break
-                        except Exception as e:
-                            logging.warning(f"[AUTOFIX] Cache törlés újrapróbálás: {e}")
-                            time.sleep(3)
-                            
-                    if not deleted_cache:
-                        self._run(["powershell", "-NoProfile", "-Command", f'Remove-Item -Path "{sw_dist}" -Recurse -Force -ErrorAction SilentlyContinue'])
-                    
+                    wusettings_core._clear_software_distribution(self._run)
+
                     self.emit('task_progress', {'task': 'autofix', 'log': 'WU szüneteltetése 1 hétre...'})
-                    ps_pause = r"""
-                    $pauseDate = (Get-Date).AddDays(7).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-                    $nowDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseUpdatesExpiryTime' -Value $pauseDate -Type String -Force | Out-Null
-                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseFeatureUpdatesEndTime' -Value $pauseDate -Type String -Force | Out-Null
-                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseQualityUpdatesEndTime' -Value $pauseDate -Type String -Force | Out-Null
-                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
-                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseFeatureUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
-                    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseQualityUpdatesStartTime' -Value $nowDate -Type String -Force | Out-Null
-                    """
-                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_pause])
+                    # Fix (nem hosszabbító) 7 napos szünet a közös builderből.
+                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+                               wusettings_core.build_wu_pause_ps(7, additive=False)])
                     self.emit('task_progress', {'task': 'autofix', 'log': '✅ WU gyorsítótár ürítve és szüneteltetve 1 hétre.\n'})
                     
                     self.emit('task_progress', {'task': 'autofix', 'log': '🔄 A számítógép újraindul, majd a folyamat automatikusan a TELEPÍTÉSSEL folytatódik!'})
