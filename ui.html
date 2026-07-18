@@ -243,7 +243,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 <div class="app">
   <!-- Sidebar -->
   <nav class="sidebar">
-    <div class="sidebar-title">🧙‍♂️ DRIVERVARÁZSLÓ<span>🖥️ Tiszta rendszer</span></div>
+    <div class="sidebar-title" onclick="checkForUpdatesManual()">🧙‍♂️ DRIVERVARÁZSLÓ<span>🖥️ Tiszta rendszer</span></div>
     <button class="nav-btn active" onclick="switchView('drivers')" data-view="drivers"><span class="icon">💿</span>Driverek kezelése</button>
     <button class="nav-btn" onclick="switchView('backup')" data-view="backup"><span class="icon">💾</span>Mentés és Visszaállítás</button>
     <button class="nav-btn" onclick="switchView('wu')" data-view="wu"><span class="icon">🔄</span>Windows Update</button>
@@ -776,6 +776,28 @@ window.addEventListener('pywebviewready', async () => {
     }
   } catch(e) { console.error('init error', e); }
 });
+
+/* Rejtett kézi frissítés-keresés: a bal felső DriverVarázsló-logóra kattintva fut.
+   Szándékosan nincs semmilyen kiírás/visszajelzés, ha nincs újabb verzió - ha van,
+   ugyanazt a megerősítő ablakot dobja fel, mint az indításkori automatikus keresés.
+   Az _updCheckRunning flag a türelmetlen duplakattintás ellen véd (a keresés a
+   3x-os CDN-retry miatt ~6 mp-ig tart, nem kell belőle egyszerre kettő). */
+let _updCheckRunning = false;
+async function checkForUpdatesManual() {
+  if (_updCheckRunning) return;
+  _updCheckRunning = true;
+  try {
+    const upd = await api().check_for_updates();
+    if (upd && upd.has_update) {
+      const ok = await showConfirm('Frissítés Elérhető', `Egy új verzió (Build ${upd.new_version}) elérhető a GitHub-on!\nSzeretnéd most letölteni és telepíteni?\n\nA letöltés a háttérben történik, majd a program újraindul.`);
+      if (ok) api().perform_update();
+    }
+  } catch (e) {
+    console.log('Manuális frissítés-keresés hiba:', e);
+  } finally {
+    _updCheckRunning = false;
+  }
+}
 
 /* ========== EVENTS FROM PYTHON ========== */
 window.handlePyEvent = function(payload) {
