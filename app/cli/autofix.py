@@ -6,9 +6,11 @@ import subprocess
 import time
 import logging
 from app.wu_core import AUTOFIX_PRINTER_SKIP_CLASSES
+from app.wu_core import WuProcessAborted
 from app.wu_core import _build_wu_install_ps
 from app.wu_core import _collect_printer_protection
 from app.wu_core import _is_printer_protected
+from app.wu_core import _iter_process_lines
 from app.wu_core import _export_net_driver_backup
 from app.wu_core import _restore_net_driver_backup
 # === /AUTO-IMPORTS ===
@@ -139,36 +141,45 @@ manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkenne
         
         install_success = 0
         install_fail = 0
-        
+        reboot_needed_drivers = 0
+
         # A közös script kimeneti protokollja (lásd _build_wu_install_ps docstring).
-        for line in process.stdout:
-            line = line.strip()
-            if not line:
-                continue
-            if line.startswith("FOUND:"):
-                print(f"  📦 {line[6:].strip()}")
-            elif line.startswith("TOTAL:"):
-                print(f"\n  Összesen {line[6:].strip()} driver telepítése...")
-            elif line.startswith("DLONE:"):
-                print(f"  ⬇ {line[6:].strip()}")
-            elif line.startswith("INSTONE:"):
-                print(f"  ⚙ {line[8:].strip()}")
-            elif line.startswith("OK:"):
-                install_success += 1
-                print(f"  ✅ {line[3:].strip()}")
-            elif line.startswith("FAIL:"):
-                install_fail += 1
-                print(f"  ❌ {line[5:].strip()}")
-            elif line.startswith("EMPTY:"):
-                print(f"  ℹ️  {line[6:].strip()}")
-            elif line.startswith("ERROR:"):
-                print(f"  ❌ HIBA: {line[6:].strip()}")
-            elif line.startswith("DONE:"):
-                print(f"\n  Telepítés kész: ✅ {install_success} sikeres, ❌ {install_fail} sikertelen")
-            elif line.startswith("INIT:") or line.startswith("SEARCH:") or line.startswith("SKIP:"):
-                pass  # csendes protokoll-sorok
-        
-        process.wait()
+        # Az olvasás a KÖZÖS _iter_process_lines-on át megy (wu_core): watchdog öli le a
+        # folyamatot, ha 30 percig egyetlen sor sem érkezik (beragadt WU szolgáltatás) -
+        # a régi közvetlen stdout-olvasás ilyenkor örökre blokkolt.
+        try:
+            for line in _iter_process_lines(process, self._run):
+                if line.startswith("FOUND:"):
+                    print(f"  📦 {line[6:].strip()}")
+                elif line.startswith("TOTAL:"):
+                    print(f"\n  Összesen {line[6:].strip()} driver telepítése...")
+                elif line.startswith("DLONE:"):
+                    print(f"  ⬇ {line[6:].strip()}")
+                elif line.startswith("INSTONE:"):
+                    print(f"  ⚙ {line[8:].strip()}")
+                elif line.startswith("OKRB:"):
+                    install_success += 1
+                    reboot_needed_drivers += 1
+                    print(f"  ✅ {line[5:].strip()} (⚠️ újraindítás után él)")
+                elif line.startswith("OK:"):
+                    install_success += 1
+                    print(f"  ✅ {line[3:].strip()}")
+                elif line.startswith("FAIL:"):
+                    install_fail += 1
+                    print(f"  ❌ {line[5:].strip()}")
+                elif line.startswith("EMPTY:"):
+                    print(f"  ℹ️  {line[6:].strip()}")
+                elif line.startswith("ERROR:"):
+                    print(f"  ❌ HIBA: {line[6:].strip()}")
+                elif line.startswith("DONE:"):
+                    print(f"\n  Telepítés kész: ✅ {install_success} sikeres, ❌ {install_fail} sikertelen")
+                elif line.startswith("INIT:") or line.startswith("SEARCH:") or line.startswith("SKIP:"):
+                    pass  # csendes protokoll-sorok
+        except WuProcessAborted:
+            print("\n  ❌ A WU telepítő 30 percen át nem adott életjelet - a watchdog leállította!")
+            print("     (Beragadt Windows Update szolgáltatásra utal - próbáld újra a fixet.)")
+        if reboot_needed_drivers:
+            print(f"\n  ⚠️ {reboot_needed_drivers} driver csak újraindítás után lép életbe (a fix végén úgyis újraindítunk).")
 
         if install_success > 0:
             print("\n🔄 Eszközök újraszkennelése...")

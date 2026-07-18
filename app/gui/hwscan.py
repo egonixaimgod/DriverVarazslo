@@ -2,6 +2,8 @@
 
 # === AUTO-IMPORTS ===
 import os
+import sys
+import platform
 import subprocess
 import re
 import threading
@@ -12,9 +14,13 @@ import json
 import glob
 import traceback
 import queue
+from app.common import _ps_quote
 from app.wu_core import WU_PNP_QUERY_PS
+from app.wu_core import WuProcessAborted
 from app.wu_core import _build_wu_install_ps
 from app.wu_core import _filter_wu_scan_devices
+from app.wu_core import _iso_date_or_none
+from app.wu_core import _iter_process_lines
 from app.wu_core import _match_wu_updates_to_devices
 # === /AUTO-IMPORTS ===
 
@@ -175,10 +181,10 @@ class GuiHwScanMixin:
                 self._hw_installed_devs = []
                 self.wu_api_mode = True
 
-                # Telepített driver-verziók egyszeri felmérése: a találatok melletti
+                # Telepített driver-verziók/dátumok egyszeri felmérése: a találatok melletti
                 # "Telepítve: X" kijelzéshez ÉS a katalógus-út már-telepítve szűréséhez.
                 self.emit('hw_scan_progress', {'status': '📋 Telepített driver-verziók felmérése...'})
-                inst_versions = self._get_installed_driver_versions()
+                inst_info = self._get_installed_driver_info()
 
                 # Közvetlen WU API lekérdezés (a COM objektum ezen kulcs módosítása nélkül is látja a drivereket)
                 self.emit('hw_scan_progress', {'status': '🔎 Windows Update driver-keresés folyamatban...'})
@@ -192,6 +198,7 @@ class GuiHwScanMixin:
 
                 # Párosítás a KÖZÖS _match_wu_updates_to_devices-szel (HWID prefix + név-tartalék,
                 # az AutoFix is pontosan ezt hívja - ne ide írj párosítási logikát!)
+                wu_by_uid = {w.get('UpdateID'): w for w in wu_results if w.get('UpdateID')}
                 matches = _match_wu_updates_to_devices(wu_results, devices_to_check)
                 matched_hwids = set()
                 matched_uids = set()
@@ -199,10 +206,21 @@ class GuiHwScanMixin:
                     dev = m['device']
                     matched_hwids.add(dev['id'])
                     matched_uids.add(m['uid'])
+                    inst = inst_info.get((dev.get('pnp_id') or '').upper()) or {}
+                    wu_date = _iso_date_or_none((wu_by_uid.get(m['uid']) or {}).get('DriverVerDate')) or ''
+                    inst_date = _iso_date_or_none(inst.get('date')) or ''
                     self.hw_updates_pool.append({
                         "name": dev['name'], "cat": dev['cat'], "hwid": dev['id'],
                         "wu_title": m['title'], "pnp_id": dev.get('pnp_id', ''),
-                        "installed_version": inst_versions.get((dev.get('pnp_id') or '').upper(), ''),
+                        "installed_version": inst.get('version', ''),
+                        "installed_date": inst_date,
+                        "wu_date": wu_date,
+                        # Downgrade-jelzés a felületnek: a WU néha a telepítettnél RÉGEBBI
+                        # csomagot ajánl (pl. friss gyári NVIDIA driver után) - a manuális
+                        # listából nem rejtjük el, csak megjelöljük, a döntés a felhasználóé.
+                        # (Az AutoFix ezzel szemben automatikusan kihagyja az ilyet, lásd
+                        # wu_core._filter_wu_downgrades.)
+                        "downgrade": bool(wu_date and inst_date and wu_date < inst_date and not dev.get('err_code')),
                         # A pontos WU UpdateID a telepítéshez: e nélkül a telepítő csak
                         # HWID-prefix alapján tudna szűrni, ami azonos HWID-jű csomagoknál
                         # (pl. Realtek Extension + MEDIA ugyanazon hdaudio ID-n) többet
@@ -219,7 +237,7 @@ class GuiHwScanMixin:
                     # katalógusban keresünk.
                     self.wu_api_mode = False
                     self.emit('hw_scan_progress', {'status': f'🌐 WU API hiba, katalógus keresés ({total_devs} eszköz)...'})
-                    self._catalog_search(devices_to_check, installed_versions=inst_versions)
+                    self._catalog_search(devices_to_check, installed_info=inst_info)
                 else:
                     # HIBRID KIEGÉSZÍTÉS: a hibakódos (driver nélküli / hibás) eszközökre,
                     # amikre a WU nem adott semmit, még ráengedjük a katalógus-keresést is -
@@ -229,7 +247,7 @@ class GuiHwScanMixin:
                     leftover = [d for d in devices_to_check if d.get('err_code') and d['id'] not in matched_hwids]
                     if leftover:
                         self.emit('hw_scan_progress', {'status': f'🌐 Katalógus-kiegészítés {len(leftover)} problémás eszközre...'})
-                        self._catalog_search(leftover, installed_versions=inst_versions)
+                        self._catalog_search(leftover, installed_info=inst_info)
 
                 # A "telepített/naprakész" lista: minden eszköz, amire végül nincs találat.
                 pool_hwids = {p.get('hwid') for p in self.hw_updates_pool}
@@ -244,6 +262,7 @@ class GuiHwScanMixin:
                         continue
                     problems.append({
                         'name': dev['name'], 'hwid': dev['id'], 'code': code,
+                        'pnp_id': dev.get('pnp_id', ''),
                         'desc': PNP_ERROR_CODE_DESCRIPTIONS.get(code, f'Hibakód: {code}'),
                         'has_fix': dev['id'] in pool_hwids,
                     })
@@ -263,11 +282,15 @@ class GuiHwScanMixin:
                 })
                 self._hw_loaded = True
 
-                # NVIDIA gyári driver ellenőrzés (app/gui/nvidia.py): a WU hónapokkal
-                # lemarad a gyári GPU-driverektől - itt a gyártói legfrissebbet is
-                # megnézzük, és külön kártyán ajánljuk fel. Saját hibakezelése van,
-                # a szken eredményét sosem boríthatja.
+                # Gyári GPU-driver ellenőrzések (app/gui/nvidia.py + vendorgpu.py): a WU
+                # hónapokkal lemarad a gyári driverektől - NVIDIA-nál letöltés+csendes
+                # telepítés, AMD/Intel-nél verzió-összevetés + hivatalos oldal link-out.
+                # Mindnek saját hibakezelése van, a szken eredményét sosem boríthatják.
                 self._check_nvidia_driver()
+                self._check_amd_driver()
+                self._check_intel_driver()
+                # OEM (Dell/Lenovo/HP) gépre szabott driver-oldal kártya (link-out).
+                self._check_oem_driver_page()
             except Exception as e:
                 logging.error(f"hw_scan crash: {e}")
                 logging.error(traceback.format_exc())
@@ -302,10 +325,11 @@ try {
     $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
     $updates = @()
     foreach ($U in $Result.Updates) {
+        $dvd = ''; try { $dvd = ([datetime]$U.DriverVerDate).ToString('yyyy-MM-dd') } catch {}
         $updates += [PSCustomObject]@{
             Title = $U.Title; DriverModel = $U.DriverModel; HardwareID = $U.DriverHardwareID
             DriverClass = $U.DriverClass; DriverProvider = $U.DriverProvider
-            UpdateID = $U.Identity.UpdateID; Size = $U.MaxDownloadSize
+            UpdateID = $U.Identity.UpdateID; Size = $U.MaxDownloadSize; DriverVerDate = $dvd
         }
     }
     if ($updates.Count -eq 0) { Write-Output "[]" }
@@ -349,95 +373,183 @@ try {
             logging.error(f"[WU_API] WU API error: {e}")
         return None
 
-    def _get_installed_driver_versions(self):
-        """A jelenleg telepített driverek verziója eszközönként (Win32_PnPSignedDriver):
-        UPPER(eszköz instance ID) -> verzió-string map. A katalógus-fallback ezzel szűri ki
-        a már telepített, nem újabb drivereket - a WU API útnál erre nincs szükség, ott a
-        szerver maga szűr az IsInstalled=0 feltétellel (terepen látott hiba e nélkül: a 3
-        perccel korábban telepített Realtek LAN drivert a következő szken újra felajánlotta).
+    def _get_installed_driver_info(self):
+        """A jelenleg telepített driverek verziója ÉS dátuma eszközönként
+        (Win32_PnPSignedDriver): UPPER(eszköz instance ID) -> {'version': str, 'date':
+        'yyyy-MM-dd'} map. Fogyasztói: a katalógus-fallback már-telepítve szűrése, a
+        találatok melletti "telepítve: X" kijelzés, és az AutoFix downgrade-védelme
+        (wu_core._filter_wu_downgrades). A WU API útnál a szerver maga szűr az
+        IsInstalled=0 feltétellel (terepen látott hiba e nélkül: a 3 perccel korábban
+        telepített Realtek LAN drivert a következő szken újra felajánlotta).
         Hiba esetén üres map-pel (szűrés nélkül) folytatjuk - inkább ajánljunk fel egy már
         meglévő drivert, mint hogy elrejtsünk egy hiányzót."""
-        versions = {}
+        info = {}
         try:
             ps = ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
                   "Get-WmiObject Win32_PnPSignedDriver | Where-Object { $_.DeviceID -and $_.DriverVersion } | "
-                  "Select-Object DeviceID, DriverVersion | ConvertTo-Json -Compress")
+                  "Select-Object DeviceID, DriverVersion, DriverDate | ConvertTo-Json -Compress")
             res = self._run(["powershell", "-NoProfile", "-Command", ps], encoding='utf-8', timeout=120)
             data = json.loads(res.stdout) if res and res.stdout.strip() else []
             if isinstance(data, dict):
                 data = [data]
             for d in data:
                 did = (d.get('DeviceID') or '').upper()
-                if did:
-                    versions[did] = d.get('DriverVersion') or ''
-            logging.info(f"[CATALOG] Telepített driver-verziók: {len(versions)} eszköz")
+                if not did:
+                    continue
+                # DriverDate WMI CIM_DATETIME formátumban jön: "20230115000000.000000+000"
+                raw_date = str(d.get('DriverDate') or '')
+                date = ''
+                if len(raw_date) >= 8 and raw_date[:8].isdigit():
+                    date = f"{raw_date[0:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+                info[did] = {'version': d.get('DriverVersion') or '', 'date': date}
+            logging.info(f"[CATALOG] Telepített driver-infó: {len(info)} eszköz")
         except Exception as e:
-            logging.warning(f"[CATALOG] Telepített driver-verziók lekérdezése sikertelen (verzió-szűrés nélkül folytatjuk): {e}")
-        return versions
+            logging.warning(f"[CATALOG] Telepített driver-infó lekérdezése sikertelen (verzió-szűrés nélkül folytatjuk): {e}")
+        return info
 
-    def _catalog_search(self, devices_to_check, installed_versions=None):
-        """Microsoft Update Catalog keresés a megadott eszközökre - az eredmények a
-        self.hw_updates_pool-ba KERÜLNEK HOZZÁ (nem törli a meglévőt, így a hibrid
-        kiegészítő mód is ezt hívhatja). A telepített/naprakész listát a hívó számolja
-        a teljes pool alapján."""
-        logging.info(f"[CATALOG] _catalog_search() - {len(devices_to_check)} eszköz ellenőrzése...")
-        import urllib.request, urllib.parse, ssl
-        ssl_ctx = ssl.create_default_context()
-        lock = threading.Lock()
-        if installed_versions is None:
-            installed_versions = self._get_installed_driver_versions()
+    def _catalog_row_score(self, row_text_lower):
+        """Egy katalógus-találati sor pontozása az AKTUÁLIS rendszerhez illés szerint (a
+        sor teljes szövege alapján, ami a Products oszlopot is tartalmazza). A katalógus
+        ugyanarra a HWID-re Windows 10/11/Server és amd64/arm64 sorokat is visszaad; a
+        puszta "legmagasabb verzió" választás korábban rossz OS-hez/architektúrához
+        tartozó csomagot is kiválaszthatott (a pnputil ezt ugyan visszadobta, de az
+        eszköz "sikertelen telepítés"-ként végezte egy amúgy megtalálható driver helyett).
+        None = kizárt sor (biztosan nem alkalmazható); egyébként minél nagyobb, annál jobb.
+        A katalógus-szken csak élő rendszeren fut (start_hw_scan offline-t elutasít),
+        ezért a host OS/architektúra a mérce."""
+        t = row_text_lower
+        machine = (platform.machine() or '').upper()
+        if 'arm64' in t and not machine.startswith('ARM'):
+            return None
+        build = getattr(sys.getwindowsversion(), 'build', 0)
+        if build >= 22000:  # Windows 11 host
+            if 'windows 11' in t:
+                return 3
+            if 'windows 10' in t and 'later' in t:
+                return 2  # "Windows 10 and later drivers" - Win11-re is érvényes, ez a leggyakoribb driver-sor
+            if 'windows 10' in t:
+                return 1
+            if 'server' in t:
+                return 0
+            return 1
+        else:  # Windows 10 host
+            if 'windows 10' in t:
+                return 3
+            if 'windows 11' in t:
+                return None  # Win11-only csomag Win10-re nem applikálható
+            if 'server' in t:
+                return 0
+            return 1
 
-        def check_one(item):
+    def _catalog_fetch_rows(self, hwid, ssl_ctx):
+        """Egy HWID katalógus-keresése. Visszatérés: [(guid, cím, sor_szöveg_kisbetűs,
+        dátum_iso)] - a sor_szöveg a teljes <tr> tag-mentesítve (Products oszloppal, a
+        pontozáshoz), a dátum a sor "Last Updated" oszlopából (m/d/yyyy -> yyyy-MM-dd)."""
+        import urllib.request, urllib.parse
+        url = 'https://www.catalog.update.microsoft.com/Search.aspx?q=' + urllib.parse.quote(hwid)
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        html = urllib.request.urlopen(req, context=ssl_ctx, timeout=30).read().decode('utf-8')
+        rows = []
+        for row_m in re.finditer(r'<tr[^>]*>(.*?)</tr>', html, re.S):
+            row_html = row_m.group(1)
+            link = re.search(r"id=['\"]([a-fA-F0-9\-]+)_link['\"][^>]*>(.*?)</a>", row_html, re.S)
+            if not link:
+                continue
+            guid = link.group(1)
+            title = ' '.join(re.sub(r'<[^>]+>', ' ', link.group(2)).split())
+            row_text = ' '.join(re.sub(r'<[^>]+>', ' ', row_html).split())
+            date_iso = ''
+            dm = re.search(r'\b(\d{1,2})/(\d{1,2})/(\d{4})\b', row_text)
+            if dm:
+                date_iso = f"{dm.group(3)}-{int(dm.group(1)):02d}-{int(dm.group(2)):02d}"
+            rows.append((guid, title, row_text.lower(), date_iso))
+        return rows
+
+    def _catalog_find_driver(self, item, installed_info, ssl_ctx):
+        """Egy eszköz legjobb katalógus-találatának felkutatása. Az eszköz ÖSSZES
+        hardver-azonosítóját végigpróbálja a legspecifikusabbtól (VEN&DEV&SUBSYS&REV) az
+        általánosabbig (VEN&DEV) - korábban csak az első HWID-vel kerestünk, és ha arra
+        nem volt katalógus-sor, az eszköz driver nélkül maradt, pedig az általánosabb
+        azonosítóra lett volna találat. Max 4 azonosítót próbál (hálózat-kímélés).
+        Visszatérés: pool-elem dict vagy None."""
+        hwids = [h for h in (item.get('all_hwids') or []) if h]
+        if item.get('id') and item['id'] not in hwids:
+            hwids.insert(0, item['id'])
+        import urllib.request
+        for hwid in hwids[:4]:
             try:
-                url = 'https://www.catalog.update.microsoft.com/Search.aspx?q=' + urllib.parse.quote(item['id'])
-                logging.debug(f"[CATALOG] Keresés: {item['name']} ({item['id']})")
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                html = urllib.request.urlopen(req, context=ssl_ctx, timeout=30).read().decode('utf-8')
-                # (guid, cím) párok - a cím kell a verzió-alapú kiválasztáshoz/szűréshez
-                rows = re.findall(r"id=['\"]([a-fA-F0-9\-]+)_link['\"][^>]*>(.*?)</a>", html, re.S)
-                if rows:
-                    # A legmagasabb verziójú sort választjuk - a katalógus sor-sorrendje nem
-                    # garantáltan a legfrissebbel kezd (korábban vakon az első sort vettük).
-                    # Ha egyik címben sincs értelmezhető verzió, marad az első sor.
-                    best_id, best_title = rows[0][0], ' '.join(rows[0][1].split())
-                    best_ver = _parse_driver_version(best_title)
-                    for rid, rtitle in rows[1:]:
-                        rtitle_clean = ' '.join(rtitle.split())
-                        rver = _parse_driver_version(rtitle_clean)
-                        if rver is not None and (best_ver is None or rver > best_ver):
-                            best_id, best_title, best_ver = rid, rtitle_clean, rver
-                    # Már telepített (nem újabb) driver kiszűrése: ha az eszköznek van aktív
-                    # drivere ÉS a katalógus-találat verziója nem magasabb, nem ajánljuk fel.
-                    inst_ver_str = installed_versions.get((item.get('pnp_id') or '').upper(), '')
-                    inst_ver = _parse_driver_version(inst_ver_str)
-                    if best_ver is not None and inst_ver is not None and best_ver <= inst_ver:
-                        logging.debug(f"[CATALOG] Kihagyva (telepített {inst_ver_str} >= katalógus '{best_title}'): {item['name']}")
-                        return
-                    dl_body = f'updateIDs=[{{"size":0,"languages":"","uidInfo":"{best_id}","updateID":"{best_id}"}}]'
-                    dl_req = urllib.request.Request(
-                        'https://www.catalog.update.microsoft.com/DownloadDialog.aspx',
-                        data=dl_body.encode('utf-8'),
-                        headers={'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/x-www-form-urlencoded'})
-                    dl_html = urllib.request.urlopen(dl_req, context=ssl_ctx, timeout=30).read().decode('utf-8')
-                    cab_link = re.search(r'downloadInformation\[0\]\.files\[0\]\.url\s*=\s*[\"\']([^\"\']+)[\"\']', dl_html)
-                    if cab_link:
-                        logging.debug(f"[CATALOG] Találat: {item['name']} ('{best_title}') - {cab_link.group(1)[:50]}...")
-                        with lock:
-                            self.hw_updates_pool.append({
-                                "name": item['name'], "cat": item['cat'], "hwid": item['id'],
-                                "url": cab_link.group(1), "pnp_id": item.get('pnp_id', ''),
-                                "installed_version": installed_versions.get((item.get('pnp_id') or '').upper(), ''),
-                                "wu_title": f"MS Katalógus: {best_title}"
-                            })
+                logging.debug(f"[CATALOG] Keresés: {item['name']} ({hwid})")
+                rows = self._catalog_fetch_rows(hwid, ssl_ctx)
             except Exception as e:
-                logging.debug(f"[CATALOG] Hiba: {item['name']} - {e}")
-                pass
+                logging.debug(f"[CATALOG] Lekérdezési hiba ({hwid}): {e}")
+                rows = []
+            if not rows:
+                continue
+            # OS/architektúra pontozás - ha minden sor kizárt, visszaesünk a teljes
+            # listára (régi viselkedés), mert egy "rossz OS-ű" driver is jobb lehet a semminél.
+            scored = [(sc, g, t, d) for (g, t, row_l, d) in rows
+                      if (sc := self._catalog_row_score(row_l)) is not None]
+            if not scored:
+                scored = [(0, g, t, d) for (g, t, _row_l, d) in rows]
+            best_score = max(s for s, _g, _t, _d in scored)
+            cands = [c for c in scored if c[0] == best_score]
+            # A legjobb pontszámúak közül a legmagasabb verziójú sor - a katalógus
+            # sor-sorrendje nem garantáltan a legfrissebbel kezd.
+            best = cands[0]
+            best_ver = _parse_driver_version(best[2])
+            for c in cands[1:]:
+                v = _parse_driver_version(c[2])
+                if v is not None and (best_ver is None or v > best_ver):
+                    best, best_ver = c, v
+            _bs, best_id, best_title, best_date = best
+            # Már telepített (nem újabb) driver kiszűrése: ha az eszköznek van aktív
+            # drivere ÉS a katalógus-találat verziója nem magasabb, nem ajánljuk fel.
+            # Ilyenkor STOP (nem megyünk általánosabb HWID-re - az ugyanazt adná vissza).
+            inst = (installed_info or {}).get((item.get('pnp_id') or '').upper()) or {}
+            inst_ver_str = inst.get('version', '')
+            inst_ver = _parse_driver_version(inst_ver_str)
+            if best_ver is not None and inst_ver is not None and best_ver <= inst_ver:
+                logging.debug(f"[CATALOG] Kihagyva (telepített {inst_ver_str} >= katalógus '{best_title}'): {item['name']}")
+                return None
+            dl_body = f'updateIDs=[{{"size":0,"languages":"","uidInfo":"{best_id}","updateID":"{best_id}"}}]'
+            dl_req = urllib.request.Request(
+                'https://www.catalog.update.microsoft.com/DownloadDialog.aspx',
+                data=dl_body.encode('utf-8'),
+                headers={'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/x-www-form-urlencoded'})
+            try:
+                dl_html = urllib.request.urlopen(dl_req, context=ssl_ctx, timeout=30).read().decode('utf-8')
+            except Exception as e:
+                logging.debug(f"[CATALOG] DownloadDialog hiba ({item['name']}): {e}")
+                continue
+            cab_link = re.search(r'downloadInformation\[0\]\.files\[0\]\.url\s*=\s*[\"\']([^\"\']+)[\"\']', dl_html)
+            if cab_link:
+                logging.debug(f"[CATALOG] Találat: {item['name']} ('{best_title}') - {cab_link.group(1)[:50]}...")
+                return {
+                    "name": item['name'], "cat": item['cat'], "hwid": item['id'],
+                    "url": cab_link.group(1), "pnp_id": item.get('pnp_id', ''),
+                    "installed_version": inst_ver_str,
+                    "installed_date": inst.get('date', ''),
+                    "wu_title": f"MS Katalógus: {best_title}",
+                    "wu_date": best_date,
+                }
+            # Volt sor, de nincs letöltési link - próbáljuk a következő azonosítót.
+        return None
 
+    def _catalog_search_collect(self, devices_to_check, installed_info=None):
+        """Microsoft Update Catalog keresés a megadott eszközökre 10 szálon. Az eredményt
+        LISTAKÉNT adja vissza (nem nyúl a hw_updates_pool-hoz), így az AutoFix záró
+        katalógus-köre is használhatja; a manuális szken a _catalog_search wrapperen át
+        appendeli a poolhoz."""
+        logging.info(f"[CATALOG] _catalog_search_collect() - {len(devices_to_check)} eszköz ellenőrzése...")
+        import ssl
+        ssl_ctx = ssl.create_default_context()
+        if installed_info is None:
+            installed_info = self._get_installed_driver_info()
+        found = []
+        lock = threading.Lock()
         q = queue.Queue()
         for dev in devices_to_check:
             q.put(dev)
-
-        import concurrent.futures
 
         def cat_worker():
             while not q.empty():
@@ -445,7 +557,13 @@ try {
                     dev = q.get_nowait()
                 except Exception:
                     break
-                check_one(dev)
+                try:
+                    hit = self._catalog_find_driver(dev, installed_info, ssl_ctx)
+                    if hit:
+                        with lock:
+                            found.append(hit)
+                except Exception as e:
+                    logging.debug(f"[CATALOG] Hiba: {dev.get('name')} - {e}")
                 q.task_done()
 
         threads = [threading.Thread(target=cat_worker, daemon=True) for _ in range(10)]
@@ -453,9 +571,15 @@ try {
             t.start()
         for t in threads:
             t.join(timeout=120)
+        logging.info(f"[CATALOG] Kész - {len(found)} eszközre van katalógus-találat")
+        return found
 
-        catalog_hwids = {drv['hwid'] for drv in self.hw_updates_pool}
-        logging.info(f"[CATALOG] Kész - összesen {len(catalog_hwids)} eszközre van találat a poolban")
+    def _catalog_search(self, devices_to_check, installed_info=None):
+        """Katalógus-keresés a manuális szkenhez: a találatok a self.hw_updates_pool-ba
+        KERÜLNEK HOZZÁ (nem törli a meglévőt, így a hibrid kiegészítő mód is ezt hívja).
+        A telepített/naprakész listát a hívó számolja a teljes pool alapján."""
+        found = self._catalog_search_collect(devices_to_check, installed_info)
+        self.hw_updates_pool.extend(found)
 
     # ================================================================
     # WU DRIVER INSTALL
@@ -488,8 +612,15 @@ try {
         def worker():
             total = len(wu_items) + len(cat_items)
             self.emit('task_start', {'task': 'wu_install', 'title': f'Driver Telepítés ({total} db)'})
+            # Az OKRB (újraindítás szükséges) jelzést a _install_wu_api_sync állítja be.
+            self._wu_reboot_required = False
             success = fail = 0
             cancelled = False
+            # Biztonsági háló a manuális telepítés elé is (az AutoFix eddig is csinálta):
+            # gyors visszaállítási pont, mielőtt driverhez nyúlunk. Élő rendszeren fut
+            # csak - offline cél-OS-nél a Checkpoint-Computer a HOST gépet mentené.
+            if not self.target_os_path:
+                self._create_restore_point_sync(task_id='wu_install')
             if wu_items:
                 s, f, cancelled = self._install_wu_api_sync(wu_items)
                 success += s
@@ -503,8 +634,18 @@ try {
             if cancelled:
                 self.emit('task_complete', {'task': 'wu_install', 'status': '❗ Megszakítva!', 'success': success, 'fail': fail})
                 return
+            reboot_needed = getattr(self, '_wu_reboot_required', False)
             msg = f'Kész! Sikeres: {success}, Sikertelen: {fail}'
-            self.emit('task_complete', {'task': 'wu_install', 'success': success, 'fail': fail, 'status': msg, 'counter': msg})
+            if reboot_needed:
+                msg += ' — ⚠️ Újraindítás szükséges!'
+                self.emit('task_progress', {'task': 'wu_install', 'log': '\n⚠️ Legalább egy driver csak ÚJRAINDÍTÁS után lép életbe!'})
+                self.emit('toast', {'message': '⚠️ A telepített driverek egy része csak újraindítás után él!', 'type': 'warning'})
+            self.emit('task_complete', {'task': 'wu_install', 'success': success, 'fail': fail, 'status': msg,
+                                        'counter': msg, 'reboot_required': reboot_needed})
+            # Chipset/USB-vezérlő driver után új eszközök bukkanhatnak elő (az AutoFix
+            # ezért megy több körben) - siker esetén a felület felajánlja az új szkennelést.
+            if success > 0 and not self.target_os_path:
+                self.emit('offer_rescan', {'installed': success})
 
         self._safe_thread('wu_install', worker)
 
@@ -546,52 +687,62 @@ try {
         install_total = 0
         had_error = False
 
-        for line in process.stdout:
-            if self._check_cancel():
-                self._run(['taskkill', '/F', '/T', '/PID', str(process.pid)])
-                process.wait()  # Prevent zombie process
+        # A sorokat a KÖZÖS _iter_process_lines olvassa (wu_core): cancel-ellenőrzés
+        # 0,5 mp-enként (nem csak új sor érkezésekor - régen a Mégse halott volt, ha a
+        # scripten belüli WU-keresés beragadt), plusz watchdog: 30 perc néma folyamatot leöl.
+        try:
+            for line in _iter_process_lines(process, self._run, cancel_check=self._check_cancel):
+                if line.startswith("INIT:") or line.startswith("SEARCH:"):
+                    self.emit('task_progress', {'task': 'wu_install', 'status': line.split(":", 1)[1].strip(), 'log': line})
+                elif line.startswith("FOUND:"):
+                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  📦 {line[6:].strip()}'})
+                elif line.startswith("SKIP:"):
+                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  ⏭ {line[5:].strip()}'})
+                elif line.startswith("TOTAL:"):
+                    m = re.search(r'(\d+)', line)
+                    if m:
+                        install_total = int(m.group(1))
+                    self.emit('task_progress', {'task': 'wu_install', 'log': f'Összesen {install_total} driver telepítése...',
+                                                'total': install_total, 'current': 0, 'counter': f'0 / {install_total}'})
+                elif line.startswith("DLONE:"):
+                    self.emit('task_progress', {'task': 'wu_install', 'status': f'⬇ Letöltés: {line[6:].strip()}', 'log': f'  ⬇ {line[6:].strip()}'})
+                elif line.startswith("INSTONE:"):
+                    self.emit('task_progress', {'task': 'wu_install', 'status': f'⚙ Telepítés: {line[8:].strip()}', 'log': f'  ⚙ {line[8:].strip()}'})
+                elif line.startswith("OKRB:"):
+                    # Sikeres, de a WUA jelezte: a driver csak újraindítás után él.
+                    success += 1
+                    self._wu_reboot_required = True
+                    done = success + fail
+                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  ✅ {line[5:].strip()} (⚠️ újraindítás szükséges)',
+                                                'current': done, 'total': install_total, 'counter': f'{done}/{install_total} (✅{success} ❌{fail})'})
+                elif line.startswith("OK:"):
+                    success += 1
+                    done = success + fail
+                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  ✅ {line[3:].strip()}',
+                                                'current': done, 'total': install_total, 'counter': f'{done}/{install_total} (✅{success} ❌{fail})'})
+                elif line.startswith("FAIL:"):
+                    fail += 1
+                    done = success + fail
+                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  ❌ {line[5:].strip()}',
+                                                'current': done, 'total': install_total, 'counter': f'{done}/{install_total} (✅{success} ❌{fail})'})
+                elif line.startswith("DONE:"):
+                    self.emit('task_progress', {'task': 'wu_install', 'log': f'\n--- {line[5:].strip()} ---'})
+                elif line.startswith("EMPTY:"):
+                    self.emit('task_progress', {'task': 'wu_install', 'log': line[6:].strip()})
+                elif line.startswith("ERROR:"):
+                    had_error = True
+                    logging.error(f"[WU_INSTALL] PowerShell hiba: {line[6:].strip()}")
+                    self.emit('task_progress', {'task': 'wu_install', 'log': f'❌ HIBA: {line[6:].strip()}'})
+                else:
+                    self.emit('task_progress', {'task': 'wu_install', 'log': line})
+        except WuProcessAborted as ab:
+            if ab.reason == 'cancel':
                 self.emit('task_progress', {'task': 'wu_install', 'log': '\n❗ Megszakítva!'})
                 return success, fail, True
-            line = line.strip()
-            if not line:
-                continue
-            if line.startswith("INIT:") or line.startswith("SEARCH:"):
-                self.emit('task_progress', {'task': 'wu_install', 'status': line.split(":", 1)[1].strip(), 'log': line})
-            elif line.startswith("FOUND:"):
-                self.emit('task_progress', {'task': 'wu_install', 'log': f'  📦 {line[6:].strip()}'})
-            elif line.startswith("SKIP:"):
-                self.emit('task_progress', {'task': 'wu_install', 'log': f'  ⏭ {line[5:].strip()}'})
-            elif line.startswith("TOTAL:"):
-                m = re.search(r'(\d+)', line)
-                if m:
-                    install_total = int(m.group(1))
-                self.emit('task_progress', {'task': 'wu_install', 'log': f'Összesen {install_total} driver telepítése...',
-                                            'total': install_total, 'current': 0, 'counter': f'0 / {install_total}'})
-            elif line.startswith("DLONE:"):
-                self.emit('task_progress', {'task': 'wu_install', 'status': f'⬇ Letöltés: {line[6:].strip()}', 'log': f'  ⬇ {line[6:].strip()}'})
-            elif line.startswith("INSTONE:"):
-                self.emit('task_progress', {'task': 'wu_install', 'status': f'⚙ Telepítés: {line[8:].strip()}', 'log': f'  ⚙ {line[8:].strip()}'})
-            elif line.startswith("OK:"):
-                success += 1
-                done = success + fail
-                self.emit('task_progress', {'task': 'wu_install', 'log': f'  ✅ {line[3:].strip()}',
-                                            'current': done, 'total': install_total, 'counter': f'{done}/{install_total} (✅{success} ❌{fail})'})
-            elif line.startswith("FAIL:"):
-                fail += 1
-                done = success + fail
-                self.emit('task_progress', {'task': 'wu_install', 'log': f'  ❌ {line[5:].strip()}',
-                                            'current': done, 'total': install_total, 'counter': f'{done}/{install_total} (✅{success} ❌{fail})'})
-            elif line.startswith("DONE:"):
-                self.emit('task_progress', {'task': 'wu_install', 'log': f'\n--- {line[5:].strip()} ---'})
-            elif line.startswith("EMPTY:"):
-                self.emit('task_progress', {'task': 'wu_install', 'log': line[6:].strip()})
-            elif line.startswith("ERROR:"):
-                had_error = True
-                logging.error(f"[WU_INSTALL] PowerShell hiba: {line[6:].strip()}")
-                self.emit('task_progress', {'task': 'wu_install', 'log': f'❌ HIBA: {line[6:].strip()}'})
-            else:
-                self.emit('task_progress', {'task': 'wu_install', 'log': line})
-        process.wait()
+            had_error = True
+            self.emit('task_progress', {'task': 'wu_install',
+                                        'log': '\n❌ A Windows Update telepítő 30 percen át nem adott életjelet - a watchdog leállította! '
+                                               '(Ez tipikusan beragadt WU szolgáltatásra utal - próbáld újra, vagy a katalógus-találatokat telepítsd.)'})
 
         if success > 0:
             self.emit('task_progress', {'task': 'wu_install', 'log': 'Eszközök újraszkennelése...', 'status': 'Aktiválás...'})
@@ -602,14 +753,16 @@ try {
             self.emit('task_progress', {'task': 'wu_install', 'log': '❌ A WU telepítés hibával leállt! (részletek fent a naplóban)'})
         return success, fail, False
 
-    def _install_catalog_sync(self, selected_pool):
+    def _install_catalog_sync(self, selected_pool, task_id='wu_install'):
         """A kijelölt katalógusos (url-es) elemek telepítése: cab letöltés -> expand ->
-        pnputil /add-driver /install (offline cél-OS-nél dism /Add-Driver). A diszpécser
-        worker-szálán fut, task_start/task_complete NÉLKÜL. Visszatérés: (sikeres,
-        sikertelen, megszakítva). Megjegyzés: a korábbi változat minden cab-ot KÉTSZER
-        töltött le (egy elavult szekvenciális kör + a szálas feldolgozó) - a szekvenciális
-        kör törölve, csak a szálas rész maradt."""
-        logging.info(f"[CATALOG_INSTALL] _install_catalog_sync() - {len(selected_pool)} driver")
+        pnputil /add-driver /install (offline cél-OS-nél dism /Add-Driver); .msu csomagnál
+        wusa /quiet (offline: dism /Add-Package); .exe letöltési linket kihagyunk (ismeretlen
+        telepítő csendes futtatása kockázatos). A diszpécser worker-szálán fut, task_start/
+        task_complete NÉLKÜL; a task_id-vel az AutoFix záró katalógus-köre is használhatja
+        ('autofix' progress-csatornán). Visszatérés: (sikeres, sikertelen, megszakítva).
+        Megjegyzés: a korábbi változat minden cab-ot KÉTSZER töltött le (egy elavult
+        szekvenciális kör + a szálas feldolgozó) - a szekvenciális kör törölve."""
+        logging.info(f"[CATALOG_INSTALL] _install_catalog_sync() - {len(selected_pool)} driver (task={task_id})")
         import urllib.request, ssl
         ssl_ctx = ssl.create_default_context()
         total = len(selected_pool)
@@ -635,15 +788,27 @@ try {
                 url = drv.get('url', '')
                 if not url:
                     logging.warning(f"[CATALOG_INSTALL] Kihagyás - nincs URL: {name}")
-                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  [KIHAGYÁS] {name} - nincs letöltési link'})
+                    self.emit('task_progress', {'task': task_id, 'log': f'  [KIHAGYÁS] {name} - nincs letöltési link'})
                     with counter_lock:
                         skipped += 1
                     return
 
-                cab_path = os.path.join(temp_dir, f"drv_{idx}.cab")
+                # A katalógus letöltési linkje nem mindig .cab: .msu és .exe is előfordul.
+                # A régi kód ezekre is expand-ot futtatott, ami csendben nem csinált semmit,
+                # és a telepítés értelmetlen hibával bukott.
+                url_file = url.split('?')[0].rsplit('/', 1)[-1].lower()
+                file_ext = os.path.splitext(url_file)[1]
+                if file_ext == '.exe':
+                    logging.warning(f"[CATALOG_INSTALL] Kihagyás - .exe telepítő ({name}): {url[:80]}")
+                    self.emit('task_progress', {'task': task_id, 'log': f'  [KIHAGYÁS] {name} - a katalógus .exe telepítőt adott, ezt biztonsági okból nem futtatjuk automatikusan'})
+                    with counter_lock:
+                        skipped += 1
+                    return
+
+                cab_path = os.path.join(temp_dir, f"drv_{idx}{file_ext or '.cab'}")
                 ext_path = os.path.join(temp_dir, f"drv_ext_{idx}")
 
-                self.emit('task_progress', {'task': 'wu_install', 'log': f'-> {name} letöltése...'})
+                self.emit('task_progress', {'task': task_id, 'log': f'-> {name} letöltése...'})
                 try:
                     logging.debug(f"[CATALOG_INSTALL] Letöltés: {url[:80]}...")
                     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
@@ -652,9 +817,27 @@ try {
                     logging.debug(f"[CATALOG_INSTALL] Letöltve: {cab_path}")
                 except Exception as e:
                     logging.error(f"[CATALOG_INSTALL] Letöltési hiba ({name}): {e}")
-                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  ❌ {name} letöltési hiba: {e}'})
+                    self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name} letöltési hiba: {e}'})
                     with counter_lock:
                         fail += 1
+                    return
+
+                if file_ext == '.msu':
+                    # .msu: wusa csendes telepítés (offline cél-OS-nél dism /Add-Package).
+                    self.emit('task_progress', {'task': task_id, 'log': f'  Telepítés (.msu): {name}...'})
+                    if self.target_os_path:
+                        res = self._run(['dism', f'/Image:{self.target_os_path}', '/Add-Package', f'/PackagePath:{cab_path}'], timeout=1800)
+                        ok = bool(res) and res.returncode in (0, 3010)
+                    else:
+                        res = self._run(['wusa', cab_path, '/quiet', '/norestart'], timeout=1800)
+                        ok = bool(res) and res.returncode in (0, 3010)
+                    with counter_lock:
+                        if ok:
+                            success += 1
+                        else:
+                            fail += 1
+                    rc = res.returncode if res else '?'
+                    self.emit('task_progress', {'task': task_id, 'log': f'  {"✅" if ok else "❌"} {name} (.msu, kód={rc})'})
                     return
 
                 os.makedirs(ext_path, exist_ok=True)
@@ -664,7 +847,21 @@ try {
                     os.makedirs(inner_ext, exist_ok=True)
                     self._run(['expand', inner_cab, '-F:*', inner_ext])
 
-                self.emit('task_progress', {'task': 'wu_install', 'log': f'  Telepítés: {name}...'})
+                # Ha a kicsomagolt fában sehol nincs .inf, felesleges a pnputil/dism kör -
+                # értelmes hibaüzenettel bukjon (pl. sérült/üres cab).
+                has_inf = False
+                for _r, _d, files in os.walk(ext_path):
+                    if any(fn.lower().endswith('.inf') for fn in files):
+                        has_inf = True
+                        break
+                if not has_inf:
+                    logging.error(f"[CATALOG_INSTALL] Nincs .inf a kicsomagolt csomagban: {name}")
+                    self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name} - a letöltött csomagban nincs telepíthető INF (sérült vagy nem driver-csomag)'})
+                    with counter_lock:
+                        fail += 1
+                    return
+
+                self.emit('task_progress', {'task': task_id, 'log': f'  Telepítés: {name}...'})
                 is_offline = bool(self.target_os_path)
                 if is_offline:
                     cmd = ['dism', f'/Image:{self.target_os_path}', '/Add-Driver', f'/Driver:{ext_path}', '/Recurse']
@@ -674,23 +871,23 @@ try {
                 if res.returncode == 0 or any(k in res.stdout for k in ["Added", "sikeres", "successfully"]):
                     with counter_lock:
                         success += 1
-                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  ✅ {name} telepítve!'})
+                    self.emit('task_progress', {'task': task_id, 'log': f'  ✅ {name} telepítve!'})
                 else:
                     with counter_lock:
                         fail += 1
-                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  ❌ {name} hiba: {res.stdout[:100]}'})
+                    self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name} hiba: {res.stdout[:100]}'})
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
                 futures = [executor.submit(process_catalog_driver, i, drv) for i, drv in enumerate(selected_pool)]
                 concurrent.futures.wait(futures)
 
             if self._check_cancel():
-                self.emit('task_progress', {'task': 'wu_install', 'log': '\n❗ Megszakítva!'})
+                self.emit('task_progress', {'task': task_id, 'log': '\n❗ Megszakítva!'})
                 cancelled = True
                 return success, fail, cancelled
 
             if success > 0 and not self.target_os_path:
-                self.emit('task_progress', {'task': 'wu_install', 'log': 'Eszközök újraszkennelése és Code 14 újraindítások elvégzése...'})
+                self.emit('task_progress', {'task': task_id, 'log': 'Eszközök újraszkennelése és Code 14 újraindítások elvégzése...'})
                 self._run(['pnputil', '/scan-devices'])
 
                 # Automatikus Eszközkezelő restart Code 14 (Restart Required) esetén
@@ -715,6 +912,61 @@ try {
             shutil.rmtree(temp_dir, ignore_errors=True)
 
         logging.info(f"[CATALOG_INSTALL] Kész - Sikeres: {success}/{total}, Sikertelen: {fail}, Kihagyott: {skipped}")
-        self.emit('task_progress', {'task': 'wu_install', 'current': total, 'total': total,
+        self.emit('task_progress', {'task': task_id, 'current': total, 'total': total,
                                     'log': f'\n--- Katalógus: Sikeres: {success}, Sikertelen: {fail}' + (f', Kihagyott: {skipped}' if skipped else '') + ' ---'})
         return success, fail, cancelled
+
+    # ================================================================
+    # PROBLÉMÁS ESZKÖZÖK - EGYKATTINTÁSOS GYORSJAVÍTÁS
+    # ================================================================
+    def fix_problem_device(self, pnp_id, code):
+        """A "Problémás eszközök" szekció gyorsjavító gombja. Kód-függő akció:
+        22 (letiltva) -> Enable-PnpDevice; minden más javítható kódnál (10/14/31/43...)
+        disable+enable ciklus (az Eszközkezelő "eszköz újraindítása" megfelelője).
+        Szinkron fut (pár másodperc), a _task_busy-t szándékosan nem foglalja - gyors,
+        izolált művelet, nem nyúl a hw_updates_pool-hoz. Visszatérés:
+        {'ok': bool, 'new_code': int|None, 'error': str} - a toast/megjelenítés a JS dolga."""
+        logging.info(f"[API] fix_problem_device({pnp_id!r}, code={code})")
+        if self.target_os_path:
+            return {'ok': False, 'new_code': None, 'error': 'Offline módban nem elérhető'}
+        if not pnp_id:
+            return {'ok': False, 'new_code': None, 'error': 'Hiányzó eszköz-azonosító'}
+        try:
+            code = int(code)
+        except (TypeError, ValueError):
+            code = 0
+        action = 'enable' if code == 22 else 'cycle'
+        ps = (f"$id = '{_ps_quote(str(pnp_id))}'\n"
+              f"$act = '{action}'\n"
+              r"""
+try {
+    if ($act -eq 'enable') {
+        Enable-PnpDevice -InstanceId $id -Confirm:$false -ErrorAction Stop
+    } else {
+        Disable-PnpDevice -InstanceId $id -Confirm:$false -ErrorAction Stop
+        Start-Sleep -Seconds 2
+        Enable-PnpDevice -InstanceId $id -Confirm:$false -ErrorAction Stop
+    }
+    Write-Output "ACTED"
+} catch { Write-Output "ERR: $($_.Exception.Message)" }
+Start-Sleep -Seconds 3
+try {
+    $p = (Get-PnpDeviceProperty -InstanceId $id -KeyName 'DEVPKEY_Device_ProblemCode' -ErrorAction Stop).Data
+    Write-Output "CODE: $p"
+} catch { Write-Output "CODE: ?" }
+""")
+        try:
+            res = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                            encoding='utf-8', timeout=90)
+            out = (res.stdout or '')
+            acted = 'ACTED' in out
+            err_m = re.search(r'ERR:\s*(.+)', out)
+            code_m = re.search(r'CODE:\s*(\d+)', out)
+            new_code = int(code_m.group(1)) if code_m else None
+            error = (err_m.group(1).strip() if err_m else '')
+            ok = acted and (new_code == 0 or new_code is None)
+            logging.info(f"[FIX-DEVICE] {pnp_id}: acted={acted}, new_code={new_code}, err={error!r}")
+            return {'ok': ok, 'new_code': new_code, 'error': error}
+        except Exception as e:
+            logging.error(f"[FIX-DEVICE] Hiba: {e}")
+            return {'ok': False, 'new_code': None, 'error': str(e)}

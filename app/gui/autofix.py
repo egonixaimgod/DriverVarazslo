@@ -11,17 +11,23 @@ import time
 import logging
 import shutil
 import json
+from app.common import _app_data_dir
 from app.common import _app_exe_path
 from app.common import _ps_quote
+from app import nicpack_core
 from app.wu_core import AUTOFIX_PRINTER_SKIP_CLASSES
 from app.wu_core import WU_PNP_QUERY_PS
+from app.wu_core import WuProcessAborted
 from app.wu_core import _build_wu_install_ps
+from app.wu_core import _filter_wu_downgrades
 from app.wu_core import _filter_wu_scan_devices
+from app.wu_core import _iter_process_lines
 from app.wu_core import _match_wu_updates_to_devices
 from app.wu_core import _collect_printer_protection
 from app.wu_core import _is_printer_protected
 from app.wu_core import _export_net_driver_backup
 from app.wu_core import _restore_net_driver_backup
+from app.gui.hwscan import PNP_ERROR_CODE_DESCRIPTIONS
 from datetime import datetime
 # === /AUTO-IMPORTS ===
 
@@ -161,8 +167,16 @@ Write-Output "DONE: Törölve: $count / $total"
         max_loops = 4
         total_installed_in_session = 0
 
-        attempted_uids = set()
-        
+        # Kísérlet-számláló UpdateID-nként. A SIKERESEN telepített csomagot a következő
+        # körben maga a WU szerver szűri ki (IsInstalled=0), ezért itt csak loop-védelem
+        # kell: ami már 2x felajánlódott (tehát legalább egyszer elbukott vagy nem tudott
+        # érvényesülni), azt nem próbáljuk tovább. A régi viselkedés (első felajánláskor
+        # végleges kizárás) egy átmeneti letöltési hiba után a drivert véglegesen
+        # kihagyta a maradék körökből.
+        attempt_counts = {}
+        devices_to_check = []
+        watchdog_tripped = False
+
         for loop_idx in range(1, max_loops + 1):
             if getattr(self, '_cancel_flag', False):
                 break
@@ -171,7 +185,7 @@ Write-Output "DONE: Törölve: $count / $total"
             self._run(['pnputil', '/scan-devices'])
             time.sleep(10)
             self.emit('task_progress', {'task': task_id, 'log': 'Hivatalos driverek keresése és egyeztetése (Windows Update). Ez percekig is eltarthat...'})
-            
+
             # Eszköz-lekérdezés és párosítás a KÖZÖS magból (_filter_wu_scan_devices +
             # _match_wu_updates_to_devices) - pontosan ugyanaz fut, mint a manuális
             # hardver-szkennelésnél, ne ide írj szűrési/párosítási logikát!
@@ -187,15 +201,27 @@ Write-Output "DONE: Törölve: $count / $total"
             self.emit('task_progress', {'task': task_id, 'log': f'✅ {len(devices_to_check)} hardverelem azonosítva. Egyeztetés...'})
             wu_results = self._search_wu_api() or []
 
-            matches = _match_wu_updates_to_devices(wu_results, devices_to_check, exclude_uids=attempted_uids)
+            exclude_uids = {uid for uid, c in attempt_counts.items() if c >= 2}
+            matches = _match_wu_updates_to_devices(wu_results, devices_to_check, exclude_uids=exclude_uids)
+
+            # DOWNGRADE-VÉDELEM (közös mag: wu_core._filter_wu_downgrades): a WU néha a
+            # telepítettnél RÉGEBBI csomagot ajánl (pl. friss gyári NVIDIA driver után) -
+            # hibátlan eszközön az ilyet kihagyjuk, hibakódos eszközön sosem szűrünk.
+            wu_by_uid = {w.get('UpdateID'): w for w in wu_results if w.get('UpdateID')}
+            installed_info = self._get_installed_driver_info()
+            matches, downgrades = _filter_wu_downgrades(matches, wu_by_uid, installed_info)
+            for d in downgrades:
+                self.emit('task_progress', {'task': task_id, 'log': f'[KIHAGYVA] Downgrade-védelem: {d["title"]} - {d["reason"]}'})
+
             matched_updates = [m['uid'] for m in matches]
-            attempted_uids.update(matched_updates)
+            for uid in matched_updates:
+                attempt_counts[uid] = attempt_counts.get(uid, 0) + 1
 
             if not matched_updates:
                 self.emit('task_progress', {'task': task_id, 'log': '✅ Szerveren nincs újabb valós illesztőprogram.'})
                 self.emit('task_progress', {'task': task_id, 'log': 'Minden elérhető driver telepítve! Keresési lánc befejezve.'})
                 break
-                
+
             self.emit('task_progress', {'task': task_id, 'log': f'✅ Telepítendő driverek száma: {len(matched_updates)}'})
 
             # A telepítő script a KÖZÖS _build_wu_install_ps-ből jön - ugyanaz, mint a
@@ -207,43 +233,160 @@ Write-Output "DONE: Törölve: $count / $total"
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace',
                 startupinfo=self._si, creationflags=self._nw)
 
-            for line in process.stdout:
-                if getattr(self, '_cancel_flag', False):
-                    self._run(['taskkill', '/F', '/T', '/PID', str(process.pid)])
-                    process.wait()
+            # A sorokat a KÖZÖS _iter_process_lines olvassa (wu_core): cancel-ellenőrzés
+            # fél másodpercenként + watchdog (30 perc néma folyamat leölve). A régi
+            # közvetlen stdout-olvasás beragadt WU-keresésnél örökre blokkolt.
+            try:
+                for line in _iter_process_lines(process, self._run,
+                                                cancel_check=lambda: getattr(self, '_cancel_flag', False)):
+                    # A közös script kimeneti protokollja (INIT/SEARCH/FOUND/SKIP/TOTAL/DLONE/
+                    # INSTONE/OK/OKRB/FAIL/EMPTY/DONE/ERROR) - lásd _build_wu_install_ps docstring.
+                    if line.startswith("TOTAL:"):
+                        self.emit('task_progress', {'task': task_id, 'log': '--- LETÖLTÉS ÉS TELEPÍTÉS ---'})
+                    elif line.startswith("DLONE:"):
+                        self.emit('task_progress', {'task': task_id, 'log': f'[LETOLTES] {line[6:].strip()}'})
+                    elif line.startswith("INSTONE:"):
+                        self.emit('task_progress', {'task': task_id, 'log': f'[TELEPITES] Telepítés alatt: {line[8:].strip()}'})
+                    elif line.startswith("OKRB:"):
+                        # Sikeres, újraindítás-igényes - az AutoFix lánc úgyis reboot-tal folytatódik.
+                        total_installed_in_session += 1
+                        self.emit('task_progress', {'task': task_id, 'log': f'[OK] SIKERES (újraindítás után él): {line[5:].strip()}'})
+                    elif line.startswith("OK:"):
+                        total_installed_in_session += 1
+                        self.emit('task_progress', {'task': task_id, 'log': f'[OK] SIKERES: {line[3:].strip()}'})
+                    elif line.startswith("FAIL:"):
+                        self.emit('task_progress', {'task': task_id, 'log': f'[HIBA] SIKERTELEN: {line[5:].strip()}'})
+                    elif line.startswith("EMPTY:"):
+                        self.emit('task_progress', {'task': task_id, 'log': f'[FIGYELMEZTETES] {line[6:].strip()}'})
+                    elif line.startswith("ERROR:"):
+                        logging.error(f"[AUTOFIX-WU] PowerShell hiba: {line[6:].strip()}")
+                        self.emit('task_progress', {'task': task_id, 'log': f'[HIBA] {line[6:].strip()}'})
+                    elif line.startswith("DONE:"):
+                        self.emit('task_progress', {'task': task_id, 'log': f'--- {line[5:].strip()} ---'})
+                    elif line.startswith("INIT:") or line.startswith("SEARCH:") or \
+                            line.startswith("FOUND:") or line.startswith("SKIP:"):
+                        pass  # protokoll-sorok, a kör elején már kiírtuk az összesítést
+                    else:
+                        self.emit('task_progress', {'task': task_id, 'log': line})
+            except WuProcessAborted as ab:
+                if ab.reason == 'cancel':
                     self.emit('task_progress', {'task': task_id, 'log': '\n❗ Megszakítva!'})
                     raise Exception("Magyar_Megszakit_Flag")
-                line = line.strip()
-                if not line:
-                    continue
-                # A közös script kimeneti protokollja (INIT/SEARCH/FOUND/SKIP/TOTAL/DLONE/
-                # INSTONE/OK/FAIL/EMPTY/DONE/ERROR) - lásd _build_wu_install_ps docstring.
-                if line.startswith("TOTAL:"):
-                    self.emit('task_progress', {'task': task_id, 'log': '--- LETÖLTÉS ÉS TELEPÍTÉS ---'})
-                elif line.startswith("DLONE:"):
-                    self.emit('task_progress', {'task': task_id, 'log': f'[LETOLTES] {line[6:].strip()}'})
-                elif line.startswith("INSTONE:"):
-                    self.emit('task_progress', {'task': task_id, 'log': f'[TELEPITES] Telepítés alatt: {line[8:].strip()}'})
-                elif line.startswith("OK:"):
-                    total_installed_in_session += 1
-                    self.emit('task_progress', {'task': task_id, 'log': f'[OK] SIKERES: {line[3:].strip()}'})
-                elif line.startswith("FAIL:"):
-                    self.emit('task_progress', {'task': task_id, 'log': f'[HIBA] SIKERTELEN: {line[5:].strip()}'})
-                elif line.startswith("EMPTY:"):
-                    self.emit('task_progress', {'task': task_id, 'log': f'[FIGYELMEZTETES] {line[6:].strip()}'})
-                elif line.startswith("ERROR:"):
-                    logging.error(f"[AUTOFIX-WU] PowerShell hiba: {line[6:].strip()}")
-                    self.emit('task_progress', {'task': task_id, 'log': f'[HIBA] {line[6:].strip()}'})
-                elif line.startswith("DONE:"):
-                    self.emit('task_progress', {'task': task_id, 'log': f'--- {line[5:].strip()} ---'})
-                elif line.startswith("INIT:") or line.startswith("SEARCH:") or \
-                        line.startswith("FOUND:") or line.startswith("SKIP:"):
-                    pass  # protokoll-sorok, a kör elején már kiírtuk az összesítést
-                else:
-                    self.emit('task_progress', {'task': task_id, 'log': line})
-            process.wait()
-                        
+                # Watchdog: a WU telepítő 30 percig néma volt. Nincs értelme újabb WU
+                # körnek (az is beragadna) - kilépünk a körökből, jöhet a katalógus-zárókör.
+                watchdog_tripped = True
+                self.emit('task_progress', {'task': task_id, 'log': '\n[HIBA] A WU telepítő 30 percen át nem adott életjelet - a watchdog leállította. Áttérés a katalógus-keresésre...'})
+                break
+
+        # --- KATALÓGUS-ZÁRÓKÖR ---
+        # A WU API után a Microsoft Update Catalog-ot is ráengedjük a MÉG MINDIG hibakódos
+        # (driver nélküli / hibás) eszközökre - a manuális szken hibrid kiegészítésének
+        # AutoFix-megfelelője. Korábban az AutoFix kizárólag WU-ból dolgozott, és ha a WU
+        # nem adott semmit egy eszközre, az hibásan maradt, pedig a katalógusban lett
+        # volna driver. A már-telepített verzió-szűrő (a _catalog_find_driver-ben)
+        # garantálja, hogy a lánc nem pörög végtelenségig ugyanazon a csomagon.
+        try:
+            if not getattr(self, '_cancel_flag', False):
+                res = self._run(["powershell", "-NoProfile", "-Command", WU_PNP_QUERY_PS], encoding='utf-8')
+                pnp_data = []
+                if res.stdout:
+                    try:
+                        pnp_data = json.loads(res.stdout)
+                    except Exception:
+                        pass
+                devices_now = _filter_wu_scan_devices(pnp_data) or devices_to_check
+                problem_devs = [d for d in devices_now if d.get('err_code')]
+                if watchdog_tripped and not problem_devs:
+                    # A WU elhasalt, de hibakódos eszköz sincs - nincs mit keresni.
+                    self.emit('task_progress', {'task': task_id, 'log': 'ℹ️ Nincs hibakódos eszköz, a katalógus-keresés kihagyva.'})
+                elif problem_devs:
+                    self.emit('task_progress', {'task': task_id, 'log': f'\n--- KATALÓGUS-ZÁRÓKÖR: {len(problem_devs)} még hibás eszköz keresése a Microsoft Update Catalogban... ---'})
+                    inst_info = self._get_installed_driver_info()
+                    found = self._catalog_search_collect(problem_devs, inst_info)
+                    if found:
+                        self.emit('task_progress', {'task': task_id, 'log': f'✅ A katalógusban {len(found)} eszközre van driver - telepítés...'})
+                        s, _f, _c = self._install_catalog_sync(found, task_id=task_id)
+                        total_installed_in_session += s
+                    else:
+                        self.emit('task_progress', {'task': task_id, 'log': 'ℹ️ A katalógusban sincs driver a maradék hibás eszközökre.'})
+        except Exception as e:
+            logging.warning(f"[AUTOFIX] Katalógus-zárókör hiba (nem kritikus): {e}")
+            self.emit('task_progress', {'task': task_id, 'log': f'⚠️ Katalógus-zárókör hiba (a folyamat megy tovább): {e}'})
+
         return total_installed_in_session
+
+    # ================================================================
+    # LÁNC-STATISZTIKA (a záró összefoglalóhoz)
+    # A 3-lábú lánc minden lába KÜLÖN processz, ezért a lábankénti telepítés-számot
+    # egy app-adatmappabeli JSON-ban visszük át a reboot-okon; a záró láb összesíti.
+    # ================================================================
+    def _autofix_stats_path(self):
+        return os.path.join(_app_data_dir(), 'autofix_stats.json')
+
+    def _autofix_stats_clear(self):
+        try:
+            os.remove(self._autofix_stats_path())
+        except OSError:
+            pass
+
+    def _autofix_stats_add(self, installed):
+        """Egy láb telepítés-számának hozzáfűzése (hiba esetén csendben kimarad -
+        az összefoglaló ilyenkor alulbecsül, de a láncot sosem akasztja meg)."""
+        try:
+            p = self._autofix_stats_path()
+            data = {'legs': []}
+            if os.path.exists(p):
+                try:
+                    with open(p, 'r', encoding='utf-8') as f:
+                        data = json.load(f) or {'legs': []}
+                except Exception:
+                    data = {'legs': []}
+            data.setdefault('legs', []).append({'installed': int(installed),
+                                                'time': datetime.now().isoformat(timespec='seconds')})
+            with open(p, 'w', encoding='utf-8') as f:
+                json.dump(data, f)
+        except Exception as e:
+            logging.debug(f"[AUTOFIX-STATS] Mentés sikertelen: {e}")
+
+    def _autofix_stats_total_and_clear(self):
+        """A korábbi lábak összesített telepítés-száma; a fájl törlődik (a következő
+        lánc tiszta lappal indul)."""
+        total = 0
+        try:
+            p = self._autofix_stats_path()
+            if os.path.exists(p):
+                with open(p, 'r', encoding='utf-8') as f:
+                    data = json.load(f) or {}
+                total = sum(int(leg.get('installed') or 0) for leg in data.get('legs', []))
+                os.remove(p)
+        except Exception as e:
+            logging.debug(f"[AUTOFIX-STATS] Összesítés sikertelen: {e}")
+        return total
+
+    def _emit_autofix_summary(self, chain_total, task_id='autofix'):
+        """ZÁRÓ ÖSSZEFOGLALÓ a lánc legvégén: hány driver települt a TELJES lánc alatt,
+        és mely eszközök maradtak hibakódosak (hogy a maradék lyuk sose legyen néma).
+        Minden hibát elnyel - az összefoglaló sosem akaszthatja meg a lezárást."""
+        try:
+            self.emit('task_progress', {'task': task_id, 'log': f'\n📊 ÖSSZEFOGLALÓ: a teljes AutoFix lánc alatt összesen {chain_total} driver települt.'})
+            res = self._run(["powershell", "-NoProfile", "-Command", WU_PNP_QUERY_PS], encoding='utf-8')
+            pnp_data = []
+            if res.stdout:
+                try:
+                    pnp_data = json.loads(res.stdout)
+                except Exception:
+                    pass
+            problems = [d for d in _filter_wu_scan_devices(pnp_data) if d.get('err_code')]
+            if problems:
+                self.emit('task_progress', {'task': task_id, 'log': f'⚠️ Továbbra is hibakódos eszköz: {len(problems)} db'})
+                for p in problems:
+                    desc = PNP_ERROR_CODE_DESCRIPTIONS.get(p['err_code'], f"Hibakód: {p['err_code']}")
+                    self.emit('task_progress', {'task': task_id, 'log': f"   • {p['name']} - {desc} (kód {p['err_code']})"})
+                self.emit('task_progress', {'task': task_id, 'log': 'Ezekhez a "Driver Keresés és Telepítés" menü Problémás eszközök szekciója adhat még megoldást.'})
+            else:
+                self.emit('task_progress', {'task': task_id, 'log': '✅ Nem maradt hibakódos eszköz a rendszerben!'})
+        except Exception as e:
+            logging.warning(f"[AUTOFIX] Összefoglaló hiba (nem kritikus): {e}")
 
     def run_autofix(self, skip_printer_drivers=True):
         logging.info(f"[API] run_autofix() indítása (skip_printer_drivers={skip_printer_drivers})")
@@ -276,7 +419,10 @@ Write-Output "DONE: Törölve: $count / $total"
                 # ÚJ LÉPÉS (-1. LÉPÉS)
                 if not is_resume_mode and not is_resume_step1:
                     self.emit('task_progress', {'task': 'autofix', 'log': '-1. LÉPÉS: Windows Update szüneteltetése és újraindítás...'})
-                    
+                    # Friss lánc indul - egy esetleges korábbi (félbehagyott) lánc
+                    # statisztikája ne számítson bele az összefoglalóba.
+                    self._autofix_stats_clear()
+
                     self._disable_sleep_sync()
                     
                     self.emit('task_progress', {'task': 'autofix', 'log': 'WU szüneteltetése 1 hétre...'})
@@ -446,15 +592,36 @@ Write-Output "DONE: Törölve: $count / $total"
                     # esélytelen lenne.
                     if not self._check_internet():
                         self.emit('task_progress', {'task': 'autofix', 'log': '🛟 Nincs internet a driver-törlés után! Mentett hálózati driverek visszaállítása...'})
+                        net_ok = False
                         if _restore_net_driver_backup(self._run):
                             self._run(['pnputil', '/scan-devices'])
                             time.sleep(15)
-                            if self._check_internet():
+                            net_ok = self._check_internet()
+                            if net_ok:
                                 self.emit('task_progress', {'task': 'autofix', 'log': '✅ Hálózat helyreállítva a mentett driverekből!\n'})
-                            else:
-                                self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ A hálózat még mindig nem él - a WU keresés így valószínűleg üres lesz. Ellenőrizd a kábelt/Wi-Fi-t!\n'})
                         else:
-                            self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ Nincs mentett hálózati driver - a WU keresés internet nélkül valószínűleg üres lesz.\n'})
+                            self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ Nincs mentett hálózati driver.'})
+                        if not net_ok:
+                            # UTOLSÓ ESÉLY: a NIC mentőcsomag (nicpack_core) HELYI forrásból
+                            # (exe mellett / app-adatmappa) - letöltésre net nélkül úgysincs
+                            # mód. Ugyanaz a csomag, amit a "LAN Mentőcsomag" gomb használ.
+                            try:
+                                if nicpack_core._find_nicpack_zip():
+                                    self.emit('task_progress', {'task': 'autofix', 'log': '🛟 NIC mentőcsomag (nicpack.zip) megtalálva helyben - telepítés...'})
+                                    nicpack_core._install_nicpack(
+                                        self._run,
+                                        lambda t: self.emit('task_progress', {'task': 'autofix', 'log': t}))
+                                    time.sleep(15)
+                                    net_ok = self._check_internet()
+                                    if net_ok:
+                                        self.emit('task_progress', {'task': 'autofix', 'log': '✅ Hálózat helyreállítva a NIC mentőcsomagból!\n'})
+                                else:
+                                    self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ nicpack.zip sincs az exe mellett / a DriverVarazslo mappában - ezt sem tudjuk bevetni.'})
+                            except Exception as e:
+                                logging.warning(f"[AUTOFIX] NIC mentőcsomag telepítési hiba: {e}")
+                                self.emit('task_progress', {'task': 'autofix', 'log': f'⚠️ NIC mentőcsomag telepítése sikertelen: {e}'})
+                        if not net_ok:
+                            self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ A hálózat továbbra sem él - a WU keresés így valószínűleg üres lesz. Ellenőrizd a kábelt/Wi-Fi-t!\n'})
 
                 # 4. Átmenetileg engedélyezzük a WU-t és unpause a driverkereséshez
                 self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update ideiglenes felébresztése a szükséges driverek lekéréséhez...', 'indeterminate': True})
@@ -479,6 +646,8 @@ Write-Output "DONE: Törölve: $count / $total"
                 
                 if installed_count > 0:
                     self.emit('task_progress', {'task': 'autofix', 'log': f'\n🔄 EBBEN A KÖRBEN {installed_count} DRIVER TELEPÜLT!\nTovább láncolt hardverek aktiválásához újabb automatikus újraindítás szükséges!\nA rendszer az újraindulás után folytatja a szkennelést!'})
+                    # Láb-statisztika a záró összefoglalóhoz (reboot-okon átívelő számláló).
+                    self._autofix_stats_add(installed_count)
                     # Set RunOnce
                     exe_path = _app_exe_path()
                     temp_env = os.environ.get('TEMP', '!!').lower()
@@ -515,6 +684,9 @@ Write-Output "DONE: Törölve: $count / $total"
                 else:
                     self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 KÉSZ! Nulla újonnan fellelt driver, a konfiguráció végigért.'})
                     self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'])
+
+                    # ZÁRÓ ÖSSZEFOGLALÓ: lánc-szintű telepítés-szám + maradék hibakódos eszközök.
+                    self._emit_autofix_summary(self._autofix_stats_total_and_clear())
 
                     self.emit('task_progress', {'task': 'autofix', 'log': 'DCH alkalmazások (Microsoft Store) frissítésének kényszerítése...'})
                     try:

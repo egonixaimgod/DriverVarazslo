@@ -14,6 +14,7 @@ from app.gui.updater import GuiUpdaterMixin
 from app.gui.stress import GuiStressMixin
 from app.gui.stress_automation import GuiStressAutomationMixin
 from app.gui.drivers import GuiDriversMixin
+from app.gui.dupdrivers import GuiDupDriversMixin
 from app.gui.bcd import GuiBcdMixin
 from app.gui.ghost import GuiGhostMixin
 from app.gui.tempclean import GuiTempCleanMixin
@@ -26,15 +27,18 @@ from app.gui.report import GuiReportMixin
 from app.gui.storeprint import GuiStorePrintMixin
 from app.gui.blockscript import GuiBlockScriptMixin
 from app.gui.nvidia import GuiNvidiaMixin
+from app.gui.vendorgpu import GuiVendorGpuMixin
+from app.gui.oemdrivers import GuiOemDriversMixin
 from app.gui.nicpack import GuiNicPackMixin
 
 
 class DriverToolApi(GuiBaseMixin, GuiUpdaterMixin, GuiStressMixin,
-                    GuiStressAutomationMixin, GuiDriversMixin, GuiBcdMixin,
-                    GuiGhostMixin, GuiTempCleanMixin, GuiHwScanMixin, GuiWuMixin,
-                    GuiAutofixMixin, GuiBackupMixin, GuiBitlockerMixin,
+                    GuiStressAutomationMixin, GuiDriversMixin, GuiDupDriversMixin,
+                    GuiBcdMixin, GuiGhostMixin, GuiTempCleanMixin, GuiHwScanMixin,
+                    GuiWuMixin, GuiAutofixMixin, GuiBackupMixin, GuiBitlockerMixin,
                     GuiReportMixin, GuiStorePrintMixin, GuiBlockScriptMixin,
-                    GuiNvidiaMixin, GuiNicPackMixin):
+                    GuiNvidiaMixin, GuiVendorGpuMixin, GuiOemDriversMixin,
+                    GuiNicPackMixin):
     """A GUI backend - a pywebview js_api-ja. Minden feature a saját mixin-fájljában."""
     pass
 

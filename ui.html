@@ -30,7 +30,10 @@ body::after{content:'';position:fixed;width:700px;height:700px;background:radial
 
 /* Layout */
 .app{display:flex;height:100vh;gap:0}
-.sidebar{width:230px;min-width:230px;display:flex;flex-direction:column;padding:16px 12px;border-radius:0;border-right:1px solid rgba(180,100,255,0.25);border-left:none;border-top:none;border-bottom:none;background:rgba(35,20,60,0.7);backdrop-filter:blur(30px)}
+.sidebar{width:230px;min-width:230px;display:flex;flex-direction:column;padding:16px 12px;border-radius:0;border-right:1px solid rgba(180,100,255,0.25);border-left:none;border-top:none;border-bottom:none;background:rgba(35,20,60,0.7);backdrop-filter:blur(30px);overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:rgba(180,100,255,0.3) transparent}
+.sidebar::-webkit-scrollbar{width:6px}
+.sidebar::-webkit-scrollbar-thumb{background:rgba(180,100,255,0.3);border-radius:3px}
+.sidebar>*{flex-shrink:0}
 .sidebar-title{font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:var(--accent);padding:8px 12px 16px;text-align:center;text-shadow:0 0 15px rgba(212,136,255,0.5)}
 .sidebar-title span{display:block;font-size:14px;letter-spacing:0;text-transform:none;color:var(--text);margin-top:4px}
 
@@ -312,6 +315,20 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
           <div id="driver-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
         </div>
 
+        <div class="panel glass" style="margin-top:16px">
+          <div class="panel-header-row">
+            <div class="panel-title"><span class="emoji">🧹</span> Elavult driver-duplikátumok (DriverStore takarítás)</div>
+            <span class="count-badge" id="dup-count-badge" style="display:none">0</span>
+          </div>
+          <p style="margin-bottom:12px;color:var(--text3)">Ugyanabból a driverből minden frissítés után ottmarad a régi verzió is a DriverStore-ban - ezek csak a helyet foglalják. A keresés a legújabb verziót mindig megtartja, és az épp használatban lévő drivereket SOHA nem törli.</p>
+          <div class="toolbar">
+            <button class="btn btn-primary" onclick="scanDupDrivers()" id="btn-dup-scan">🔍 Duplikátumok keresése</button>
+            <button class="btn btn-danger" onclick="deleteDupDrivers()" id="btn-dup-delete" disabled style="display:none">🗑 Kijelölt régi verziók törlése</button>
+          </div>
+          <div id="dup-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
+          <div id="dup-results"></div>
+        </div>
+
         <div class="panel glass welcome-panel">
           <div class="welcome-header">
             <div class="welcome-emoji">🧙‍♂️</div>
@@ -361,9 +378,10 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
             <button class="btn" onclick="createRestorePoint()">Visszaállítási pont létrehozása</button>
           </div>
           <div class="card glass">
-            <div class="card-title">🔧 BCD Boot Hiba Javítása</div>
-            <div class="card-desc">Ha egy Windows nem bootol (0xc0000098, BCD hiba), ez a funkció újraépíti a boot loadert a kiválasztott meghajtón.</div>
-            <button class="btn btn-warning" onclick="repairBcd()">Boot loader javítása</button>
+            <div class="card-title">🔧 BCD Boot Hiba Javítása (BootFixer)</div>
+            <div class="card-desc">Ha egy Windows nem bootol (0xc0000098, BCD hiba): letölti a BootFixer.cmd boot-javító toolt a C:\DriverVarazslo mappába. Futtasd le (dupla katt, admin jogot magától kér), válaszd ki a javítandó meghajtót, és a tool újraírja a boot partíciót.</div>
+            <button class="btn btn-warning" onclick="downloadBootFixer()" id="btn-bootfixer">⬇️ BootFixer.cmd letöltése</button>
+            <div id="bootfixer-result"></div>
           </div>
         </div>
       </div>
@@ -406,7 +424,11 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
             <div class="progress" id="hw-progress" style="display:none"><div class="progress-fill" id="hw-progress-fill"></div></div>
             <div id="hw-status" style="color:var(--text2);font-size:12px;margin-top:6px"></div>
           </div>
+          <div id="hw-rescan-offer"></div>
           <div id="nvidia-card" style="display:none"></div>
+          <div id="amd-card" style="display:none"></div>
+          <div id="intel-card" style="display:none"></div>
+          <div id="oem-card" style="display:none"></div>
           <div id="hw-problems"></div>
           <div class="hw-tree" id="hw-tree"></div>
         </div>
@@ -643,6 +665,7 @@ function classIcon(cls) {
 let hwPool = [];
 let hwInstalled = [];
 let hwSelectedIndices = new Set();
+let hwProblems = [];  // a legutóbbi szken problémás (hibakódos) eszközei - a gyorsjavítás gombokhoz
 let confirmResolver = null;
 let progressStartTime = 0;
 let progressTimer = null;
@@ -773,6 +796,15 @@ window.handlePyEvent = function(payload) {
     case 'nvidia_driver_info':
       renderNvidiaCard(data);
       break;
+    case 'amd_driver_info':
+      renderVendorGpuCard('amd-card', '🔴 AMD', data);
+      break;
+    case 'intel_driver_info':
+      renderVendorGpuCard('intel-card', '🔵 Intel', data);
+      break;
+    case 'oem_driver_info':
+      renderOemCard(data);
+      break;
     case 'bitlocker_status':
       const blEl = document.getElementById('bl-status');
       if (blEl) {
@@ -787,6 +819,15 @@ window.handlePyEvent = function(payload) {
       break;
     case 'toast':
       toast(data.message, data.type || 'info');
+      break;
+    case 'offer_rescan':
+      showRescanOffer(data);
+      break;
+    case 'dup_drivers_loaded':
+      onDupDriversLoaded(data);
+      break;
+    case 'boot_fixer_ready':
+      onBootFixerReady(data);
       break;
   }
 };
@@ -1000,13 +1041,86 @@ async function deleteSelected() {
   }
 }
 
+/* ========== DRIVERSTORE DUPLIKÁTUM-TAKARÍTÁS ========== */
+let dupGroups = [];
+async function scanDupDrivers() {
+  document.getElementById('dup-loading').style.display = 'block';
+  document.getElementById('dup-results').innerHTML = '';
+  document.getElementById('btn-dup-scan').disabled = true;
+  try {
+    await api().list_duplicate_drivers();
+  } catch (e) {
+    toast('Duplikátum-keresés hiba: ' + e, 'error');
+    document.getElementById('dup-loading').style.display = 'none';
+    document.getElementById('btn-dup-scan').disabled = false;
+  }
+}
+function onDupDriversLoaded(data) {
+  dupGroups = (data && data.groups) || [];
+  document.getElementById('dup-loading').style.display = 'none';
+  document.getElementById('btn-dup-scan').disabled = false;
+  const res = document.getElementById('dup-results');
+  const delBtn = document.getElementById('btn-dup-delete');
+  const badge = document.getElementById('dup-count-badge');
+  if (data && data.error && data.error !== 'offline') toast('Duplikátum-keresés hiba: ' + data.error, 'error');
+  if (!dupGroups.length) {
+    res.innerHTML = (data && data.error) ? '' : '<div style="color:var(--green);padding:8px 0">✅ Nincs duplikált driver-verzió a DriverStore-ban.</div>';
+    delBtn.style.display = 'none';
+    badge.style.display = 'none';
+    return;
+  }
+  badge.style.display = '';
+  badge.textContent = (data.deletable || 0) + ' törölhető';
+  let html = '';
+  dupGroups.forEach(g => {
+    html += '<div style="border:1px solid var(--glass-border);border-radius:10px;padding:8px 12px;margin:8px 0">'
+      + '<div style="font-weight:700">' + esc(g.original) + ' <span style="color:var(--text3);font-weight:400">(' + esc(g.provider || '') + (g.class ? ' · ' + esc(g.class) : '') + ')</span></div>'
+      + '<div style="font-size:12px;color:var(--green);padding:2px 0">✔ Megmarad: ' + esc(g.keep.published) + ' — v' + esc(g.keep.version || '?') + ' (legújabb)</div>'
+      + g.dups.map(d =>
+          '<div style="font-size:12px;display:flex;gap:8px;align-items:center;padding:2px 0">'
+          + (d.active
+              ? '<span title="Ezt a verziót egy jelenlévő eszköz épp használja - nem törölhető">🔒</span><span>' + esc(d.published) + ' — v' + esc(d.version || '?') + ' <span style="color:var(--text3)">(használatban, védett)</span></span>'
+              : '<input type="checkbox" class="dup-check" data-pub="' + esc(d.published) + '" checked onchange="updateDupDeleteBtn()"><span>' + esc(d.published) + ' — v' + esc(d.version || '?') + ' <span style="color:var(--text3)">(régi verzió)</span></span>')
+          + '</div>').join('')
+      + '</div>';
+  });
+  res.innerHTML = html;
+  delBtn.style.display = '';
+  updateDupDeleteBtn();
+}
+function updateDupDeleteBtn() {
+  const n = document.querySelectorAll('.dup-check:checked').length;
+  const btn = document.getElementById('btn-dup-delete');
+  btn.disabled = n === 0;
+  btn.textContent = '🗑 Kijelölt régi verziók törlése (' + n + ' db)';
+}
+async function deleteDupDrivers() {
+  const names = [...document.querySelectorAll('.dup-check:checked')].map(c => c.dataset.pub);
+  if (!names.length) return;
+  const ok = await showConfirm('Driver-duplikátumok törlése',
+    names.length + ' db régi driver-verzió törlődik a DriverStore-ból.\n\nA legújabb verziók és a használatban lévő driverek megmaradnak. Folytatod?');
+  if (ok !== true) return;
+  try {
+    await api().delete_duplicate_drivers(names);
+  } catch (e) {
+    toast('Törlési hiba: ' + e, 'error');
+  }
+}
+
 /* ========== HARDWARE SCAN ========== */
 async function startHwScan() {
-  hwPool = []; hwInstalled = []; hwSelectedIndices.clear();
+  hwPool = []; hwInstalled = []; hwSelectedIndices.clear(); hwProblems = [];
   document.getElementById('hw-tree').innerHTML = '';
   document.getElementById('hw-problems').innerHTML = '';
+  document.getElementById('hw-rescan-offer').innerHTML = '';
   document.getElementById('nvidia-card').style.display = 'none';
   document.getElementById('nvidia-card').innerHTML = '';
+  document.getElementById('amd-card').style.display = 'none';
+  document.getElementById('amd-card').innerHTML = '';
+  document.getElementById('intel-card').style.display = 'none';
+  document.getElementById('intel-card').innerHTML = '';
+  document.getElementById('oem-card').style.display = 'none';
+  document.getElementById('oem-card').innerHTML = '';
   document.getElementById('hw-progress').style.display = 'block';
   document.getElementById('hw-progress').classList.add('progress-indeterminate');
   document.getElementById('hw-progress-fill').style.width = '30%';
@@ -1040,9 +1154,10 @@ function onHwScanResult(data) {
   document.getElementById('hw-progress-fill').style.width = '100%';
   document.getElementById('hw-status').textContent = '✅ ' + hwPool.length + ' letölthető + ' + hwInstalled.length + ' telepített driver' + (data.time ? ' (' + data.time + ')' : '');
   if (data.sys_info) document.getElementById('sys-info').textContent = data.sys_info;
-  // Select all available by default
+  // Select all available by default - KIVÉVE a downgrade-jelölteket (a WU a telepítettnél
+  // régebbi drivert ajánl): azok láthatóak, de alapból nincsenek kipipálva.
   hwSelectedIndices.clear();
-  hwPool.forEach((_, i) => hwSelectedIndices.add(i));
+  hwPool.forEach((d, i) => { if (!d.downgrade) hwSelectedIndices.add(i); });
   renderHwTree();
   updateHwButtons();
   setTimeout(() => { document.getElementById('hw-progress').style.display = 'none'; }, 2000);
@@ -1072,7 +1187,9 @@ function renderHwTree() {
           + '<input type="checkbox" data-idx="'+it.idx+'" '+(hwSelectedIndices.has(it.idx)?'checked':'')+' onchange="toggleHwItem('+it.idx+')">'
           + '<span class="name" title="'+esc(it.name)+'">'+esc(it.name)+'</span>'
           + '<span class="wu" title="'+esc(it.wu_title||'')+'">'+esc(it.wu_title||'')
-          + (it.installed_version ? ' <span style="color:var(--text3);font-size:11px" title="Jelenleg telepített driver-verzió ehhez az eszközhöz">(telepítve: '+esc(it.installed_version)+')</span>' : '')
+          + (it.wu_date ? ' <span style="color:var(--text3);font-size:11px" title="A felajánlott driver dátuma">['+esc(it.wu_date)+']</span>' : '')
+          + (it.installed_version ? ' <span style="color:var(--text3);font-size:11px" title="Jelenleg telepített driver-verzió/dátum ehhez az eszközhöz">(telepítve: '+esc(it.installed_version)+(it.installed_date?' · '+esc(it.installed_date):'')+')</span>' : '')
+          + (it.downgrade ? ' <span style="color:#ffb454;font-size:11px;font-weight:700" title="A felajánlott driver RÉGEBBI a jelenleg telepítettnél - telepítése visszabutítás lenne, ezért alapból nincs kijelölve">⚠️ régebbi, mint a telepített!</span>' : '')
           + '</span>'
           + '<span class="hwid">'+esc(it.hwid||'')+'</span></div>'
         ).join('') + '</div>';
@@ -1132,24 +1249,70 @@ function selectAllHw() { hwPool.forEach((_,i)=>hwSelectedIndices.add(i)); render
 function deselectAllHw() { hwSelectedIndices.clear(); renderHwTree(); updateHwButtons(); }
 
 /* Problémás (hibakódos) eszközök kiemelése - akkor is látszik, ha egyik driver-forrás
-   sem adott rá találatot, hogy sose maradjon észrevétlen lyuk a gépben. */
+   sem adott rá találatot, hogy sose maradjon észrevétlen lyuk a gépben.
+   Gyorsjavítás gomb: kód-függő eszköz-akció (22 -> engedélyezés, egyéb -> eszköz
+   újraindítása) a Python fix_problem_device hívásán át. Driver-hiányos kódoknál
+   (28/39) az akciónak nincs értelme, ott nem jelenik meg gomb. */
+const HW_QUICKFIX_CODES = [10, 14, 21, 22, 31, 37, 43];
 function renderHwProblems(problems) {
+  hwProblems = problems || [];
   const box = document.getElementById('hw-problems');
   box.innerHTML = '';
-  if (!problems || !problems.length) return;
-  const rows = problems.map(p =>
-    '<div style="display:flex;gap:8px;align-items:center;padding:4px 0;font-size:12px">'
+  if (!hwProblems.length) return;
+  const rows = hwProblems.map((p, i) =>
+    '<div style="display:flex;gap:8px;align-items:center;padding:4px 0;font-size:12px;flex-wrap:wrap">'
     + '<span>' + (p.has_fix ? '🟡' : '🔴') + '</span>'
     + '<span style="font-weight:600" title="'+esc(p.hwid||'')+'">'+esc(p.name)+'</span>'
     + '<span style="color:var(--text3)">— '+esc(p.desc)+' (Code '+p.code+')</span>'
+    + ((p.pnp_id && HW_QUICKFIX_CODES.includes(p.code))
+        ? '<button class="btn btn-sm" id="hwfix-btn-'+i+'" onclick="quickFixDevice('+i+')" '
+          + 'title="'+(p.code===22?'Az eszköz engedélyezése (Enable-PnpDevice)':'Az eszköz újraindítása (letiltás + engedélyezés) - az Eszközkezelő \'eszköz újraindítása\' megfelelője')+'">'
+          + (p.code===22?'▶️ Engedélyezés':'🔄 Gyorsjavítás')+'</button>'
+        : '')
     + '<span style="margin-left:auto;color:'+(p.has_fix?'var(--green)':'var(--red)')+'">'
     + (p.has_fix ? 'van rá driver a listában ⬇' : 'NINCS automatikus megoldás - kézi driver kell!')
     + '</span></div>'
   ).join('');
   box.innerHTML = '<div style="border:1px solid rgba(255,80,80,.35);background:rgba(255,80,80,.07);'
     + 'border-radius:10px;padding:10px 14px;margin-bottom:10px">'
-    + '<div style="font-weight:700;margin-bottom:4px">⚠️ Problémás eszközök ('+problems.length+' db)</div>'
+    + '<div style="font-weight:700;margin-bottom:4px">⚠️ Problémás eszközök ('+hwProblems.length+' db)</div>'
     + rows + '</div>';
+}
+async function quickFixDevice(i) {
+  const p = hwProblems[i];
+  if (!p) return;
+  const btn = document.getElementById('hwfix-btn-'+i);
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Javítás...'; }
+  try {
+    const res = await api().fix_problem_device(p.pnp_id, p.code);
+    if (res && res.ok) {
+      toast('✅ ' + p.name + ' - az eszköz újraindult, a hibakód megszűnt!', 'success');
+      if (btn) btn.textContent = '✅ Rendben!';
+    } else {
+      const nc = (res && res.new_code !== null && res.new_code !== undefined) ? res.new_code : '?';
+      toast('⚠️ ' + p.name + ' - a gyorsjavítás nem szüntette meg a hibát (új kód: ' + nc + ').'
+            + (res && res.error ? ' Részlet: ' + res.error : ''), 'warning');
+      if (btn) { btn.disabled = false; btn.textContent = (p.code===22?'▶️ Engedélyezés':'🔄 Gyorsjavítás'); }
+    }
+  } catch (e) {
+    toast('Gyorsjavítás hiba: ' + e, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = (p.code===22?'▶️ Engedélyezés':'🔄 Gyorsjavítás'); }
+  }
+}
+
+/* Telepítés utáni újraszken-ajánlat (offer_rescan event): chipset/USB driver után új
+   eszközök bukkanhatnak elő - az AutoFix ezért megy több körben, a manuális útnál ez a
+   banner tölti be ugyanazt a szerepet. */
+function showRescanOffer(data) {
+  const el = document.getElementById('hw-rescan-offer');
+  if (!el) return;
+  el.innerHTML = '<div style="border:1px solid rgba(118,185,0,.45);background:rgba(118,185,0,.08);'
+    + 'border-radius:10px;padding:10px 14px;margin:10px 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+    + '<span>🔁 ' + (data && data.installed ? data.installed + ' driver települt. ' : '')
+    + 'Új eszközök bukkanhattak elő - érdemes újra szkennelni!</span>'
+    + '<button class="btn btn-sm btn-success" onclick="document.getElementById(\'hw-rescan-offer\').innerHTML=\'\';startHwScan()">🔍 Új szkennelés</button>'
+    + '<button class="btn btn-sm" onclick="document.getElementById(\'hw-rescan-offer\').innerHTML=\'\'">Később</button>'
+    + '</div>';
 }
 
 /* NVIDIA gyári driver kártya - a szken végén érkező nvidia_driver_info event tölti. */
@@ -1176,6 +1339,52 @@ function renderNvidiaCard(data) {
 async function installNvidiaDriver() {
   try { await api().install_nvidia_driver(); }
   catch (e) { toast('NVIDIA telepítési hiba: ' + e, 'error'); }
+}
+
+/* AMD/Intel gyári driver kártya (amd_driver_info / intel_driver_info event): itt nincs
+   automata telepítés - a verzió-összevetés után a HIVATALOS letöltőoldalt nyitjuk meg
+   (az AMD/Intel a közvetlen exe-letöltést blokkolja, link-out a megbízható út). */
+function renderVendorGpuCard(cardId, vendorLabel, data) {
+  const card = document.getElementById(cardId);
+  if (!card) return;
+  if (!data || !data.gpu) { card.style.display = 'none'; return; }
+  if (data.update_available) {
+    card.innerHTML = '<div style="border:1px solid rgba(118,185,0,.45);background:rgba(118,185,0,.08);'
+      + 'border-radius:10px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+      + '<span style="font-size:20px">🎮</span>'
+      + '<div style="flex:1;min-width:200px"><div style="font-weight:700">'+esc(data.gpu)+' — új GYÁRI driver érhető el!</div>'
+      + '<div style="font-size:12px;color:var(--text3)">Telepítve: '+esc(data.installed)+' → '+vendorLabel+' legfrissebb: <b style="color:var(--green)">'+esc(data.latest)+'</b>'
+      + (data.date ? ' ('+esc(data.date)+')' : '')
+      + ' <span title="A Windows Update a videókártya-drivereknél hónapokkal lemaradhat. A gomb a hivatalos gyártói letöltőoldalt nyitja meg - onnan töltsd le és futtasd a telepítőt.">ⓘ</span></div></div>'
+      + '<button class="btn btn-success" onclick="openVendorPage(\''+esc(data.url||'')+'\')">🌐 Hivatalos letöltőoldal</button>'
+      + '</div>';
+    card.style.display = 'block';
+  } else {
+    card.innerHTML = '<div style="border:1px solid rgba(118,185,0,.25);background:rgba(118,185,0,.04);'
+      + 'border-radius:10px;padding:8px 14px;margin-bottom:10px;font-size:12px;color:var(--text2)">'
+      + '🎮 '+esc(data.gpu)+': a gyári driver naprakész ('+esc(data.installed)+').</div>';
+    card.style.display = 'block';
+  }
+}
+async function openVendorPage(url) {
+  try { await api().open_vendor_driver_page(url); }
+  catch (e) { toast('Oldal megnyitási hiba: ' + e, 'error'); }
+}
+
+/* OEM (Dell/Lenovo/HP) gépre szabott driver-oldal kártya (oem_driver_info event). */
+function renderOemCard(data) {
+  const card = document.getElementById('oem-card');
+  if (!card) return;
+  if (!data || !data.vendor || !data.url) { card.style.display = 'none'; return; }
+  card.innerHTML = '<div style="border:1px solid rgba(100,160,255,.4);background:rgba(100,160,255,.07);'
+    + 'border-radius:10px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+    + '<span style="font-size:20px">🏭</span>'
+    + '<div style="flex:1;min-width:200px"><div style="font-weight:700">'+esc(data.vendor)+' gép: '+esc(data.model||'')+'</div>'
+    + '<div style="font-size:12px;color:var(--text3)">A gyártói oldalon vannak modell-specifikus driverek (hotkey, power, dokkoló...), amiket a WU nem ad.'
+    + (data.note ? ' <b>'+esc(data.note)+'</b>' : '') + '</div></div>'
+    + '<button class="btn" onclick="openVendorPage(\''+esc(data.url)+'\')">🌐 '+esc(data.vendor)+' driver-oldal</button>'
+    + '</div>';
+  card.style.display = 'block';
 }
 async function installNicPack() {
   try { await api().install_nic_pack(); }
@@ -1342,19 +1551,33 @@ async function createRestorePoint() {
     toast('Visszaállítási pont hiba: ' + e, 'error');
   }
 }
-async function repairBcd() {
-  const ok = await showConfirm('BCD Boot Hiba Javítása',
-    'Ez a funkció újraépíti a boot loadert (BCD) egy kiválasztott Windows meghajtón.\n\n' +
-    'Használd ha:\n' +
-    '• 0xc0000098 vagy hasonló BCD hibát kapsz\n' +
-    '• A Windows nem bootol driver visszaállítás után\n' +
-    '• Boot Configuration Data sérült\n\n' +
-    'A következő lépésben válaszd ki a HALOTT Windows meghajtóját (ahol a Windows mappa van).');
-  if (!ok) return;
+async function downloadBootFixer() {
+  const el = document.getElementById('bootfixer-result');
+  const btn = document.getElementById('btn-bootfixer');
+  el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:6px 0">⏳ BootFixer.cmd letöltése...</div>';
+  if (btn) btn.disabled = true;
   try {
-    await api().repair_bcd_standalone();
+    await api().download_boot_fixer();
   } catch (e) {
-    toast('BCD javítási hiba: ' + e, 'error');
+    toast('BootFixer letöltési hiba: ' + e, 'error');
+    el.innerHTML = '';
+    if (btn) btn.disabled = false;
+  }
+}
+function onBootFixerReady(data) {
+  const el = document.getElementById('bootfixer-result');
+  const btn = document.getElementById('btn-bootfixer');
+  if (btn) btn.disabled = false;
+  if (!el) return;
+  if (data && data.path) {
+    el.innerHTML = '<div style="font-size:12px;line-height:1.7;padding:8px 0;color:var(--text2)">'
+      + '✅ Letöltve ide: <b>' + esc(data.path) + '</b><br>'
+      + '<b>Használat:</b> lépj ki a programból, futtasd a BootFixer.cmd-t (dupla katt, az admin jogot magától kéri), '
+      + 'válaszd ki a javítandó Windows meghajtóját, és a tool újraírja a boot partíciót.<br>'
+      + '<button class="btn btn-sm" style="margin-top:6px" onclick="openAppDataDir()">📂 Mappa megnyitása</button>'
+      + '</div>';
+  } else {
+    el.innerHTML = '';
   }
 }
 async function restoreDrivers() {

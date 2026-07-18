@@ -4,9 +4,13 @@ a GUI AutoFix és a CLI AutoFix is EZT hívja. NE másold vissza osztályba (lá
 
 # === AUTO-IMPORTS ===
 import os
+import re
 import json
+import time
+import queue
 import shutil
 import logging
+import threading
 from app.common import _ps_quote
 from app.common import _app_data_dir
 # === /AUTO-IMPORTS ===
@@ -17,6 +21,77 @@ from app.common import _app_data_dir
 # AutoFix-nál opcionálisan kihagyható driver-osztályok (nyomtató + szkenner/multifunkciós) -
 # ezek gyakran csak gyári driverrel működnek jól, a WU nem mindig telepíti vissza automatikusan.
 AUTOFIX_PRINTER_SKIP_CLASSES = {'Printer', 'PrintQueue', 'Image'}
+
+
+class WuProcessAborted(Exception):
+    """A WU telepítő PowerShell folyamat idő előtt leállítva. reason='cancel' (felhasználói
+    megszakítás) vagy 'hang' (a watchdog ölte meg, mert túl sokáig nem jött kimenet)."""
+
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _iter_process_lines(process, run_fn, cancel_check=None, inactivity_timeout=1800):
+    """A telepítő PowerShell stdout-jának CANCEL-KÉPES, WATCHDOG-OS olvasása - mindhárom
+    fogyasztó (GUI manuális, GUI AutoFix, CLI AutoFix) ezen keresztül olvassa a sorokat.
+
+    A régi, közvetlen `for line in process.stdout` minta két terepi hibát hordozott:
+    (1) a megszakítás-ellenőrzés csak új sor érkezésekor futott le, így ha a scripten
+    belüli $Searcher.Search() végleg beragadt (arra ott nincs timeout, csak a külön
+    _search_wu_api-nak van), a Mégse gomb halott volt; (2) a beragadt folyamatot semmi
+    nem ölte meg, a feladat örökre "futott". Itt a tényleges olvasás egy háttérszálon
+    történik queue-ba, a fogyasztó 0,5 mp-enként ellenőrzi a cancel-t, és ha
+    inactivity_timeout másodpercig egyetlen sor sem érkezik, taskkill-lel leállítja a
+    folyamatot. A timeout szándékosan hosszú (alapból 30 perc): egyetlen nagy driver
+    letöltése lassú neten percekig ad nulla kimenetet - inkább későn ölünk, mint egy
+    élő letöltést.
+
+    Kivétel: WuProcessAborted('cancel' | 'hang') - a folyamat ilyenkor már le van ölve."""
+    q = queue.Queue()
+
+    def _reader():
+        try:
+            for raw in process.stdout:
+                q.put(raw)
+        except Exception as e:
+            logging.debug(f"[WU-READER] stdout olvasási hiba: {e}")
+        finally:
+            q.put(None)
+
+    threading.Thread(target=_reader, daemon=True).start()
+
+    def _kill(why):
+        logging.warning(f"[WU-WATCHDOG] Telepítő folyamat leállítása (PID={process.pid}, ok={why})")
+        try:
+            run_fn(['taskkill', '/F', '/T', '/PID', str(process.pid)])
+        except Exception as e:
+            logging.error(f"[WU-WATCHDOG] taskkill hiba: {e}")
+        try:
+            process.wait(timeout=10)
+        except Exception:
+            pass
+
+    last_output = time.time()
+    while True:
+        if cancel_check and cancel_check():
+            _kill('cancel')
+            raise WuProcessAborted('cancel')
+        try:
+            item = q.get(timeout=0.5)
+        except queue.Empty:
+            if time.time() - last_output > inactivity_timeout:
+                logging.error(f"[WU-WATCHDOG] {inactivity_timeout}s óta nincs kimenet - a WU folyamat beragadt.")
+                _kill('hang')
+                raise WuProcessAborted('hang')
+            continue
+        if item is None:
+            break
+        last_output = time.time()
+        line = item.strip()
+        if line:
+            yield line
+    process.wait()
 
 
 
@@ -145,6 +220,52 @@ def _match_wu_updates_to_devices(wu_results, devices, exclude_uids=None):
     return matches
 
 
+_ISO_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
+
+def _iso_date_or_none(s):
+    """'yyyy-MM-dd' formátumú dátum-string vagy None. Az ilyen stringek sima
+    string-összehasonlítással helyesen rendeződnek, nem kell datetime."""
+    s = (s or '').strip()[:10]
+    return s if _ISO_DATE_RE.match(s) else None
+
+
+def _filter_wu_downgrades(matches, wu_by_uid, installed_info):
+    """DOWNGRADE-VÉDELEM (AutoFix): kiszűri azokat a párosított WU-találatokat, amelyek
+    bizonyíthatóan RÉGEBBIEK az eszköz éppen telepített driverénél. Terepi kockázat:
+    gyári (pl. NVIDIA) driver telepítése után a WU IsInstalled=0-val felajánl egy
+    hónapokkal korábbi csomagot, és az AutoFix gondolkodás nélkül visszabutítaná.
+
+    Szabályok (szándékosan konzervatív, csak BIZONYÍTOTT downgrade esik ki):
+    - hibakódos eszközt SOSEM szűrünk - egy driver nélküli/hibás eszköznek egy régebbi
+      driver is jobb, mint a semmi;
+    - csak akkor szűrünk, ha a WU DriverVerDate ÉS a telepített driver dátuma is
+      értelmezhető, és a WU-é szigorúan korábbi;
+    - egyenlő vagy újabb dátum, hiányzó adat -> marad a találat.
+
+    matches: a _match_wu_updates_to_devices kimenete; wu_by_uid: UpdateID -> nyers
+    WU-találat dict (DriverVerDate mezővel); installed_info: UPPER(pnp instance id) ->
+    {'version','date'} map (GUI: _get_installed_driver_info). Visszatérés:
+    (megtartott matches, kiszűrt [{'title','reason'}] lista - a hívó logolja)."""
+    kept = []
+    skipped = []
+    for m in matches:
+        dev = m.get('device') or {}
+        if dev.get('err_code'):
+            kept.append(m)
+            continue
+        wu = wu_by_uid.get(m.get('uid')) or {}
+        wu_date = _iso_date_or_none(wu.get('DriverVerDate'))
+        inst = installed_info.get((dev.get('pnp_id') or '').upper()) or {}
+        inst_date = _iso_date_or_none(inst.get('date'))
+        if wu_date and inst_date and wu_date < inst_date:
+            skipped.append({'title': m.get('title', ''),
+                            'reason': f"WU driver dátuma ({wu_date}) régebbi a telepítettnél ({inst_date})"})
+            continue
+        kept.append(m)
+    return kept, skipped
+
+
 def _build_wu_install_ps(target_uids=(), target_hwids=(), match_system_devices=False):
     """A WUA (Microsoft.Update.Session) telepítő PowerShell script EGYETLEN forrása.
     Szűrési módok (vagylagosak egy csomagra, de kombinálhatók egy híváson belül):
@@ -156,7 +277,9 @@ def _build_wu_install_ps(target_uids=(), target_hwids=(), match_system_devices=F
     A letöltés SZINKRON $DL.Download() - SOHA ne cseréld BeginDownload($null,...)-ra, az
     null callbackekkel azonnal NullReferenceException-nel elhal (Build ~192 regresszió).
     Kimeneti protokoll (a hívók ezt parse-olják): INIT/SEARCH/FOUND/SKIP/TOTAL/DLONE/
-    INSTONE/OK/FAIL/EMPTY/DONE/ERROR prefixű sorok."""
+    INSTONE/OK/OKRB/FAIL/EMPTY/DONE/ERROR prefixű sorok. Az OKRB ugyanaz mint az OK,
+    de a WUA jelezte, hogy a driver csak ÚJRAINDÍTÁS után él ($IR.RebootRequired) -
+    a sikeres számlálóba beleszámít, a hívó dönt a reboot-jelzés megjelenítéséről."""
     uid_list_ps = ','.join(f"'{_ps_quote(u)}'" for u in target_uids)
     hwid_list_ps = ','.join(f"'{_ps_quote(str(h).upper())}'" for h in target_hwids)
     match_sys_ps = '$true' if match_system_devices else '$false'
@@ -233,7 +356,11 @@ try {
         $Inst = $Session.CreateUpdateInstaller(); $Inst.Updates = $SC
         try { $IR = $Inst.Install() } catch { Write-Output "FAIL: [TELEPÍTÉS HIBA] $t"; $f++; continue }
         $rc = $IR.GetUpdateResult(0).ResultCode
-        switch ($rc) { 2 { Write-Output "OK: $t"; $s++ } 3 { Write-Output "OK: $t"; $s++ } default { Write-Output "FAIL: [kód=$rc] $t"; $f++ } }
+        $rb = $false; try { $rb = [bool]$IR.RebootRequired } catch {}
+        if ($rc -eq 2 -or $rc -eq 3) {
+            if ($rb) { Write-Output "OKRB: $t" } else { Write-Output "OK: $t" }
+            $s++
+        } else { Write-Output "FAIL: [kód=$rc] $t"; $f++ }
     }
     Write-Output "DONE: Sikeres=$s, Sikertelen=$f"
 } catch { Write-Output "ERROR: $($_.Exception.Message)" }
