@@ -191,6 +191,40 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .card-title{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;color:var(--text)}
 .card-desc{font-size:12px;color:var(--text2);line-height:1.7}
 
+/* Stress Teszt & Szervíz Programok */
+.stress-hero{position:relative;overflow:hidden;padding:24px 26px;margin-bottom:16px;display:flex;align-items:center;gap:22px;flex-wrap:wrap;background:linear-gradient(135deg,rgba(255,100,60,0.14),rgba(150,50,200,0.18) 55%,var(--glass));border:1px solid rgba(255,140,90,0.35);border-radius:var(--r);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
+.stress-hero::before{content:'🔥';position:absolute;right:-14px;bottom:-34px;font-size:150px;opacity:0.07;pointer-events:none;transform:rotate(-12deg)}
+.stress-hero-text{flex:1;min-width:280px}
+.stress-hero-title{font-size:19px;font-weight:800;margin-bottom:6px;display:flex;align-items:center;gap:10px}
+.stress-hero-sub{font-size:12.5px;color:var(--text2);line-height:1.65;margin-bottom:12px}
+.stress-hero-chips{display:flex;gap:8px;flex-wrap:wrap}
+.stress-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;background:rgba(255,140,90,0.12);border:1px solid rgba(255,140,90,0.3);font-size:11.5px;color:var(--text2);white-space:nowrap}
+.stress-hero-actions{display:flex;flex-direction:column;gap:10px;align-items:stretch;position:relative;z-index:1}
+.btn-stress{padding:18px 34px;font-size:16px;font-weight:800;border-radius:var(--r);border:none;cursor:pointer;color:#fff;background:linear-gradient(135deg,#ff7a45,#e0344f);box-shadow:0 8px 30px rgba(255,90,60,0.35);transition:all var(--t);display:inline-flex;align-items:center;gap:10px;justify-content:center;font-family:var(--font)}
+.btn-stress:hover{box-shadow:0 10px 40px rgba(255,90,60,0.55);transform:translateY(-1px)}
+.btn-stress:active{transform:scale(0.98)}
+.btn-stress:disabled{opacity:0.4;cursor:not-allowed;transform:none;box-shadow:none}
+.stress-dl-box{padding:14px 18px;margin-bottom:16px;flex-direction:column;gap:8px}
+.stress-dl-label{font-size:12.5px;color:var(--text2);font-weight:600}
+.tool-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:12px}
+.tool-card{position:relative;display:flex;flex-direction:column;gap:9px;padding:16px;border-radius:var(--r);border:1px solid var(--glass-border);background:rgba(38,22,66,0.5);transition:all var(--t)}
+.tool-card:hover{transform:translateY(-2px);border-color:var(--glass-border-hover);box-shadow:0 8px 26px rgba(0,0,0,0.3),0 0 18px rgba(180,100,255,0.12);background:rgba(50,30,85,0.55)}
+.tool-head{display:flex;align-items:center;gap:10px}
+.tool-icon{width:40px;height:40px;flex-shrink:0;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:21px;background:rgba(180,100,255,0.14);border:1px solid rgba(180,100,255,0.28)}
+.tool-title{min-width:0}
+.tool-name{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tool-cat{display:inline-block;margin-top:2px;font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;padding:1px 8px;border-radius:999px}
+.tool-cat.gpu{background:rgba(255,140,90,0.15);border:1px solid rgba(255,140,90,0.35);color:#ffb347}
+.tool-cat.cpu{background:rgba(255,100,90,0.15);border:1px solid rgba(255,100,90,0.35);color:#ff8d80}
+.tool-cat.mon{background:rgba(100,180,255,0.15);border:1px solid rgba(100,180,255,0.35);color:#7cc4ff}
+.tool-cat.info{background:rgba(180,100,255,0.15);border:1px solid rgba(180,100,255,0.35);color:var(--accent)}
+.tool-desc{font-size:11.5px;color:var(--text3);line-height:1.55;flex:1}
+.tool-actions{display:flex;align-items:center;gap:8px;margin-top:2px}
+.tool-install-pick{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);cursor:pointer;user-select:none;margin-left:auto}
+.tool-install-pick input{accent-color:var(--accent);width:15px;height:15px;cursor:pointer}
+.tool-installed{position:absolute;top:10px;right:10px;font-size:10px;font-weight:800;letter-spacing:0.5px;padding:2px 9px;border-radius:999px;background:rgba(120,255,160,0.15);border:1px solid rgba(120,255,160,0.4);color:#8dffb0;display:none}
+.tool-card.installed .tool-installed{display:inline-block}
+
 /* WU Status */
 .wu-status{font-size:16px;font-weight:700;text-align:center;padding:18px;border-radius:var(--r-sm);margin-bottom:18px}
 .wu-status.enabled{background:rgba(212,136,255,0.2);color:var(--green);border:2px solid rgba(212,136,255,0.4)}
@@ -252,7 +286,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
     <button class="nav-btn" onclick="switchView('tempclean')" data-view="tempclean"><span class="icon">🧹</span>Temp Fájlok Törlése</button>
     <button class="nav-btn" onclick="switchView('bitlocker')" data-view="bitlocker"><span class="icon">🔒</span>BitLocker Kezelő</button>
     <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Driver Fix</button>
-    <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stabilitás Teszt</button>
+    <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stress Teszt &amp; Szervíz Programok</button>
     <button class="nav-btn" onclick="switchView('report')" data-view="report"><span class="icon">📊</span>Rendszer Riport (PDF)</button>
     <button class="nav-btn" onclick="switchView('blockscript')" data-view="blockscript"><span class="icon">🚫</span>Net Blokkoló Script</button>
     <div class="sidebar-bottom" id="build-label">Build ---</div>
@@ -342,7 +376,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
             <div class="welcome-feature"><span class="fi">⚡</span><span><b>1 Kattintásos Driver Fix</b> — automatikus driver-frissítés, reteszelt lépésekkel és újraindítás-lánccal</span></div>
             <div class="welcome-feature"><span class="fi">🔄</span><span><b>Windows Update felügyelet</b> — driverfrissítések letiltása vagy szüneteltetése</span></div>
             <div class="welcome-feature"><span class="fi">👻</span><span><b>Szellemeszközök</b> és <b>Temp fájlok</b> takarítása egy kattintással</span></div>
-            <div class="welcome-feature"><span class="fi">🔥</span><span><b>Stabilitás Teszt</b> és <b>Rendszer Riport</b> — S.M.A.R.T. adatokkal, automatikusan</span></div>
+            <div class="welcome-feature"><span class="fi">🔥</span><span><b>Stress Teszt</b>, <b>Szervíz Programok</b> és <b>Rendszer Riport</b> — S.M.A.R.T. adatokkal</span></div>
             <div class="welcome-feature"><span class="fi">🔧</span><span><b>BCD Boot-hiba Javítás</b> — ha a Windows driver miatt nem indul el</span></div>
           </div>
         </div>
@@ -547,20 +581,44 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
         </div>
       </div>
 
-      <!-- VIEW: Stress Test -->
+      <!-- VIEW: Stress Teszt & Szervíz Programok -->
       <div class="view" id="view-stress">
-        <div class="panel glass">
-          <div class="panel-title"><span class="emoji">🔥</span> Stabilitás Teszt (3 az 1-ben)</div>
-          <p style="margin-bottom: 12px; color: var(--text3);">Letölti és a TEMP mappából elindítja a kiválasztott teszt-/monitor programot. Első indításkor a teljes csomag letöltődik, utána már a helyi másolatból indul azonnal - egyenként is elindíthatod őket, felugró ablak nélkül. Indítás közben a képernyő-kikapcsolás és az alvó mód automatikusan letiltásra kerül.</p>
-          <div class="toolbar" style="margin-bottom:18px;">
-            <button class="btn btn-sm" onclick="startStressTool('furmark')" title="FurMark - GPU stressz teszt">🌡️ FurMark</button>
-            <button class="btn btn-sm" onclick="startStressTool('prime95')" title="Prime95 - CPU stressz teszt">🧮 Prime95</button>
-            <button class="btn btn-sm" onclick="startStressTool('linpack')" title="Linpack Xtreme - CPU stressz teszt">📈 Linpack</button>
-            <button class="btn btn-sm" onclick="startStressTool('hwinfo')" title="HWiNFO64 - hőmérséklet/szenzor monitor">📟 HWiNFO64</button>
-            <button class="btn btn-sm" onclick="startStressTool('hdsentinel')" title="HD Sentinel - háttértár egészség monitor">💾 HDSentinel</button>
+        <!-- Automata stress teszt hero -->
+        <div class="stress-hero">
+          <div class="stress-hero-text">
+            <div class="stress-hero-title">🔥 Automata Stress Teszt</div>
+            <div class="stress-hero-sub">Egy kattintással letölti és elindítja a négy terhelő-/monitor programot, az indító beállításaikat magától végignyomkodja, majd a képernyőt négy részre osztva elrendezi az ablakokat. A teszt idejére a képernyő-kikapcsolás és az alvó mód automatikusan letiltásra kerül. A futó teszteket a folyamat-ablak piros gombjával egyszerre zárhatod be.</div>
+            <div class="stress-hero-chips">
+              <span class="stress-chip">🌡️ FurMark · GPU</span>
+              <span class="stress-chip">🧮 Prime95 · CPU</span>
+              <span class="stress-chip">📈 Linpack · CPU+RAM</span>
+              <span class="stress-chip">📟 HWiNFO64 · szenzorok</span>
+            </div>
           </div>
-          <button class="btn btn-big btn-danger" onclick="startStressTests()" id="btn-stresstest">🔥 MINDEN TESZT INDÍTÁSA</button>
-          <p style="margin-top:8px; color: var(--text3); font-size:11px;">(FurMark + Prime95 + Linpack + HWiNFO64 - a HD Sentinel csak egyenként indítható a fenti gombbal. Az indítás utáni felugró ablakban egy gombbal az összes teszt bezárható.)</p>
+          <div class="stress-hero-actions">
+            <button class="btn-stress" onclick="startStressTests()" id="btn-stresstest">🔥 STRESS TESZT INDÍTÁSA</button>
+            <button class="btn btn-danger btn-sm" onclick="stopStressTests()" style="justify-content:center" title="Az összes futó teszt-/monitor program azonnali bezárása">🛑 Összes teszt bezárása</button>
+          </div>
+        </div>
+
+        <!-- Letöltési folyamat-sáv (egyenkénti indítás első letöltésekor) -->
+        <div class="glass stress-dl-box" id="stress-dl" style="display:none">
+          <div class="stress-dl-label" id="stress-dl-label">Letöltés...</div>
+          <div class="progress" id="stress-dl-prog"><div class="progress-fill" id="stress-dl-fill"></div></div>
+        </div>
+
+        <!-- Szervíz programok -->
+        <div class="panel glass">
+          <div class="panel-header-row">
+            <div class="panel-title" style="margin-bottom:0"><span class="emoji">🧰</span> Szervíz Programok — egyenkénti indítás</div>
+            <span class="count-badge" id="svc-badge"></span>
+          </div>
+          <p style="margin-bottom:14px;color:var(--text3)">Egyenkénti indításnál <b style="color:var(--text2)">nincs automatizálás</b>: a program a saját beállító képernyőjével nyílik meg, minden opciót te állítasz be. A <b style="color:var(--text2)">▶ Indítás</b> portable módban, a letöltött csomagból futtat (telepítés nélkül); ha egy program telepítve van, a telepített példány indul. Első használatkor a teljes csomag letöltődik — a folyamatot a fenti sáv mutatja.</p>
+          <div class="tool-grid" id="tool-grid"></div>
+          <div class="toolbar" style="margin-top:16px;margin-bottom:0">
+            <button class="btn btn-primary" onclick="installServiceTools()" id="btn-tools-install">📥 Kijelöltek telepítése</button>
+            <span style="font-size:11.5px;color:var(--text3)">A bejelölt programok a <code>Program Files (x86)</code> alá kerülnek, asztali parancsikonnal — így a gép újraindítása után is kéznél lesznek.</span>
+          </div>
         </div>
       </div>
 
@@ -759,6 +817,7 @@ window.addEventListener('pywebviewready', async () => {
     document.getElementById('data-dir-label').textContent = '📁 ' + (appDataDir || 'Naplók/Riportok');
     updateTargetLabel(data.target_os, data.sys_drive);
     loadDrivers();
+    refreshServiceTools();
     
     if (data.resume_mode || data.resume_step1) {
       setTimeout(() => {
@@ -884,6 +943,9 @@ window.handlePyEvent = function(payload) {
     case 'boot_fixer_ready':
       onBootFixerReady(data);
       break;
+    case 'stress_dl_progress':
+      onStressDlProgress(data);
+      break;
   }
 };
 
@@ -894,6 +956,7 @@ function switchView(name) {
   document.getElementById('view-' + name).classList.add('active');
   document.querySelector('.nav-btn[data-view="'+name+'"]').classList.add('active');
   currentView = name;
+  if (name === 'stress') refreshServiceTools();
   
   const targetBar = document.querySelector('.target-bar');
   if (targetBar) {
@@ -1675,12 +1738,12 @@ async function extractWim() {
 
 async function startStressTests() {
   if(!window.pywebview) return;
-  showProgressModal('Stabilitás Teszt', '🚀 Indítás');
+  showProgressModal('Stress Teszt', '🚀 Indítás');
   currentTask = 'stress';
   try {
     await api().start_stress_tests();
   } catch (e) {
-    toast('Stabilitás teszt indítási hiba: ' + e, 'error');
+    toast('Stress teszt indítási hiba: ' + e, 'error');
     document.getElementById('mp-status').textContent = '❌ Hiba történt!';
     document.getElementById('mp-close-btn').style.display = 'inline-flex';
     document.getElementById('mp-cancel-btn').style.display = 'none';
@@ -1690,14 +1753,108 @@ async function startStressTests() {
 
 async function startStressTool(name) {
   // Szándékosan nincs progress-modal / megerősítő ablak: egy kattintásra csendben
-  // elindul (esetleg letölti magát, ha első használat), az eredményről csak egy
-  // rövid toast tájékoztat.
+  // elindul, automatizálás NÉLKÜL (a program saját beállító képernyőjével). Az első
+  // letöltés folyamatát a nézetbe ágyazott sáv (stress_dl_progress esemény) mutatja,
+  // az eredményről egy rövid toast tájékoztat.
   try {
     await api().start_stress_tool(name);
   } catch (e) {
     toast('Indítási hiba: ' + e, 'error');
   }
 }
+
+/* ========== SZERVÍZ PROGRAMOK (kártya-grid + telepítés) ========== */
+const SERVICE_TOOLS = [
+  {key:'furmark',     icon:'🌡️', name:'FurMark',                  cat:'GPU teszt', cls:'gpu',  desc:'GPU stressz teszt — videokártya-terhelés és stabilitás-ellenőrzés.'},
+  {key:'prime95',     icon:'🧮', name:'Prime95',                  cat:'CPU teszt', cls:'cpu',  desc:'CPU stressz teszt — processzor-terhelés (torture test).'},
+  {key:'linpack',     icon:'📈', name:'Linpack Xtreme',           cat:'CPU+RAM',   cls:'cpu',  desc:'CPU + memória stressz teszt — instabil RAM/tuning kiszűrése.'},
+  {key:'hwinfo',      icon:'📟', name:'HWiNFO64',                 cat:'Monitor',   cls:'mon',  desc:'Hőmérséklet- és szenzor-monitor — hőfokok, feszültségek, órajelek.'},
+  {key:'hdsentinel',  icon:'💾', name:'HD Sentinel',              cat:'Monitor',   cls:'mon',  desc:'Háttértár egészség-monitor — HDD/SSD állapot és S.M.A.R.T.'},
+  {key:'cpuz',        icon:'🧩', name:'CPU-Z',                    cat:'Infó',      cls:'info', desc:'Processzor, alaplap és memória részletes adatai.'},
+  {key:'gpuz',        icon:'🎮', name:'GPU-Z',                    cat:'Infó',      cls:'info', desc:'Videokártya részletes adatai — BIOS, szenzorok, órajelek.'},
+  {key:'zentimings',  icon:'⏱️', name:'ZenTimings',               cat:'Infó',      cls:'info', desc:'AMD Ryzen memória-időzítések áttekintése.'},
+  {key:'nvinspector', icon:'🛠️', name:'NVIDIA Profile Inspector', cat:'Beállító',  cls:'info', desc:'NVIDIA driver-profilok megtekintése és finomhangolása.'},
+];
+
+function renderToolGrid() {
+  const grid = document.getElementById('tool-grid');
+  if (!grid) return;
+  grid.innerHTML = SERVICE_TOOLS.map(t => `
+    <div class="tool-card" id="tool-card-${t.key}">
+      <span class="tool-installed">✓ TELEPÍTVE</span>
+      <div class="tool-head">
+        <div class="tool-icon">${t.icon}</div>
+        <div class="tool-title">
+          <div class="tool-name" title="${t.name}">${t.name}</div>
+          <span class="tool-cat ${t.cls}">${t.cat}</span>
+        </div>
+      </div>
+      <div class="tool-desc">${t.desc}</div>
+      <div class="tool-actions">
+        <button class="btn btn-sm" onclick="startStressTool('${t.key}')" title="${t.name} indítása — portable módban (telepítés nélkül), automatizálás nélkül">▶ Indítás</button>
+        <label class="tool-install-pick" title="Jelöld be, majd nyomd meg lent a Telepítés gombot"><input type="checkbox" id="ti-${t.key}"> telepítés</label>
+      </div>
+    </div>`).join('');
+  const badge = document.getElementById('svc-badge');
+  if (badge) badge.textContent = SERVICE_TOOLS.length + ' program';
+}
+
+async function refreshServiceTools() {
+  // "Telepítve" jelvények frissítése a kártyákon (a backend nyilvántartása alapján).
+  if (!window.pywebview) return;
+  try {
+    const st = await api().get_service_tools_status();
+    for (const t of SERVICE_TOOLS) {
+      const card = document.getElementById('tool-card-' + t.key);
+      if (!card) continue;
+      const info = st && st[t.key];
+      card.classList.toggle('installed', !!(info && info.installed));
+    }
+  } catch (e) {
+    console.log('Szervíz program státusz hiba: ' + e);
+  }
+}
+
+async function installServiceTools() {
+  const picked = SERVICE_TOOLS.filter(t => {
+    const cb = document.getElementById('ti-' + t.key);
+    return cb && cb.checked;
+  });
+  if (!picked.length) { toast('⚠️ Előbb jelöld be a kártyákon, mely programokat telepítsem!', 'warning'); return; }
+  const ok = await showConfirm('Szervíz Programok Telepítése',
+    'A következő programok a Program Files (x86) alá kerülnek másolásra, asztali parancsikonnal:\n\n' +
+    picked.map(t => '• ' + t.name).join('\n') + '\n\nFolytatod?');
+  if (!ok) return;
+  try {
+    await api().install_service_tools(picked.map(t => t.key));
+  } catch (e) {
+    toast('Telepítési hiba: ' + e, 'error');
+  }
+}
+
+function onStressDlProgress(d) {
+  // A stresstools.zip letöltésének/kicsomagolásának nézetbe ágyazott folyamat-sávja
+  // (egyenkénti program-indítás első letöltésekor - a telepítés a progress-modalt
+  // használja helyette).
+  const box = document.getElementById('stress-dl');
+  if (!box) return;
+  if (!d || !d.active) { box.style.display = 'none'; return; }
+  box.style.display = 'flex';
+  document.getElementById('stress-dl-label').textContent = d.label || 'Letöltés...';
+  const prog = document.getElementById('stress-dl-prog');
+  const fill = document.getElementById('stress-dl-fill');
+  if (d.percent === null || d.percent === undefined) {
+    prog.classList.add('progress-indeterminate');
+  } else {
+    prog.classList.remove('progress-indeterminate');
+    fill.style.width = d.percent + '%';
+  }
+}
+
+// A kártya-grid statikus tartalom - egyszer, betöltéskor renderelődik (a script a
+// body végén fut, a DOM ilyenkor már kész); a "Telepítve" jelvényeket a
+// refreshServiceTools() frissíti rajta.
+renderToolGrid();
 
 async function stopStressTests() {
   // Az összes stressz-teszt/monitor program azonnali bezárása (a visszajelzés a
@@ -1841,6 +1998,7 @@ function onTaskComplete(data) {
   // Refresh relevant views
   if (data.task === 'delete' || data.task === 'restore') setTimeout(loadDrivers, 500);
   if (data.task === 'disable_wu' || data.task === 'enable_wu' || data.task === 'restart_wu') setTimeout(checkWuStatus, 500);
+  if (data.task === 'toolsinstall') refreshServiceTools();
   
   // Re-enable autofix button
   if (data.task === 'autofix') {

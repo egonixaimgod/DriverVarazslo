@@ -13,6 +13,7 @@ from app.gui.base import GuiBaseMixin
 from app.gui.updater import GuiUpdaterMixin
 from app.gui.stress import GuiStressMixin
 from app.gui.stress_automation import GuiStressAutomationMixin
+from app.gui.toolsinstall import GuiToolsInstallMixin
 from app.gui.drivers import GuiDriversMixin
 from app.gui.dupdrivers import GuiDupDriversMixin
 from app.gui.bcd import GuiBcdMixin
@@ -33,7 +34,8 @@ from app.gui.nicpack import GuiNicPackMixin
 
 
 class DriverToolApi(GuiBaseMixin, GuiUpdaterMixin, GuiStressMixin,
-                    GuiStressAutomationMixin, GuiDriversMixin, GuiDupDriversMixin,
+                    GuiStressAutomationMixin, GuiToolsInstallMixin,
+                    GuiDriversMixin, GuiDupDriversMixin,
                     GuiBcdMixin, GuiGhostMixin, GuiTempCleanMixin, GuiHwScanMixin,
                     GuiWuMixin, GuiAutofixMixin, GuiBackupMixin, GuiBitlockerMixin,
                     GuiReportMixin, GuiStorePrintMixin, GuiBlockScriptMixin,

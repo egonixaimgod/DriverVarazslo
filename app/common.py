@@ -212,7 +212,7 @@ def _app_data_dir():
 
 
 def download_with_cert_fallback(run_fn, url, dest, *, timeout=60, ps_timeout=120,
-                                log_tag='DOWNLOAD', error_msg=None):
+                                log_tag='DOWNLOAD', error_msg=None, progress_cb=None):
     """HTTPS letöltés a friss-Windows tanúsítvány-fallbackkel - KÖZÖS példány (korábban
     4 másolatban élt: block.bat, nicpack.zip, BootFixer.cmd, stresstools.zip).
 
@@ -227,6 +227,12 @@ def download_with_cert_fallback(run_fn, url, dest, *, timeout=60, ps_timeout=120
     Python-letöltései is meggyógyulnak. Ez a fallback NEM ellenőrzés-megkerülés, és
     tilos azzá alakítani (admin-jogon futtatott payloadokat töltünk le vele).
 
+    progress_cb: opcionális callback(letöltött_bájt, összes_bájt_vagy_None) - a Python-os
+    letöltési ágon darabonként (256 KB) hívódik, hogy a hívó százalékos folyamatjelzőt
+    mutathasson. A PowerShell-fallback ágon nincs bájtszintű visszajelzés (az Invoke-WebRequest
+    kimenete nem streamelhető ide) - ott a hívó indeterminate sávot mutasson. A callback
+    kivételei nem szakítják meg a letöltést.
+
     Visszaadja a dest-et; hibánál (vagy üres letöltött fájlnál) kivételt dob."""
     import urllib.request
     import urllib.error
@@ -237,7 +243,24 @@ def download_with_cert_fallback(run_fn, url, dest, *, timeout=60, ps_timeout=120
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
     try:
         with urllib.request.urlopen(req, context=ssl_ctx, timeout=timeout) as resp, open(dest, 'wb') as f:
-            _shutil.copyfileobj(resp, f)
+            if progress_cb is None:
+                _shutil.copyfileobj(resp, f)
+            else:
+                try:
+                    total = int(resp.headers.get('Content-Length') or 0) or None
+                except Exception:
+                    total = None
+                done = 0
+                while True:
+                    chunk = resp.read(262144)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    done += len(chunk)
+                    try:
+                        progress_cb(done, total)
+                    except Exception as cb_err:
+                        logging.debug(f"[{log_tag}] progress_cb hiba (figyelmen kívül hagyva): {cb_err}")
     except urllib.error.URLError as dl_err:
         if 'CERTIFICATE_VERIFY_FAILED' not in str(dl_err):
             raise

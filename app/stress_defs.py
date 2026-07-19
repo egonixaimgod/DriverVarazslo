@@ -6,23 +6,38 @@ Linpack prompt-script, RAM-opciók, energiagazdálkodási beállítás-lista."""
 
 
 
-# Stabilitás Teszt: egyenként is indítható programok, kulcs -> (megjelenített név, a
-# stresstools.zip-ben keresett fájlnév-változatok). A HDSentinel jelenléte a ZIP-től függ -
-# ha nincs benne, a keresés futásidőben "nem található" hibát ad, ami nem kódhiba.
+# Stress Teszt / Szervíz Programok: egyenként is indítható programok, kulcs ->
+# (megjelenített név, a stresstools.zip-ben keresett fájlnév-változatok). Egy fájlnév-
+# bejegyzés lehet pontos név VAGY fnmatch-minta ('*'/'?' joker, pl. a GPU-Z exe-je
+# verziószámot hordoz a nevében: GPU-Z.2.68.0.exe) - lásd _find_stress_tool_exes.
+# Egy eszköz jelenléte a ZIP-től függ - ha nincs benne, a keresés futásidőben
+# "nem található" hibát ad, ami nem kódhiba.
 STRESS_TOOLS = {
     'furmark': ('FurMark', ['furmark.exe']),
     'prime95': ('Prime95', ['prime95.exe']),
     'linpack': ('Linpack Xtreme', ['linpackxtreme.exe', 'linpack.exe']),
     # A lista SORRENDJE itt prioritás: a 64 bites verziót preferáljuk, a 32 bites csak
     # akkor indul, ha nincs 64 bites az extracted mappában (lásd _find_stress_tool_exes).
-    'hwinfo': ('HWiNFO64 (Sensor Only)', ['hwinfo64.exe', 'hwinfo32.exe']),
+    'hwinfo': ('HWiNFO64', ['hwinfo64.exe', 'hwinfo32.exe']),
     'hdsentinel': ('HD Sentinel', ['hdsentinel.exe', 'hdsentinel_x64.exe', 'hdsentinel64.exe']),
+    # 2026-07-ben a ZIP-hez adott szervíz-/infó programok:
+    'cpuz': ('CPU-Z', ['cpuz_x64.exe', 'cpuz.exe', 'cpuz*.exe']),
+    'gpuz': ('GPU-Z', ['gpu-z*.exe', 'gpuz*.exe']),
+    'zentimings': ('ZenTimings', ['zentimings.exe']),
+    'nvinspector': ('NVIDIA Profile Inspector', ['nvidiaprofileinspector.exe']),
 }
 
-# "Minden teszt indítása" gomb csak ezeket a valódi terhelés-generáló stressz teszteket
-# indítja - a HD Sentinel egy lemez-egészség MONITOR (nem terhel semmit), ezért
-# kifejezett felhasználói kérésre nem szerepel a tömeges indításban, csak egyenként
-# (start_stress_tool) érhető el.
+# Amelyik eszköz indításakor érdemes a képernyő-kikapcsolást/alvó módot letiltani
+# (_lock_power_for_stress): a hosszan futó terhelők és monitorok. A gyors infó-eszközöknél
+# (CPU-Z, GPU-Z, ZenTimings, Profile Inspector) NEM nyúlunk az energiagazdálkodáshoz -
+# feleslegesen tiltaná le az alvó módot a program következő indításáig.
+STRESS_POWER_LOCK_KEYS = ['furmark', 'prime95', 'linpack', 'hwinfo', 'hdsentinel']
+
+# A "Stress teszt indítása" gomb (start_stress_tests - az egyetlen AUTOMATIZÁLT út:
+# dialógus-nyomkodás + 4 részre osztott ablak-elrendezés) csak ezeket a valódi
+# terhelés-generáló teszteket indítja - a többi program (HD Sentinel, CPU-Z, GPU-Z,
+# ZenTimings, NVIDIA Profile Inspector) csak egyenként (start_stress_tool) érhető el,
+# ott viszont SEMMILYEN automatizálás nincs (kifejezett felhasználói kérés).
 STRESS_TOOLS_BULK = ['furmark', 'prime95', 'linpack', 'hwinfo']
 
 # A "Minden teszt bezárása" (stop_stress_tests) által név szerint is kilövendő programok -
@@ -37,6 +52,8 @@ STRESS_KILL_IMAGES = [
     'linpack_amd32.exe', 'linpack_intel32.exe', 'HWMonitor_x64.exe',
     'hwinfo64.exe', 'hwinfo32.exe',
     'hdsentinel.exe', 'hdsentinel_x64.exe', 'hdsentinel64.exe',
+    # A taskkill /IM elfogadja a '*' jokert - a GPU-Z/CPU-Z exe-neve verziófüggő lehet.
+    'cpuz*', 'gpu-z*', 'zentimings.exe', 'nvidiaprofileinspector.exe',
 ]
 
 

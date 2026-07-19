@@ -1,8 +1,10 @@
-"""DriverVarázsló GUI - Stabilitás Teszt: eszközök letöltése/indítása/leállítása, energiagazdálkodás-zár."""
+"""DriverVarázsló GUI - Stress Teszt & Szervíz Programok: eszközök letöltése/indítása/leállítása,
+energiagazdálkodás-zár. (A telepítés-funkció külön fájlban: app/gui/toolsinstall.py.)"""
 
 # === AUTO-IMPORTS ===
 import ctypes
 import ctypes.wintypes
+import fnmatch
 import os
 import subprocess
 import re
@@ -17,6 +19,7 @@ from app.stress_defs import LINPACK_PROMPT_SCRIPT
 from app.stress_defs import LINPACK_RAM_OPTIONS
 from app.stress_defs import STRESS_CLICK_SEQUENCES
 from app.stress_defs import STRESS_KILL_IMAGES
+from app.stress_defs import STRESS_POWER_LOCK_KEYS
 from app.stress_defs import STRESS_POWER_REG_KEY
 from app.stress_defs import STRESS_POWER_SETTINGS
 from app.stress_defs import STRESS_TOOLS
@@ -29,7 +32,7 @@ from app.win32 import _SHELLEXECUTEINFOW
 
 
 class GuiStressMixin:
-    """Stabilitás Teszt: eszközök letöltése/indítása/leállítása, energiagazdálkodás-zár. A DriverToolApi része (összerakás: app/gui/api.py)."""
+    """Stress Teszt & Szervíz Programok: eszközök letöltése/indítása/leállítása, energiagazdálkodás-zár. A DriverToolApi része (összerakás: app/gui/api.py)."""
 
     # ================================================================
     # STABILITÁS TESZT - energiagazdálkodás (képernyő/alvó mód letiltása közben)
@@ -129,23 +132,25 @@ class GuiStressMixin:
         prioritást jelent (pl. HWiNFO-nál előbb a 64, majd a 32 bites) - ezért nem az
         os.walk bejárási sorrendjében elsőként talált fájlt fogadjuk el, hanem a teljes
         bejárás után, kulcsonként, a legmagasabb prioritású (legkorábbi) filenames-
-        bejegyzést választjuk ki az összes ténylegesen megtalált jelölt közül."""
+        bejegyzést választjuk ki az összes ténylegesen megtalált jelölt közül.
+        Egy filenames-bejegyzés lehet pontos fájlnév vagy fnmatch-minta ('*'/'?') -
+        utóbbi a verziószámot a nevükben hordozó exe-khez kell (pl. GPU-Z.2.68.0.exe)."""
         candidates = {key: {} for key in keys}
         for root, dirs, files in os.walk(stress_dir):
             for file in files:
                 fl = file.lower()
                 for key in keys:
-                    filenames = STRESS_TOOLS[key][1]
-                    if fl in filenames and fl not in candidates[key]:
-                        candidates[key][fl] = os.path.join(root, file)
+                    for idx, pattern in enumerate(STRESS_TOOLS[key][1]):
+                        if '*' in pattern or '?' in pattern:
+                            matched = fnmatch.fnmatch(fl, pattern)
+                        else:
+                            matched = (fl == pattern)
+                        if matched and idx not in candidates[key]:
+                            candidates[key][idx] = os.path.join(root, file)
 
         found = {}
         for key in keys:
-            found[key] = None
-            for fname in STRESS_TOOLS[key][1]:
-                if fname in candidates[key]:
-                    found[key] = candidates[key][fname]
-                    break
+            found[key] = candidates[key][min(candidates[key])] if candidates[key] else None
         return found
 
     def _get_ram_gb(self):
@@ -297,7 +302,28 @@ class GuiStressMixin:
             logging.error(f"[STRESSTOOLS] Indítási hiba - {display_name}: {e}")
             return None
 
-    def _download_stresstools(self):
+    def _stresstools_cache_valid(self, stress_dir):
+        """Csak akkor fogadjuk el a korábban kicsomagolt cache-t, ha a kicsomagolás
+        teljesen lefutott (marker fájl) ÉS az UTÓLAG a ZIP-hez adott komponensek is
+        megvannak benne. Ez utóbbi feltétel nélkül egy olyan gépen, ahol a stressz-teszt
+        funkciót MÁR HASZNÁLTÁK egy frissítés előtt, a marker egy régebbi, hiányos ZIP-ből
+        származna, és a sima marker-ellenőrzés örökre a régi cache-t adná vissza - a friss
+        ZIP-et sosem töltené le újra (terepen bizonyítottan előfordult a SumatraPDF/HP
+        driver hozzáadásakor). A jelenlegi frissesség-őrszemek: SumatraPDF + HP driver
+        (2026-07 eleje), és a legutóbb hozzáadott NVIDIA Profile Inspector (2026-07 vége,
+        a CPU-Z/GPU-Z/ZenTimings bővítéssel egy körben)."""
+        marker_path = os.path.join(stress_dir, ".extract_complete")
+        if not os.path.exists(marker_path):
+            return False
+        if not (self._find_sumatra_exe(stress_dir) and self._find_hp_driver_inf(stress_dir)):
+            return False
+        return bool(self._find_stress_tool_exes(stress_dir, ['nvinspector'])['nvinspector'])
+
+    def _download_stresstools(self, progress=None):
+        """A stresstools.zip letöltése + kicsomagolása a temp alá (cache-elve). progress:
+        opcionális callback(fázis, kész, összes) - fázis 'download' (bájtok, az összes
+        lehet None, ha a szerver nem küld Content-Length-et) vagy 'extract' (fájldarab).
+        A hívó dolga a throttling/megjelenítés."""
         import tempfile, zipfile, shutil
         # WinPE-ben a %TEMP% az X: RAM-diskre mutat - a stressztesztek zip-jét a valódi C: meghajtóra tesszük.
         is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
@@ -311,37 +337,38 @@ class GuiStressMixin:
         zip_path = os.path.join(temp_dir, "stresstools.zip")
         download_url = "https://github.com/egonixaimgod/DriverVarazslo/releases/download/stresstools.zip/stresstools.zip"
 
-        # Csak akkor fogadjuk el a cache-t, ha a kicsomagolás korábban teljesen lefutott ÉS
-        # a SumatraPDF, ÉS a HP driver is megvan benne. Ez utóbbi két feltétel azért kell,
-        # mert mindkettőt UTÓLAG adtuk a stresstools.zip-hez (print_via_store_printer
-        # miatt) - egy olyan gépen, ahol a stressz-teszt funkciót MÁR HASZNÁLTÁK a
-        # frissítés(ek) előtt, a marker fájl egy régebbi, hiányos ZIP-ből származik, és
-        # enélkül a plusz feltétel nélkül a sima marker-ellenőrzés örökre a régi cache-t
-        # adná vissza - a friss ZIP-et sosem töltené le újra (terepen bizonyítottan
-        # előfordul: ezen a gépen is, illetve egy random teszt-gépen is).
-        if os.path.exists(marker_path) and self._find_sumatra_exe(stress_dir) and self._find_hp_driver_inf(stress_dir):
+        if self._stresstools_cache_valid(stress_dir):
             return stress_dir
 
-        # A "Minden teszt indítása" és az egyenkénti gombok is idekerülhetnek egyszerre
+        # A "Stress teszt indítása" és az egyenkénti gombok is idekerülhetnek egyszerre
         # (utóbbiak nem mennek át a _task_busy-n, hogy egymás után gyorsan lehessen indítani
         # több eszközt is) - lock nélkül két egyidejű hívás ugyanabba a zip_path/stress_dir
         # mappába írna/csomagolna ki párhuzamosan, ami korrupciót okozhatna.
         with self._stresstools_download_lock:
             # Amíg a lock-ra vártunk, egy másik szál esetleg már befejezte a letöltést.
-            if os.path.exists(marker_path) and self._find_sumatra_exe(stress_dir) and self._find_hp_driver_inf(stress_dir):
+            if self._stresstools_cache_valid(stress_dir):
                 return stress_dir
             try:
                 # A friss-Windows tanúsítvány-fallback a közös
                 # common.download_with_cert_fallback-ben él (hibánál kivétel -> lenti except -> None).
+                dl_cb = (lambda done, total: progress('download', done, total)) if progress else None
                 download_with_cert_fallback(self._run, download_url, zip_path,
-                                            timeout=60, ps_timeout=600, log_tag='STRESSTOOLS')
+                                            timeout=60, ps_timeout=600, log_tag='STRESSTOOLS',
+                                            progress_cb=dl_cb)
 
                 if not zipfile.is_zipfile(zip_path):
                     return None
                 if os.path.exists(stress_dir):
                     shutil.rmtree(stress_dir, ignore_errors=True)
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(stress_dir)
+                    members = zip_ref.infolist()
+                    for i, member in enumerate(members):
+                        zip_ref.extract(member, stress_dir)
+                        if progress:
+                            try:
+                                progress('extract', i + 1, len(members))
+                            except Exception as cb_err:
+                                logging.debug(f"[STRESSTOOLS] extract progress hiba (figyelmen kívül hagyva): {cb_err}")
                 try: os.remove(zip_path)
                 except Exception as e: logging.debug(f"[STRESSTOOLS] Letöltött ZIP törlése sikertelen: {e}")
                 with open(marker_path, 'w') as f:
@@ -351,16 +378,64 @@ class GuiStressMixin:
                 logging.error(f"[STRESSTOOLS] Download hiba: {e}")
                 return None
 
+    def _stress_dl_progress_emitter(self, label):
+        """Throttlingolt progress-callback gyár a stresstools.zip letöltéséhez: a
+        'stress_dl_progress' UI-eseményt legfeljebb ~0.3 mp-enként bocsátja ki (a
+        letöltés 256 KB-onként hívna - az emit + [EMIT] lognál ez már churn lenne).
+        A hívó felelőssége a végén az {'active': False} esemény kibocsátása (finally!)."""
+        state = {'last': 0.0}
+
+        def cb(phase, done, total):
+            now = time.time()
+            is_final = bool(total) and done >= total
+            if now - state['last'] < 0.3 and not is_final:
+                return
+            state['last'] = now
+            if phase == 'download':
+                if total:
+                    self.emit('stress_dl_progress', {
+                        'active': True, 'percent': int(done * 100 / total),
+                        'label': f'🌐 {label}: csomag letöltése — {done / 1048576:.0f} / {total / 1048576:.0f} MB'})
+                else:
+                    self.emit('stress_dl_progress', {
+                        'active': True, 'percent': None,
+                        'label': f'🌐 {label}: csomag letöltése — {done / 1048576:.0f} MB'})
+            else:
+                self.emit('stress_dl_progress', {
+                    'active': True, 'percent': int(done * 100 / total) if total else None,
+                    'label': f'📦 {label}: kicsomagolás — {done}/{total} fájl'})
+        return cb
+
     def start_stress_tests(self):
         logging.info("[API] start_stress_tests()")
 
         def worker():
             try:
-                self.emit('task_start', {'task': 'stress', 'title': 'Stabilitás Teszt Indítása'})
+                self.emit('task_start', {'task': 'stress', 'title': 'Stress Teszt Indítása'})
                 self._lock_power_for_stress()
                 self.emit('task_progress', {'task': 'stress', 'log': '🌐 Tesztprogramok (ZIP) letöltése a háttérben...', 'indeterminate': True})
 
-                stress_dir = self._download_stresstools()
+                # Letöltési/kicsomagolási progress a modal sávjába (throttlingolva - a
+                # letöltés 256 KB-onként hív, emitenként [EMIT] log is születik).
+                dl_state = {'last': 0.0}
+
+                def dl_progress(phase, done, total):
+                    now = time.time()
+                    if now - dl_state['last'] < 0.4 and not (total and done >= total):
+                        return
+                    dl_state['last'] = now
+                    if phase == 'download':
+                        if total:
+                            self.emit('task_progress', {'task': 'stress', 'current': done, 'total': total,
+                                                        'status': f'🌐 Letöltés: {done / 1048576:.0f} / {total / 1048576:.0f} MB'})
+                        else:
+                            self.emit('task_progress', {'task': 'stress', 'indeterminate': True,
+                                                        'status': f'🌐 Letöltés: {done / 1048576:.0f} MB'})
+                    else:
+                        self.emit('task_progress', {'task': 'stress', 'current': done, 'total': total,
+                                                    'status': f'📦 Kicsomagolás: {done}/{total} fájl'})
+
+                stress_dir = self._download_stresstools(progress=dl_progress)
                 if not stress_dir:
                     raise Exception("Hiba a ZIP letöltésekor vagy kicsomagolásakor (Helytelen ZIP / Nincs net).")
 
@@ -460,10 +535,19 @@ class GuiStressMixin:
         self._safe_thread('stress', worker)
 
     def start_stress_tool(self, name):
-        """Egyetlen stabilitás-teszt/monitor program elindítása (a Stabilitás Teszt nézet
-        5 kis ikonja hívja). Tudatosan NEM megy át a task_start/progress-modal rendszeren -
-        a felhasználó kifejezett kérése, hogy egy gombnyomásra csendben, ablak/dialógus
-        nélkül induljon el a program, csak egy rövid toast-tal tájékoztatva."""
+        """Egyetlen szervíz-/teszt program elindítása (a Stress Teszt nézet program-
+        kártyái hívják). Tudatosan NEM megy át a task_start/progress-modal rendszeren -
+        egy gombnyomásra csendben induljon el, csak toast + (első letöltésnél) a nézetbe
+        ágyazott 'stress_dl_progress' folyamat-sáv tájékoztat.
+
+        Egyenkénti indításnál SZÁNDÉKOSAN NINCS SEMMILYEN AUTOMATIZÁLÁS (kifejezett
+        felhasználói kérés, 2026-07): se dialógus-nyomkodás, se Linpack menü-kitöltés,
+        se HWiNFO INI-írás, se ablak-pozicionálás - a program a saját beállító
+        képernyőjével indul, mindent a felhasználó állít be. Az automatizált út KIZÁRÓLAG
+        a start_stress_tests ("Stress teszt indítása" gomb). Ha a program korábban
+        telepítésre került (install_service_tools), a telepített példány indul - így nem
+        kell hozzá a temp-beli csomag (se letöltés); egyébként portable módban, a
+        letöltött csomagból fut."""
         logging.info(f"[API] start_stress_tool({name})")
         info = STRESS_TOOLS.get(name)
         if not info:
@@ -474,37 +558,53 @@ class GuiStressMixin:
         def worker():
             import tempfile
             try:
-                self._lock_power_for_stress()
+                # Infó-eszközöknél (CPU-Z, GPU-Z...) nem nyúlunk az energiagazdálkodáshoz.
+                if name in STRESS_POWER_LOCK_KEYS:
+                    self._lock_power_for_stress()
 
-                is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
-                temp_dir = r'C:\DV_Temp' if is_pe else tempfile.gettempdir()
-                marker_path = os.path.join(temp_dir, "DriverVarázsló_Stress", ".extract_complete")
-                if not os.path.exists(marker_path):
-                    self.emit('toast', {'message': f'⏳ {display_name}: első indítás, tesztprogramok letöltése (eltarthat egy percig)...', 'type': 'info'})
+                # Telepített példány előnyben: nincs letöltés, a Program Files alól indul.
+                exe_path = self._find_installed_tool_exe(name)
+                if exe_path:
+                    logging.info(f"[STRESSTOOLS] {display_name}: telepített példány indul: {exe_path}")
+                else:
+                    is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
+                    temp_dir = r'C:\DV_Temp' if is_pe else tempfile.gettempdir()
+                    marker_path = os.path.join(temp_dir, "DriverVarázsló_Stress", ".extract_complete")
+                    if not os.path.exists(marker_path):
+                        self.emit('toast', {'message': f'⏳ {display_name}: első indítás, a programcsomag letöltése következik...', 'type': 'info'})
 
-                stress_dir = self._download_stresstools()
-                if not stress_dir:
-                    self.emit('toast', {'message': f'❌ Hiba a tesztprogramok letöltésekor/kicsomagolásakor ({display_name})!', 'type': 'error'})
-                    return
-
-                exe_path = self._find_stress_tool_exes(stress_dir, [name])[name]
-
-                if not exe_path or not os.path.exists(exe_path):
-                    self.emit('toast', {'message': f'⚠️ {display_name} nem található a letöltött csomagban!', 'type': 'warning'})
-                    return
-
-                if name == 'hwinfo':
                     try:
-                        # CheckForUpdate=0 - lásd a start_stress_tests azonos sorát.
-                        ini_path = os.path.join(os.path.dirname(exe_path), "HWiNFO64.INI")
-                        with open(ini_path, "w") as f:
-                            f.write("[Settings]\nSensorsOnly=1\nCheckForUpdate=0\n")
-                    except Exception as e:
-                        logging.debug(f"[STRESSTOOLS] HWiNFO64.INI írása sikertelen (az update-értesítőt a kattintás-szekvencia kezeli): {e}")
+                        stress_dir = self._download_stresstools(progress=self._stress_dl_progress_emitter(display_name))
+                    finally:
+                        self.emit('stress_dl_progress', {'active': False})
+                    if not stress_dir:
+                        self.emit('toast', {'message': f'❌ Hiba a programcsomag letöltésekor/kicsomagolásakor ({display_name})!', 'type': 'error'})
+                        return
 
-                console_script = self._build_linpack_console_script() if name == 'linpack' else None
-                click_sequence = STRESS_CLICK_SEQUENCES.get(name)
-                pid = self._launch_stress_exe(exe_path, display_name, console_script=console_script, click_sequence=click_sequence)
+                    exe_path = self._find_stress_tool_exes(stress_dir, [name])[name]
+
+                    if not exe_path or not os.path.exists(exe_path):
+                        self.emit('toast', {'message': f'⚠️ {display_name} nem található a letöltött csomagban!', 'type': 'warning'})
+                        return
+
+                    if name == 'hwinfo':
+                        # Ha egy korábbi automatizált futás (start_stress_tests) beírta a
+                        # SensorsOnly=1 INI-t a portable mappába, azt itt eltávolítjuk -
+                        # egyenkénti indításnál a felhasználó maga választ módot. Csak a
+                        # PONTOSAN általunk írt tartalmat töröljük, kézzel átírt INI-hez
+                        # nem nyúlunk.
+                        try:
+                            ini_path = os.path.join(os.path.dirname(exe_path), "HWiNFO64.INI")
+                            if os.path.exists(ini_path):
+                                with open(ini_path, "r") as f:
+                                    content = f.read()
+                                if content == "[Settings]\nSensorsOnly=1\nCheckForUpdate=0\n":
+                                    os.remove(ini_path)
+                                    logging.info("[STRESSTOOLS] Automatizált futásból maradt HWiNFO64.INI eltávolítva (egyenkénti indítás, teljes kontroll a felhasználónál).")
+                        except Exception as e:
+                            logging.debug(f"[STRESSTOOLS] HWiNFO64.INI ellenőrzése/törlése sikertelen: {e}")
+
+                pid = self._launch_stress_exe(exe_path, display_name)
                 if pid:
                     if pid > 0:
                         self._stress_pids[name] = pid  # stop_stress_tests innen tudja, mit kell kilőni
