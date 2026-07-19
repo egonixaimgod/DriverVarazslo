@@ -331,6 +331,24 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
     <div class="content">
       <!-- VIEW: Drivers -->
       <div class="view active" id="view-drivers">
+        <!-- Üdvözlő hero - a program "kirakata", mindig legfelül -->
+        <div class="view-hero" data-emoji="🧙‍♂️">
+          <div class="vh-text">
+            <div class="vh-title">🧙‍♂️ Üdvözöllek a DriverVarázslóban!</div>
+            <div class="vh-sub">A szervizgép teljes driver- és karbantartó műhelye egyetlen programban: driverek kezelése, mentése és visszaállítása élő rendszeren és offline (WinPE) módban is, automatikus 1 kattintásos rendberakás, stress-tesztek és szervíz programok, igényes riport a vevőnek — minden, ami egy behozott géphez kell.</div>
+          </div>
+          <div class="welcome-features" style="flex-basis:100%">
+            <div class="welcome-feature"><span class="fi">💿</span><span><b>Driverkezelés</b> — listázás, erőszakos törlés, mentés/visszaállítás, offline (WinPE) módban is</span></div>
+            <div class="welcome-feature"><span class="fi">🚀</span><span><b>1 Kattintásos Driver Fix</b> — teljes driver-csere WU + Catalog forrásból, újraindítás-lánccal</span></div>
+            <div class="welcome-feature"><span class="fi">🖥️</span><span><b>Driver Keresés</b> — WU + Microsoft Update Catalog, NVIDIA/AMD/Intel gyári driver-ellenőrzéssel</span></div>
+            <div class="welcome-feature"><span class="fi">🔄</span><span><b>Windows Update felügyelet</b> — driver-frissítések letiltása, teljes WU-szünet akár 10 évre</span></div>
+            <div class="welcome-feature"><span class="fi">👻</span><span><b>Szellemeszközök</b>, <b>Temp fájlok</b> és <b>DriverStore</b> takarítása egy kattintással</span></div>
+            <div class="welcome-feature"><span class="fi">🔥</span><span><b>Stress Teszt & Szervíz Programok</b> — automata 4-in-1 teszt, portable vagy telepíthető eszközök</span></div>
+            <div class="welcome-feature"><span class="fi">📊</span><span><b>Rendszer Riport</b> — S.M.A.R.T. és hőfok-adatokkal, egy kattintásos bolti nyomtatással</span></div>
+            <div class="welcome-feature"><span class="fi">🔧</span><span><b>BitLocker kezelő</b>, <b>Net Blokkoló</b> és <b>BootFixer</b> — ha a Windows nem indul</span></div>
+          </div>
+        </div>
+
         <div class="panel glass">
           <div class="panel-header-row">
             <div class="panel-title"><span class="emoji">💿</span> Harmadik féltől származó driverek</div>
@@ -398,23 +416,6 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
           </div>
         </div>
 
-        <div class="panel glass welcome-panel">
-          <div class="welcome-header">
-            <div class="welcome-emoji">🧙‍♂️</div>
-            <div>
-              <div class="welcome-title">Üdvözöllek a DriverVarázsló programban!</div>
-              <div class="welcome-sub">Egyetlen program, ami a legtöbb driveres és rendszer-karbantartási fejfájást megoldja neked.</div>
-            </div>
-          </div>
-          <div class="welcome-features">
-            <div class="welcome-feature"><span class="fi">💿</span><span><b>Driverkezelés</b> — listázás, erőszakos törlés, mentés/visszaállítás, akár offline (WinPE) módban is</span></div>
-            <div class="welcome-feature"><span class="fi">⚡</span><span><b>1 Kattintásos Driver Fix</b> — automatikus driver-frissítés, reteszelt lépésekkel és újraindítás-lánccal</span></div>
-            <div class="welcome-feature"><span class="fi">🔄</span><span><b>Windows Update felügyelet</b> — driverfrissítések letiltása vagy szüneteltetése</span></div>
-            <div class="welcome-feature"><span class="fi">👻</span><span><b>Szellemeszközök</b> és <b>Temp fájlok</b> takarítása egy kattintással</span></div>
-            <div class="welcome-feature"><span class="fi">🔥</span><span><b>Stress Teszt</b>, <b>Szervíz Programok</b> és <b>Rendszer Riport</b> — S.M.A.R.T. adatokkal</span></div>
-            <div class="welcome-feature"><span class="fi">🔧</span><span><b>BCD Boot-hiba Javítás</b> — ha a Windows driver miatt nem indul el</span></div>
-          </div>
-        </div>
       </div>
 
       <!-- VIEW: Backup -->
@@ -1163,7 +1164,15 @@ async function changeTarget() {
       const ok = await showConfirm('Nincs Windows mappa', 'Nem találok Windows mappát ezen az útvonalon:\n' + res.path + '\n\nBiztosan ezt választod?');
       if (!ok) return;
     }
-    await api().apply_target_os(res.path);
+    const applied = await api().apply_target_os(res.path);
+    if (applied !== true) {
+      // A futó rendszer meghajtója lett kiválasztva: a backend élő módban tartott
+      // (offline /Image: a futó Windowsra DISM 87-es hibát adna) és toastolt.
+      const data = await api().get_init_data();
+      updateTargetLabel(null, data.sys_drive);
+      loadDrivers();
+      return;
+    }
     updateTargetLabel(res.path);
     toast('Célpont beállítva: ' + res.path, 'info');
     loadDrivers();

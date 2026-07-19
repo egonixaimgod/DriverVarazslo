@@ -250,6 +250,21 @@ class GuiBaseMixin:
 
     def apply_target_os(self, path):
         logging.info(f"[API] apply_target_os({path})")
+        # A FUTÓ rendszer meghajtó-gyökere nem lehet offline cél: a DISM a futó
+        # Windowsra /Image:-ként 87-es hibával elszáll ("The /Image option ... points
+        # to a running Windows installation"), és minden lista üresen ("0 driver")
+        # jönne vissza - terepi logból (Build 208) azonosított eset, amikor a "Másik
+        # lemez kiválasztása" gombbal a C:\-t választották. Ilyenkor élő módban
+        # maradunk, ami pont ugyanazt a rendszert kezeli, csak a helyes (/Online) úton.
+        try:
+            sys_root = os.path.normcase(os.path.normpath(os.environ.get('SystemDrive', 'C:') + '\\'))
+            if os.path.normcase(os.path.normpath(path)) == sys_root:
+                self.target_os_path = None
+                self.emit('toast', {'message': 'ℹ️ Ez a most futó rendszer meghajtója - Élő módban kezeljük (az offline mód csak másik/nem bootolt Windowsra való).', 'type': 'info'})
+                logging.info("[API] apply_target_os: a futó rendszer gyökere lett kiválasztva -> élő mód marad.")
+                return False
+        except Exception as e:
+            logging.debug(f"[API] apply_target_os élő-meghajtó ellenőrzés kihagyva: {e}")
         self.target_os_path = path
         return True
 
