@@ -236,6 +236,22 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .btn-autofix-hero:hover{box-shadow:0 10px 40px rgba(180,100,255,0.55);transform:translateY(-1px)}
 .btn-autofix-hero:active{transform:scale(0.98)}
 
+/* Egységes nézet-fejléc "hero" kártyák - a Stress Teszt oldal dizájnrendszere,
+   minden nézet tetején ugyanez a minta: nagy cím + leírás + funkció-chipek balra,
+   fő akciógomb(ok) jobbra, halvány emoji-vízjel a sarokban (data-emoji attribútum). */
+.view-hero{position:relative;overflow:hidden;padding:24px 26px;margin-bottom:16px;display:flex;align-items:center;gap:22px;flex-wrap:wrap;background:linear-gradient(135deg,rgba(140,80,255,0.18),rgba(80,40,180,0.12) 55%,var(--glass));border:1px solid rgba(180,100,255,0.4);border-radius:var(--r);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
+.view-hero::before{content:attr(data-emoji);position:absolute;right:-14px;bottom:-30px;font-size:130px;opacity:0.07;pointer-events:none;transform:rotate(-12deg)}
+.vh-text{flex:1;min-width:280px}
+.vh-title{font-size:19px;font-weight:800;margin-bottom:6px;display:flex;align-items:center;gap:10px}
+.vh-sub{font-size:12.5px;color:var(--text2);line-height:1.65}
+.vh-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.hero-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;background:rgba(180,100,255,0.14);border:1px solid rgba(180,100,255,0.3);font-size:11.5px;color:var(--text2);white-space:nowrap}
+.vh-actions{display:flex;flex-direction:column;gap:10px;align-items:stretch;position:relative;z-index:1}
+/* Színvariánsok a funkció karakteréhez (piros=veszélyes/blokkoló, kék=Windows/rendszer, zöldeskék=mentés/riport) */
+.view-hero.vh-red{background:linear-gradient(135deg,rgba(255,100,90,0.15),rgba(150,50,90,0.12) 55%,var(--glass));border-color:rgba(255,100,90,0.4)}
+.view-hero.vh-blue{background:linear-gradient(135deg,rgba(90,160,255,0.15),rgba(60,80,200,0.12) 55%,var(--glass));border-color:rgba(100,180,255,0.4)}
+.view-hero.vh-teal{background:linear-gradient(135deg,rgba(80,220,200,0.13),rgba(40,120,140,0.12) 55%,var(--glass));border-color:rgba(100,220,200,0.35)}
+
 /* WU Status */
 .wu-status{font-size:16px;font-weight:700;text-align:center;padding:18px;border-radius:var(--r-sm);margin-bottom:18px}
 .wu-status.enabled{background:rgba(212,136,255,0.2);color:var(--green);border:2px solid rgba(212,136,255,0.4)}
@@ -367,7 +383,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
         <div class="autofix-hero">
           <div class="autofix-hero-text">
             <div class="autofix-hero-title">🚀 1 Kattintásos Driver Fix</div>
-            <div class="autofix-hero-sub">A teljes driver-rendberakás egyetlen gombbal: visszaállítási pont, a Windows Update driver-frissítéseinek letiltása, szellemeszközök és third-party driverek törlése (nyomtató- és hálózatikártya-védelemmel), majd a legfrissebb driverek automatikus telepítése a Windows Update-ről és a Microsoft Update Catalogból — újraindítás-lánccal, felügyelet nélkül. A végén a DriverStore-t is kitakarítja az elavult driver-verzióktól.</div>
+            <div class="autofix-hero-sub">A teljes driver-rendberakás egyetlen gombbal: visszaállítási pont, a Windows Update driver-frissítéseinek letiltása, szellemeszközök és MINDEN third-party driver törlése — a hálózati drivert is beleértve (csak a nyomtató-driverek hagyhatók ki a pipával) —, majd a legfrissebb driverek automatikus telepítése a Windows Update-ről és a Microsoft Update Catalogból, újraindítás-lánccal, felügyelet nélkül. Ha a fix után mégsem lenne internet, a törlés előtt lementett hálózati driver automatikusan visszakerül, hogy a lánc ne ragadjon meg. A végén a DriverStore-t is kitakarítja.</div>
             <div class="stress-hero-chips">
               <span class="autofix-chip">🛟 Visszaállítási pont</span>
               <span class="autofix-chip">👻 Szellemeszköz-törlés</span>
@@ -403,7 +419,18 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 
       <!-- VIEW: Backup -->
       <div class="view" id="view-backup">
-        <div class="panel-title"><span class="emoji">💾</span> Mentés és Visszaállítás</div>
+        <div class="view-hero vh-teal" data-emoji="💾">
+          <div class="vh-text">
+            <div class="vh-title">💾 Mentés és Visszaállítás</div>
+            <div class="vh-sub">Driver-mentés és -visszaállítás élő rendszeren és offline (WinPE) módban, tiszta gyári driverek kinyerése Windows ISO-ból, visszaállítási pont és boot-javító eszköz — minden, ami a biztonságos szervizeléshez kell.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">📦 Teljes driver-export</span>
+              <span class="hero-chip">♻️ Offline visszaállítás (DISM)</span>
+              <span class="hero-chip">📀 ISO/WIM kinyerés</span>
+              <span class="hero-chip">🔧 BootFixer</span>
+            </div>
+          </div>
+        </div>
         <div class="cards">
           <div class="card glass">
             <div class="card-title">📦 Third-Party Driver Mentés</div>
@@ -441,8 +468,21 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 
       <!-- VIEW: Windows Update -->
       <div class="view" id="view-wu">
+        <div class="view-hero vh-blue" data-emoji="🔄">
+          <div class="vh-text">
+            <div class="vh-title">🔄 Windows Update Felügyelet</div>
+            <div class="vh-sub">Teljes kontroll a Windows Update felett: a driver-frissítések végleges letiltása, hogy a WU ne írja felül a kézzel telepített drivereket — vagy az egész Windows Update szüneteltetése akár 10 évre. Bármelyik egyetlen gombbal visszakapcsolható, adat nem vész el.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">⛔ Driver-frissítés letiltás</span>
+              <span class="hero-chip">⏳ Halmozható +1 hét szünet</span>
+              <span class="hero-chip">🛑 10 év szünet</span>
+              <span class="hero-chip">▶️ Egy gombos visszakapcsolás</span>
+            </div>
+          </div>
+        </div>
+
         <div class="panel glass">
-          <div class="panel-title"><span class="emoji">🔄</span> Windows Update Driver Frissítések Beállításai</div>
+          <div class="panel-title"><span class="emoji">⚙️</span> Driver-frissítések állapota és kapcsolói</div>
           <div class="wu-status unknown" id="wu-status">Állapot: Ismeretlen</div>
           <div class="wu-actions">
             <button class="btn btn-danger" onclick="disableWu()">⛔ WU Driver Letiltás</button>
@@ -464,6 +504,18 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 
       <!-- VIEW: Hardware Info -->
       <div class="view" id="view-hw">
+        <div class="view-hero vh-blue" data-emoji="🖥️">
+          <div class="vh-text">
+            <div class="vh-title">🖥️ Driver Keresés és Telepítés</div>
+            <div class="vh-sub">Végigszkenneli a gép összes hardverét, és a Windows Update-ről + a Microsoft Update Catalogból megkeresi hozzájuk a legfrissebb drivereket — a telepített verziókkal összevetve, hogy csak a tényleges frissítés látszódjon. A hibás (sárga felkiáltójeles) eszközöket külön kiemeli, és a gyári NVIDIA/AMD/Intel drivereket is ellenőrzi.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">🌐 WU + Catalog keresés</span>
+              <span class="hero-chip">⚠️ Hibás eszközök kiemelve</span>
+              <span class="hero-chip">🎮 NVIDIA/AMD/Intel gyári driver</span>
+              <span class="hero-chip">🛟 LAN mentőcsomag</span>
+            </div>
+          </div>
+        </div>
         <div class="panel glass">
           <div class="sys-info" id="sys-info">Rendszer információk betöltése...</div>
           <div class="toolbar">
@@ -489,18 +541,38 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 
       <!-- VIEW: Ghost Devices -->
       <div class="view" id="view-ghost">
-        <div class="panel glass">
-          <div class="panel-title"><span class="emoji">👻</span> Szellem- és Fantomeszközök Törlése</div>
-          <p style="margin-bottom: 16px; color: var(--text3);">Eltávolítja a Registry-ből és az Eszközkezelőből (Device Manager) mindazokat a hardvereket, amelyek korábban csatlakoztatva voltak, de fizikailag már nincsenek a gépben (pl. klónozott rendszereknél megmaradt régi hardverek). Tisztább lesz tőle a Windows és gyorsulhat a rendszer.</p>
-          <button class="btn btn-big btn-primary" onclick="deleteGhostDevices()" id="btn-ghost">👻 Szellemeszközök Törlése</button>
+        <div class="view-hero" data-emoji="👻">
+          <div class="vh-text">
+            <div class="vh-title">👻 Szellem- és Fantomeszközök Törlése</div>
+            <div class="vh-sub">Eltávolítja a Registry-ből és az Eszközkezelőből mindazokat a hardvereket, amelyek korábban csatlakoztatva voltak, de fizikailag már nincsenek a gépben — klónozott vagy sokat szerelt rendszereknél akár több száz ilyen bejegyzés is felgyűlhet. Tisztább lesz tőle a Windows, és gyorsulhat a rendszerindítás.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">🧹 Registry-tisztítás</span>
+              <span class="hero-chip">🔒 Csak nem jelenlévő eszközök</span>
+              <span class="hero-chip">⚡ Klónozott gépek kedvence</span>
+            </div>
+          </div>
+          <div class="vh-actions">
+            <button class="btn btn-big btn-primary" onclick="deleteGhostDevices()" id="btn-ghost">👻 Szellemeszközök Törlése</button>
+          </div>
         </div>
       </div>
 
       <!-- VIEW: Temp Fájlok Törlése -->
       <div class="view" id="view-tempclean">
+        <div class="view-hero" data-emoji="🧹">
+          <div class="vh-text">
+            <div class="vh-title">🧹 Temp Fájlok Törlése</div>
+            <div class="vh-sub">Kitakarítja a Windows ideiglenes fájljait és gyorsítótárait, hogy helyet szabadítson fel a meghajtón. A zárolt (épp használatban lévő) fájlokat automatikusan kihagyja — egyetlen beragadt fájl miatt sem áll le a törlés. Lentebb a DriverStore elavult driver-verzióit is kitakaríthatod.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">👤 TEMP mappák</span>
+              <span class="hero-chip">🔄 WU gyorsítótár</span>
+              <span class="hero-chip">🎨 Színprofil-szemét (HP!)</span>
+              <span class="hero-chip">🧹 DriverStore-takarítás</span>
+            </div>
+          </div>
+        </div>
         <div class="panel glass">
-          <div class="panel-title"><span class="emoji">🧹</span> Temp Fájlok Törlése (Lemez Felszabadítás)</div>
-          <p style="margin-bottom: 16px; color: var(--text3);">Kitakarítja a Windows ideiglenes fájljait, hogy helyet szabadítson fel a meghajtón. A zárolt (épp használatban lévő) fájlokat automatikusan kihagyja, ezekkel nem áll le a törlés. Válaszd ki, mit takarítson ki:</p>
+          <div class="panel-title"><span class="emoji">☑️</span> Válaszd ki, mit takarítson ki</div>
 
           <div style="display:flex; flex-direction:column; gap:14px; margin-bottom:20px;">
             <label class="toggle" title="A jelenlegi felhasználó ideiglenes fájljai (%TEMP% mappa) - böngésző/telepítő/egyéb programok által hátrahagyott törmelék.">
@@ -592,28 +664,51 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 
       <!-- VIEW: BitLocker -->
       <div class="view" id="view-bitlocker">
+        <div class="view-hero vh-red" data-emoji="🔒">
+          <div class="vh-text">
+            <div class="vh-title">🔒 BitLocker Kezelő</div>
+            <div class="vh-sub">A rendszermeghajtó BitLocker-titkosításának állapota és végleges kikapcsolása (dekódolás). A dekódolás a meghajtó méretétől és sebességétől függően akár órákig is eltarthat a háttérben — a gép közben használható, csak lassabb lehet.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">🔍 Állapot egy pillantásra</span>
+              <span class="hero-chip">🔓 Végleges dekódolás</span>
+              <span class="hero-chip">⏱️ Háttérben fut</span>
+            </div>
+          </div>
+          <div class="vh-actions">
+            <button class="btn btn-big btn-danger" onclick="disableBitlocker()" id="btn-bitlocker">🔓 BitLocker Kikapcsolása</button>
+            <button class="btn btn-sm" onclick="checkBitlockerStatus()" style="justify-content:center">🔄 Állapot Frissítése</button>
+          </div>
+        </div>
         <div class="panel glass">
-          <div class="panel-title"><span class="emoji">🔒</span> BitLocker Kezelő (Végleges Dekódolás)</div>
-          <p style="margin-bottom: 16px; color: var(--text3);">Ezzel a funkcióval véglegesen kikapcsolhatod a BitLocker meghajtótitkosítást. FIGYELEM: A dekódolás a meghajtó méretétől és sebességétől függően akár órákig is eltarthat a háttérben. A gép közben használható, de sebességcsökkenés tapasztalható.</p>
           <div class="wu-status unknown" id="bl-status">Állapot lekérdezése...</div>
-          <button class="btn btn-big btn-danger" onclick="disableBitlocker()" id="btn-bitlocker">🔓 BitLocker Végleges Kikapcsolása (Dekódolás)</button>
-          <button class="btn" onclick="checkBitlockerStatus()" style="margin-left: 10px;">🔄 Állapot Frissítése</button>
         </div>
       </div>
 
       <!-- VIEW: AutoFix -->
       <div class="view" id="view-autofix">
+        <div class="view-hero" data-emoji="🚀">
+          <div class="vh-text">
+            <div class="vh-title">🚀 1 Kattintásos Driver Fix</div>
+            <div class="vh-sub">A teljes driver-rendberakás felügyelet nélkül: visszaállítási pont, a Gyors Rendszerindítás (Fast Startup) és a WU driver-frissítések letiltása, szellemeszközök és MINDEN third-party driver törlése — a hálózati (LAN/Wi-Fi) drivert is beleértve, azt mindig frissre cseréli; egyedül a nyomtató-driverek hagyhatók ki a pipával —, majd a legfrissebb driverek automatikus telepítése a Windows Update-ről és a Microsoft Update Catalogból, újraindítás-lánccal, ami magától folytatja, amíg van új driver. Ha a fix után nem lenne internet, a törlés előtt lementett hálózati driver automatikusan visszakerül. A végén a DriverStore-t is kitakarítja, és összefoglalót ad.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">🛟 Visszaállítási pont</span>
+              <span class="hero-chip">🖨️ Nyomtató-védelem</span>
+              <span class="hero-chip">🛜 NIC mentőháló</span>
+              <span class="hero-chip">🔁 Újraindítás-lánc</span>
+              <span class="hero-chip">📊 Záró összefoglaló</span>
+            </div>
+          </div>
+          <div class="vh-actions">
+            <button class="btn-autofix-hero" onclick="startAutoFix()" id="btn-autofix">🚀 FIX INDÍTÁSA</button>
+          </div>
+        </div>
+
         <div class="panel glass">
-          <div class="panel-title"><span class="emoji">🚀</span> 1 Kattintásos Driver Fix</div>
-          <p style="margin-bottom: 16px; color: var(--text3);">Ez a funkció automatikusan elkészíti a registry mentést (Restore Point), letiltja a Windows Gyors Rendszerindítását (Fast Startup) és az automata WU driver frissítést, törli a third-party drivereket, majd frissíti őket a legújabbakra (automatikus letöltés WU-ról), és végül újraindítja a gépet.</p>
-          
-          <div style="background: rgba(255, 100, 90, 0.1); border: 1px solid rgba(255, 100, 90, 0.4); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+          <div style="background: rgba(255, 100, 90, 0.1); border: 1px solid rgba(255, 100, 90, 0.4); padding: 15px; border-radius: 8px;">
             <div style="color: var(--red); font-weight: bold; margin-bottom: 8px;">⚠️ FIGYELEM: WINDOWS DEFENDER</div>
             <p style="color: var(--text2); font-size: 13px; margin-bottom: 12px; line-height: 1.5;">A Windows Defender "vírusnak" nézheti és futás közben gondolkodás nélkül letörölheti a Varázslót a háttérben futó scriptek és a mély rendszer-módosítások miatt. <strong>Kérlek, feltétlenül kapcsold ki a "Valós idejű védelmet", mielőtt rányomsz a Fix indítására!</strong></p>
             <button class="btn btn-sm" style="background: rgba(255, 100, 90, 0.2); border-color: rgba(255, 100, 90, 0.5); color: #fff;" onclick="api().open_defender()">🛡️ Windows Defender Megnyitása</button>
           </div>
-
-          <button class="btn btn-big btn-primary" onclick="startAutoFix()" id="btn-autofix">🚀 FIX INDÍTÁSA</button>
         </div>
       </div>
 
@@ -660,18 +755,37 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 
       <!-- VIEW: Report (PDF) -->
       <div class="view" id="view-report">
-        <div class="panel glass">
-          <div class="panel-title"><span class="emoji">📊</span> Rendszer Riport (HTML Gépkönyv)</div>
-          <p style="margin-bottom: 16px; color: var(--text3);">Egy szép, modern HTML dokumentumot generál a számítógép hardveres adatairól (CPU, Memória, Videókártyák, és Háttértárak S.M.A.R.T. adatai), amit a böngésződben megnyitva akár PDF-be is lementhetsz vagy kinyomtathatsz. A fájl a <code>C:\DriverVarazslo</code> mappába kerül mentésre.</p>
-          <button class="btn btn-big btn-success" onclick="generateSystemReport()" id="btn-report">📄 HTML Riport Generálása</button>
+        <div class="view-hero vh-teal" data-emoji="📊">
+          <div class="vh-text">
+            <div class="vh-title">📊 Rendszer Riport (HTML Gépkönyv)</div>
+            <div class="vh-sub">Igényes, nyomtatható HTML gépkönyvet generál a számítógép hardveréről: CPU, memória, videokártya (valódi VRAM-mérettel), és a háttértárak S.M.A.R.T. egészség-adatai hőmérséklettel. A böngészőben megnyitva PDF-be menthető vagy egy kattintással a bolti nyomtatóra küldhető. A fájl a <code>C:\DriverVarazslo</code> mappába kerül.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">💾 S.M.A.R.T. + hőfok</span>
+              <span class="hero-chip">🎮 Valódi VRAM-méret</span>
+              <span class="hero-chip">📝 Megjegyzés-sor a vevőnek</span>
+              <span class="hero-chip">🖨️ Bolti nyomtatás</span>
+            </div>
+          </div>
+          <div class="vh-actions">
+            <button class="btn btn-big btn-success" onclick="generateSystemReport()" id="btn-report">📄 HTML Riport Generálása</button>
+          </div>
         </div>
       </div>
 
       <div class="view" id="view-blockscript">
-        <div class="panel glass">
-          <div class="panel-title"><span class="emoji">🚫</span> Net Blokkoló Script (block.bat)</div>
-          <p style="margin-bottom: 16px; color: var(--text3);">Letölti a <code>block.bat</code> scriptet a <code>C:\DriverVarazslo</code> mappába. A script - ha később futtatod - a saját mappájában (és az összes almappájában) található minden <code>.exe</code> kimenő internet-elérését letiltja a Windows tűzfalban. A gomb <b>csak letölti</b> a fájlt, nem futtatja: másold be abba a mappába, amit blokkolni akarsz, és dupla kattintással indítsd - az admin jogot magától kéri (UAC), csak fogadd el.</p>
-          <button class="btn btn-big btn-primary" onclick="downloadBlockScript()" id="btn-blockscript">⬇️ block.bat Letöltése</button>
+        <div class="view-hero vh-red" data-emoji="🚫">
+          <div class="vh-text">
+            <div class="vh-title">🚫 Net Blokkoló Script (block.bat)</div>
+            <div class="vh-sub">Letölti a <code>block.bat</code> scriptet a <code>C:\DriverVarazslo</code> mappába. A script — ha később futtatod — a saját mappájában (és az összes almappájában) található minden <code>.exe</code> kimenő internet-elérését letiltja a Windows tűzfalban. A gomb <b>csak letölti</b> a fájlt, nem futtatja: másold abba a mappába, amit blokkolni akarsz, és dupla kattintással indítsd — az admin jogot magától kéri (UAC).</div>
+            <div class="vh-chips">
+              <span class="hero-chip">⬇️ Csak letöltés, futtatás soha</span>
+              <span class="hero-chip">🧱 Windows tűzfal szabályok</span>
+              <span class="hero-chip">📁 Mappa + almappák</span>
+            </div>
+          </div>
+          <div class="vh-actions">
+            <button class="btn btn-big btn-primary" onclick="downloadBlockScript()" id="btn-blockscript">⬇️ block.bat Letöltése</button>
+          </div>
         </div>
       </div>
 
