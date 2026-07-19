@@ -15,6 +15,7 @@ import glob
 import traceback
 import queue
 from app.common import _ps_quote
+from app import dupdrivers_core
 from app.wu_core import WU_PNP_QUERY_PS
 from app.wu_core import WuProcessAborted
 from app.wu_core import _build_wu_install_ps
@@ -634,6 +635,18 @@ try {
             if cancelled:
                 self.emit('task_complete', {'task': 'wu_install', 'status': '❗ Megszakítva!', 'success': success, 'fail': fail})
                 return
+            # ZÁRÓ DriverStore-TAKARÍTÁS: egy frissen telepített driver régi verziója
+            # ottmarad a DriverStore-ban - itt azonnal el is takarítjuk (közös mag:
+            # dupdrivers_core.auto_cleanup_duplicates, ugyanazokkal a biztonsági
+            # szabályokkal, mint a kézi takarító panel). Csak élő rendszeren - offline
+            # cél-OS-nél a dup-takarítás nem értelmezett (a hívók mind elutasítják).
+            if success > 0 and not self.target_os_path:
+                self.emit('task_progress', {'task': 'wu_install', 'log': '\n🧹 DriverStore-takarítás: a lecserélt driverek régi verzióinak törlése...'})
+                dupdrivers_core.auto_cleanup_duplicates(
+                    self._run,
+                    lambda m: self.emit('task_progress', {'task': 'wu_install', 'log': m}),
+                    self._get_third_party_drivers,
+                    check_cancel=self._check_cancel)
             reboot_needed = getattr(self, '_wu_reboot_required', False)
             msg = f'Kész! Sikeres: {success}, Sikertelen: {fail}'
             if reboot_needed:

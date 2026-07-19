@@ -33,6 +33,16 @@ STRESS_TOOLS = {
 # feleslegesen tiltaná le az alvó módot a program következő indításáig.
 STRESS_POWER_LOCK_KEYS = ['furmark', 'prime95', 'linpack', 'hwinfo', 'hdsentinel']
 
+# Egy automatizálási lépés időkorlátja másodpercben: ennyit várunk egy dialógus/gomb
+# megjelenésére (_find_pid_window_with_child_text), a Linpack konzolablakára és minden
+# egyes konzol-promptjára (_auto_answer_console). Korábban 60 mp volt, de terepen egy
+# ERŐS gépen is mértünk már 56 mp-et (FurMark GO gomb, 4 program egyszerre indult) - egy
+# lassú, dual-core + HDD-s gépen ez simán túlcsúszik a 60 mp-en, és az automatizálás
+# feladta, a program ott ült a beállító képernyőjén. A 180 mp-nek nincs hátránya: ez csak
+# FELSŐ korlát, normál esetben a lépések pár mp alatt teljesülnek, a várakozás pedig
+# esemény-vezérelt (pollozás), nem fix késleltetés.
+STRESS_STEP_TIMEOUT = 180
+
 # A "Stress teszt indítása" gomb (start_stress_tests - az egyetlen AUTOMATIZÁLT út:
 # dialógus-nyomkodás + 4 részre osztott ablak-elrendezés) csak ezeket a valódi
 # terhelés-generáló teszteket indítja - a többi program (HD Sentinel, CPU-Z, GPU-Z,
@@ -75,7 +85,7 @@ LINPACK_RAM_OPTIONS = [(1, 2), (2, 4), (3, 6), (4, 8), (5, 10), (6, 14), (7, 30)
 #                    egyből a "Run a Torture Test" dialógussal (Small FFTs rádiógomb) kezdődik
 #   'optional':      ha a lépés dialógusa a saját timeoutján belül nem jelenik meg, az NEM
 #                    hiba - a lépés kimarad, a sorozat nem szakad meg
-#   'timeout':       a lépés saját keresési időkorlátja mp-ben (alapértelmezés: 60)
+#   'timeout':       a lépés saját keresési időkorlátja mp-ben (alapértelmezés: STRESS_STEP_TIMEOUT)
 #   'exact':         csak TELJES felirat-egyezés számít (rövid feliratoknál - 'OK', 'Igen' -
 #                    véd a részleges hamis találatoktól, pl. 'ventilátorok' vége 'ok')
 STRESS_CLICK_SEQUENCES = {

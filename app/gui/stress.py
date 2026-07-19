@@ -199,7 +199,8 @@ class GuiStressMixin:
         return [(prompt, str(ram_option) if answer is None else answer, needs_enter)
                 for prompt, answer, needs_enter in LINPACK_PROMPT_SCRIPT]
 
-    def _launch_stress_exe(self, exe, display_name, console_script=None, click_sequence=None, thread_sink=None):
+    def _launch_stress_exe(self, exe, display_name, console_script=None, click_sequence=None, thread_sink=None,
+                           result_sink=None, result_key=None):
         """Egy stressz-teszt/monitor .exe elindítása, UAC-elutasítás (WinError 740, pl.
         HWiNFO64.exe requireAdministrator manifestje) esetén ShellExecuteExW-es 'runas'
         újrapróbálással. Visszaadási érték:
@@ -226,16 +227,24 @@ class GuiStressMixin:
         handle-hiány esetén marad ki.
         thread_sink: opcionális lista - ha meg van adva, az elindított automatizálási
         háttérszál belekerül, hogy a hívó (start_stress_tests) bevárhassa a dialógus-
-        nyomkodás végét, MIELŐTT az ablakokat rendezné/minimalizálná."""
+        nyomkodás végét, MIELŐTT az ablakokat rendezné/minimalizálná.
+        result_sink/result_key: opcionális dict + kulcs - az automatizálási szál
+        befejezésekor result_sink[result_key] = True/False kerül bele (végigment-e a
+        teljes kattintás-/gépelés-sorozat), ebből tudja a start_stress_tests a záró
+        összegzésben kimutatni, melyik programnál kellhet kézi beállítás."""
         def _run_automation_safely(func, *args):
             # A háttérszál céljának védőrétege - ha bármi a try/except-eken KÍVÜL dobna
             # kivételt (pl. egy elgépelés egy jövőbeli módosításban), az itt látszódjon a
             # logban teljes traceback-kel, ne csendben tűnjön el egy daemon szálban.
+            ok = False
             try:
-                func(*args)
+                ok = bool(func(*args))
             except Exception as e:
                 logging.error(f"[STRESSTOOLS-DEBUG] Automatizálási háttérszál ELSZÁLLT ({func.__name__}, args={args}): {e}")
                 logging.error(traceback.format_exc())
+            finally:
+                if result_sink is not None and result_key is not None:
+                    result_sink[result_key] = ok
 
         try:
             proc = subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
@@ -376,6 +385,13 @@ class GuiStressMixin:
                 return stress_dir
             except Exception as e:
                 logging.error(f"[STRESSTOOLS] Download hiba: {e}")
+                # A fél-kész zip törlése - tele lemeznél (terepen látott [Errno 28])
+                # pont a maradvány foglalná tovább a helyet a következő próbától.
+                try:
+                    if os.path.exists(zip_path):
+                        os.remove(zip_path)
+                except Exception as rm_err:
+                    logging.debug(f"[STRESSTOOLS] Fél-kész ZIP törlése sikertelen: {rm_err}")
                 return None
 
     def _stress_dl_progress_emitter(self, label):
@@ -448,6 +464,7 @@ class GuiStressMixin:
                 launched = 0
                 pid_map = {}
                 auto_threads = []
+                auto_results = {}  # kulcs -> végigment-e az automatizálás (a záró összegzéshez)
                 for i, key in enumerate(STRESS_TOOLS_BULK):
                     display_name, _ = STRESS_TOOLS[key]
                     exe = found[key]
@@ -464,7 +481,8 @@ class GuiStressMixin:
                                 logging.debug(f"[STRESSTOOLS] HWiNFO64.INI írása sikertelen (az update-értesítőt a kattintás-szekvencia kezeli): {e}")
                         console_script = self._build_linpack_console_script() if key == 'linpack' else None
                         click_sequence = STRESS_CLICK_SEQUENCES.get(key)
-                        pid = self._launch_stress_exe(exe, display_name, console_script=console_script, click_sequence=click_sequence, thread_sink=auto_threads)
+                        pid = self._launch_stress_exe(exe, display_name, console_script=console_script, click_sequence=click_sequence,
+                                                      thread_sink=auto_threads, result_sink=auto_results, result_key=key)
                         if pid:
                             launched += 1
                             pid_map[key] = pid
@@ -489,12 +507,15 @@ class GuiStressMixin:
                 # VÉGÉT várjuk meg, korábban itt fix 30 mp várakozás volt - az terepen az
                 # automatizálás közepén sütött el: a _minimize_other_windows pont a még meg
                 # nem válaszolt dialógusokat tette tálcára, a FurMark render-ablaka pedig még
-                # nem is létezett, amikor a pozicionálás lefutott. A plafon (240 mp) csak
-                # végszükség-fék: normál esetben a szálak pár tíz mp alatt végeznek, egy
-                # elakadt lépés pedig a saját 60 mp-es timeoutja után magától feladja.
+                # nem is létezett, amikor a pozicionálás lefutott. A plafon (600 mp) csak
+                # végszükség-fék, lassú (dual-core + HDD) gépekre méretezve: worst case a
+                # Linpack minden promptja a STRESS_STEP_TIMEOUT-ig várhat; normál esetben a
+                # szálak pár tíz mp alatt végeznek, egy elakadt lépés pedig a saját
+                # timeoutja után magától feladja.
+                still_running = []
                 if launched > 0:
                     self.emit('task_progress', {'task': 'stress', 'log': '\n⏳ Várakozás, amíg az indító dialógusok automatikus végignyomkodása befejeződik...'})
-                    join_deadline = time.time() + 240
+                    join_deadline = time.time() + 600
                     waited = 0
                     while time.time() < join_deadline and any(t.is_alive() for t in auto_threads):
                         if self._check_cancel():
@@ -502,29 +523,45 @@ class GuiStressMixin:
                         time.sleep(1)
                         waited += 1
                         if waited % 15 == 0:
-                            still_running = [t.name.replace('auto:', '') for t in auto_threads if t.is_alive()]
-                            self.emit('task_progress', {'task': 'stress', 'log': f'  ⏳ Még folyamatban: {", ".join(still_running)}...'})
-                    # Rövid türelmi idő az UTOLSÓ kattintás után létrejövő végleges ablakoknak
-                    # (pl. a FurMark render-ablaka a GO megnyomása után pár mp-cel jelenik
-                    # meg). Rövid lehet: az automatizálási szálak a saját utolsó kattintásuk
-                    # HATÁSÁT is bevárják (_verify_final_click), tehát mire ideérünk, a
-                    # dialógusok bizonyítottan bezárultak - ez csak a fő ablakok megjelenési
-                    # ideje, a felhasználói elvárás pedig az, hogy a nyomkodás után AZONNAL
-                    # jöjjön a rendezés.
-                    for _ in range(3):
-                        if self._check_cancel():
-                            break
-                        time.sleep(1)
+                            running_names = [t.name.replace('auto:', '') for t in auto_threads if t.is_alive()]
+                            self.emit('task_progress', {'task': 'stress', 'log': f'  ⏳ Még folyamatban: {", ".join(running_names)}...'})
+                    still_running = [t.name.replace('auto:', '') for t in auto_threads if t.is_alive()]
                     if self._check_cancel():
                         self.emit('task_progress', {'task': 'stress', 'log': '❗ Ablak-elrendezés kihagyva (megszakítva).'})
+                    elif still_running:
+                        # Futó nyomkodás közben TILOS rendezni/minimalizálni: a fókusz-lopás
+                        # pont a Linpack gépelését törné el, a minimalizálás pedig a még meg
+                        # nem válaszolt dialógusokat tüntetné el (a régi fix-30 mp-es időzítő
+                        # pont ezt a hibát okozta terepen). Ha a plafonig sem végeztek, a
+                        # rendezés marad ki - az a kisebbik rossz.
+                        self.emit('task_progress', {'task': 'stress', 'log': f'⚠️ Az automatikus nyomkodás nem fejeződött be nála: {", ".join(still_running)} - ablak-elrendezés kihagyva, nehogy a nyomkodás közben rendezzünk.'})
                     else:
+                        # Rövid türelmi idő az UTOLSÓ kattintás után létrejövő végleges ablakoknak
+                        # (pl. a FurMark render-ablaka a GO megnyomása után pár mp-cel jelenik
+                        # meg). Rövid lehet: az automatizálási szálak a saját utolsó kattintásuk
+                        # HATÁSÁT is bevárják (_verify_final_click), tehát mire ideérünk, a
+                        # dialógusok bizonyítottan bezárultak - ez csak a fő ablakok megjelenési
+                        # ideje, a felhasználói elvárás pedig az, hogy a nyomkodás után AZONNAL
+                        # jöjjön a rendezés.
+                        for _ in range(3):
+                            if self._check_cancel():
+                                break
+                            time.sleep(1)
                         self.emit('task_progress', {'task': 'stress', 'log': '🪟 Ablakok elrendezése...'})
                         self._position_stress_windows(pid_map, task_id='stress')
 
-                if launched == len(STRESS_TOOLS_BULK):
-                     self.emit('task_complete', {'task': 'stress', 'status': '👀 Minden teszt elindult. Égjen!'})
+                # Záró összegzés: az elindult, de végig nem automatizált programokat név
+                # szerint kimutatjuk - korábban a "Minden teszt elindult" csak a process-
+                # indulást nézte, és egy dialógusán ottragadt program is sikernek látszott.
+                auto_failed = [STRESS_TOOLS[k][0] for k in STRESS_TOOLS_BULK
+                               if k in pid_map and not auto_results.get(k)]
+                if launched == len(STRESS_TOOLS_BULK) and not auto_failed:
+                     self.emit('task_complete', {'task': 'stress', 'status': '👀 Mind a 4 teszt elindult, az indító beállítások automatikusan kitöltve. Égjen!'})
                 elif launched > 0:
-                     self.emit('task_complete', {'task': 'stress', 'status': f'⚠️ Csak {launched}/{len(STRESS_TOOLS_BULK)} program indult el.'})
+                     status = f'⚠️ {launched}/{len(STRESS_TOOLS_BULK)} program indult el.'
+                     if auto_failed:
+                         status += f' Kézi beállítás kellhet: {", ".join(auto_failed)} (az automatikus nyomkodás nem futott végig - részletek a naplóban).'
+                     self.emit('task_complete', {'task': 'stress', 'status': status})
                 else:
                      self.emit('task_complete', {'task': 'stress', 'status': '❌ Egyetlen program sem indult el.'})
 

@@ -89,6 +89,42 @@ def build_duplicate_groups(drivers, active_infs):
     return result, deletable
 
 
+def auto_cleanup_duplicates(run, log, get_drivers, check_cancel=None):
+    """FELÜGYELET NÉLKÜLI duplikátum-takarítás - a driver-telepítések záró lépése
+    (GUI manuális telepítés + GUI/CLI AutoFix hívja): egy frissen telepített driver
+    után a régi verzió(k) ottmaradnak a DriverStore-ban, ez a lépés azonnal el is
+    takarítja őket. Ugyanazokkal a biztonsági szabályokkal dolgozik, mint a kézi panel
+    (aktívan használt inf soha nem törlődik; ha az aktív-lista nem kérdezhető le, NEM
+    törlünk semmit; csak oemXX.inf) - ezért felügyelet nélkül is biztonságos.
+
+    get_drivers: 0-argumentumos callable, a third-party driver-listát adja vissza
+    (GUI: self._get_third_party_drivers). Minden hiba fail-silent (log + visszatérés):
+    egy takarítási hiba SOSEM buktathatja el magát a telepítést.
+    Visszatérés: (törölt, sikertelen, kihagyott) darabszám."""
+    try:
+        drivers = get_drivers() or []
+        active = get_active_published_infs(run)
+        if active is None:
+            log('  ⚠️ Az aktív driver-lista nem kérdezhető le - a duplikátum-takarítás kimarad (biztonsági szabály).')
+            return 0, 0, 0
+        groups, deletable = build_duplicate_groups(drivers, active)
+        if not deletable:
+            log('  ✅ Nincs törölhető régi driver-verzió a DriverStore-ban.')
+            return 0, 0, 0
+        names = [d['published'] for g in groups for d in g['dups'] if not d['active'] and d['published']]
+        log(f'  🧹 {len(names)} elavult driver-verzió törlése a DriverStore-ból...')
+        ok, fail, skipped = delete_duplicate_packages(run, log, names, active, check_cancel=check_cancel)
+        log(f'  🧹 DriverStore-takarítás kész: {ok} törölve' + (f', {fail} sikertelen' if fail else '') + (f', {skipped} kihagyva' if skipped else '') + '.')
+        return ok, fail, skipped
+    except Exception as e:
+        logging.warning(f"[DUPDRV] Automatikus duplikátum-takarítás hiba (a telepítést nem érinti): {e}")
+        try:
+            log(f'  ⚠️ DriverStore-takarítási hiba (a telepítést nem érinti): {e}')
+        except Exception:
+            pass
+        return 0, 0, 0
+
+
 def delete_duplicate_packages(run, log, names, active_infs, check_cancel=None):
     """A kijelölt régi duplikátum-verziók törlése (pnputil /delete-driver, sikertelen
     törlésnél második kör /force-szal). A names listát a hívónak már oemXX-re szűrve

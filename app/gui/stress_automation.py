@@ -5,6 +5,7 @@ import ctypes
 import ctypes.wintypes
 import time
 import logging
+from app.stress_defs import STRESS_STEP_TIMEOUT
 from app.stress_defs import STRESS_TOOLS
 from app.win32 import BM_CLICK
 from app.win32 import INPUT_KEYBOARD
@@ -239,11 +240,24 @@ class GuiStressAutomationMixin:
         valódi konzol-bemenetet vár, nem egy egyszerű átirányított pipe-ot) nem tudott mit
         kezdeni a CREATE_NEW_CONSOLE + átirányított stdin kombinációval, és elindulás előtt
         elszállt. A SendInput-os "valódi begépelés" ezt elkerüli, mert a program
-        szemszögéből megkülönböztethetetlen attól, mintha egy felhasználó gépelne."""
+        szemszögéből megkülönböztethetetlen attól, mintha egy felhasználó gépelne.
+
+        FÓKUSZVESZTÉS-VÉDELEM: a SendInput mindig az éppen ELŐTÉRBEN lévő ablakba gépel -
+        lassú gépen pont a gépelés közben ugrik elő egy másik, párhuzamosan induló
+        stressz-program ablaka és lopja el a fókuszt, a karakterek pedig máshova mennek
+        (terepen bizonyított hibamód). Ezért minden válasz elküldése UTÁN visszaolvassuk a
+        konzol képernyőjét: ha nem változott (a bevitel nem ért célba), a fókuszt
+        visszaállítva újragépeljük, legfeljebb 3 körben. Újragépelés előtt frissen újra
+        ellenőrizzük a képernyőt - ha időközben mégis megváltozott (csak lassan rajzolt
+        újra a leterhelt gép), NEM gépelünk duplán.
+
+        Visszatérési érték: True, ha a teljes script sikeresen lement; False bármely
+        elakadásnál (a hívó _run_automation_safely ebből tudja az eszköz automatizálásának
+        kimenetelét jelenteni a záró összegzéshez)."""
         user32 = self._stress_user32()
         logging.info(f"[STRESSTOOLS-DEBUG] _auto_answer_console indul (pid={pid}, script={script})")
         hwnd = None
-        deadline = time.time() + 60  # a rendszer terheltségétől függően ez akár fél percig is eltarthat
+        deadline = time.time() + STRESS_STEP_TIMEOUT  # leterhelt (lassú HDD-s) gépen ez percekig is eltarthat
         attempt = 0
         while time.time() < deadline:
             attempt += 1
@@ -256,14 +270,14 @@ class GuiStressAutomationMixin:
         if not hwnd:
             logging.warning(f"[STRESSTOOLS] Automatikus bevitel kihagyva - nem található konzolablak (pid={pid})")
             self._debug_dump_pid_windows(pid, "_auto_answer_console: konzolablak sosem került elő")
-            return
+            return False
         logging.info(f"[STRESSTOOLS-DEBUG] Konzolablak megtalálva (pid={pid}): hwnd={hwnd} title='{self._window_title(hwnd)}'")
         for prompt, line, needs_enter in script:
             try:
                 # Várakozás, amíg a válaszhoz tartozó prompt ténylegesen megjelenik a
                 # konzol képernyőjén. Közben az ablak létezését is figyeljük - ha a program
                 # bezáródott/összeomlott, ennek itt, konkrét hibaüzenettel kell kiderülnie.
-                prompt_deadline = time.time() + 60
+                prompt_deadline = time.time() + STRESS_STEP_TIMEOUT
                 screen = None
                 prompt_found = False
                 poll = 0
@@ -272,7 +286,7 @@ class GuiStressAutomationMixin:
                     if not user32.IsWindow(hwnd):
                         logging.warning(f"[STRESSTOOLS-DEBUG] A konzolablak (hwnd={hwnd}, pid={pid}) már NEM létezik a(z) '{prompt}' promptra várva - a program valószínűleg bezáródott/összeomlott. Automatizálás megszakítva. Utolsó ismert képernyőtartalom:\n{screen}")
                         self._debug_dump_pid_windows(pid, f"_auto_answer_console: ablak eltűnt a(z) '{prompt}' promptra várva")
-                        return
+                        return False
                     new_screen = self._read_console_screen(pid)
                     if new_screen is not None:
                         screen = new_screen
@@ -284,31 +298,79 @@ class GuiStressAutomationMixin:
                         logging.info(f"[STRESSTOOLS-DEBUG] Még várom a(z) '{prompt}' promptot (pid={pid}, {poll}. próba), a képernyő utolsó sora most: '{last_line}'")
                     time.sleep(0.5)
                 if not prompt_found:
-                    logging.warning(f"[STRESSTOOLS] A(z) '{prompt}' prompt 60 mp alatt sem jelent meg (pid={pid}), automatizálás megszakítva. A konzol képernyője most:\n{screen}")
-                    return
+                    logging.warning(f"[STRESSTOOLS] A(z) '{prompt}' prompt {STRESS_STEP_TIMEOUT} mp alatt sem jelent meg (pid={pid}), automatizálás megszakítva. A konzol képernyője most:\n{screen}")
+                    return False
                 logging.info(f"[STRESSTOOLS-DEBUG] Prompt megjelent: '{prompt}' (pid={pid}), válasz begépelése: '{line}'")
 
-                fg_ok = user32.SetForegroundWindow(hwnd)
-                time.sleep(0.15)
-                actual_fg = user32.GetForegroundWindow()
-                if actual_fg != hwnd:
-                    logging.warning(f"[STRESSTOOLS-DEBUG] SetForegroundWindow (hwnd={hwnd}) NEM állította előtérbe a konzolablakot a(z) '{line}' sor előtt! "
-                                     f"SetForegroundWindow visszatérési értéke={bool(fg_ok)}, a TÉNYLEGES előtérben lévő ablak most: hwnd={actual_fg} title='{self._window_title(actual_fg)}'. "
-                                     f"A begépelt karakterek valószínűleg NEM a Linpackbe mentek.")
-                else:
-                    logging.debug(f"[STRESSTOOLS-DEBUG] SetForegroundWindow sikeres, hwnd={hwnd} tényleg előtérben van a(z) '{line}' sor előtt.")
+                # A válasz begépelése + hatás-ellenőrzés, fókuszvesztés elleni
+                # újrapróbálással (max 3 kör) - lásd a docstring FÓKUSZVESZTÉS-VÉDELEM
+                # bekezdését. screen_before: a prompt-észleléskori képernyőtartalom, ehhez
+                # képest kell változásnak történnie, ha a bevitel célba ért.
+                screen_before = screen
+                consumed = False
+                for type_attempt in range(1, 4):
+                    if not user32.IsWindow(hwnd):
+                        logging.warning(f"[STRESSTOOLS-DEBUG] A konzolablak (pid={pid}) eltűnt a(z) '{line}' begépelése előtt/közben - automatizálás megszakítva.")
+                        return False
+                    if type_attempt > 1:
+                        # Újragépelés ELŐTT friss ellenőrzés: ha a képernyő időközben mégis
+                        # megváltozott (csak lassan rajzolt újra a leterhelt gép), a bevitel
+                        # valójában célba ért - duplán gépelni tilos (a fölös billentyű a
+                        # KÖVETKEZŐ promptra menne, és szétcsúszna a menü).
+                        recheck = self._read_console_screen(pid)
+                        if recheck is not None and recheck != screen_before:
+                            logging.info(f"[STRESSTOOLS-DEBUG] Újragépelés kihagyva ('{line}', pid={pid}): a képernyő időközben megváltozott, az előző bevitel mégis célba ért (lassú újrarajzolás).")
+                            consumed = True
+                            break
+                        logging.warning(f"[STRESSTOOLS] Bevitel-újrapróbálás ('{line}', pid={pid}): {type_attempt}/3. kör, fókusz visszaállítása és újragépelés...")
 
-                all_ok = True
-                for ch in line:
-                    if not self._send_unicode_char(user32, ch):
-                        all_ok = False
-                    time.sleep(0.03)
-                if needs_enter:
-                    if not self._send_vk(user32, VK_RETURN):
-                        all_ok = False
-                logging.info(f"[STRESSTOOLS] Automatikus bevitel elküldve: '{line}' (Enter={'igen' if needs_enter else 'nem - choice-alapú prompt'}, pid={pid}), minden SendInput esemény sikeres={all_ok}")
+                    fg_ok = user32.SetForegroundWindow(hwnd)
+                    time.sleep(0.15)
+                    actual_fg = user32.GetForegroundWindow()
+                    if actual_fg != hwnd:
+                        logging.warning(f"[STRESSTOOLS-DEBUG] SetForegroundWindow (hwnd={hwnd}) NEM állította előtérbe a konzolablakot a(z) '{line}' sor előtt! "
+                                         f"SetForegroundWindow visszatérési értéke={bool(fg_ok)}, a TÉNYLEGES előtérben lévő ablak most: hwnd={actual_fg} title='{self._window_title(actual_fg)}'. "
+                                         f"A bevitel valószínűleg nem ér célba - a hatás-ellenőrzés dönti el.")
+                    else:
+                        logging.debug(f"[STRESSTOOLS-DEBUG] SetForegroundWindow sikeres, hwnd={hwnd} tényleg előtérben van a(z) '{line}' sor előtt.")
+
+                    all_ok = True
+                    for ch in line:
+                        if not self._send_unicode_char(user32, ch):
+                            all_ok = False
+                        time.sleep(0.03)
+                    if needs_enter:
+                        if not self._send_vk(user32, VK_RETURN):
+                            all_ok = False
+                    logging.info(f"[STRESSTOOLS] Automatikus bevitel elküldve: '{line}' (Enter={'igen' if needs_enter else 'nem - choice-alapú prompt'}, pid={pid}, {type_attempt}. kör), minden SendInput esemény sikeres={all_ok}")
+
+                    # Hatás-ellenőrzés: célba ért bevitelnél a konzol képernyőjének
+                    # változnia kell (choice-menünél a következő menü jelenik meg, set /p-nél
+                    # a beírt karakterek visszhangja, pause-nál a program kimenete). Lassú
+                    # gépre méretezett türelmi idő: 10 mp.
+                    verify_deadline = time.time() + 10
+                    while time.time() < verify_deadline:
+                        check_screen = self._read_console_screen(pid)
+                        if check_screen is not None and check_screen != screen_before:
+                            consumed = True
+                            break
+                        if not user32.IsWindow(hwnd):
+                            # Az utolsó lépés (teszt indul) után az ablak tartalma
+                            # változik, nem tűnik el - eltűnő ablak menet közben hibát
+                            # jelezne, de a kintlévő bevitelt már nem tudjuk megítélni.
+                            break
+                        time.sleep(0.5)
+                    if consumed:
+                        break
+                    logging.warning(f"[STRESSTOOLS] A(z) '{line}' bevitel után a konzol képernyője NEM változott (pid={pid}, {type_attempt}. kör) - a billentyűk valószínűleg máshova mentek (fókuszvesztés).")
+                if not consumed:
+                    logging.warning(f"[STRESSTOOLS] A(z) '{line}' bevitel 3 kör után sem ért célba (pid={pid}), automatizálás megszakítva - a Linpack menüjét kézzel kell végigvinni.")
+                    self._debug_dump_pid_windows(pid, f"_auto_answer_console: '{line}' bevitel sosem ért célba")
+                    return False
             except Exception as e:
                 logging.warning(f"[STRESSTOOLS] Automatikus bevitel hiba ('{line}', pid={pid}): {e}")
+                return False
+        return True
 
     @staticmethod
     def _text_alternatives(text_or_alts):
@@ -359,7 +421,7 @@ class GuiStressAutomationMixin:
             logging.warning(f"[STRESSTOOLS] EnumChildWindows hiba: {e}")
         return result['hwnd']
 
-    def _find_pid_window_with_child_text(self, pid, text_or_alts, timeout=60, exact=False):
+    def _find_pid_window_with_child_text(self, pid, text_or_alts, timeout=STRESS_STEP_TIMEOUT, exact=False):
         """Megkeresi az adott PID-hez tartozó BÁRMELYIK (nem feltétlenül a legnagyobb)
         felső szintű, látható ablakot, aminek van a megadott feliratú (vagy alternatívák
         egyikének megfelelő) gyermek-vezérlője - pl. egy épp megjelenő modális
@@ -367,10 +429,11 @@ class GuiStressAutomationMixin:
         _find_window_for_pid-től, ami mindig a legnagyobb ablakot választja - egy
         dialógus viszont jellemzően KISEBB, mint a program főablaka, arra a logika itt
         nem használható. Legfeljebb 'timeout' másodpercig vár, amíg a dialógus megjelenik -
-        ez a hosszú alapérték szándékos: ha a gép egyszerre 4 stressz-teszt programot (és
-        esetleg egy párhuzamosan futó DISM lekérdezést) indít, a rendszer erősen
-        leterhelődhet, és egy dialógus akár fél percig is késhet (ezt debug logban is
-        megfigyeltük - a FurMark gombja végül 56 mp késéssel, de sikeresen megnyomódott).
+        a hosszú alapérték (STRESS_STEP_TIMEOUT) szándékos: ha a gép egyszerre 4
+        stressz-teszt programot (és esetleg egy párhuzamosan futó DISM lekérdezést) indít,
+        a rendszer erősen leterhelődhet, és egy dialógus akár percekig is késhet (debug
+        logban megfigyelt eset: a FurMark gombja egy ERŐS gépen is 56 mp késéssel került
+        elő - egy lassú dual-core + HDD-s gépen a régi 60 mp-es korlát ezért kevés volt).
         Visszaad: (ablak hwnd, gomb hwnd) vagy (None, None)."""
         user32 = self._stress_user32()
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
@@ -430,7 +493,12 @@ class GuiStressAutomationMixin:
         figyelmeztetést), a kezelő csak a dialógus bezárásakor tér vissza, vagyis a
         SendMessageW-s hívás beragad, és a következő lépés (a 'GO' megnyomása ugyanazon a
         dialóguson) SOSEM indulna el. Terepen ez konkrétan 50 mp-es beragadásként
-        jelentkezett, amit csak az ablak kézi bezárása oldott fel."""
+        jelentkezett, amit csak az ablak kézi bezárása oldott fel.
+
+        Visszatérési érték: True, ha minden lépés lement ÉS az utolsó kattintás hatása
+        visszaigazolódott (_verify_final_click); False bármely elakadásnál - a hívó
+        _run_automation_safely ebből jelenti az eszköz automatizálásának kimenetelét a
+        start_stress_tests záró összegzéséhez."""
         user32 = self._stress_user32()
         logging.info(f"[STRESSTOOLS-DEBUG] _auto_click_sequence indul: pid={pid}, lépések={steps}")
         last_clicked = None  # (gomb hwnd, labels) - az utoljára TÉNYLEGESEN megnyomott lépés
@@ -439,13 +507,13 @@ class GuiStressAutomationMixin:
                 labels = self._text_alternatives(step['labels'])
                 skip_markers = self._text_alternatives(step.get('skip_if_found', []))
                 optional = bool(step.get('optional'))
-                timeout = step.get('timeout', 60)
+                timeout = step.get('timeout', STRESS_STEP_TIMEOUT)
                 exact = bool(step.get('exact'))
             else:
                 labels = self._text_alternatives(step)
                 skip_markers = []
                 optional = False
-                timeout = 60
+                timeout = STRESS_STEP_TIMEOUT
                 exact = False
             logging.info(f"[STRESSTOOLS-DEBUG] {step_idx}/{len(steps)}. lépés keresése: pid={pid}, cél='{labels}'" + (f", kihagyás-jelzők='{skip_markers}'" if skip_markers else "") + (" (opcionális)" if optional else ""))
             hwnd, btn = self._find_pid_window_with_child_text(pid, labels + skip_markers, timeout=timeout, exact=exact)
@@ -460,7 +528,7 @@ class GuiStressAutomationMixin:
                     continue
                 logging.warning(f"[STRESSTOOLS] '{labels}' gomb/dialógus nem található (pid={pid}), automatizálás megszakítva.")
                 self._debug_dump_pid_windows(pid, f"_auto_click_sequence: {step_idx}/{len(steps)}. lépés ('{labels}') sosem került elő")
-                return
+                return False
             btn_text = self._window_title(btn)
             if skip_markers and not any(self._normalize_ctrl_text(l) in self._normalize_ctrl_text(btn_text) for l in labels):
                 # A találat a kihagyás-jelző (egy későbbi lépés vezérlője), nem a lépés
@@ -479,7 +547,7 @@ class GuiStressAutomationMixin:
                 last_clicked = (btn, labels)
             except Exception as e:
                 logging.warning(f"[STRESSTOOLS] Gombnyomási hiba ('{labels}', pid={pid}): {e}")
-                return
+                return False
             time.sleep(1)  # a következő dialógus (ha van) megjelenéséhez
         # Az utoljára megnyomott lépés hatás-ellenőrzése: a közbülső lépéseknél a következő
         # lépés keresése önmagában visszaigazolás (ha az előző kattintás elveszett, a
@@ -489,7 +557,8 @@ class GuiStressAutomationMixin:
         # párhuzamosan terhelt gépen hatástalan maradt, és a startup ablak csak ült ott.
         # (Kihagyott opcionális utolsó lépésnél így a megelőző valódi kattintás ellenőrződik.)
         if last_clicked:
-            self._verify_final_click(pid, last_clicked[0], last_clicked[1])
+            return self._verify_final_click(pid, last_clicked[0], last_clicked[1])
+        return True
 
     def _verify_final_click(self, pid, btn, labels, retries=3, wait_secs=6):
         """A kattintás-sorozat utolsó gombjának (pl. HWiNFO 'Indítás', Prime95 'OK',

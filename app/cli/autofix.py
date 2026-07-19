@@ -5,6 +5,7 @@ import socket
 import subprocess
 import time
 import logging
+from app import dupdrivers_core
 from app.wu_core import AUTOFIX_PRINTER_SKIP_CLASSES
 from app.wu_core import WuProcessAborted
 from app.wu_core import _build_wu_install_ps
@@ -199,6 +200,14 @@ manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkenne
                 print("✅ Hálózati driverek visszatöltve, eszközök újraszkennelve.")
             else:
                 print("⚠️ Nincs mentett hálózati driver - ellenőrizd kézzel a hálózatot!")
+
+        # ZÁRÓ DriverStore-TAKARÍTÁS: a telepítések után ottmaradt régi driver-verziók
+        # eltakarítása (közös mag a GUI-val: dupdrivers_core.auto_cleanup_duplicates,
+        # a kézi takarító panel/menü biztonsági szabályaival - hibája sosem akasztja
+        # meg a fixet, a core mindent elnyel).
+        if install_success > 0:
+            print("\n🧹 DriverStore-takarítás: elavult driver-verziók törlése...")
+            dupdrivers_core.auto_cleanup_duplicates(self._run, print, self.get_third_party_drivers)
 
         # Összegzés
         elapsed = int(time.time() - start_time)

@@ -16,6 +16,7 @@ from app.common import _app_exe_path
 from app.common import _ps_quote
 from app import backup_core
 from app import drivers_core
+from app import dupdrivers_core
 from app import nicpack_core
 from app import wusettings_core
 from app.ghost_core import build_ghost_ps
@@ -616,6 +617,16 @@ class GuiAutofixMixin:
                 else:
                     self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 KÉSZ! Nulla újonnan fellelt driver, a konfiguráció végigért.'})
                     self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'], ok_codes=(0, 1))  # 1: a feladat már nem létezik (idempotens duplatörlés)
+
+                    # ZÁRÓ DriverStore-TAKARÍTÁS: a lánc alatt telepített driverek régi
+                    # verzióinak eltakarítása (közös mag: dupdrivers_core.auto_cleanup_duplicates,
+                    # a kézi takarító panel biztonsági szabályaival - hibája sosem
+                    # akasztja meg a lánc lezárását, a core mindent elnyel).
+                    self.emit('task_progress', {'task': 'autofix', 'log': '\n🧹 DriverStore-takarítás: elavult driver-verziók törlése...'})
+                    dupdrivers_core.auto_cleanup_duplicates(
+                        self._run,
+                        lambda m: self.emit('task_progress', {'task': 'autofix', 'log': m}),
+                        self._get_third_party_drivers)
 
                     # ZÁRÓ ÖSSZEFOGLALÓ: lánc-szintű telepítés-szám + maradék hibakódos eszközök.
                     self._emit_autofix_summary(self._autofix_stats_total_and_clear())

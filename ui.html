@@ -225,6 +225,17 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .tool-installed{position:absolute;top:10px;right:10px;font-size:10px;font-weight:800;letter-spacing:0.5px;padding:2px 9px;border-radius:999px;background:rgba(120,255,160,0.15);border:1px solid rgba(120,255,160,0.4);color:#8dffb0;display:none}
 .tool-card.installed .tool-installed{display:inline-block}
 
+/* 1 Kattintásos Driver Fix gyorsindító kártya a Driverek nézetben */
+.autofix-hero{position:relative;overflow:hidden;padding:24px 26px;margin-top:16px;display:flex;align-items:center;gap:22px;flex-wrap:wrap;background:linear-gradient(135deg,rgba(140,80,255,0.22),rgba(80,40,180,0.16) 55%,var(--glass));border:1px solid rgba(180,100,255,0.45);border-radius:var(--r);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
+.autofix-hero::before{content:'🚀';position:absolute;right:-16px;bottom:-30px;font-size:140px;opacity:0.07;pointer-events:none;transform:rotate(-14deg)}
+.autofix-hero-text{flex:1;min-width:280px}
+.autofix-hero-title{font-size:19px;font-weight:800;margin-bottom:6px;display:flex;align-items:center;gap:10px}
+.autofix-hero-sub{font-size:12.5px;color:var(--text2);line-height:1.65;margin-bottom:12px}
+.autofix-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;background:rgba(180,100,255,0.14);border:1px solid rgba(180,100,255,0.3);font-size:11.5px;color:var(--text2);white-space:nowrap}
+.btn-autofix-hero{padding:18px 34px;font-size:16px;font-weight:800;border-radius:var(--r);border:none;cursor:pointer;color:#000;background:linear-gradient(135deg,#d488ff,#8a33ff);box-shadow:0 8px 30px rgba(160,80,255,0.35);transition:all var(--t);display:inline-flex;align-items:center;gap:10px;justify-content:center;font-family:var(--font)}
+.btn-autofix-hero:hover{box-shadow:0 10px 40px rgba(180,100,255,0.55);transform:translateY(-1px)}
+.btn-autofix-hero:active{transform:scale(0.98)}
+
 /* WU Status */
 .wu-status{font-size:16px;font-weight:700;text-align:center;padding:18px;border-radius:var(--r-sm);margin-bottom:18px}
 .wu-status.enabled{background:rgba(212,136,255,0.2);color:var(--green);border:2px solid rgba(212,136,255,0.4)}
@@ -349,18 +360,26 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
           <div id="driver-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
         </div>
 
-        <div class="panel glass" style="margin-top:16px">
-          <div class="panel-header-row">
-            <div class="panel-title"><span class="emoji">🧹</span> Elavult driver-duplikátumok (DriverStore takarítás)</div>
-            <span class="count-badge" id="dup-count-badge" style="display:none">0</span>
+        <!-- 1 Kattintásos Driver Fix gyorsindító: a szervizelés tipikusan ezzel kezdődik,
+             ezért a főnézetből is azonnal indítható (a sidebar menüpont természetesen
+             megmarad - ez ugyanazt a startAutoFix()-et hívja, ugyanazzal a megerősítő
+             ablakkal és nyomtató-kihagyás opcióval). -->
+        <div class="autofix-hero">
+          <div class="autofix-hero-text">
+            <div class="autofix-hero-title">🚀 1 Kattintásos Driver Fix</div>
+            <div class="autofix-hero-sub">A teljes driver-rendberakás egyetlen gombbal: visszaállítási pont, a Windows Update driver-frissítéseinek letiltása, szellemeszközök és third-party driverek törlése (nyomtató- és hálózatikártya-védelemmel), majd a legfrissebb driverek automatikus telepítése a Windows Update-ről és a Microsoft Update Catalogból — újraindítás-lánccal, felügyelet nélkül. A végén a DriverStore-t is kitakarítja az elavult driver-verzióktól.</div>
+            <div class="stress-hero-chips">
+              <span class="autofix-chip">🛟 Visszaállítási pont</span>
+              <span class="autofix-chip">👻 Szellemeszköz-törlés</span>
+              <span class="autofix-chip">🖨️ Nyomtató-védelem</span>
+              <span class="autofix-chip">🌐 WU + Catalog telepítés</span>
+              <span class="autofix-chip">🧹 DriverStore-takarítás</span>
+            </div>
           </div>
-          <p style="margin-bottom:12px;color:var(--text3)">Ugyanabból a driverből minden frissítés után ottmarad a régi verzió is a DriverStore-ban - ezek csak a helyet foglalják. A keresés a legújabb verziót mindig megtartja, és az épp használatban lévő drivereket SOHA nem törli.</p>
-          <div class="toolbar">
-            <button class="btn btn-primary" onclick="scanDupDrivers()" id="btn-dup-scan">🔍 Duplikátumok keresése</button>
-            <button class="btn btn-danger" onclick="deleteDupDrivers()" id="btn-dup-delete" disabled style="display:none">🗑 Kijelölt régi verziók törlése</button>
+          <div class="stress-hero-actions">
+            <button class="btn-autofix-hero" onclick="startAutoFix()">🚀 FIX INDÍTÁSA</button>
+            <button class="btn btn-sm" onclick="switchView('autofix')" style="justify-content:center" title="A teljes leírás és a Windows Defender figyelmeztetés a menüpont oldalán">ℹ️ Részletek + Defender-figyelmeztetés</button>
           </div>
-          <div id="dup-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
-          <div id="dup-results"></div>
         </div>
 
         <div class="panel glass welcome-panel">
@@ -551,6 +570,23 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
           </div>
 
           <button class="btn btn-big btn-primary" onclick="cleanTempFiles()" id="btn-tempclean">🧹 Kiválasztott Kategóriák Törlése</button>
+        </div>
+
+        <!-- Elavult driver-duplikátumok - a 2026-07-es átszervezésig a Driverek nézetben
+             élt, de ez is lemez-takarítás, ide illik. Az id-k változatlanok, a JS
+             (scanDupDrivers/onDupDriversLoaded/deleteDupDrivers) ugyanaz maradt. -->
+        <div class="panel glass" style="margin-top:16px">
+          <div class="panel-header-row">
+            <div class="panel-title"><span class="emoji">🧹</span> Elavult driver-duplikátumok (DriverStore takarítás)</div>
+            <span class="count-badge" id="dup-count-badge" style="display:none">0</span>
+          </div>
+          <p style="margin-bottom:12px;color:var(--text3)">Ugyanabból a driverből minden frissítés után ottmarad a régi verzió is a DriverStore-ban - ezek csak a helyet foglalják. A keresés a legújabb verziót mindig megtartja, és az épp használatban lévő drivereket SOHA nem törli. <b style="color:var(--text2)">A driver-telepítések végén (manuális telepítés és 1 Kattintásos Fix) ez a takarítás automatikusan is lefut</b> - ez a panel a kézi, ellenőrzött futtatáshoz van.</p>
+          <div class="toolbar">
+            <button class="btn btn-primary" onclick="scanDupDrivers()" id="btn-dup-scan">🔍 Duplikátumok keresése</button>
+            <button class="btn btn-danger" onclick="deleteDupDrivers()" id="btn-dup-delete" disabled style="display:none">🗑 Kijelölt régi verziók törlése</button>
+          </div>
+          <div id="dup-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
+          <div id="dup-results"></div>
         </div>
       </div>
 
@@ -1998,7 +2034,15 @@ function onTaskComplete(data) {
   // Refresh relevant views
   if (data.task === 'delete' || data.task === 'restore') setTimeout(loadDrivers, 500);
   if (data.task === 'disable_wu' || data.task === 'enable_wu' || data.task === 'restart_wu') setTimeout(checkWuStatus, 500);
-  if (data.task === 'toolsinstall') refreshServiceTools();
+  if (data.task === 'toolsinstall') {
+    refreshServiceTools();
+    // A telepítés-pipák törlése: enélkül egy ottfelejtett pipa a KÖVETKEZŐ telepítéskor
+    // újra feltelepítené a már telepített programot (terepen látott eset).
+    for (const t of SERVICE_TOOLS) {
+      const cb = document.getElementById('ti-' + t.key);
+      if (cb) cb.checked = false;
+    }
+  }
   
   // Re-enable autofix button
   if (data.task === 'autofix') {
