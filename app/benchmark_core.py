@@ -65,6 +65,43 @@ def get_machine_id():
 _OEM_JUNK = {"to be filled by o.e.m.", "default string", "system manufacturer",
              "system product name", "not applicable", "", "none", "o.e.m."}
 
+# Win32_PhysicalMemory.SMBIOSMemoryType -> DDR-generáció (a gépnév "16GB DDR4" formájához).
+_DDR_TYPES = {20: 'DDR', 21: 'DDR2', 24: 'DDR3', 26: 'DDR4', 34: 'DDR5', 35: 'DDR5'}
+
+import re as _re
+
+
+def _clean_cpu(name):
+    """A processzornevet olvashatóbbá tisztítja a ranglista-névhez: leszedi a (R)/(TM)
+    jelöléseket, a "CPU"/"Processor" szavakat és a záró "@ 3.20GHz" órajelet, a többszörös
+    szóközöket összevonja. Pl. "Intel(R) Core(TM) i5-6500 CPU @ 3.20GHz" -> "Intel Core i5-6500",
+    "AMD Ryzen 5 5600 6-Core Processor" -> "AMD Ryzen 5 5600 6-Core"."""
+    if not name:
+        return ''
+    n = _re.sub(r'\((?:R|TM|tm|r)\)', '', name)
+    n = _re.sub(r'\s*@.*$', '', n)                    # "@ 3.20GHz" és utána minden
+    n = _re.sub(r'\bCPU\b', '', n, flags=_re.I)
+    n = _re.sub(r'\bProcessor\b', '', n, flags=_re.I)
+    n = _re.sub(r'\s+', ' ', n).strip(' -')
+    return n
+
+
+def _clean_gpu(name):
+    """A videokártya-nevet rövidíti a ranglista-névhez: leszedi az "NVIDIA GeForce"/"NVIDIA"
+    előtagot és a (R)/(TM) jelöléseket. Pl. "NVIDIA GeForce RTX 5080" -> "RTX 5080",
+    "Intel(R) HD Graphics 530" -> "Intel HD Graphics 530". A több GPU-t vessző választja."""
+    if not name:
+        return ''
+    parts = []
+    for one in name.split(','):
+        g = _re.sub(r'\((?:R|TM|tm|r)\)', '', one)
+        g = _re.sub(r'NVIDIA GeForce ', '', g)
+        g = _re.sub(r'NVIDIA ', '', g)
+        g = _re.sub(r'\s+', ' ', g).strip()
+        if g:
+            parts.append(g)
+    return ', '.join(parts)
+
 
 def gather_machine_specs(run):
     """A ranglistához szükséges hardver-adatok: CPU, alaplap, memória (összes GB + sebesség
@@ -86,6 +123,7 @@ try {
         $d.RAMGB = [math]::Round($tot / 1GB)
         $d.RAMSPEED = ($ram | Select-Object -First 1 -ExpandProperty Speed)
         $d.RAMCOUNT = $ram.Count
+        $d.RAMTYPE = ($ram | Select-Object -First 1 -ExpandProperty SMBIOSMemoryType)
     }
 } catch {}
 try {
@@ -104,7 +142,7 @@ $d | ConvertTo-Json -Compress
     except Exception as e:
         logging.error(f"[BENCHMARK] Hardver-lekérdezés hiba: {e}")
 
-    cpu = (data.get('CPU') or '').strip() or 'Ismeretlen processzor'
+    cpu = _clean_cpu((data.get('CPU') or '').strip()) or 'Ismeretlen processzor'
 
     man = (data.get('BOARDMAN') or '').strip()
     prod = (data.get('BOARDPROD') or '').strip()
@@ -117,16 +155,25 @@ $d | ConvertTo-Json -Compress
     ram_gb = data.get('RAMGB')
     ram_speed = data.get('RAMSPEED')
     ram_count = data.get('RAMCOUNT')
+    ddr = _DDR_TYPES.get(data.get('RAMTYPE'))
     if ram_gb:
         ram = f"{ram_gb} GB"
         if ram_speed:
             ram += f" {ram_speed} MHz"
         if ram_count:
             ram += f" ({ram_count} modul)"
+        # Rövid forma a gépnévhez: "16GB DDR4"
+        ram_short = f"{ram_gb}GB" + (f" {ddr}" if ddr else "")
     else:
         ram = 'Ismeretlen memória'
+        ram_short = ''
 
-    gpu = (data.get('GPU') or '').strip() or 'Ismeretlen videokártya'
+    gpu = _clean_gpu((data.get('GPU') or '').strip()) or 'Ismeretlen videokártya'
+
+    # A gép "neve" a ranglistában: proci / RAM / videokártya (a Windows gépnév - pl. "16065"
+    # - semmitmondó lenne). A machine_id (a dedup kulcsa) továbbra is a MachineGuid.
+    name_parts = [p for p in [cpu, ram_short, gpu] if p and not p.startswith('Ismeretlen')]
+    machine_name = ' / '.join(name_parts) if name_parts else os.environ.get('COMPUTERNAME', 'PC')
 
     return {
         'cpu': cpu,
@@ -134,7 +181,7 @@ $d | ConvertTo-Json -Compress
         'ram': ram,
         'gpu': gpu,
         'machine_id': get_machine_id(),
-        'machine_name': os.environ.get('COMPUTERNAME', 'PC'),
+        'machine_name': machine_name,
     }
 
 

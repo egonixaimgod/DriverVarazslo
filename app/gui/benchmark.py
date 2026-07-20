@@ -138,7 +138,9 @@ class GuiBenchmarkMixin:
                 }
                 core_upload_result(self._run, entry)
                 self.emit('toast', {'message': '🏆 Eredmény feltöltve a ranglistára!', 'type': 'success'})
-                # A frissített ranglista visszaküldése a nézetbe.
+                # Sikeres feltöltés: a nézet bezárhatja a futtató panelt + ürítheti a mezőket.
+                self.emit('benchmark_uploaded', {})
+                # A frissített ranglista automatikus visszaküldése a nézetbe.
                 self.emit('leaderboard_data', core_fetch_leaderboard(self._run))
             except Exception as e:
                 logging.error(f"[BENCHMARK] Feltöltés hiba: {e}")
