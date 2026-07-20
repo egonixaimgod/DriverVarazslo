@@ -18,8 +18,6 @@ from app import common
 from app.benchmark_defs import BENCH_TOOLS
 from app.benchmark_core import find_bench_tool_exes
 from app.benchmark_core import gather_machine_specs
-from app.benchmark_core import resolve_endpoint
-from app.benchmark_core import save_endpoint
 from app.benchmark_core import fetch_leaderboard as core_fetch_leaderboard
 from app.benchmark_core import upload_result as core_upload_result
 # === /AUTO-IMPORTS ===
@@ -45,15 +43,6 @@ class GuiBenchmarkMixin:
                     'gpu': 'Ismeretlen', 'machine_id': '',
                     'machine_name': os.environ.get('COMPUTERNAME', 'PC')})
         threading.Thread(target=worker, daemon=True, name="bench-specs").start()
-
-    def get_benchmark_endpoint(self):
-        """A jelenleg beállított felhő-ranglista végpont URL-je (a beállító mezőhöz)."""
-        return resolve_endpoint()
-
-    def set_benchmark_endpoint(self, url):
-        """A felületről megadott felhő-ranglista végpont URL mentése (üres = törlés)."""
-        save_endpoint(url)
-        return True
 
     def launch_bench_tool(self, name):
         """Egy benchmark program (cinebench/heaven) portable indítása a stresstools.zip-ből.

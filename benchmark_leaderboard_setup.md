@@ -108,15 +108,17 @@ function doPost(e) {
 
 ## 4. Beállítás a programban
 
-1. Indítsd el a DriverVarázslót, menj a **🏆 Benchmark** menüpontra.
-2. Alul, a ranglista alatt nyisd ki a **⚙️ Ranglista végpont beállítása** részt.
-3. Illeszd be a **`/exec` URL-t**, nyomd meg a **💾 Mentés**-t.
-4. Kész — a **🔄 Frissítés** gomb már a felhőből tölti a ranglistát, a **Feltöltés a
-   ranglistára** gomb pedig ide ír.
+A végpont **fixen a programba van drótozva** — minden legyártott exébe alapból ugyanaz az
+URL kerül, semmit nem kell gépenként beállítani. Ha módosítani akarod (pl. új Sheet, új
+deployment), egyetlen sort írsz át a forrásban:
 
-Az URL a `C:\DriverVarazslo\benchmark_endpoint.txt` fájlba mentődik gépenként. Ha minden
-gépen ugyanazt a ranglistát akarod alapból, a fix URL-t beírhatod egyszer s mindenkorra a
-kódba is: `app/benchmark_defs.py` → `BENCHMARK_API_URL_DEFAULT = "https://.../exec"`.
+```python
+# app/benchmark_defs.py
+BENCHMARK_API_URL_DEFAULT = "https://script.google.com/macros/s/....../exec"
+```
+
+Utána újra kell buildelni/kiadni. (Szándékosan nincs futásidejű felületi beállítás: a
+végpont nem átírható a felhasználók által, mindig a beépített URL megy.)
 
 ---
 

@@ -17,7 +17,6 @@ import json
 import logging
 import fnmatch
 import winreg
-from app.common import _app_data_dir
 from app.common import _ps_quote
 from app.benchmark_defs import BENCH_TOOLS
 from app.benchmark_defs import BENCHMARK_API_URL_DEFAULT
@@ -140,35 +139,14 @@ $d | ConvertTo-Json -Compress
 
 
 # ============================================================================
-# Végpont beállítás (a felhasználó a felületről is megadhatja)
+# Végpont
 # ============================================================================
-def _endpoint_file():
-    return os.path.join(_app_data_dir(), 'benchmark_endpoint.txt')
-
-
 def resolve_endpoint():
-    """A felhő-ranglista végpont URL-je: elsőként az app-adatmappába mentett override
-    (a felületről beállított URL), ha nincs, a benchmark_defs alapértéke. Üres string, ha
-    egyik sincs beállítva (ilyenkor a nézet "nincs beállítva" állapotot mutat)."""
-    try:
-        p = _endpoint_file()
-        if os.path.exists(p):
-            with open(p, 'r', encoding='utf-8') as f:
-                url = f.read().strip()
-            if url:
-                return url
-    except Exception as e:
-        logging.debug(f"[BENCHMARK] endpoint fájl olvasási hiba: {e}")
+    """A felhő-ranglista végpont URL-je - fixen a programba drótozva (benchmark_defs.py:
+    BENCHMARK_API_URL_DEFAULT). Szándékosan nincs futásidejű felülírás/beállítás: minden
+    exébe alapból ugyanaz a végpont kerül, módosítani a forrásban (benchmark_defs.py) lehet.
+    Üres string, ha nincs beállítva (a nézet ilyenkor "nincs beállítva" állapotot mutat)."""
     return BENCHMARK_API_URL_DEFAULT
-
-
-def save_endpoint(url):
-    """A felületről megadott végpont-URL mentése az app-adatmappába (üres = törlés)."""
-    p = _endpoint_file()
-    with open(p, 'w', encoding='utf-8') as f:
-        f.write((url or '').strip())
-    logging.info(f"[BENCHMARK] Ranglista végpont mentve: {(url or '').strip() or '(üres)'}")
-    return True
 
 
 # ============================================================================
