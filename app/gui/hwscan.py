@@ -881,10 +881,22 @@ try {
                 else:
                     cmd = ['pnputil', '/add-driver', f"{ext_path}\\*.inf", '/subdirs', '/install']
                 res = self._run(cmd)
-                if res.returncode == 0 or any(k in res.stdout for k in ["Added", "sikeres", "successfully"]):
+                # pnputil kimenet: "Added driver packages:  N". Ha N==0, semmi nem települt
+                # (a csomag már a store-ban van / up-to-date, kód 259) - ezt TILOS sikernek
+                # számolni: az AutoFix katalógus-záróköre soha be nem bind-elő eszközön
+                # (pl. kód-28 Ismeretlen Eszköz) minden körben "1 települt"-et jelentene, és a
+                # lánc végtelen reboot-loopba kerülne (field-seen: AMDIF031 amdgpio3.inf).
+                added_m = re.search(r'Added driver packages?\s*:\s*(\d+)', res.stdout or '', re.IGNORECASE)
+                added_zero = added_m is not None and int(added_m.group(1)) == 0
+                installed_ok = (res.returncode == 0 or any(k in res.stdout for k in ["Added", "sikeres", "successfully"])) and not added_zero
+                if installed_ok:
                     with counter_lock:
                         success += 1
                     self.emit('task_progress', {'task': task_id, 'log': f'  ✅ {name} telepítve!'})
+                elif added_zero:
+                    with counter_lock:
+                        skipped += 1
+                    self.emit('task_progress', {'task': task_id, 'log': f'  ↷ {name} már naprakész (nincs új csomag) - kihagyva.'})
                 else:
                     with counter_lock:
                         fail += 1

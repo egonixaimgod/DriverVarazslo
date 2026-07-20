@@ -145,6 +145,13 @@ class GuiAutofixMixin:
         # végleges kizárás) egy átmeneti letöltési hiba után a drivert véglegesen
         # kihagyta a maradék körökből.
         attempt_counts = {}
+        # Telepítés-hibával (nem letöltési hibával) bukott UpdateID-k: ezeket NEM próbáljuk
+        # újra a következő körökben. Field-seen (Build 214, Dell OptiPlex): 8 driver code=4-gyel
+        # bukott, mindegyik ~2,5 perc, és a régi 1-retry politika miatt a 2. kör újra végigment
+        # rajtuk (~+20 perc a semmiért). Egy code=4 telepítés-hiba ugyanabban a session-ben
+        # gyakorlatilag sosem gyógyul retry-ra; a letöltési hiba (átmeneti hálózat) viszont
+        # kaphat egy retry-t az attempt_counts-on keresztül, ezért azt itt nem szűrjük.
+        install_failed_uids = set()
         devices_to_check = []
         watchdog_tripped = False
 
@@ -173,7 +180,7 @@ class GuiAutofixMixin:
             self.emit('task_progress', {'task': task_id, 'log': f'✅ {len(devices_to_check)} hardverelem azonosítva. Egyeztetés...'})
             wu_results = self._search_wu_api() or []
 
-            exclude_uids = {uid for uid, c in attempt_counts.items() if c >= 2}
+            exclude_uids = {uid for uid, c in attempt_counts.items() if c >= 2} | install_failed_uids
             matches = _match_wu_updates_to_devices(wu_results, devices_to_check, exclude_uids=exclude_uids)
 
             # DOWNGRADE-VÉDELEM (közös mag: wu_core._filter_wu_downgrades): a WU néha a
@@ -188,6 +195,9 @@ class GuiAutofixMixin:
             matched_updates = [m['uid'] for m in matches]
             for uid in matched_updates:
                 attempt_counts[uid] = attempt_counts.get(uid, 0) + 1
+            # A telepítő script a Title-t írja vissza a FAIL/OK sorokban (nem az UpdateID-t),
+            # ezért a bukott UID kiszűréséhez Title -> UpdateID visszakeresés kell.
+            title_to_uid = {m['title']: m['uid'] for m in matches}
 
             if not matched_updates:
                 self.emit('task_progress', {'task': task_id, 'log': '✅ Szerveren nincs újabb valós illesztőprogram.'})
@@ -227,7 +237,15 @@ class GuiAutofixMixin:
                         total_installed_in_session += 1
                         self.emit('task_progress', {'task': task_id, 'log': f'[OK] SIKERES: {line[3:].strip()}'})
                     elif line.startswith("FAIL:"):
-                        self.emit('task_progress', {'task': task_id, 'log': f'[HIBA] SIKERTELEN: {line[5:].strip()}'})
+                        fail_text = line[5:].strip()  # pl. "[kód=4] Intel..." vagy "[LETÖLTÉS HIBA] ..."
+                        # Telepítés-hibát (kód=N / TELEPÍTÉS HIBA) végleg kizárunk a session-ből;
+                        # a letöltési hiba átmeneti lehet, azt az attempt_counts 1-retry-ja fedi.
+                        if 'LETÖLTÉS HIBA' not in fail_text:
+                            fail_title = re.sub(r'^\[[^\]]*\]\s*', '', fail_text)
+                            fuid = title_to_uid.get(fail_title)
+                            if fuid:
+                                install_failed_uids.add(fuid)
+                        self.emit('task_progress', {'task': task_id, 'log': f'[HIBA] SIKERTELEN: {fail_text}'})
                     elif line.startswith("EMPTY:"):
                         self.emit('task_progress', {'task': task_id, 'log': f'[FIGYELMEZTETES] {line[6:].strip()}'})
                     elif line.startswith("ERROR:"):
