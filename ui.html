@@ -252,6 +252,24 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .view-hero.vh-blue{background:linear-gradient(135deg,rgba(90,160,255,0.15),rgba(60,80,200,0.12) 55%,var(--glass));border-color:rgba(100,180,255,0.4)}
 .view-hero.vh-teal{background:linear-gradient(135deg,rgba(80,220,200,0.13),rgba(40,120,140,0.12) 55%,var(--glass));border-color:rgba(100,220,200,0.35)}
 
+/* Benchmark nézet */
+.bench-specs{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px 18px;margin-bottom:16px;padding:14px 16px;border-radius:var(--r-sm);background:rgba(25,15,45,0.5);border:1px solid var(--glass-border)}
+.bench-spec-item{display:flex;flex-direction:column;gap:2px;font-size:12px;min-width:0}
+.bench-spec-item span{color:var(--text3);font-size:11px}
+.bench-spec-item b{color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bench-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px}
+.bench-steps>li{padding:14px 16px;border-radius:var(--r-sm);background:rgba(180,100,255,0.06);border:1px solid rgba(180,100,255,0.18)}
+.bench-step-row{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:10px}
+.bench-step-row>div{font-size:12.5px;color:var(--text2);line-height:1.55}
+.bench-step-row button{flex-shrink:0;white-space:nowrap}
+.bench-score-input{width:100%;padding:9px 12px;border-radius:var(--r-sm);border:1px solid var(--glass-border);background:rgba(20,12,38,0.6);color:var(--text);font:14px var(--font)}
+.bench-score-input:focus{outline:none;border-color:var(--glass-border-hover);box-shadow:0 0 0 3px rgba(180,100,255,0.15)}
+.bench-settings{margin-left:auto}
+.bench-settings summary{cursor:pointer;color:var(--text3);font-size:12px;user-select:none;padding:6px 0}
+.bench-settings summary:hover{color:var(--accent)}
+.bench-settings[open]{width:100%;margin-top:6px}
+#bench-lb-wrap{overflow-x:auto}
+
 /* WU Status */
 .wu-status{font-size:16px;font-weight:700;text-align:center;padding:18px;border-radius:var(--r-sm);margin-bottom:18px}
 .wu-status.enabled{background:rgba(212,136,255,0.2);color:var(--green);border:2px solid rgba(212,136,255,0.4)}
@@ -314,6 +332,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
     <button class="nav-btn" onclick="switchView('bitlocker')" data-view="bitlocker"><span class="icon">🔒</span>BitLocker Kezelő</button>
     <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Driver Fix</button>
     <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stress Teszt &amp; Szervíz Programok</button>
+    <button class="nav-btn" onclick="switchView('benchmark')" data-view="benchmark"><span class="icon">🏆</span>Benchmark</button>
     <button class="nav-btn" onclick="switchView('report')" data-view="report"><span class="icon">📊</span>Rendszer Riport (PDF)</button>
     <button class="nav-btn" onclick="switchView('blockscript')" data-view="blockscript"><span class="icon">🚫</span>Net Blokkoló Script</button>
     <div class="sidebar-bottom" id="build-label">Build ---</div>
@@ -754,6 +773,85 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
         </div>
       </div>
 
+      <!-- VIEW: Benchmark -->
+      <div class="view" id="view-benchmark">
+        <div class="view-hero" data-emoji="🏆">
+          <div class="vh-text">
+            <div class="vh-title">🏆 Benchmark &amp; Ranglista</div>
+            <div class="vh-sub">Futtasd le a két benchmarkot — a <b>Cinebench R20</b> (processzor) és a <b>Unigine Heaven</b> (videokártya) — portable módban, majd töltsd fel az eredményt a közös felhő-ranglistára. Így minden betesztelt gép egy sorba kerül a táblázatba a hardverével (proci, alaplap, RAM, videokártya) és a pontszámaival együtt. A pontszámot a lefuttatott benchmark eredmény-képernyőjéről kézzel írod be — a hardver-adatok automatikusan kitöltődnek.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">🧠 Cinebench R20 · CPU</span>
+              <span class="hero-chip">🎮 Unigine Heaven · GPU</span>
+              <span class="hero-chip">☁️ Közös felhő-ranglista</span>
+            </div>
+          </div>
+          <div class="vh-actions">
+            <button class="btn btn-big btn-primary" onclick="startBenchmarkRun()" id="btn-bench-run">🏁 Benchmark futtatása</button>
+          </div>
+        </div>
+
+        <!-- Letöltési folyamat-sáv (első indításkor a stresstools.zip letöltése) -->
+        <div class="glass stress-dl-box" id="stress-dl-bench" style="display:none">
+          <div class="stress-dl-label" id="stress-dl-bench-label">Letöltés...</div>
+          <div class="progress" id="stress-dl-bench-prog"><div class="progress-fill" id="stress-dl-bench-fill"></div></div>
+        </div>
+
+        <!-- Futtató panel (a "Benchmark futtatása" gomb nyitja meg) -->
+        <div class="panel glass" id="bench-run-panel" style="display:none">
+          <div class="panel-title"><span class="emoji">⚙️</span> Benchmark futtatása ezen a gépen</div>
+          <div class="bench-specs" id="bench-specs">Hardver felismerése...</div>
+          <ol class="bench-steps">
+            <li>
+              <div class="bench-step-row">
+                <div><b>1. Cinebench R20 — processzor pontszám.</b> Indítsd el, futtasd le a CPU tesztet, és a végén a <b>CB pontszámot</b> írd be ide (pl. 3512).</div>
+                <button class="btn btn-sm" onclick="launchBenchTool('cinebench')">▶ Cinebench indítása</button>
+              </div>
+              <input type="number" step="any" min="0" class="bench-score-input" id="bench-score-cinebench" placeholder="Cinebench R20 pontszám (pl. 3512)">
+            </li>
+            <li>
+              <div class="bench-step-row">
+                <div><b>2. Unigine Heaven — videokártya pontszám.</b> Indítsd el, a launcherben nyomd meg a <b>Run</b> gombot, a benchmark ablakban a <b>Benchmark</b> gombot, a végén az eredmény-képernyőn látható <b>Score</b> értéket írd be ide (pl. 1450).</div>
+                <button class="btn btn-sm" onclick="launchBenchTool('heaven')">▶ Heaven indítása</button>
+              </div>
+              <input type="number" step="any" min="0" class="bench-score-input" id="bench-score-heaven" placeholder="Unigine Heaven Score (pl. 1450)">
+            </li>
+          </ol>
+          <div class="toolbar" style="margin-top:14px;margin-bottom:0">
+            <button class="btn btn-primary" onclick="uploadBenchmarkResult()" id="btn-bench-upload">🏆 Feltöltés a ranglistára</button>
+            <span style="font-size:11.5px;color:var(--text3)">A hardver-adatok automatikusan kitöltődnek. Ugyanarról a gépről újra feltöltve a korábbi sora <b style="color:var(--text2)">frissül</b> (nem duplikálódik).</span>
+          </div>
+        </div>
+
+        <!-- Ranglista -->
+        <div class="panel glass">
+          <div class="panel-header-row">
+            <div class="panel-title" style="margin-bottom:0"><span class="emoji">📊</span> Ranglista — betesztelt gépek</div>
+            <span class="count-badge" id="bench-count"></span>
+          </div>
+          <div id="bench-lb-status" style="color:var(--text3);margin-bottom:12px">☁️ Ranglista betöltése...</div>
+          <div class="table-wrap" id="bench-lb-wrap" style="display:none">
+            <table>
+              <thead><tr>
+                <th>#</th><th>Gép</th><th>Processzor</th><th>Alaplap</th><th>Memória</th><th>Videokártya</th>
+                <th>🧠 Cinebench</th><th>🎮 Heaven</th>
+              </tr></thead>
+              <tbody id="bench-lb-body"></tbody>
+            </table>
+          </div>
+          <div class="toolbar" style="margin-top:14px;margin-bottom:0">
+            <button class="btn btn-sm" onclick="fetchLeaderboard()">🔄 Frissítés</button>
+            <details class="bench-settings">
+              <summary>⚙️ Ranglista végpont beállítása</summary>
+              <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <input type="text" id="bench-endpoint-input" placeholder="Google Apps Script /exec URL" style="flex:1;min-width:280px;padding:8px 12px;border-radius:var(--r-sm);border:1px solid var(--glass-border);background:rgba(20,12,38,0.6);color:var(--text);font:13px var(--font)">
+                <button class="btn btn-sm" onclick="saveBenchmarkEndpoint()">💾 Mentés</button>
+              </div>
+              <p style="font-size:11.5px;color:var(--text3);margin-top:8px">A közös ranglistához egy (ingyenes) Google Sheet + Apps Script webalkalmazás kell — a beállítást a <code>benchmark_leaderboard_setup.md</code> írja le lépésről lépésre. Illeszd be ide a webalkalmazás <code>/exec</code> URL-jét, és nyomd meg a Mentést.</p>
+            </details>
+          </div>
+        </div>
+      </div>
+
       <!-- VIEW: Report (PDF) -->
       <div class="view" id="view-report">
         <div class="view-hero vh-teal" data-emoji="📊">
@@ -1097,6 +1195,12 @@ window.handlePyEvent = function(payload) {
     case 'stress_dl_progress':
       onStressDlProgress(data);
       break;
+    case 'machine_specs':
+      renderMachineSpecs(data);
+      break;
+    case 'leaderboard_data':
+      renderLeaderboard(data);
+      break;
   }
 };
 
@@ -1108,6 +1212,7 @@ function switchView(name) {
   document.querySelector('.nav-btn[data-view="'+name+'"]').classList.add('active');
   currentView = name;
   if (name === 'stress') refreshServiceTools();
+  if (name === 'benchmark') loadBenchmarkView();
   
   const targetBar = document.querySelector('.target-bar');
   if (targetBar) {
@@ -1994,19 +2099,147 @@ async function installServiceTools() {
 function onStressDlProgress(d) {
   // A stresstools.zip letöltésének/kicsomagolásának nézetbe ágyazott folyamat-sávja
   // (egyenkénti program-indítás első letöltésekor - a telepítés a progress-modalt
-  // használja helyette).
-  const box = document.getElementById('stress-dl');
-  if (!box) return;
-  if (!d || !d.active) { box.style.display = 'none'; return; }
-  box.style.display = 'flex';
-  document.getElementById('stress-dl-label').textContent = d.label || 'Letöltés...';
-  const prog = document.getElementById('stress-dl-prog');
-  const fill = document.getElementById('stress-dl-fill');
-  if (d.percent === null || d.percent === undefined) {
-    prog.classList.add('progress-indeterminate');
-  } else {
-    prog.classList.remove('progress-indeterminate');
-    fill.style.width = d.percent + '%';
+  // használja helyette). Ugyanaz az esemény a Stress és a Benchmark nézet sávját is
+  // kezeli - csak az épp aktív nézeté látszik (a rejtett nézeté display:flex is ártalmatlan).
+  const bars = [
+    {box:'stress-dl', label:'stress-dl-label', prog:'stress-dl-prog', fill:'stress-dl-fill'},
+    {box:'stress-dl-bench', label:'stress-dl-bench-label', prog:'stress-dl-bench-prog', fill:'stress-dl-bench-fill'},
+  ];
+  for (const b of bars) {
+    const box = document.getElementById(b.box);
+    if (!box) continue;
+    if (!d || !d.active) { box.style.display = 'none'; continue; }
+    box.style.display = 'flex';
+    document.getElementById(b.label).textContent = d.label || 'Letöltés...';
+    const prog = document.getElementById(b.prog);
+    const fill = document.getElementById(b.fill);
+    if (d.percent === null || d.percent === undefined) {
+      prog.classList.add('progress-indeterminate');
+    } else {
+      prog.classList.remove('progress-indeterminate');
+      fill.style.width = d.percent + '%';
+    }
+  }
+}
+
+/* ========== BENCHMARK ========== */
+let benchSpecs = null;
+let leaderboard = [];
+
+function loadBenchmarkView() {
+  if (!window.pywebview) return;
+  // A beállított felhő-végpont betöltése a beállító mezőbe.
+  api().get_benchmark_endpoint().then(url => {
+    const inp = document.getElementById('bench-endpoint-input');
+    if (inp) inp.value = url || '';
+  }).catch(e => console.error(e));
+  // Hardver-felismerés + ranglista lekérés (mindkettő eseménnyel tér vissza).
+  api().load_machine_specs().catch(e => console.error(e));
+  fetchLeaderboard();
+}
+
+function renderMachineSpecs(d) {
+  benchSpecs = d;
+  const el = document.getElementById('bench-specs');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="bench-spec-item"><span>🖥️ Gép</span><b title="${esc(d.machine_name||'?')}">${esc(d.machine_name||'?')}</b></div>
+    <div class="bench-spec-item"><span>🧠 Processzor</span><b title="${esc(d.cpu||'?')}">${esc(d.cpu||'?')}</b></div>
+    <div class="bench-spec-item"><span>🔲 Alaplap</span><b title="${esc(d.motherboard||'?')}">${esc(d.motherboard||'?')}</b></div>
+    <div class="bench-spec-item"><span>🧩 Memória</span><b title="${esc(d.ram||'?')}">${esc(d.ram||'?')}</b></div>
+    <div class="bench-spec-item"><span>🎮 Videokártya</span><b title="${esc(d.gpu||'?')}">${esc(d.gpu||'?')}</b></div>`;
+}
+
+function startBenchmarkRun() {
+  const panel = document.getElementById('bench-run-panel');
+  panel.style.display = 'block';
+  panel.scrollIntoView({behavior:'smooth', block:'start'});
+  // Első lépés: a Cinebench elindítása (a felhasználó utána maga indítja a Heaven-t).
+  launchBenchTool('cinebench');
+  toast('🏁 Cinebench elindul — futtasd le, írd be a pontszámot, majd indítsd a Heaven-t.', 'info');
+}
+
+async function launchBenchTool(name) {
+  try { await api().launch_bench_tool(name); }
+  catch (e) { toast('Indítási hiba: ' + e, 'error'); }
+}
+
+async function uploadBenchmarkResult() {
+  const cbRaw = document.getElementById('bench-score-cinebench').value.trim();
+  const hvRaw = document.getElementById('bench-score-heaven').value.trim();
+  const cb = cbRaw === '' ? null : parseFloat(cbRaw);
+  const hv = hvRaw === '' ? null : parseFloat(hvRaw);
+  if (cb === null && hv === null) { toast('⚠️ Írd be legalább az egyik pontszámot!', 'warning'); return; }
+  if ((cb !== null && isNaN(cb)) || (hv !== null && isNaN(hv))) { toast('⚠️ A pontszám csak szám lehet!', 'warning'); return; }
+  const btn = document.getElementById('btn-bench-upload');
+  btn.disabled = true;
+  try {
+    await api().upload_benchmark_result(cb, hv);
+  } catch (e) {
+    toast('Feltöltési hiba: ' + e, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function fetchLeaderboard() {
+  const st = document.getElementById('bench-lb-status');
+  if (st) st.textContent = '☁️ Ranglista betöltése...';
+  if (!window.pywebview) return;
+  api().fetch_leaderboard().catch(e => console.error(e));
+}
+
+function renderLeaderboard(d) {
+  leaderboard = (d && d.entries) || [];
+  const wrap = document.getElementById('bench-lb-wrap');
+  const body = document.getElementById('bench-lb-body');
+  const st = document.getElementById('bench-lb-status');
+  const cnt = document.getElementById('bench-count');
+  if (d && d.configured === false) {
+    wrap.style.display = 'none';
+    st.innerHTML = '⚙️ A felhő-ranglista még nincs beállítva. Nyisd meg lent a <b>⚙️ Ranglista végpont beállítása</b> részt, és add meg a Google Apps Script <code>/exec</code> URL-t (lásd <code>benchmark_leaderboard_setup.md</code>).';
+    cnt.textContent = '';
+    return;
+  }
+  if (d && d.error) {
+    wrap.style.display = 'none';
+    st.textContent = '❌ Hiba a ranglista betöltésekor: ' + d.error;
+    cnt.textContent = '';
+    return;
+  }
+  if (!leaderboard.length) {
+    wrap.style.display = 'none';
+    st.textContent = 'Még nincs feltöltött gép. Futtasd le a benchmarkot és töltsd fel az elsőt!';
+    cnt.textContent = '0 gép';
+    return;
+  }
+  // Rendezés Cinebench szerint csökkenően (a legerősebb proci elöl); a "#" a rangsor.
+  const rows = leaderboard.slice().sort((a, b) => (parseFloat(b.cinebench) || 0) - (parseFloat(a.cinebench) || 0));
+  const cell = v => (v !== null && v !== undefined && v !== '') ? esc(String(v)) : '—';
+  body.innerHTML = rows.map((r, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${esc(r.machine_name || ('Gép ' + (i + 1)))}</td>
+      <td title="${esc(r.cpu||'')}">${cell(r.cpu)}</td>
+      <td title="${esc(r.motherboard||'')}">${cell(r.motherboard)}</td>
+      <td title="${esc(r.ram||'')}">${cell(r.ram)}</td>
+      <td title="${esc(r.gpu||'')}">${cell(r.gpu)}</td>
+      <td><b style="color:var(--accent)">${cell(r.cinebench)}</b></td>
+      <td><b style="color:var(--green)">${cell(r.heaven)}</b></td>
+    </tr>`).join('');
+  wrap.style.display = 'block';
+  st.textContent = '';
+  cnt.textContent = leaderboard.length + ' gép';
+}
+
+async function saveBenchmarkEndpoint() {
+  const url = document.getElementById('bench-endpoint-input').value.trim();
+  try {
+    await api().set_benchmark_endpoint(url);
+    toast('💾 Ranglista végpont mentve.', 'success');
+    fetchLeaderboard();
+  } catch (e) {
+    toast('Mentési hiba: ' + e, 'error');
   }
 }
 
