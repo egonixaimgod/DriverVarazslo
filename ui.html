@@ -282,6 +282,12 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .lb-board{background:linear-gradient(180deg,#fbfaff,#eceaf7);border:1px solid rgba(255,255,255,0.5);border-radius:20px;padding:22px 24px;margin-bottom:16px;color:#241d3a;box-shadow:0 22px 55px rgba(6,3,18,0.5),0 0 0 1px rgba(180,100,255,0.2),inset 0 1px 0 rgba(255,255,255,0.85)}
 .lb-board-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
 .lb-board-title{font-size:19px;font-weight:800;color:#1c1636;display:flex;align-items:center;gap:10px}
+.lb-head-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.lb-sort{display:flex;align-items:center;gap:6px}
+.lb-sort-lbl{font-size:12px;color:#7a7396;font-weight:600}
+.lb-sort-btn{padding:7px 13px;border-radius:999px;border:1px solid #ddd7ec;background:#f4f2fb;color:#6a6288;font:12.5px var(--font);font-weight:700;cursor:pointer;transition:all var(--t);white-space:nowrap}
+.lb-sort-btn:hover{background:#ece7f9;color:#4a2b8c}
+.lb-sort-btn.active{background:linear-gradient(135deg,#efe4ff,#e4d3ff);border-color:#c9b0ff;color:#5a24b0;box-shadow:0 2px 8px rgba(140,80,255,0.15)}
 .lb-refresh{padding:8px 16px;border-radius:999px;border:1px solid #d8d2ea;background:#fff;color:#4a2b8c;font:13px var(--font);font-weight:700;cursor:pointer;transition:all var(--t);display:inline-flex;align-items:center;gap:6px}
 .lb-refresh:hover{background:#f3eefe;border-color:#b98cff;box-shadow:0 3px 12px rgba(140,80,255,0.18)}
 .lb-status{color:#6a6288;margin-bottom:10px;font-size:13px}
@@ -853,19 +859,20 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
         <!-- Futtató panel (rejtett; a "Benchmark futtatása" gomb nyitja le FELÜL, feltöltés után bezárul) -->
         <div class="panel glass" id="bench-run-panel" style="display:none">
           <div class="panel-title"><span class="emoji">⚙️</span> Benchmark futtatása ezen a gépen</div>
+          <p style="margin:-4px 0 14px;color:var(--text3);font-size:12.5px">A <b style="color:var(--text2)">🏁 Benchmark futtatása</b> automatikus: elindul a <b style="color:var(--text2)">Cinebench</b> a több-magos (multi-core) teszttel; ha <b style="color:var(--text2)">bezárod</b>, magától elindul a <b style="color:var(--text2)">Heaven</b>. A két pontszámot a lefuttatott tesztek eredmény-képernyőjéről írd be ide, majd töltsd fel. (A gombokkal külön is újraindíthatod bármelyiket.)</p>
           <div class="bench-specs" id="bench-specs">Hardver felismerése...</div>
           <ol class="bench-steps">
             <li>
               <div class="bench-step-row">
-                <div><b>1. Cinebench R20 — processzor pontszám.</b> Indítsd el, futtasd le a CPU tesztet, és a végén a <b>CB pontszámot</b> írd be ide (pl. 3512).</div>
-                <button class="btn btn-sm" onclick="launchBenchTool('cinebench')">▶ Cinebench indítása</button>
+                <div><b>1. Cinebench R20 — processzor pontszám.</b> A több-magos teszt lefutása után a nagy <b>CB pontszámot</b> írd be ide (pl. 3512).</div>
+                <button class="btn btn-sm" onclick="launchBenchTool('cinebench')">▶ Újraindítás</button>
               </div>
               <input type="number" step="any" min="0" class="bench-score-input" id="bench-score-cinebench" placeholder="Cinebench R20 pontszám (pl. 3512)">
             </li>
             <li>
               <div class="bench-step-row">
-                <div><b>2. Unigine Heaven — videokártya pontszám.</b> Indítsd el, a launcherben nyomd meg a <b>Run</b> gombot, a benchmark ablakban a <b>Benchmark</b> gombot, a végén az eredmény-képernyőn látható <b>Score</b> értéket írd be ide (pl. 1450).</div>
-                <button class="btn btn-primary btn-sm" onclick="launchBenchTool('heaven')">▶ Heaven indítása</button>
+                <div><b>2. Unigine Heaven — videokártya pontszám.</b> A launcherben <b>1080p</b>-t állíts (a felesleges opciók — MSAA/FXAA/tesszelláció — kikapcsolva), nyomd meg a <b>Run</b>, majd a <b>Benchmark</b> gombot, és a végén a <b>Score</b> értéket írd be ide (pl. 1450).</div>
+                <button class="btn btn-sm" onclick="launchBenchTool('heaven')">▶ Újraindítás</button>
               </div>
               <input type="number" step="any" min="0" class="bench-score-input" id="bench-score-heaven" placeholder="Unigine Heaven Score (pl. 1450)">
             </li>
@@ -880,7 +887,14 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
         <div class="lb-board">
           <div class="lb-board-head">
             <div class="lb-board-title">🏆 Ranglista — betesztelt gépek</div>
-            <button class="lb-refresh" onclick="fetchLeaderboard()" title="Ranglista frissítése a felhőből">🔄 Frissítés</button>
+            <div class="lb-head-right">
+              <div class="lb-sort">
+                <span class="lb-sort-lbl">Rendezés:</span>
+                <button class="lb-sort-btn" id="sort-cinebench" onclick="setBenchSort('cinebench')" title="Rendezés Cinebench (processzor) pont szerint — kattints a fel/le váltáshoz">🧠 Cinebench</button>
+                <button class="lb-sort-btn active" id="sort-heaven" onclick="setBenchSort('heaven')" title="Rendezés Heaven (videokártya) pont szerint — kattints a fel/le váltáshoz">🎮 Heaven ▼</button>
+              </div>
+              <button class="lb-refresh" onclick="fetchLeaderboard()" title="Ranglista frissítése a felhőből">🔄 Frissítés</button>
+            </div>
           </div>
           <div id="bench-lb-status" class="lb-status">☁️ Ranglista betöltése...</div>
           <div class="lb-list" id="bench-lb-list" style="display:none"></div>
@@ -2197,6 +2211,22 @@ function onStressDlProgress(d) {
 /* ========== BENCHMARK ========== */
 let benchSpecs = null;
 let leaderboard = [];
+let benchLbPayload = null;                       // az utolsó ranglista-adat (újrarendezéshez)
+let benchSort = { key: 'heaven', dir: 'desc' };  // alapból Heaven (videokártya) szerint, csökkenő
+
+function setBenchSort(key) {
+  if (benchSort.key === key) benchSort.dir = (benchSort.dir === 'desc') ? 'asc' : 'desc';
+  else { benchSort.key = key; benchSort.dir = 'desc'; }
+  if (benchLbPayload) renderLeaderboard(benchLbPayload);
+}
+
+function updateSortButtons() {
+  const arrow = benchSort.dir === 'desc' ? ' ▼' : ' ▲';
+  const cb = document.getElementById('sort-cinebench');
+  const hv = document.getElementById('sort-heaven');
+  if (cb) { cb.classList.toggle('active', benchSort.key === 'cinebench'); cb.textContent = '🧠 Cinebench' + (benchSort.key === 'cinebench' ? arrow : ''); }
+  if (hv) { hv.classList.toggle('active', benchSort.key === 'heaven'); hv.textContent = '🎮 Heaven' + (benchSort.key === 'heaven' ? arrow : ''); }
+}
 
 function loadBenchmarkView() {
   if (!window.pywebview) return;
@@ -2231,9 +2261,10 @@ function startBenchmarkRun() {
   const panel = document.getElementById('bench-run-panel');
   panel.style.display = 'block';
   panel.scrollIntoView({behavior:'smooth', block:'start'});
-  // Első lépés: a Cinebench elindítása (a felhasználó utána maga indítja a Heaven-t).
-  launchBenchTool('cinebench');
-  toast('🏁 Cinebench elindul — futtasd le, írd be a pontszámot, majd indítsd a Heaven-t.', 'info');
+  // Automata szekvencia: Cinebench (multi-core) elindul -> bezárod -> magától jön a Heaven.
+  // A visszajelzés toastként érkezik a háttérből (run_benchmark_suite).
+  if (!window.pywebview) return;
+  api().run_benchmark_suite().catch(e => toast('Indítási hiba: ' + e, 'error'));
 }
 
 async function launchBenchTool(name) {
@@ -2248,6 +2279,15 @@ async function uploadBenchmarkResult() {
   const hv = hvRaw === '' ? null : parseFloat(hvRaw);
   if (cb === null && hv === null) { toast('⚠️ Írd be legalább az egyik pontszámot!', 'warning'); return; }
   if ((cb !== null && isNaN(cb)) || (hv !== null && isNaN(hv))) { toast('⚠️ A pontszám csak szám lehet!', 'warning'); return; }
+
+  // Név bekérése: a ranglistán EZ a név jelenik meg (nem a felismert proci/RAM/GPU).
+  const suggested = benchSpecs ? (benchSpecs.machine_name || '') : '';
+  const name = await showNamePrompt('Feltöltés a ranglistára',
+    'Milyen néven kerüljön fel a gép a ranglistára? (pl. becenév, vevő neve, gép típusa)',
+    '🏆 Feltöltés', suggested || 'Add meg a gép nevét...');
+  if (name === null) return;  // Mégse
+  const finalName = (name.trim() || suggested).slice(0, 80);
+
   const btn = document.getElementById('btn-bench-upload');
   if (!btn.dataset.orig) btn.dataset.orig = btn.textContent;
   btn.disabled = true;
@@ -2256,7 +2296,7 @@ async function uploadBenchmarkResult() {
     // A feltöltés a háttérben fut - a gombot NEM itt állítjuk vissza (az api hívás
     // azonnal visszatér), hanem a 'benchmark_upload_result' eseménynél (sikeres VAGY
     // hibás feltöltés után). A siker-visszajelzés jobb felül toastként jelenik meg.
-    await api().upload_benchmark_result(cb, hv);
+    await api().upload_benchmark_result(cb, hv, finalName);
   } catch (e) {
     toast('Feltöltési hiba: ' + e, 'error');
     onBenchmarkUploadResult({ok: false});
@@ -2285,6 +2325,8 @@ function fetchLeaderboard() {
 }
 
 function renderLeaderboard(d) {
+  benchLbPayload = d;
+  updateSortButtons();
   leaderboard = (d && d.entries) || [];
   const list = document.getElementById('bench-lb-list');
   const st = document.getElementById('bench-lb-status');
@@ -2304,8 +2346,12 @@ function renderLeaderboard(d) {
     st.textContent = 'Még nincs feltöltött gép. Futtasd le a benchmarkot és töltsd fel az elsőt! 🏁';
     return;
   }
-  // Rendezés Cinebench szerint csökkenően (a legerősebb proci elöl); a rang az érmes helyezés.
-  const rows = leaderboard.slice().sort((a, b) => (parseFloat(b.cinebench) || 0) - (parseFloat(a.cinebench) || 0));
+  // Rendezés a kiválasztott pont szerint (alapból Heaven/videokártya, csökkenő); a rang az érmes helyezés.
+  const rows = leaderboard.slice().sort((a, b) => {
+    const av = parseFloat(a[benchSort.key]) || 0;
+    const bv = parseFloat(b[benchSort.key]) || 0;
+    return benchSort.dir === 'desc' ? (bv - av) : (av - bv);
+  });
   const medals = ['🥇', '🥈', '🥉'];
   const num = v => {
     const n = parseFloat(v);
@@ -2595,6 +2641,29 @@ function showPromptTextarea(title, message) {
     document.getElementById('mc-no').style.display = 'none';
     document.getElementById('mc-cancel').textContent = 'Mégse';
     document.getElementById('mc-yes').textContent = 'Riport Generálása';
+    document.getElementById('mc-note-input').placeholder = 'Pl.: időszakos fagyás játék közben, gyanús kattogó hang a gépből...';
+    document.getElementById('mc-note-row').style.display = 'block';
+    document.getElementById('modal-confirm').classList.add('active');
+  });
+}
+
+// Egysoros-jellegű szöveg bekérése (a confirm-modal beviteli mezőjével). Null-t ad vissza
+// Mégse esetén, egyébként a beírt (esetleg üres) szöveget. Az okText a jóváhagyó gomb felirata.
+function showNamePrompt(title, message, okText, placeholder) {
+  return new Promise(resolve => {
+    confirmResolver = (val) => {
+      const v = document.getElementById('mc-note-input').value;
+      document.getElementById('mc-note-row').style.display = 'none';
+      document.getElementById('mc-note-input').value = '';
+      resolve(val ? v : null);
+    };
+    document.getElementById('mc-title').textContent = title;
+    document.getElementById('mc-message').textContent = message;
+    document.getElementById('mc-no').style.display = 'none';
+    document.getElementById('mc-cancel').textContent = 'Mégse';
+    document.getElementById('mc-yes').textContent = okText || 'OK';
+    document.getElementById('mc-note-input').value = '';
+    document.getElementById('mc-note-input').placeholder = placeholder || '';
     document.getElementById('mc-note-row').style.display = 'block';
     document.getElementById('modal-confirm').classList.add('active');
   });

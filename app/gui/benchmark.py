@@ -10,6 +10,7 @@ a Cinebench parancssori pontszám-kiolvasása, ha a terep megköveteli.)"""
 
 # === AUTO-IMPORTS ===
 import os
+import subprocess
 import threading
 import logging
 import tempfile
@@ -44,13 +45,50 @@ class GuiBenchmarkMixin:
                     'machine_name': os.environ.get('COMPUTERNAME', 'PC')})
         threading.Thread(target=worker, daemon=True, name="bench-specs").start()
 
+    def _ensure_bench_exe(self, name):
+        """Biztosítja, hogy a megadott benchmark exe elérhető legyen: letölti/kicsomagolja a
+        stresstools.zip-et (ha kell), és megkeresi benne az exe-t. Ha nincs meg (pl. régi,
+        benchmark nélküli cache maradt a gépen), a markert törölve EGYSZER kényszerít friss
+        letöltést. Visszaad: az exe teljes útvonala, vagy None (a hibát toastként jelzi)."""
+        display_name = BENCH_TOOLS[name][0]
+        is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
+        temp_dir = r'C:\DV_Temp' if is_pe else tempfile.gettempdir()
+        marker_path = os.path.join(temp_dir, "DriverVarázsló_Stress", ".extract_complete")
+        if not os.path.exists(marker_path):
+            self.emit('toast', {'message': f'⏳ {display_name}: első indítás, a programcsomag letöltése következik...', 'type': 'info'})
+
+        try:
+            stress_dir = self._download_stresstools(progress=self._stress_dl_progress_emitter(display_name))
+        finally:
+            self.emit('stress_dl_progress', {'active': False})
+        if not stress_dir:
+            self.emit('toast', {'message': f'❌ Hiba a programcsomag letöltésekor/kicsomagolásakor ({display_name})!', 'type': 'error'})
+            return None
+
+        exe_path = find_bench_tool_exes(stress_dir, [name])[name]
+        if not exe_path or not os.path.exists(exe_path):
+            logging.warning(f"[BENCHMARK] {display_name} nincs a kicsomagolt csomagban - friss letöltés kényszerítése...")
+            try:
+                if os.path.exists(marker_path):
+                    os.remove(marker_path)
+            except Exception as e:
+                logging.debug(f"[BENCHMARK] marker törlése sikertelen: {e}")
+            try:
+                stress_dir = self._download_stresstools(progress=self._stress_dl_progress_emitter(display_name))
+            finally:
+                self.emit('stress_dl_progress', {'active': False})
+            exe_path = find_bench_tool_exes(stress_dir, [name])[name] if stress_dir else None
+
+        if not exe_path or not os.path.exists(exe_path):
+            self.emit('toast', {'message': f'⚠️ {display_name} nem található a programcsomagban (stresstools.zip)! Ellenőrizd, hogy a ZIP tartalmazza-e.', 'type': 'warning'})
+            return None
+        return exe_path
+
     def launch_bench_tool(self, name):
-        """Egy benchmark program (cinebench/heaven) portable indítása a stresstools.zip-ből.
-        Az egyenkénti stressztool-indításhoz hasonlóan: csendben indul (toast + esetleg
-        letöltés-sáv), automatizálás nélkül - a felhasználó maga futtatja le a benchmarkot
-        és jegyzi fel a pontszámot. Ha a kicsomagolt csomagban nincs meg a benchmark exe
-        (pl. egy régi, benchmark nélküli cache maradt a gépen), egyszer kényszerítünk friss
-        letöltést a csomag-marker törlésével."""
+        """Egy benchmark program (cinebench/heaven) EGYENKÉNTI, portable indítása a
+        stresstools.zip-ből. SZÁNDÉKOSAN semmilyen automatizálás: a program csak elindul,
+        a felhasználó maga állít be és futtat mindent (a lenti "egyenkénti indítás"
+        kártyák hívják). Az automatizált, szekvenciális futtatás a run_benchmark_suite."""
         logging.info(f"[API] launch_bench_tool({name})")
         info = BENCH_TOOLS.get(name)
         if not info:
@@ -60,46 +98,14 @@ class GuiBenchmarkMixin:
 
         def worker():
             try:
-                is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
-                temp_dir = r'C:\DV_Temp' if is_pe else tempfile.gettempdir()
-                stress_root = os.path.join(temp_dir, "DriverVarázsló_Stress")
-                marker_path = os.path.join(stress_root, ".extract_complete")
-                if not os.path.exists(marker_path):
-                    self.emit('toast', {'message': f'⏳ {display_name}: első indítás, a programcsomag letöltése következik...', 'type': 'info'})
-
-                try:
-                    stress_dir = self._download_stresstools(progress=self._stress_dl_progress_emitter(display_name))
-                finally:
-                    self.emit('stress_dl_progress', {'active': False})
-                if not stress_dir:
-                    self.emit('toast', {'message': f'❌ Hiba a programcsomag letöltésekor/kicsomagolásakor ({display_name})!', 'type': 'error'})
+                exe_path = self._ensure_bench_exe(name)
+                if not exe_path:
                     return
-
-                exe_path = find_bench_tool_exes(stress_dir, [name])[name]
-                if not exe_path or not os.path.exists(exe_path):
-                    # Régi (benchmark nélküli) cache gyanú: a markert törölve egyszer
-                    # kényszerítünk friss letöltést, hátha az új ZIP már tartalmazza.
-                    logging.warning(f"[BENCHMARK] {display_name} nincs a kicsomagolt csomagban - friss letöltés kényszerítése...")
-                    try:
-                        if os.path.exists(marker_path):
-                            os.remove(marker_path)
-                    except Exception as e:
-                        logging.debug(f"[BENCHMARK] marker törlése sikertelen: {e}")
-                    try:
-                        stress_dir = self._download_stresstools(progress=self._stress_dl_progress_emitter(display_name))
-                    finally:
-                        self.emit('stress_dl_progress', {'active': False})
-                    exe_path = find_bench_tool_exes(stress_dir, [name])[name] if stress_dir else None
-
-                if not exe_path or not os.path.exists(exe_path):
-                    self.emit('toast', {'message': f'⚠️ {display_name} nem található a programcsomagban (stresstools.zip)! Ellenőrizd, hogy a ZIP tartalmazza-e.', 'type': 'warning'})
-                    return
-
                 pid = self._launch_stress_exe(exe_path, display_name)
                 if pid:
                     if pid > 0:
                         self._stress_pids[name] = pid  # stop_stress_tests innen tudja, mit kell kilőni
-                    self.emit('toast', {'message': f'✅ {display_name} elindítva! Futtasd le, majd írd be a pontszámot.', 'type': 'success'})
+                    self.emit('toast', {'message': f'✅ {display_name} elindítva!', 'type': 'success'})
                 else:
                     self.emit('toast', {'message': f'❌ Hiba a(z) {display_name} indításakor!', 'type': 'error'})
             except Exception as e:
@@ -107,6 +113,61 @@ class GuiBenchmarkMixin:
                 self.emit('toast', {'message': f'❌ Hiba: {e}', 'type': 'error'})
 
         threading.Thread(target=worker, daemon=True, name="bench-tool").start()
+
+    def run_benchmark_suite(self):
+        """A "Benchmark futtatása" gomb AUTOMATIZÁLT, szekvenciális futtatása:
+        1) elindítja a Cinebench R20-at a több-magos (multi-core) CPU-teszttel automatikusan
+           (parancssori kapcsoló: g_CinebenchCpuXTest=true),
+        2) MEGVÁRJA, amíg a felhasználó KÉZZEL bezárja a Cinebench-et (a folyamat kilépését),
+        3) majd MAGÁTÓL elindítja a Unigine Heaven-t.
+        A pontszámokat a felhasználó a lefuttatott tesztek eredmény-képernyőjéről írja be
+        (a pontszám megbízható automatikus kiolvasása a program tesztelése nélkül kockázatos
+        lenne). Az egyenkénti indító kártyák (launch_bench_tool) ettől függetlenül
+        automatizálás NÉLKÜL, csak elindítják a programot."""
+        logging.info("[API] run_benchmark_suite()")
+
+        def worker():
+            try:
+                # 1) Cinebench multi-core teszttel
+                cb_exe = self._ensure_bench_exe('cinebench')
+                if not cb_exe:
+                    return
+                try:
+                    proc = subprocess.Popen([cb_exe, 'g_CinebenchCpuXTest=true'],
+                                            creationflags=subprocess.CREATE_NEW_CONSOLE,
+                                            cwd=os.path.dirname(cb_exe))
+                    self._stress_pids['cinebench'] = proc.pid
+                    logging.info(f"[BENCHMARK] Cinebench (multi-core) elindítva, pid={proc.pid}")
+                except Exception as e:
+                    logging.error(f"[BENCHMARK] Cinebench indítási hiba: {e}")
+                    self.emit('toast', {'message': f'❌ Hiba a Cinebench indításakor: {e}', 'type': 'error'})
+                    return
+                self.emit('toast', {'message': '🧠 Cinebench elindult (multi-core teszt fut). Ha kész, ZÁRD BE — utána magától indul a Heaven.', 'type': 'info'})
+
+                # 2) Megvárjuk, amíg a felhasználó bezárja a Cinebench-et
+                try:
+                    proc.wait()
+                except Exception as e:
+                    logging.debug(f"[BENCHMARK] Cinebench proc.wait hiba: {e}")
+                self._stress_pids.pop('cinebench', None)
+                logging.info("[BENCHMARK] Cinebench bezárva - Heaven indul.")
+
+                # 3) Heaven automatikus indítása
+                hv_exe = self._ensure_bench_exe('heaven')
+                if not hv_exe:
+                    return
+                pid = self._launch_stress_exe(hv_exe, 'Unigine Heaven')
+                if pid:
+                    if pid > 0:
+                        self._stress_pids['heaven'] = pid
+                    self.emit('toast', {'message': '🎮 Cinebench kész — Heaven elindult! Futtasd le (1080p), majd írd be a két pontszámot és töltsd fel.', 'type': 'success'})
+                else:
+                    self.emit('toast', {'message': '❌ Hiba a Heaven indításakor!', 'type': 'error'})
+            except Exception as e:
+                logging.error(f"[BENCHMARK] run_benchmark_suite hiba: {e}")
+                self.emit('toast', {'message': f'❌ Hiba a benchmark futtatásakor: {e}', 'type': 'error'})
+
+        threading.Thread(target=worker, daemon=True, name="bench-suite").start()
 
     def fetch_leaderboard(self):
         """A felhő-ranglista lekérése háttérszálon, majd a 'leaderboard_data' eseménnyel
@@ -116,17 +177,20 @@ class GuiBenchmarkMixin:
             self.emit('leaderboard_data', data)
         threading.Thread(target=worker, daemon=True, name="bench-lb").start()
 
-    def upload_benchmark_result(self, cinebench_score, heaven_score, note=None):
+    def upload_benchmark_result(self, cinebench_score, heaven_score, name=None):
         """A gép benchmark-eredményének feltöltése a felhő-ranglistára: a (cache-elt vagy
         frissen felismert) hardver-adatokhoz csatolja a felhasználó által beírt pontszámokat,
-        POST-tal feltölti (upsert a machine_id-re), majd frissíti a ranglistát a nézetben."""
+        POST-tal feltölti (upsert a machine_id-re), majd frissíti a ranglistát a nézetben.
+        A `name` a felhasználó által megadott gépnév (a ranglistán ez jelenik meg); ha üres,
+        a felismert 'proci / RAM / videokártya' összetett név a tartalék."""
         def worker():
             try:
                 specs = getattr(self, '_bench_specs', None) or gather_machine_specs(self._run)
                 self._bench_specs = specs
+                display_name = (name or '').strip() or specs.get('machine_name', 'PC')
                 entry = {
                     'machine_id': specs.get('machine_id', ''),
-                    'machine_name': specs.get('machine_name', 'PC'),
+                    'machine_name': display_name,
                     'cpu': specs.get('cpu', ''),
                     'motherboard': specs.get('motherboard', ''),
                     'ram': specs.get('ram', ''),
