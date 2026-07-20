@@ -6,6 +6,8 @@ import re
 import time
 import logging
 import socket
+import shutil
+import tempfile
 from app.common import _ps_quote
 # === /AUTO-IMPORTS ===
 
@@ -181,6 +183,96 @@ class GuiStorePrintMixin:
                 return c
         return None
 
+    def _find_chrome_exe(self):
+        """Megkeresi a Chrome-ot (msedge.exe tartalék) - ugyanaz a Chromium `--print-to-pdf`
+        kapcsoló, így ha az Edge headless bármiért nem ír fájlt, ezzel még megvan a PDF."""
+        candidates = [
+            os.path.join(os.environ.get('ProgramFiles', r'C:\Program Files'), 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            os.path.join(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'), 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        ]
+        for c in candidates:
+            if c and os.path.exists(c):
+                return c
+        return None
+
+    def _html_to_pdf(self, html_path, pdf_path):
+        """A riport HTML -> PDF alakítása headless Chromium (Edge, tartalékként Chrome)
+        motorral. Terepen bizonyítva (Build 218 log): a puszta
+        `msedge --headless --print-to-pdf=...` 1,8 mp alatt, 0-s kilépési kóddal tért
+        vissza ÚGY, hogy a PDF egyáltalán nem jött létre - ilyenkor a headless példány a
+        felhasználó MÁR FUTÓ Edge-ének profiljába ütközik (a profilkönyvtár zárolva van),
+        és némán azonnal kilép. Ezért:
+          - minden próba SAJÁT, eldobható `--user-data-dir`-t kap (nincs profil-ütközés),
+          - először a régi (`--headless`), majd az új (`--headless=new`) motort próbáljuk,
+            végül ugyanezt Chrome-mal (a két Edge-mód eltérő kódúton nyomtat),
+          - minden próba után 15 mp-ig várunk a fájl MEGJELENÉSÉRE ÉS a mérete
+            stabilizálódására (a Chromium a gyerekfolyamatban fejezi be az írást),
+          - a kilépési kód és a stderr logolva megy, hogy egy következő terepi hibánál
+            ne kelljen találgatni.
+        Visszatérés: True, ha a végén tényleg ott a nem üres PDF."""
+        # Egy korábbi futásból ottmaradt PDF-et takarítunk: enélkül egy elhasalt
+        # konverzió után a régi (rossz gépről származó) riportot nyomtatnánk ki.
+        if os.path.exists(pdf_path):
+            try:
+                os.remove(pdf_path)
+            except Exception as e:
+                logging.debug(f"[STOREPRINT] Korábbi PDF törlése sikertelen: {e}")
+
+        file_url = 'file:///' + html_path.replace('\\', '/')
+        msedge = self._find_msedge_exe()
+        chrome = self._find_chrome_exe()
+        attempts = []
+        if msedge:
+            attempts.append(('Edge (headless)', msedge, '--headless'))
+            attempts.append(('Edge (headless=new)', msedge, '--headless=new'))
+        if chrome:
+            attempts.append(('Chrome (headless)', chrome, '--headless'))
+        if not attempts:
+            raise Exception("Nem található az Edge böngésző (msedge.exe) ezen a gépen - a PDF-generáláshoz szükséges.")
+
+        for label, exe, headless_flag in attempts:
+            profile_dir = tempfile.mkdtemp(prefix='dv_pdf_')
+            try:
+                self.emit('task_progress', {'task': 'store_print', 'log': f'🖨️ PDF előállítása: {label}...'})
+                res = self._run([
+                    exe, headless_flag, '--disable-gpu', '--no-sandbox',
+                    f'--user-data-dir={profile_dir}', '--no-first-run', '--no-default-browser-check',
+                    '--disable-extensions', '--disable-background-networking',
+                    f'--print-to-pdf={pdf_path}', '--no-pdf-header-footer',
+                    '--run-all-compositor-stages-before-draw', '--virtual-time-budget=10000',
+                    file_url,
+                ], timeout=120)
+                rc = res.returncode if res else 'nincs eredmény'
+                logging.info(f"[STOREPRINT] {label} PDF-generálás visszatérési kód: {rc}")
+                if res and (res.stderr or '').strip():
+                    logging.info(f"[STOREPRINT] {label} stderr: {(res.stderr or '')[:1000]}")
+
+                # A fájl megjelenésére ÉS a mérete stabilizálódására is várunk: a Chromium
+                # a PDF-et egy háttérfolyamatban írja, a puszta os.path.exists() már egy
+                # 0 bájtos, még írás alatt álló fájlra is igazat adna. A várakozás
+                # szándékosan bőkezű (60 mp): terepen (Build 218, i5-4210M / 4 GB Fujitsu
+                # LIFEBOOK) a PDF ténylegesen ELKÉSZÜLT, csak a régi 10 mp-es ablak után -
+                # a funkció "sikertelen"-t jelentett egy valójában jó PDF-re. Inkább
+                # várjunk sokat, mint hogy hamis hibát adjunk.
+                last_size = -1
+                for _ in range(120):
+                    if os.path.exists(pdf_path):
+                        size = os.path.getsize(pdf_path)
+                        if size > 0 and size == last_size:
+                            logging.info(f"[STOREPRINT] PDF kész: {pdf_path} ({size} bájt, {label})")
+                            return True
+                        last_size = size
+                    time.sleep(0.5)
+                logging.warning(f"[STOREPRINT] {label}: a PDF nem jött létre ({pdf_path})")
+            finally:
+                try:
+                    shutil.rmtree(profile_dir, ignore_errors=True)
+                except Exception as e:
+                    logging.debug(f"[STOREPRINT] Ideiglenes profil törlése sikertelen: {e}")
+
+        return False
+
     def _find_sumatra_exe(self, stress_dir):
         """Megkeresi a SumatraPDF.exe-t a stresstools.zip kicsomagolt mappájában - a néma
         (dialógus nélküli) PDF-nyomtatáshoz kell (print_via_store_printer). Ugyanabba a
@@ -279,33 +371,15 @@ class GuiStorePrintMixin:
                     we_added_printer = True
                     self.emit('task_progress', {'task': 'store_print', 'log': f'✅ Nyomtató felvéve: {printer_name}'})
 
-                # 3) HTML -> PDF headless Edge-dzsel.
-                self.emit('task_progress', {'task': 'store_print', 'log': '🖨️ PDF előállítása a riportból...'})
-                msedge = self._find_msedge_exe()
-                if not msedge:
-                    raise Exception("Nem található az Edge böngésző (msedge.exe) ezen a gépen - a PDF-generáláshoz szükséges.")
-
+                # 3) HTML -> PDF headless Chromium-mal (Edge, tartalék Chrome) - a több
+                # próbálkozásos, profil-ütközés-mentes logika: _html_to_pdf.
                 pdf_path = os.path.splitext(report_path)[0] + '_print.pdf'
-                file_url = 'file:///' + report_path.replace('\\', '/')
-                pdf_cmd = [
-                    msedge, '--headless', '--disable-gpu', '--no-sandbox',
-                    f'--print-to-pdf={pdf_path}', '--no-pdf-header-footer',
-                    '--run-all-compositor-stages-before-draw', '--virtual-time-budget=3000',
-                    file_url,
-                ]
-                self._run(pdf_cmd, timeout=60)
-                # A msedge --print-to-pdf hívás visszatérése nem mindig jelenti azt, hogy a
-                # PDF fájl írása is befejeződött (terepen bizonyítva: a subprocess ~0.6mp
-                # alatt visszatért, miközben a PDF ténylegesen csak egy kicsit később jelent
-                # meg a lemezen - valószínűleg egy háttérben tovább futó gyerekfolyamat
-                # fejezte csak be az írást) - ezért rövid ideig újrapróbálkozunk ahelyett,
-                # hogy egyetlen azonnali ellenőrzés után hibát adnánk.
-                for _ in range(20):
-                    if os.path.exists(pdf_path):
-                        break
-                    time.sleep(0.5)
-                else:
-                    raise Exception("A riport PDF-be alakítása sikertelen.")
+                if not self._html_to_pdf(report_path, pdf_path):
+                    raise Exception(
+                        "A riport PDF-be alakítása sikertelen (a headless böngésző nem hozta létre a PDF-et). "
+                        "Tipp: zárd be a futó Edge/Chrome ablakokat, majd próbáld újra - a riport HTML-je "
+                        f"közben megnyitható és onnan kézzel is nyomtatható: {report_path}"
+                    )
 
                 # 4) PDF -> néma nyomtatás a bolti nyomtatóra.
                 self.emit('task_progress', {'task': 'store_print', 'log': '📤 Nyomtatás küldése...'})
