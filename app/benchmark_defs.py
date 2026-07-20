@@ -32,4 +32,4 @@ BENCH_TOOLS = {
 #   GET  -> a teljes ranglista JSON tömbként (soronként egy gép objektuma),
 #   POST -> (JSON body) egy gép eredményének beszúrása/frissítése (upsert a machine_id
 #           mezőre - ugyanarról a gépről újra feltöltve a meglévő sor frissül).
-BENCHMARK_API_URL_DEFAULT = ""
+BENCHMARK_API_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbx87TlJfSvcq5mbXVTYUaH5cvGN5PpH5zS6xoLY_r9B-53ijPA73S-x6yFxQU33by6p/exec"
