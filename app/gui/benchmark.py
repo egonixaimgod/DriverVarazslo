@@ -137,12 +137,14 @@ class GuiBenchmarkMixin:
                     'build': common.BUILD_NUMBER,
                 }
                 core_upload_result(self._run, entry)
-                self.emit('toast', {'message': '🏆 Eredmény feltöltve a ranglistára!', 'type': 'success'})
-                # Sikeres feltöltés: a nézet bezárhatja a futtató panelt + ürítheti a mezőket.
-                self.emit('benchmark_uploaded', {})
+                self.emit('toast', {'message': '🏆 Eredmény sikeresen feltöltve a ranglistára!', 'type': 'success'})
+                # Siker: a nézet bezárja a futtató panelt + üríti a mezőket + visszaállítja a gombot.
+                self.emit('benchmark_upload_result', {'ok': True})
                 # A frissített ranglista automatikus visszaküldése a nézetbe.
                 self.emit('leaderboard_data', core_fetch_leaderboard(self._run))
             except Exception as e:
                 logging.error(f"[BENCHMARK] Feltöltés hiba: {e}")
                 self.emit('toast', {'message': f'❌ Feltöltési hiba: {e}', 'type': 'error'})
+                # Hiba: a gomb visszaáll, a panel NYITVA marad (a beírt pontok megmaradnak).
+                self.emit('benchmark_upload_result', {'ok': False})
         threading.Thread(target=worker, daemon=True, name="bench-upload").start()
