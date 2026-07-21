@@ -45,6 +45,11 @@ from datetime import datetime
 # === /AUTO-IMPORTS ===
 
 
+# Hány "töröljük be a maradékot" kör futhat (mindegyik egy újraindítással). A gyakorlatban
+# egy kör elég; a plafon csak a végtelen ciklus ellen véd, a tényleges leállási feltétel az,
+# hogy egy kör alatt haladjunk (ha nulla csomag törlődik, azok eltávolíthatatlanok).
+AUTOFIX_MAX_DELETE_ROUNDS = 3
+
 # Hány TELEPÍTŐ láb futhat egy láncban (a pending-reboot miatti újraindításokkal együtt).
 # A lánc önmagát láncolja tovább, amíg települ valami vagy reboot van függőben - ez a
 # plafon zárja ki a végtelen újraindulás-ciklust egy sosem gyógyuló gépen.
@@ -555,10 +560,13 @@ class GuiAutofixMixin:
 
         Biztonsági korlát: csak azokat a csomagokat törli, amelyek MÉG MINDIG ugyanazzal az
         eredeti INF-névvel szerepelnek a DriverStore-ban - így egy időközben újraszámozott
-        oemXX.inf semmiképp nem egy friss drivert töröl le. A listát mindenképp kiüríti."""
+        oemXX.inf semmiképp nem egy friss drivert töröl le.
+
+        Visszatérés: (állapot, hány csomag törlődött) - az állapot 'ok' (végigért) vagy
+        'wedged' (megint beragadt; a hívó dönt az újabb reboot-körről)."""
         pending = self._autofix_stats_get('pending_deletes') or []
         if not pending:
-            return
+            return 'ok', 0
         self._autofix_stats_set('pending_deletes', [])
 
         current = {d.get('published', '').lower(): d for d in self._get_third_party_drivers()}
@@ -571,23 +579,29 @@ class GuiAutofixMixin:
                 todo.append(p)
         if not todo:
             self.emit('task_progress', {'task': task_id, 'log': 'ℹ️ A korábban félbehagyott csomagok már nincsenek a rendszerben.\n'})
-            return
+            return 'ok', 0
 
         self.emit('task_progress', {'task': task_id, 'log': f'🗑 Az újraindítás előtt beragadt {len(todo)} driver törlésének befejezése...'})
         done = 0
-        for p in todo:
+        for i, p in enumerate(todo):
             if getattr(self, '_cancel_flag', False):
                 raise Exception("Magyar_Megszakit_Flag")
             name = p['published']
             res = drivers_core.delete_driver_package(self._run, name, timeout=DELETE_DRIVER_TIMEOUT)
-            if spawn_failed(res) or drivers_core.delete_stalled(res):
-                # Újraindítás után is beragad -> tovább nem erőltetjük (nem kritikus:
-                # a WU egyszerűen telepítettnek látja majd ezt a csomagot).
-                self.emit('task_progress', {'task': task_id, 'log': f'⚠️ {name} az újraindítás után sem távolítható el - kihagyva.'})
-                break
+            if spawn_failed(res):
+                self.emit('task_progress', {'task': task_id, 'log': f'⚠️ {name}: a Windows nem tud több folyamatot indítani - a törlés itt megáll.'})
+                self._autofix_stats_set('pending_deletes', todo[i:])
+                return 'wedged', done
+            if drivers_core.delete_stalled(res):
+                # Megint beragadt egy csomagon: a maradékot ismét félretesszük, a hívó
+                # dönti el, hogy megéri-e még egy reboot-kör (lásd AUTOFIX_MAX_DELETE_ROUNDS).
+                self.emit('task_progress', {'task': task_id, 'log': f'⏱️ {name}: ismét beragadt eszközverem - a maradék {len(todo) - i} csomag későbbre marad.'})
+                self._autofix_stats_set('pending_deletes', todo[i:])
+                return 'wedged', done
             if drivers_core.delete_succeeded(res):
                 done += 1
         self.emit('task_progress', {'task': task_id, 'log': f'✅ Befejezve: {done}/{len(todo)} maradék driver törölve.\n'})
+        return 'ok', done
 
     def _autofix_leg_count(self):
         """Hány TELEPÍTŐ láb futott már le ebben a láncban (az AUTOFIX_MAX_INSTALL_LEGS
@@ -755,8 +769,46 @@ class GuiAutofixMixin:
                     # által NÉV SZERINT itt hagyott, beragadt csomagok befejezése. Ezek még a
                     # törlési fázisból maradtak (semmi frisset nem érinthet, mert a telepítés
                     # csak ezután indul), és friss boot után másodpercek alatt lemennek.
-                    self._finish_pending_deletes()
+                    del_status, del_done = self._finish_pending_deletes()
                     if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
+
+                    # "Addig töröljük, amíg össze nem jön": ha a besöprés MEGINT beragadt,
+                    # de közben HALADT (törölt legalább egy csomagot), megér még egy
+                    # reboot-kört - a következő induláskor folytatja ugyanitt.
+                    # Leállási feltételek (hogy sose pörögjön a végtelenségig):
+                    #  - egy kör alatt NULLA csomag törlődött -> ezek eltávolíthatatlanok
+                    #    (pl. a használatban lévő nyomtató-INF), újraindítás sem segít;
+                    #  - elértük az AUTOFIX_MAX_DELETE_ROUNDS kört.
+                    if del_status == 'wedged':
+                        rounds = (self._autofix_stats_get('delete_rounds') or 0) + 1
+                        self._autofix_stats_set('delete_rounds', rounds)
+                        if del_done > 0 and rounds < AUTOFIX_MAX_DELETE_ROUNDS:
+                            self.emit('task_progress', {'task': 'autofix', 'log': f'\n🔄 Maradt még törlendő - újraindulás és folytatás ({rounds}. kör)...'})
+                            self._schedule_autofix_resume('--resume-autofix')
+                            self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás a törlés befejezéséhez...'})
+                            time.sleep(5)
+                            self._run(['shutdown', '/r', '/t', '0', '/f'])
+                            return
+                        if del_done == 0:
+                            self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ A maradék csomagok újraindítással sem távolíthatók el (használatban vannak) - továbblépünk a telepítésre.\n'})
+                        else:
+                            self.emit('task_progress', {'task': 'autofix', 'log': f'⚠️ {AUTOFIX_MAX_DELETE_ROUNDS} törlési kör után is maradt csomag - továbblépünk a telepítésre.\n'})
+                        self._autofix_stats_set('pending_deletes', [])
+
+                    elif del_done > 0:
+                        # A TÖRLÉS MOST ÉRT VÉGET (ez a lépés csak akkor fut le, ha a 0. LÉPÉS
+                        # hagyott itt maradékot). Mielőtt bármit telepítenénk: ÚJRAINDÍTÁS.
+                        # Két okból: (1) a friss boot zárja le a most törölt csomagok
+                        # eltávolítását és építi újra az eszközfát, (2) e nélkül a törlés
+                        # pending-reboot állapotban hagyná a gépet, és a telepítés első
+                        # csomagja azonnal a [kód=4]-es falba futna.
+                        self.emit('task_progress', {'task': 'autofix', 'log': '\n✅ Minden törlendő driver eltávolítva!'})
+                        self.emit('task_progress', {'task': 'autofix', 'log': '🔄 Újraindulás, és utána indul a TELEPÍTÉS!'})
+                        self._schedule_autofix_resume('--resume-autofix')
+                        self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás a telepítés előtt...'})
+                        time.sleep(5)
+                        self._run(['shutdown', '/r', '/t', '0', '/f'])
+                        return
 
                     # 🛟 Hálózati mentőöv: ha a driver-törlés után a gép internet nélkül
                     # maradt (a WU/beépített driver nem fedte le a hálózati kártyát -
