@@ -17,13 +17,25 @@ import os
 import shutil
 import json
 import glob
+from app.common import CMD_TIMEOUT_RETURNCODE
 # === /AUTO-IMPORTS ===
 
 
 # EGY driver-csomag törlésének felső korlátja (mp). A pnputil a PnP query-remove-ra vár;
-# egy nem válaszoló eszközverem (terepen: Intel RST tárolóvezérlő, 143 mp) timeout nélkül
-# az egész törlő ciklust - GUI-ban az egész AutoFix lábat - megakasztja.
-DELETE_DRIVER_TIMEOUT = 180
+# egy beragadt eszközverem (terepen: Intel RST tárolóvezérlő) esetén a WINDOWS SAJÁT belső
+# időkorlátja ~143 mp - a mienknek EZ ALATT kell lennie, különben sosem lép közbe (a 180-as
+# első próbálkozás pont ezért volt hatástalan). A sikeres törlések a terepi logokban
+# 0,1-7 mp közt vannak, tehát a 60 mp ~8x tartalék még lassú HDD-s gépen is. Ha mégis
+# elvágnánk egy lassú, de élő törlést, az nem okoz kárt: a hívó ilyenkor újraindít és
+# FOLYTATJA a törlést, tehát a csomag a következő lábon úgyis sorra kerül.
+DELETE_DRIVER_TIMEOUT = 60
+
+# A pnputil visszatérési kódjai, amikor a PnP query-remove időtúllépésbe fut (a terepi
+# logban 480 és 482 - "A művelet túllépte az időkorlátot, miközben arra várakozott, hogy
+# az eszköz végrehajtson egy PnP-lekérdezéstörlési kérelmet ... Lehet, hogy a rendszert
+# újra kell indítani"). A saját timeoutunk alatt ezek már ritkán jönnek elő, de ha a
+# Windows előbb ad fel, ezekről ismerjük fel ugyanazt az állapotot.
+PNP_REMOVAL_STALL_CODES = (480, 482)
 
 
 def parse_dism_driver_list(stdout):
@@ -130,6 +142,19 @@ def delete_succeeded(res):
         return True
     out = (res.stdout or '').lower()
     return any(k in out for k in ('deleted', 'törölve', 'successfully'))
+
+
+def delete_stalled(res):
+    """Igaz, ha a törlés a BERAGADT ESZKÖZVERMEN akadt el (saját időtúllépésünk vagy a
+    pnputil PnP query-remove hibakódja), nem pedig "rendes" hibával bukott.
+
+    Terepen bizonyított ok-okozat (Dell OptiPlex, több futásban azonosan): amint az Intel
+    RST tárolóvezérlő csomagja "3010 - reboot kell a befejezéshez"-zel törlődik, a rákövetkező
+    csomagok query-remove kérése beragad, és DARABONKÉNT ~143 mp-et eszik meg. ÚJRAINDÍTÁS
+    UTÁN ugyanaz a csomag 0,5 mp alatt törlődik (16:48-as terepi futás) - tehát a helyes
+    válasz nem a további őrlés, hanem: kör vége, reboot, törlés folytatása."""
+    rc = getattr(res, 'returncode', None)
+    return rc == CMD_TIMEOUT_RETURNCODE or rc in PNP_REMOVAL_STALL_CODES
 
 
 def delete_driver_package(run, pub, target_os_path=None, timeout=None):

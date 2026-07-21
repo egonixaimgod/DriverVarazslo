@@ -38,7 +38,6 @@ from app.wu_core import _filter_wu_older_duplicates
 from app.wu_core import _install_abort_reason
 from app.wu_core import is_reboot_pending
 from app.wu_core import verify_failed_installs
-from app.common import CMD_TIMEOUT_RETURNCODE
 from app.common import spawn_failed
 from app.drivers_core import DELETE_DRIVER_TIMEOUT
 from app.gui.hwscan import PNP_ERROR_CODE_DESCRIPTIONS
@@ -113,6 +112,9 @@ class GuiAutofixMixin:
         process.wait()
 
     def _delete_third_party_sync(self, task_id='autofix', skip_classes=None):
+        """Third-party csomagok törlése. Visszatérés: 'ok' (végigért) vagy 'wedged'
+        (beragadt eszközverem - a hívónak újra kell indítania és FOLYTATNIA a törlést;
+        lásd drivers_core.delete_stalled)."""
         self.emit('task_progress', {'task': task_id, 'log': 'Third-party driverek összegyűjtése és törlése...', 'indeterminate': True})
         drivers = self._get_third_party_drivers()
         skip_classes = skip_classes or set()
@@ -137,7 +139,7 @@ class GuiAutofixMixin:
             if backed_up:
                 self.emit('task_progress', {'task': task_id, 'log': f'🛟 {backed_up} db hálózati driver biztonsági mentése kész (vész-visszaállításhoz).\n'})
             self.emit('task_progress', {'task': task_id, 'log': f'{total} db third-party driver eltávolítása...\n'})
-            timed_out = 0
+            stalled_streak = 0
             for i, drv in enumerate(drivers):
                 if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
                 name = drv.get('published', '')
@@ -147,6 +149,28 @@ class GuiAutofixMixin:
                 # timeout: egy nem válaszoló eszközverem (terepen: Intel RST tárolóvezérlő)
                 # különben percekig lógatja a pnputil-t és megakasztja az egész lábat.
                 res = drivers_core.delete_driver_package(self._run, name, timeout=DELETE_DRIVER_TIMEOUT)
+
+                # BERAGADT ESZKÖZVEREM: nem őrlünk tovább csomagonként ~1,5-2,5 percet.
+                # Ha közben pending-reboot is áll (a tárolóvezérlő törlése után ez a tipikus),
+                # az újraindítás bizonyítottan feloldja: a terepi logban ugyanaz a csomag a
+                # reboot utáni lábon 0,5 mp alatt törlődött. A 2. egymást követő beragadás
+                # akkor is megállít, ha a reboot-jelző valamiért nem áll.
+                if drivers_core.delete_stalled(res):
+                    stalled_streak += 1
+                    self.emit('task_progress', {'task': task_id, 'log': f'⏱️ {name}: az eszköz nem válaszol a törlési kérésre (beragadt eszközverem).'})
+                    if stalled_streak >= 2 or is_reboot_pending(self._run):
+                        # NEM indítunk újra itt, és NEM őrlünk tovább: a maradék csomag
+                        # mindegyike ugyanígy beragadna (csomagonként ~1,5-2,5 perc). A lánc
+                        # úgyis újraindul pár lépéssel lejjebb - a maradékot a KÖVETKEZŐ láb
+                        # elején söpörjük be, ahol friss boot után 0,5 mp/csomag (terepen mérve).
+                        pending = [d for d in drivers[i:] if d.get('published')]
+                        self._autofix_stats_set('pending_deletes', pending)
+                        self.emit('task_progress', {'task': task_id, 'log': f'\n⚠️ A Windows eszközkezelője beragadt ezen a csomagon (újraindítás nélkül nem távolítható el).'})
+                        self.emit('task_progress', {'task': task_id, 'log': f'⏭️ A maradék {len(pending)} csomagot NEM erőltetjük most (csomagonként percekbe telne) - az újraindítás után, másodpercek alatt törlődnek.\n'})
+                        return 'wedged'
+                    continue
+                stalled_streak = 0
+
                 if spawn_failed(res):
                     # A folyamat EL SEM INDULT (0xC0000142) - a session szétesett, minden
                     # további törlés garantált no-op lenne. NEM megyünk tovább és NEM
@@ -157,14 +181,10 @@ class GuiAutofixMixin:
                         f"A Windows nem tud több folyamatot indítani (0xC0000142) a(z) {name} törlésénél - "
                         "a rendszer eszközkezelője szétesett vagy leállás alatt van. "
                         "A driver-törlés FÉLBEMARADT. Indítsd újra a gépet, majd futtasd újra az 1 kattintásos fixet!")
-                if getattr(res, 'returncode', 0) == CMD_TIMEOUT_RETURNCODE:
-                    timed_out += 1
-                    self.emit('task_progress', {'task': task_id, 'log': f'⏱️ {name}: a törlés túllépte a {DELETE_DRIVER_TIMEOUT} mp-es korlátot (az eszköz nem válaszol) - kihagyva, megyünk tovább.'})
-            if timed_out:
-                self.emit('task_progress', {'task': task_id, 'log': f'⚠️ {timed_out} db csomag törlése időtúllépés miatt maradt el - ezek az újraindítás után rendeződhetnek.\n'})
             self.emit('task_progress', {'task': task_id, 'log': '✅ Driverek eltávolítva.\n'})
         else:
             self.emit('task_progress', {'task': task_id, 'log': '✅ Nincs third-party driver a rendszerben.\n'})
+        return 'ok'
 
     def _scan_and_install_wu_sync(self, task_id='autofix'):
         max_loops = 4
@@ -494,6 +514,81 @@ class GuiAutofixMixin:
         except Exception as e:
             logging.debug(f"[AUTOFIX-STATS] Mentés sikertelen: {e}")
 
+    def _autofix_stats_set(self, key, value):
+        """Tetszőleges kulcs eltárolása a lánc-állapot JSON-ban (a lábak KÜLÖN processzek,
+        ezért csak fájlon át tudnak üzenni egymásnak). Hibát elnyel."""
+        try:
+            p = self._autofix_stats_path()
+            data = {}
+            if os.path.exists(p):
+                try:
+                    with open(p, 'r', encoding='utf-8') as f:
+                        data = json.load(f) or {}
+                except Exception:
+                    data = {}
+            data[key] = value
+            with open(p, 'w', encoding='utf-8') as f:
+                json.dump(data, f)
+        except Exception as e:
+            logging.debug(f"[AUTOFIX-STATS] '{key}' mentése sikertelen: {e}")
+
+    def _autofix_stats_get(self, key, default=None):
+        """A _autofix_stats_set párja. Hibánál/hiányzó kulcsnál a default."""
+        try:
+            p = self._autofix_stats_path()
+            if os.path.exists(p):
+                with open(p, 'r', encoding='utf-8') as f:
+                    data = json.load(f) or {}
+                return data.get(key, default)
+        except Exception as e:
+            logging.debug(f"[AUTOFIX-STATS] '{key}' olvasása sikertelen: {e}")
+        return default
+
+    def _finish_pending_deletes(self, task_id='autofix'):
+        """A beragadt eszközverem miatt félbehagyott törlések BEFEJEZÉSE a friss boot után.
+
+        Az előző láb (0. LÉPÉS) csak akkor hagy itt listát, ha a pnputil beleakadt egy
+        eltávolíthatatlan csomagba - ilyenkor a maradékot nem erőltette, mert újraindítás
+        előtt csomagonként ~1,5-2,5 percbe telt volna. Újraindítás után ugyanaz a csomag
+        0,5 mp alatt törlődik (terepen mérve), tehát itt fut le gyorsan, EXTRA ÚJRAINDÍTÁS
+        NÉLKÜL - ez a lánc amúgy is meglévő reboot-ját használja ki.
+
+        Biztonsági korlát: csak azokat a csomagokat törli, amelyek MÉG MINDIG ugyanazzal az
+        eredeti INF-névvel szerepelnek a DriverStore-ban - így egy időközben újraszámozott
+        oemXX.inf semmiképp nem egy friss drivert töröl le. A listát mindenképp kiüríti."""
+        pending = self._autofix_stats_get('pending_deletes') or []
+        if not pending:
+            return
+        self._autofix_stats_set('pending_deletes', [])
+
+        current = {d.get('published', '').lower(): d for d in self._get_third_party_drivers()}
+        todo = []
+        for p in pending:
+            pub = (p.get('published') or '').lower()
+            cur = current.get(pub)
+            # Csak akkor töröljük, ha ugyanaz az EREDETI INF név van most is a helyén.
+            if cur and (cur.get('original') or '').lower() == (p.get('original') or '').lower():
+                todo.append(p)
+        if not todo:
+            self.emit('task_progress', {'task': task_id, 'log': 'ℹ️ A korábban félbehagyott csomagok már nincsenek a rendszerben.\n'})
+            return
+
+        self.emit('task_progress', {'task': task_id, 'log': f'🗑 Az újraindítás előtt beragadt {len(todo)} driver törlésének befejezése...'})
+        done = 0
+        for p in todo:
+            if getattr(self, '_cancel_flag', False):
+                raise Exception("Magyar_Megszakit_Flag")
+            name = p['published']
+            res = drivers_core.delete_driver_package(self._run, name, timeout=DELETE_DRIVER_TIMEOUT)
+            if spawn_failed(res) or drivers_core.delete_stalled(res):
+                # Újraindítás után is beragad -> tovább nem erőltetjük (nem kritikus:
+                # a WU egyszerűen telepítettnek látja majd ezt a csomagot).
+                self.emit('task_progress', {'task': task_id, 'log': f'⚠️ {name} az újraindítás után sem távolítható el - kihagyva.'})
+                break
+            if drivers_core.delete_succeeded(res):
+                done += 1
+        self.emit('task_progress', {'task': task_id, 'log': f'✅ Befejezve: {done}/{len(todo)} maradék driver törölve.\n'})
+
     def _autofix_leg_count(self):
         """Hány TELEPÍTŐ láb futott már le ebben a láncban (az AUTOFIX_MAX_INSTALL_LEGS
         plafonhoz). Hibánál 0 - a plafon ilyenkor nem lép közbe, de a lánc a szokásos
@@ -655,6 +750,13 @@ class GuiAutofixMixin:
                     self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'], ok_codes=(0, 1))  # 1: a feladat már nem létezik (idempotens duplatörlés)
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Láncolt folytatás gépújraindítás után. Régi driverek törlése kihagyva, hogy ne töröljünk friss drivereket.\n'})
                     self._disable_sleep_sync()
+
+                    # Az egyetlen kivétel a "nem törlünk ezen a lábon" szabály alól: a 0. LÉPÉS
+                    # által NÉV SZERINT itt hagyott, beragadt csomagok befejezése. Ezek még a
+                    # törlési fázisból maradtak (semmi frisset nem érinthet, mert a telepítés
+                    # csak ezután indul), és friss boot után másodpercek alatt lemennek.
+                    self._finish_pending_deletes()
+                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
 
                     # 🛟 Hálózati mentőöv: ha a driver-törlés után a gép internet nélkül
                     # maradt (a WU/beépített driver nem fedte le a hálózati kártyát -
