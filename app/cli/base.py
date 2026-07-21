@@ -5,6 +5,9 @@ import os
 import subprocess
 import time
 import logging
+from app.common import CMD_TIMEOUT_RETURNCODE
+from app.common import CommandResult
+from app.common import spawn_failed
 # === /AUTO-IMPORTS ===
 
 
@@ -32,7 +35,10 @@ class CliBaseMixin:
             result = subprocess.run(cmd, capture_output=True, text=True, errors='replace',
                                   startupinfo=self._si, creationflags=self._nw, **kwargs)
             elapsed = time.time() - start
-            if result.returncode not in ok_codes:
+            if spawn_failed(result):
+                # Lásd common.STATUS_DLL_INIT_FAILED - a folyamat el sem indult.
+                logging.error(f"[CMD_CLI] A FOLYAMAT EL SEM INDULT (0xC0000142 / STATUS_DLL_INIT_FAILED, {elapsed:.1f}s). Parancs: {cmd_str[:200]}")
+            elif result.returncode not in ok_codes:
                 logging.warning(f"[CMD_CLI] Visszatérési kód: {result.returncode} ({elapsed:.1f}s)")
                 if result.stderr:
                     logging.warning(f"[CMD_CLI] stderr: {result.stderr[:4000]}")
@@ -46,13 +52,18 @@ class CliBaseMixin:
                 if len(out_txt) > 4000: out_txt = out_txt[:4000] + '... [TRUNCATED]'
                 logging.debug(f"[CMD_CLI] stdout: {out_txt}")
             return result
+        except subprocess.TimeoutExpired as e:
+            # Lásd DriverToolApi._run azonos ágát: időtúllépéskor eredményt adunk vissza,
+            # nem kivételt, hogy egy beragadt segédprogram ne akassza meg a folyamatot.
+            elapsed = time.time() - start
+            logging.error(f"[CMD_CLI] IDŐTÚLLÉPÉS ({elapsed:.1f}s, limit={kwargs.get('timeout')}s): {cmd_str[:200]}")
+            partial = e.stdout or ''
+            if isinstance(partial, (bytes, bytearray)):
+                partial = partial.decode('utf-8', errors='replace')
+            return CommandResult(CMD_TIMEOUT_RETURNCODE, partial, 'IDŐTÚLLÉPÉS')
         except Exception as e:
             logging.error(f"[CMD_CLI] Kivétel: {e}")
-            class DummyRes:
-                returncode = 1
-                stdout = ""
-                stderr = str(e)
-            return DummyRes()
+            return CommandResult(1, '', str(e))
     
     def _print_progress(self, msg, end='\n'):
         """Progress kiírás."""

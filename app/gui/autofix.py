@@ -33,9 +33,23 @@ from app.wu_core import _collect_printer_protection
 from app.wu_core import _is_printer_protected
 from app.wu_core import _export_net_driver_backup
 from app.wu_core import _restore_net_driver_backup
+from app.wu_core import WU_MAX_CONSECUTIVE_FAILURES
+from app.wu_core import _filter_wu_older_duplicates
+from app.wu_core import _install_abort_reason
+from app.wu_core import is_reboot_pending
+from app.wu_core import verify_failed_installs
+from app.common import CMD_TIMEOUT_RETURNCODE
+from app.common import spawn_failed
+from app.drivers_core import DELETE_DRIVER_TIMEOUT
 from app.gui.hwscan import PNP_ERROR_CODE_DESCRIPTIONS
 from datetime import datetime
 # === /AUTO-IMPORTS ===
+
+
+# Hány TELEPÍTŐ láb futhat egy láncban (a pending-reboot miatti újraindításokkal együtt).
+# A lánc önmagát láncolja tovább, amíg települ valami vagy reboot van függőben - ez a
+# plafon zárja ki a végtelen újraindulás-ciklust egy sosem gyógyuló gépen.
+AUTOFIX_MAX_INSTALL_LEGS = 3
 
 
 class GuiAutofixMixin:
@@ -123,13 +137,31 @@ class GuiAutofixMixin:
             if backed_up:
                 self.emit('task_progress', {'task': task_id, 'log': f'🛟 {backed_up} db hálózati driver biztonsági mentése kész (vész-visszaállításhoz).\n'})
             self.emit('task_progress', {'task': task_id, 'log': f'{total} db third-party driver eltávolítása...\n'})
+            timed_out = 0
             for i, drv in enumerate(drivers):
                 if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
                 name = drv.get('published', '')
                 if not name: continue
                 self.emit('task_progress', {'task': task_id, 'log': f'🗑 Törlés ({i+1}/{total}): {name}', 'current': i+1, 'total': total})
                 # A közös törlő (drivers_core) - 3010 = siker, de reboot kell; az AutoFix úgyis újraindít.
-                drivers_core.delete_driver_package(self._run, name)
+                # timeout: egy nem válaszoló eszközverem (terepen: Intel RST tárolóvezérlő)
+                # különben percekig lógatja a pnputil-t és megakasztja az egész lábat.
+                res = drivers_core.delete_driver_package(self._run, name, timeout=DELETE_DRIVER_TIMEOUT)
+                if spawn_failed(res):
+                    # A folyamat EL SEM INDULT (0xC0000142) - a session szétesett, minden
+                    # további törlés garantált no-op lenne. NEM megyünk tovább és NEM
+                    # jelentünk sikert: korábban pont ez a néma hamis siker vitte rá a
+                    # láncot, hogy 17 nem törölt csomag után "✅ Driverek eltávolítva"-t
+                    # írjon ki és újrainduljon (terepi log, Build 218).
+                    raise Exception(
+                        f"A Windows nem tud több folyamatot indítani (0xC0000142) a(z) {name} törlésénél - "
+                        "a rendszer eszközkezelője szétesett vagy leállás alatt van. "
+                        "A driver-törlés FÉLBEMARADT. Indítsd újra a gépet, majd futtasd újra az 1 kattintásos fixet!")
+                if getattr(res, 'returncode', 0) == CMD_TIMEOUT_RETURNCODE:
+                    timed_out += 1
+                    self.emit('task_progress', {'task': task_id, 'log': f'⏱️ {name}: a törlés túllépte a {DELETE_DRIVER_TIMEOUT} mp-es korlátot (az eszköz nem válaszol) - kihagyva, megyünk tovább.'})
+            if timed_out:
+                self.emit('task_progress', {'task': task_id, 'log': f'⚠️ {timed_out} db csomag törlése időtúllépés miatt maradt el - ezek az újraindítás után rendeződhetnek.\n'})
             self.emit('task_progress', {'task': task_id, 'log': '✅ Driverek eltávolítva.\n'})
         else:
             self.emit('task_progress', {'task': task_id, 'log': '✅ Nincs third-party driver a rendszerben.\n'})
@@ -154,6 +186,10 @@ class GuiAutofixMixin:
         install_failed_uids = set()
         devices_to_check = []
         watchdog_tripped = False
+        # Igaz, ha a kört pending-reboot (vagy sorozatos hiba) miatt szakítottuk meg: ilyenkor
+        # a hívó (run_autofix) akkor is újraindít és láncol egy újabb telepítő lábat, ha
+        # egyetlen driver sem települt ebben a lábban - a maradék ott fog tisztán felmenni.
+        self._autofix_reboot_pending = False
 
         for loop_idx in range(1, max_loops + 1):
             if getattr(self, '_cancel_flag', False):
@@ -192,6 +228,15 @@ class GuiAutofixMixin:
             for d in downgrades:
                 self.emit('task_progress', {'task': task_id, 'log': f'[KIHAGYVA] Downgrade-védelem: {d["title"]} - {d["reason"]}'})
 
+            # CSAK A LEGÚJABB VERZIÓ csomagcsaládonként (közös mag: _filter_wu_older_duplicates).
+            # A WU a teljes csomag-történetet felajánlja (terepen 10 db iigd_ext Intel UHD 630
+            # Extension 2018-tól), amiből régen mind fel is települt - feleslegesen.
+            matches, older_dups = _filter_wu_older_duplicates(matches, wu_by_uid)
+            if older_dups:
+                self.emit('task_progress', {'task': task_id, 'log': f'📦 {len(older_dups)} db elavult verzió kihagyva (csomagcsaládonként csak a legújabb települ).'})
+                for d in older_dups:
+                    logging.debug(f"[AUTOFIX] Régebbi verzió kihagyva: {d['title']} - {d['reason']}")
+
             matched_updates = [m['uid'] for m in matches]
             for uid in matched_updates:
                 attempt_counts[uid] = attempt_counts.get(uid, 0) + 1
@@ -206,6 +251,27 @@ class GuiAutofixMixin:
 
             self.emit('task_progress', {'task': task_id, 'log': f'✅ Telepítendő driverek száma: {len(matched_updates)}'})
 
+            # A kör ELŐTTI csomaglista a "sikertelen" telepítések utóellenőrzéséhez
+            # (verify_failed_installs): a WUA orcFailed(4)-et ad olyan csomagokra is,
+            # amelyeket a PnP közben rendben letett a DriverStore-ba.
+            pkgs_before = self._get_third_party_drivers()
+            round_failed_titles = []
+            consecutive_failures = 0
+            reboot_pending = False
+            check_reboot_after_line = False
+
+            def _abort_check():
+                """Az _iter_process_lines soronként hívja. A (PowerShell-es, ~0,5 mp)
+                pending-reboot lekérdezés CSAK telepítési hiba után fut le: az az egyetlen
+                jel, ami a "mérgezett session"-t bizonyítja. Ha ilyenkor áll a reboot-jelző,
+                a maradék csomag is darabonként ~2,5 perc után hamis hibát adna - kör vége."""
+                nonlocal reboot_pending, check_reboot_after_line
+                if check_reboot_after_line:
+                    check_reboot_after_line = False
+                    if is_reboot_pending(self._run):
+                        reboot_pending = True
+                return _install_abort_reason(consecutive_failures, reboot_pending)
+
             # A telepítő script a KÖZÖS _build_wu_install_ps-ből jön - ugyanaz, mint a
             # manuális telepítésnél, csak itt a kör összes párosított UpdateID-jával fut.
             install_ps = _build_wu_install_ps(target_uids=matched_updates)
@@ -218,9 +284,11 @@ class GuiAutofixMixin:
             # A sorokat a KÖZÖS _iter_process_lines olvassa (wu_core): cancel-ellenőrzés
             # fél másodpercenként + watchdog (30 perc néma folyamat leölve). A régi
             # közvetlen stdout-olvasás beragadt WU-keresésnél örökre blokkolt.
+            aborted_reason = None
             try:
                 for line in _iter_process_lines(process, self._run,
-                                                cancel_check=lambda: getattr(self, '_cancel_flag', False)):
+                                                cancel_check=lambda: getattr(self, '_cancel_flag', False),
+                                                abort_check=_abort_check):
                     # A közös script kimeneti protokollja (INIT/SEARCH/FOUND/SKIP/TOTAL/DLONE/
                     # INSTONE/OK/OKRB/FAIL/EMPTY/DONE/ERROR) - lásd _build_wu_install_ps docstring.
                     if line.startswith("TOTAL:"):
@@ -231,20 +299,27 @@ class GuiAutofixMixin:
                         self.emit('task_progress', {'task': task_id, 'log': f'[TELEPITES] Telepítés alatt: {line[8:].strip()}'})
                     elif line.startswith("OKRB:"):
                         # Sikeres, újraindítás-igényes - az AutoFix lánc úgyis reboot-tal folytatódik.
+                        # SZÁNDÉKOSAN nem szakítjuk meg itt a kört, pedig ilyenkor már áll a
+                        # pending-reboot jelző: a terepi logban az OKRB-s Display driver UTÁN
+                        # még három csomag simán felment. Amíg sikerülnek a telepítések, megyünk
+                        # tovább; a megszakítás jele a HIBA (lásd a FAIL ágat), nem a reboot-igény.
                         total_installed_in_session += 1
+                        consecutive_failures = 0
                         self.emit('task_progress', {'task': task_id, 'log': f'[OK] SIKERES (újraindítás után él): {line[5:].strip()}'})
                     elif line.startswith("OK:"):
                         total_installed_in_session += 1
+                        consecutive_failures = 0
                         self.emit('task_progress', {'task': task_id, 'log': f'[OK] SIKERES: {line[3:].strip()}'})
                     elif line.startswith("FAIL:"):
                         fail_text = line[5:].strip()  # pl. "[kód=4] Intel..." vagy "[LETÖLTÉS HIBA] ..."
-                        # Telepítés-hibát (kód=N / TELEPÍTÉS HIBA) végleg kizárunk a session-ből;
-                        # a letöltési hiba átmeneti lehet, azt az attempt_counts 1-retry-ja fedi.
+                        # A telepítés-hibás címeket csak GYŰJTJÜK; hogy tényleg hiba volt-e,
+                        # a kör után a DriverStore dönti el (verify_failed_installs) - a WUA
+                        # ugyanis hamis orcFailed(4)-et is ad ténylegesen felkerült csomagra.
+                        # A letöltési hiba átmeneti lehet, azt az attempt_counts 1-retry-ja fedi.
                         if 'LETÖLTÉS HIBA' not in fail_text:
-                            fail_title = re.sub(r'^\[[^\]]*\]\s*', '', fail_text)
-                            fuid = title_to_uid.get(fail_title)
-                            if fuid:
-                                install_failed_uids.add(fuid)
+                            round_failed_titles.append(re.sub(r'^\[[^\]]*\]\s*', '', fail_text))
+                            consecutive_failures += 1
+                            check_reboot_after_line = True
                         self.emit('task_progress', {'task': task_id, 'log': f'[HIBA] SIKERTELEN: {fail_text}'})
                     elif line.startswith("EMPTY:"):
                         self.emit('task_progress', {'task': task_id, 'log': f'[FIGYELMEZTETES] {line[6:].strip()}'})
@@ -259,13 +334,49 @@ class GuiAutofixMixin:
                     else:
                         self.emit('task_progress', {'task': task_id, 'log': line})
             except WuProcessAborted as ab:
+                aborted_reason = ab.reason
                 if ab.reason == 'cancel':
                     self.emit('task_progress', {'task': task_id, 'log': '\n❗ Megszakítva!'})
                     raise Exception("Magyar_Megszakit_Flag")
-                # Watchdog: a WU telepítő 30 percig néma volt. Nincs értelme újabb WU
-                # körnek (az is beragadna) - kilépünk a körökből, jöhet a katalógus-zárókör.
-                watchdog_tripped = True
-                self.emit('task_progress', {'task': task_id, 'log': '\n[HIBA] A WU telepítő 30 percen át nem adott életjelet - a watchdog leállította. Áttérés a katalógus-keresésre...'})
+                elif ab.reason == 'reboot':
+                    # A gép pending-reboot állapotba került (jellemzően egy tárolóvezérlő /
+                    # chipset driver telepítése után). Innentől a WUA minden további
+                    # csomagra ~2,5 perc várakozás után hamis hibát adna - kör vége.
+                    self.emit('task_progress', {'task': task_id, 'log': '\n🔄 A rendszer újraindítást igényel - a maradék driver ebben az állapotban nem tud rendesen települni.'})
+                    self.emit('task_progress', {'task': task_id, 'log': 'A telepítés az újraindítás után automatikusan folytatódik!'})
+                elif ab.reason == 'failstreak':
+                    self.emit('task_progress', {'task': task_id, 'log': f'\n⚠️ {WU_MAX_CONSECUTIVE_FAILURES} egymást követő telepítési hiba - a Windows Update ebben az állapotban nem tud tovább dolgozni.'})
+                    self.emit('task_progress', {'task': task_id, 'log': 'Újraindítás után újrapróbáljuk a maradékot!'})
+                else:
+                    # Watchdog: a WU telepítő 30 percig néma volt. Nincs értelme újabb WU
+                    # körnek (az is beragadna) - kilépünk a körökből, jöhet a katalógus-zárókör.
+                    watchdog_tripped = True
+                    self.emit('task_progress', {'task': task_id, 'log': '\n[HIBA] A WU telepítő 30 percen át nem adott életjelet - a watchdog leállította. Áttérés a katalógus-keresésre...'})
+
+            # --- KÖR UTÁNI UTÓELLENŐRZÉS: mi bukott el VALÓJÁBAN? ---
+            # A WUA hamis orcFailed(4)-et is ad olyan csomagra, amit a PnP közben rendben
+            # letett a DriverStore-ba (terepen mind a 8 "bukott" driver felkerült). Amit a
+            # csomaglista igazol, az siker: beleszámít, és NEM kerül a végleges tiltólistára.
+            if round_failed_titles:
+                verified = verify_failed_installs(round_failed_titles, pkgs_before, self._get_third_party_drivers())
+                if verified:
+                    total_installed_in_session += len(verified)
+                    self.emit('task_progress', {'task': task_id, 'log': f'\nℹ️ Utóellenőrzés: {len(verified)} "sikertelen" driver valójában FELKERÜLT a rendszerre (a Windows Update jelentése félrevezető volt):'})
+                    for t in sorted(verified):
+                        self.emit('task_progress', {'task': task_id, 'log': f'   ✅ {t}'})
+                for title in round_failed_titles:
+                    if title in verified:
+                        continue
+                    fuid = title_to_uid.get(title)
+                    if fuid:
+                        install_failed_uids.add(fuid)
+
+            if aborted_reason in ('reboot', 'failstreak'):
+                # A hívó (run_autofix) ebből tudja, hogy akkor is újra kell indítani és
+                # láncolni a következő telepítő lábat, ha 0 driver települt ebben a körben.
+                self._autofix_reboot_pending = True
+                break
+            if aborted_reason == 'hang':
                 break
 
         # --- KATALÓGUS-ZÁRÓKÖR ---
@@ -275,6 +386,12 @@ class GuiAutofixMixin:
         # nem adott semmit egy eszközre, az hibásan maradt, pedig a katalógusban lett
         # volna driver. A már-telepített verzió-szűrő (a _catalog_find_driver-ben)
         # garantálja, hogy a lánc nem pörög végtelenségig ugyanazon a csomagon.
+        # Pending-reboot állapotban a katalógus-telepítés is ugyanabba a falba futna
+        # (és percekbe kerülne) - kihagyjuk, az újraindítás utáni láb újra nekifut.
+        if getattr(self, '_autofix_reboot_pending', False):
+            self.emit('task_progress', {'task': task_id, 'log': 'ℹ️ Katalógus-zárókör elhalasztva az újraindítás utánra.'})
+            return total_installed_in_session
+
         try:
             if not getattr(self, '_cancel_flag', False):
                 res = self._run(["powershell", "-NoProfile", "-Command", WU_PNP_QUERY_PS], encoding='utf-8')
@@ -310,6 +427,45 @@ class GuiAutofixMixin:
     # A 3-lábú lánc minden lába KÜLÖN processz, ezért a lábankénti telepítés-számot
     # egy app-adatmappabeli JSON-ban visszük át a reboot-okon; a záró láb összesíti.
     # ================================================================
+    def _schedule_autofix_resume(self, resume_flag, task_id='autofix'):
+        """Az ÚJRAINDÍTÁS UTÁNI folytatás beütemezése (DriverVarazsloResume feladat).
+
+        Mindhárom láncolási pont (A láb -> --resume-step1, B láb -> --resume-autofix,
+        telepítő láb -> --resume-autofix) ezen keresztül megy: korábban ugyanez a ~25 sor
+        háromszor szerepelt, és bármelyik módosítása után szétcsúszhatott a másik kettő.
+
+        A feladat AtLogOn triggerrel, interaktív + legmagasabb jogosultsággal fut - a
+        folytatást ténylegesen az ui.html indítja el (get_init_data resume flag-jei
+        alapján), ezért a GUI-nak láthatóan és adminként kell elindulnia."""
+        exe_path = _app_exe_path()
+        temp_env = os.environ.get('TEMP', '!!').lower()
+        # Ha temp mappából fut a program, a következő indulásig törlődhet alóla az exe -
+        # ilyenkor a Public mappába másolt példányt ütemezzük.
+        if temp_env in exe_path.lower():
+            try:
+                public_dir = os.environ.get('PUBLIC', 'C:\\Users\\Public')
+                safe_exe = os.path.join(public_dir, "DriverVarazslo_Resume.exe" if getattr(sys, 'frozen', False) else "DriverVarazslo_Resume.py")
+                shutil.copy2(exe_path, safe_exe)
+                exe_path = safe_exe
+                self.emit('task_progress', {'task': task_id, 'log': 'ℹ️ Temp mappából futás detektálva. Biztonsági másolat készítve a Public mappába.'})
+            except Exception as e:
+                logging.error(f"[AUTOFIX] Biztonsági másolat hiba: {e}")
+
+        if getattr(sys, 'frozen', False):
+            exec_path, args = exe_path, resume_flag
+        else:
+            exec_path, args = sys.executable, f'"{exe_path}" {resume_flag}'
+
+        # Az idézőjelek egyszeresek: a _ps_quote nélkül egy aposztrófos felhasználónév
+        # (C:\Users\O'Brien\...) széttörné a generált parancsot és megölné a láncot.
+        task_ps = f'''
+        $action = New-ScheduledTaskAction -Execute '{_ps_quote(exec_path)}' -Argument '{_ps_quote(args)}'
+        $trigger = New-ScheduledTaskTrigger -AtLogOn
+        $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
+        Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Force
+        '''
+        self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", task_ps])
+
     def _autofix_stats_path(self):
         return os.path.join(_app_data_dir(), 'autofix_stats.json')
 
@@ -337,6 +493,20 @@ class GuiAutofixMixin:
                 json.dump(data, f)
         except Exception as e:
             logging.debug(f"[AUTOFIX-STATS] Mentés sikertelen: {e}")
+
+    def _autofix_leg_count(self):
+        """Hány TELEPÍTŐ láb futott már le ebben a láncban (az AUTOFIX_MAX_INSTALL_LEGS
+        plafonhoz). Hibánál 0 - a plafon ilyenkor nem lép közbe, de a lánc a szokásos
+        "nincs több telepíthető driver" feltétellel akkor is leáll."""
+        try:
+            p = self._autofix_stats_path()
+            if os.path.exists(p):
+                with open(p, 'r', encoding='utf-8') as f:
+                    data = json.load(f) or {}
+                return len(data.get('legs', []))
+        except Exception as e:
+            logging.debug(f"[AUTOFIX-STATS] Láb-számlálás sikertelen: {e}")
+        return 0
 
     def _autofix_stats_total_and_clear(self):
         """A korábbi lábak összesített telepítés-száma; a fájl törlődik (a következő
@@ -422,37 +592,13 @@ class GuiAutofixMixin:
                     self.emit('task_progress', {'task': 'autofix', 'log': '✅ WU szüneteltetve 1 hétre.\n'})
 
                     self.emit('task_progress', {'task': 'autofix', 'log': '🔄 A számítógép újraindul, majd a folyamat a rendszer előkészítésével folytatódik!'})
-                    
-                    exe_path = _app_exe_path()
-                    temp_env = os.environ.get('TEMP', '!!').lower()
-                    if temp_env in exe_path.lower():
-                        try:
-                            public_dir = os.environ.get('PUBLIC', 'C:\\Users\\Public')
-                            safe_exe = os.path.join(public_dir, "DriverVarazslo_Resume.exe" if getattr(sys, 'frozen', False) else "DriverVarazslo_Resume.py")
-                            shutil.copy2(exe_path, safe_exe)
-                            exe_path = safe_exe
-                            self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ Temp mappából futás detektálva. Biztonsági másolat készítve a Public mappába.'})
-                        except Exception as e:
-                            logging.error(f"[AUTOFIX] Biztonsági másolat hiba: {e}")
-                    
+
+                    # A nyomtató-kihagyás választása MÁSIK PROCESSZBE megy át, ezért nem
+                    # paraméter, hanem a feladat argumentumába épített flag (lásd CLAUDE.md).
                     resume_flag = '--resume-step1'
                     if skip_printers:
                         resume_flag += ' --skip-printer-drivers'
-
-                    if getattr(sys, 'frozen', False):
-                        exec_path = exe_path
-                        args = resume_flag
-                    else:
-                        exec_path = sys.executable
-                        args = f'"{exe_path}" {resume_flag}'
-
-                    task_ps = f'''
-                    $action = New-ScheduledTaskAction -Execute '{_ps_quote(exec_path)}' -Argument '{_ps_quote(args)}'
-                    $trigger = New-ScheduledTaskTrigger -AtLogOn
-                    $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
-                    Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Force
-                    '''
-                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", task_ps])
+                    self._schedule_autofix_resume(resume_flag)
 
                     self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve (-1. lépés)...'})
                     time.sleep(5)
@@ -498,35 +644,9 @@ class GuiAutofixMixin:
                     self.emit('task_progress', {'task': 'autofix', 'log': '✅ WU gyorsítótár ürítve és szüneteltetve 1 hétre.\n'})
                     
                     self.emit('task_progress', {'task': 'autofix', 'log': '🔄 A számítógép újraindul, majd a folyamat automatikusan a TELEPÍTÉSSEL folytatódik!'})
-                    
-                    exe_path = _app_exe_path()
-                    temp_env = os.environ.get('TEMP', '!!').lower()
-                    # Biztonsági másolat, ha temp könyvtárból fut a program
-                    if temp_env in exe_path.lower():
-                        try:
-                            public_dir = os.environ.get('PUBLIC', 'C:\\Users\\Public')
-                            safe_exe = os.path.join(public_dir, "DriverVarazslo_Resume.exe" if getattr(sys, 'frozen', False) else "DriverVarazslo_Resume.py")
-                            shutil.copy2(exe_path, safe_exe)
-                            exe_path = safe_exe
-                            self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ Temp mappából futás detektálva. Biztonsági másolat készítve a Public mappába.'})
-                        except Exception as e:
-                            logging.error(f"[AUTOFIX] Biztonsági másolat hiba: {e}")
-                    
-                    if getattr(sys, 'frozen', False):
-                        exec_path = exe_path
-                        args = '--resume-autofix'
-                    else:
-                        exec_path = sys.executable
-                        args = f'"{exe_path}" --resume-autofix'
-                    
-                    task_ps = f'''
-                    $action = New-ScheduledTaskAction -Execute '{_ps_quote(exec_path)}' -Argument '{_ps_quote(args)}'
-                    $trigger = New-ScheduledTaskTrigger -AtLogOn
-                    $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
-                    Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Force
-                    '''
-                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", task_ps])
-                    
+
+                    self._schedule_autofix_resume('--resume-autofix')
+
                     self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve...'})
                     time.sleep(5)
                     self._run(['shutdown', '/r', '/t', '0', '/f'])
@@ -594,46 +714,41 @@ class GuiAutofixMixin:
                     self._set_wu_pause(pause=True)
 
                 self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 MINDEN LÉPÉS KÉSZ!'})
-                
-                if installed_count > 0:
-                    self.emit('task_progress', {'task': 'autofix', 'log': f'\n🔄 EBBEN A KÖRBEN {installed_count} DRIVER TELEPÜLT!\nTovább láncolt hardverek aktiválásához újabb automatikus újraindítás szükséges!\nA rendszer az újraindulás után folytatja a szkennelést!'})
-                    # Láb-statisztika a záró összefoglalóhoz (reboot-okon átívelő számláló).
+
+                # Újraindulunk és láncolunk egy újabb telepítő lábat, ha (a) települt valami
+                # (a friss driverek új eszközöket hozhatnak elő), VAGY (b) a kört pending-reboot
+                # / sorozatos hiba miatt vágtuk el - ilyenkor a maradék csomag CSAK újraindítás
+                # után tud rendesen felmenni (ez volt a ~20 perces, 8 hamis hibás terepi eset).
+                reboot_needed = getattr(self, '_autofix_reboot_pending', False)
+                should_chain = installed_count > 0 or reboot_needed
+                if should_chain:
+                    # A láb-statisztika a záró összefoglalóhoz ÉS a plafon számlálójához kell.
                     self._autofix_stats_add(installed_count)
-                    # Set RunOnce
-                    exe_path = _app_exe_path()
-                    temp_env = os.environ.get('TEMP', '!!').lower()
-                    # Biztonsági másolat, ha temp könyvtárból fut a program
-                    if temp_env in exe_path.lower():
-                        try:
-                            public_dir = os.environ.get('PUBLIC', 'C:\\Users\\Public')
-                            safe_exe = os.path.join(public_dir, "DriverVarazslo_Resume.exe" if getattr(sys, 'frozen', False) else "DriverVarazslo_Resume.py")
-                            shutil.copy2(exe_path, safe_exe)
-                            exe_path = safe_exe
-                            self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ Temp mappából futás detektálva. Biztonsági másolat készítve a Public mappába.'})
-                        except Exception as e:
-                            logging.error(f"[AUTOFIX] Biztonsági másolat hiba: {e}")
-                    
-                    if getattr(sys, 'frozen', False):
-                        exec_path = exe_path
-                        args = '--resume-autofix'
+                    if self._autofix_leg_count() >= AUTOFIX_MAX_INSTALL_LEGS:
+                        should_chain = False
+                        self.emit('task_progress', {'task': 'autofix', 'log': f'\n⚠️ Elértük a maximális újraindítás-számot ({AUTOFIX_MAX_INSTALL_LEGS} telepítő kör) - a lánc itt lezárul, hogy a gép ne induljon újra a végtelenségig.'})
+                        if reboot_needed:
+                            self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ A rendszer még újraindítást igényel: a maradék driver a következő kézi újraindítás után lép életbe.'})
+
+                if should_chain:
+                    if reboot_needed and installed_count == 0:
+                        self.emit('task_progress', {'task': 'autofix', 'log': '\n🔄 A rendszer újraindítást igényel a hátralévő driverek telepítéséhez!\nA folyamat az újraindulás után automatikusan folytatódik!'})
                     else:
-                        exec_path = sys.executable
-                        args = f'"{exe_path}" --resume-autofix'
-                    
-                    task_ps = f'''
-                    $action = New-ScheduledTaskAction -Execute '{_ps_quote(exec_path)}' -Argument '{_ps_quote(args)}'
-                    $trigger = New-ScheduledTaskTrigger -AtLogOn
-                    $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
-                    Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Force
-                    '''
-                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", task_ps])
-                    
+                        self.emit('task_progress', {'task': 'autofix', 'log': f'\n🔄 EBBEN A KÖRBEN {installed_count} DRIVER TELEPÜLT!\nTovább láncolt hardverek aktiválásához újabb automatikus újraindítás szükséges!\nA rendszer az újraindulás után folytatja a szkennelést!'})
+
+                    self._schedule_autofix_resume('--resume-autofix')
+
                     self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve...'})
                     time.sleep(5)
                     self._run(['shutdown', '/r', '/t', '0', '/f'])
                     return
                 else:
-                    self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 KÉSZ! Nulla újonnan fellelt driver, a konfiguráció végigért.'})
+                    if installed_count > 0:
+                        # Ide a láb-plafon miatt jutottunk (települt driver, de már nem
+                        # indítunk újabb kört) - ne írjunk "nulla új drivert".
+                        self.emit('task_progress', {'task': 'autofix', 'log': f'\n🎉 KÉSZ! Ebben a körben {installed_count} driver települt, a lánc lezárul.'})
+                    else:
+                        self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 KÉSZ! Nulla újonnan fellelt driver, a konfiguráció végigért.'})
                     self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'], ok_codes=(0, 1))  # 1: a feladat már nem létezik (idempotens duplatörlés)
 
                     # ZÁRÓ DriverStore-TAKARÍTÁS: a lánc alatt telepített driverek régi

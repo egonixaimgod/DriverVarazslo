@@ -23,6 +23,7 @@ from app.wu_core import _filter_wu_scan_devices
 from app.wu_core import _iso_date_or_none
 from app.wu_core import _iter_process_lines
 from app.wu_core import _match_wu_updates_to_devices
+from app.wu_core import _parse_driver_version
 # === /AUTO-IMPORTS ===
 
 
@@ -47,20 +48,6 @@ PNP_ERROR_CODE_DESCRIPTIONS = {
     43: 'Az eszköz hibát jelzett és leállt',
     52: 'A driver aláírása nem ellenőrizhető',
 }
-
-
-def _parse_driver_version(text):
-    """Verzió-sorozat kinyerése egy katalógus-cím ("Realtek - Net - 1153.21.1009.2025")
-    vagy egy telepített driver-verzió ("10.50.511.2021") szövegéből, összehasonlítható
-    int-tuple-ként. Csak a legalább 3 tagú szám-sorozat számít verziónak - a "2.5GbE"-féle
-    terméknevekben lévő "2.5" különben hamis verzióként viselkedne. Több jelölt esetén a
-    legtöbb tagút választjuk. Nincs találat -> None."""
-    best = None
-    for m in re.findall(r'\d+(?:\.\d+){2,}', text or ''):
-        parts = tuple(int(p) for p in m.split('.'))
-        if best is None or len(parts) > len(best):
-            best = parts
-    return best
 
 
 class GuiHwScanMixin:

@@ -10,6 +10,9 @@ import logging
 import json
 import traceback
 from app import common
+from app.common import CMD_TIMEOUT_RETURNCODE
+from app.common import CommandResult
+from app.common import spawn_failed
 from app.common import _FOLDER_DIALOG
 from app.common import _OPEN_DIALOG
 from app.common import _app_data_dir
@@ -141,7 +144,12 @@ class GuiBaseMixin:
                                   startupinfo=self._si, creationflags=self._nw, **kwargs)
             elapsed = time.time() - start
             # Log eredmény
-            if result.returncode not in ok_codes:
+            if spawn_failed(result):
+                # A folyamat el sem indult - lásd common.STATUS_DLL_INIT_FAILED. Külön,
+                # greppelhető ERROR: ez sosem "a parancs nem sikerült", hanem rendszerszintű baj.
+                logging.error(f"[CMD] A FOLYAMAT EL SEM INDULT (0xC0000142 / STATUS_DLL_INIT_FAILED, {elapsed:.1f}s) - "
+                              f"a Windows session nem tud új processzt indítani (leállás alatt / szétesett eszközverem). Parancs: {cmd_str[:200]}")
+            elif result.returncode not in ok_codes:
                 logging.warning(f"[CMD] Visszatérési kód: {result.returncode} ({elapsed:.1f}s)")
                 if result.stderr:
                     logging.warning(f"[CMD] stderr: {result.stderr[:4000]}")
@@ -156,6 +164,17 @@ class GuiBaseMixin:
                 if len(out_txt) > 4000: out_txt = out_txt[:4000] + '... [TRUNCATED]'
                 logging.debug(f"[CMD] stdout: {out_txt}")
             return result
+        except subprocess.TimeoutExpired as e:
+            # timeout= kwarg-gal hívott parancs túllépte az időt. A subprocess.run ilyenkor
+            # már kilőtte a gyereket; mi CommandResult-ot adunk vissza (nem kivételt), hogy
+            # egy beragadt segédprogram (terepen: pnputil /delete-driver egy nem válaszoló
+            # eszközön 143 mp-ig) ne akassza meg az egész AutoFix lábat.
+            elapsed = time.time() - start
+            logging.error(f"[CMD] IDŐTÚLLÉPÉS ({elapsed:.1f}s, limit={kwargs.get('timeout')}s): {cmd_str[:200]}")
+            partial = (e.stdout or b'') if isinstance(e.stdout, (bytes, bytearray)) else (e.stdout or '')
+            if isinstance(partial, (bytes, bytearray)):
+                partial = partial.decode('utf-8', errors='replace')
+            return CommandResult(CMD_TIMEOUT_RETURNCODE, partial, 'IDŐTÚLLÉPÉS')
         except Exception as e:
             logging.error(f"[CMD] Kivétel: {e}")
             raise

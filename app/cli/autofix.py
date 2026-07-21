@@ -7,7 +7,10 @@ import time
 import logging
 from app import dupdrivers_core
 from app.wu_core import AUTOFIX_PRINTER_SKIP_CLASSES
+from app.wu_core import WU_MAX_CONSECUTIVE_FAILURES
 from app.wu_core import WuProcessAborted
+from app.wu_core import _install_abort_reason
+from app.wu_core import is_reboot_pending
 from app.wu_core import _build_wu_install_ps
 from app.wu_core import _collect_printer_protection
 from app.wu_core import _is_printer_protected
@@ -143,13 +146,29 @@ manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkenne
         install_success = 0
         install_fail = 0
         reboot_needed_drivers = 0
+        consecutive_failures = 0
+        reboot_pending = False
+        check_reboot_after_line = False
+
+        def _abort_check():
+            """Megszakítás-döntés a közös magból (_install_abort_reason). A CLI AutoFix
+            egylövetű (nincs reboot-lánc), de a "mérgezett session" ugyanúgy sújtja:
+            pending-reboot után a WUA minden további csomagra ~2,5 perc várakozással
+            hamis hibát ad, ezért ott is megállunk - a fix a végén úgyis újraindít.
+            A pending-reboot lekérdezés csak telepítési HIBA után fut (az a jel)."""
+            nonlocal reboot_pending, check_reboot_after_line
+            if check_reboot_after_line:
+                check_reboot_after_line = False
+                if is_reboot_pending(self._run):
+                    reboot_pending = True
+            return _install_abort_reason(consecutive_failures, reboot_pending)
 
         # A közös script kimeneti protokollja (lásd _build_wu_install_ps docstring).
         # Az olvasás a KÖZÖS _iter_process_lines-on át megy (wu_core): watchdog öli le a
         # folyamatot, ha 30 percig egyetlen sor sem érkezik (beragadt WU szolgáltatás) -
         # a régi közvetlen stdout-olvasás ilyenkor örökre blokkolt.
         try:
-            for line in _iter_process_lines(process, self._run):
+            for line in _iter_process_lines(process, self._run, abort_check=_abort_check):
                 if line.startswith("FOUND:"):
                     print(f"  📦 {line[6:].strip()}")
                 elif line.startswith("TOTAL:"):
@@ -159,14 +178,21 @@ manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkenne
                 elif line.startswith("INSTONE:"):
                     print(f"  ⚙ {line[8:].strip()}")
                 elif line.startswith("OKRB:"):
+                    # Nem szakítunk meg reboot-igényre: amíg sikerülnek a telepítések, megyünk
+                    # tovább (lásd a GUI AutoFix azonos ágát) - a megszakítás jele a HIBA.
                     install_success += 1
                     reboot_needed_drivers += 1
+                    consecutive_failures = 0
                     print(f"  ✅ {line[5:].strip()} (⚠️ újraindítás után él)")
                 elif line.startswith("OK:"):
                     install_success += 1
+                    consecutive_failures = 0
                     print(f"  ✅ {line[3:].strip()}")
                 elif line.startswith("FAIL:"):
                     install_fail += 1
+                    if 'LETÖLTÉS HIBA' not in line:
+                        consecutive_failures += 1
+                        check_reboot_after_line = True
                     print(f"  ❌ {line[5:].strip()}")
                 elif line.startswith("EMPTY:"):
                     print(f"  ℹ️  {line[6:].strip()}")
@@ -176,9 +202,17 @@ manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkenne
                     print(f"\n  Telepítés kész: ✅ {install_success} sikeres, ❌ {install_fail} sikertelen")
                 elif line.startswith("INIT:") or line.startswith("SEARCH:") or line.startswith("SKIP:"):
                     pass  # csendes protokoll-sorok
-        except WuProcessAborted:
-            print("\n  ❌ A WU telepítő 30 percen át nem adott életjelet - a watchdog leállította!")
-            print("     (Beragadt Windows Update szolgáltatásra utal - próbáld újra a fixet.)")
+        except WuProcessAborted as ab:
+            if ab.reason == 'reboot':
+                print("\n  🔄 A rendszer újraindítást igényel - a hátralévő driverek ebben az állapotban")
+                print("     nem tudnak rendesen települni (a Windows Update csomagonként ~2,5 perc")
+                print("     várakozás után hamis hibát adna). Indítsd újra a gépet, majd futtasd újra a fixet!")
+            elif ab.reason == 'failstreak':
+                print(f"\n  ⚠️ {WU_MAX_CONSECUTIVE_FAILURES} egymást követő telepítési hiba - a telepítés itt leállt.")
+                print("     Indítsd újra a gépet, majd futtasd újra a fixet a maradékhoz!")
+            else:
+                print("\n  ❌ A WU telepítő 30 percen át nem adott életjelet - a watchdog leállította!")
+                print("     (Beragadt Windows Update szolgáltatásra utal - próbáld újra a fixet.)")
         if reboot_needed_drivers:
             print(f"\n  ⚠️ {reboot_needed_drivers} driver csak újraindítás után lép életbe (a fix végén úgyis újraindítunk).")
 

@@ -23,16 +23,23 @@ from app.common import _app_data_dir
 AUTOFIX_PRINTER_SKIP_CLASSES = {'Printer', 'PrintQueue', 'Image'}
 
 
+# Ennyi EGYMÁST KÖVETŐ telepítési hiba után megszakítjuk a kört (lásd a
+# _install_abort_reason docstringjét: a "mérgezett session" tünete).
+WU_MAX_CONSECUTIVE_FAILURES = 3
+
+
 class WuProcessAborted(Exception):
     """A WU telepítő PowerShell folyamat idő előtt leállítva. reason='cancel' (felhasználói
-    megszakítás) vagy 'hang' (a watchdog ölte meg, mert túl sokáig nem jött kimenet)."""
+    megszakítás), 'hang' (a watchdog ölte meg, mert túl sokáig nem jött kimenet),
+    'reboot' (pending-reboot miatt értelmetlen tovább telepíteni) vagy 'failstreak'
+    (sorozatos telepítési hiba - a session mérgezett)."""
 
     def __init__(self, reason):
         super().__init__(reason)
         self.reason = reason
 
 
-def _iter_process_lines(process, run_fn, cancel_check=None, inactivity_timeout=1800):
+def _iter_process_lines(process, run_fn, cancel_check=None, inactivity_timeout=1800, abort_check=None):
     """A telepítő PowerShell stdout-jának CANCEL-KÉPES, WATCHDOG-OS olvasása - mindhárom
     fogyasztó (GUI manuális, GUI AutoFix, CLI AutoFix) ezen keresztül olvassa a sorokat.
 
@@ -47,7 +54,14 @@ def _iter_process_lines(process, run_fn, cancel_check=None, inactivity_timeout=1
     letöltése lassú neten percekig ad nulla kimenetet - inkább későn ölünk, mint egy
     élő letöltést.
 
-    Kivétel: WuProcessAborted('cancel' | 'hang') - a folyamat ilyenkor már le van ölve."""
+    abort_check: opcionális callback, amely MINDEN feldolgozott sor UTÁN lefut, és egy
+    okot (string) ad vissza, ha a hívó le akarja állítani a telepítőt - a folyamatot
+    itt öljük le, és WuProcessAborted(ok) száll. Ezen keresztül lép közbe a
+    pending-reboot felismerés ('reboot') és a sorozatos-hiba megszakító ('failstreak'):
+    a hívónak nem kell PID-et kezelnie, és a leállítás mindhárom fogyasztónál azonos.
+
+    Kivétel: WuProcessAborted('cancel' | 'hang' | abort_check oka) - a folyamat ilyenkor
+    már le van ölve."""
     q = queue.Queue()
 
     def _reader():
@@ -91,6 +105,14 @@ def _iter_process_lines(process, run_fn, cancel_check=None, inactivity_timeout=1
         line = item.strip()
         if line:
             yield line
+            # A hívó MÁR feldolgozta a sort (a yield visszatért) - itt kérdezzük meg,
+            # akar-e leállni. Így a hívó számlálói/állapota naprakészek a döntéskor.
+            if abort_check:
+                reason = abort_check()
+                if reason:
+                    logging.warning(f"[WU-WATCHDOG] A hívó megszakítást kért: {reason}")
+                    _kill(reason)
+                    raise WuProcessAborted(reason)
     process.wait()
 
 
@@ -264,6 +286,164 @@ def _filter_wu_downgrades(matches, wu_by_uid, installed_info):
             continue
         kept.append(m)
     return kept, skipped
+
+
+def _parse_driver_version(text):
+    """Verzió-sorozat kinyerése egy katalógus-/WU-címből ("Realtek - Net - 1153.21.1009.2025")
+    vagy egy telepített driver-verzióból ("10.50.511.2021"), összehasonlítható int-tuple-ként.
+    Csak a legalább 3 tagú szám-sorozat számít verziónak - a "2.5GbE"-féle terméknevekben lévő
+    "2.5" különben hamis verzióként viselkedne. Több jelölt esetén a legtöbb tagút választjuk.
+    Nincs találat -> None. (Közös mag: a hwscan katalógus-logikája és az AutoFix
+    duplikátum-/utóellenőrző szűrői is ezt használják.)"""
+    best = None
+    for m in re.findall(r'\d+(?:\.\d+){2,}', text or ''):
+        parts = tuple(int(p) for p in m.split('.'))
+        if best is None or len(parts) > len(best):
+            best = parts
+    return best
+
+
+# ============================================================================
+# PENDING-REBOOT FELISMERÉS (AutoFix: mikor értelmetlen tovább telepíteni)
+# ============================================================================
+
+# A négy klasszikus "újraindítás függőben" jelző. Bármelyik elég.
+PENDING_REBOOT_PS = r"""
+$p = $false
+if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') { $p = $true }
+if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') { $p = $true }
+if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootInProgress') { $p = $true }
+try {
+    $v = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction Stop
+    if ($v.PendingFileRenameOperations) { $p = $true }
+} catch {}
+if ($p) { Write-Output 'PENDING' } else { Write-Output 'CLEAN' }
+"""
+
+
+def is_reboot_pending(run):
+    """Igaz, ha a rendszer "újraindítás függőben" állapotban van.
+
+    MIÉRT KELL: terepen bizonyított (Build 214 és 218, Dell OptiPlex 7060, kétszer
+    egyformán) - amint egy tárolóvezérlő-driver (Intel RST, iaAHCIC/iastorhsa) települ,
+    a gép pending-reboot állapotba kerül, és onnantól a WUA a session ÖSSZES további
+    telepítésére orcFailed(4)-et ad, DARABONKÉNT ~143 MP VÁRAKOZÁS UTÁN. A 8 maradék
+    csomag így ~20 percet evett meg feleslegesen, ráadásul a driverek a DriverStore-ba
+    valójában felkerültek (a "hiba" hamis negatív volt). Ilyenkor az egyetlen értelmes
+    lépés: kör vége, reboot, és a maradék a következő lábon települ tisztán.
+
+    Hiba esetén False (óvatos alapértelmezés: inkább menjen tovább, mint hogy egy
+    registry-olvasási hiba miatt fölöslegesen újraindítsuk a gépet)."""
+    try:
+        res = run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", PENDING_REBOOT_PS],
+                  timeout=60)
+        return 'PENDING' in (res.stdout or '')
+    except Exception as e:
+        logging.warning(f"[WU] Pending-reboot ellenőrzés sikertelen (folytatjuk): {e}")
+        return False
+
+
+def _install_abort_reason(consecutive_failures, reboot_pending):
+    """A telepítő kör megszakításának oka (vagy None) - az _iter_process_lines
+    abort_check callbackjének közös döntési logikája, mindkét AutoFix ág ezt hívja.
+
+    - 'reboot': pending-reboot állapot; a maradék csomag ebben a session-ben úgysem
+      tud rendesen települni (lásd is_reboot_pending).
+    - 'failstreak': WU_MAX_CONSECUTIVE_FAILURES egymást követő telepítési hiba. Ez a
+      védőháló arra az esetre, ha a session más okból mérgeződik meg, és a
+      pending-reboot jelzők mégsem állnak - darabonként 2,5 perc a tovább-őrlés ára."""
+    if reboot_pending:
+        return 'reboot'
+    if consecutive_failures >= WU_MAX_CONSECUTIVE_FAILURES:
+        return 'failstreak'
+    return None
+
+
+def _filter_wu_older_duplicates(matches, wu_by_uid):
+    """UGYANANNAK AZ ILLESZTŐPROGRAM-CSALÁDNAK csak a LEGÚJABB verzióját tartja meg.
+
+    A WU ugyanarra az eszközre a csomag teljes történetét felajánlja: terepen egyetlen
+    Intel UHD 630-ra 10 db iigd_ext Extension csomag jött 2018-tól (24.20.100.6287,
+    26.20.100.6952, 26.20.100.7262 kétszer, 27.20.100.8190, ...), és az AutoFix mindet
+    feltelepítette egymás után. Feleslegesen: csak a legújabb marad érvényben, a többi
+    holt súlyként ül a DriverStore-ban (és a következő futás mindet törli-telepíti újra).
+
+    Csoportosítás: (HardwareID, DriverClass, DriverProvider, DriverModel) - ez azonosít
+    egy csomag-családot. A kulcs SZÁNDÉKOSAN szűk (a DriverModel is benne van): ha két
+    valóban különböző csomagot vonnánk össze, az egyik SOHA nem települne fel - egy
+    kimaradó dedup viszont csak annyit jelent, hogy a régi viselkedés marad. A győztes a
+    legnagyobb verzió (a címből parse-olva); verzió híján a DriverVerDate dönt; ha egyik
+    sincs, az első találat marad. Visszatérés:
+    (megtartott matches, kiszűrt [{'title','reason'}] lista - a hívó logolja)."""
+    groups = {}
+    order = []
+    for m in matches:
+        wu = wu_by_uid.get(m.get('uid')) or {}
+        key = ((wu.get('HardwareID') or '').lower(),
+               (wu.get('DriverClass') or '').lower(),
+               (wu.get('DriverProvider') or '').lower(),
+               (wu.get('DriverModel') or '').lower())
+        if not any(key):
+            # Nincs mire csoportosítani - a találat érintetlenül marad.
+            key = ('__egyedi__', m.get('uid'), '', '')
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append((m, wu))
+
+    kept = []
+    skipped = []
+    for key in order:
+        items = groups[key]
+        if len(items) == 1:
+            kept.append(items[0][0])
+            continue
+
+        def _rank(item):
+            m, wu = item
+            ver = _parse_driver_version(m.get('title', '')) or _parse_driver_version(wu.get('Title', ''))
+            return (ver or (), _iso_date_or_none(wu.get('DriverVerDate')) or '')
+
+        best = max(items, key=_rank)
+        for m, _wu in items:
+            if m is best[0]:
+                kept.append(m)
+            else:
+                skipped.append({'title': m.get('title', ''),
+                                'reason': f"ugyanazon driver újabb verziója is elérhető: {best[0].get('title', '')}"})
+    return kept, skipped
+
+
+def verify_failed_installs(failed_titles, pkgs_before, pkgs_after):
+    """A "sikertelen" telepítések UTÓELLENŐRZÉSE a DriverStore alapján.
+
+    MIÉRT: a WUA orcFailed(4)-et ad vissza olyan csomagokra is, amelyeket a PnP közben
+    rendben letett a DriverStore-ba (terepen bizonyított: a 8 "bukott" driver mindegyike
+    - iastorhsa_ext 17.11.3.1010, e1d 12.19.2.57, heci 2433.6.3.0, Dell firmware
+    0.1.32.0, unifying_receiver 2.0.998.0 stb. - ott volt a következő DISM listában).
+    Ezek hamis negatívok: nem szabad se hibaként jelenteni, se a további körökből
+    véglegesen kizárni őket.
+
+    Módszer: a kör ELŐTTI és UTÁNI third-party csomaglista különbsége adja az újonnan
+    felkerült csomagokat; ha egy bukott cím verziója (a cím tartalmazza, pl.
+    "Intel - Net - 12.19.2.57") szerepel az újak verziói közt, a telepítés valójában
+    sikerült. Visszatérés: azon címek halmaza, amelyek igazoltan felkerültek."""
+    before_pub = {(p.get('published') or '').lower() for p in (pkgs_before or [])}
+    new_versions = set()
+    for p in (pkgs_after or []):
+        if (p.get('published') or '').lower() in before_pub:
+            continue
+        ver = _parse_driver_version(p.get('version'))
+        if ver:
+            new_versions.add(ver)
+    verified = set()
+    if not new_versions:
+        return verified
+    for title in failed_titles:
+        ver = _parse_driver_version(title)
+        if ver and ver in new_versions:
+            verified.add(title)
+    return verified
 
 
 def _build_wu_install_ps(target_uids=(), target_hwids=(), match_system_devices=False):

@@ -191,6 +191,41 @@ def _ps_quote(value):
     return str(value).replace("'", "''")
 
 
+# ============================================================================
+# PARANCS-FUTTATÁS KÖZÖS KONSTANSAI (mindkét _run + a hívók használják)
+# ============================================================================
+
+# 0xC0000142 = STATUS_DLL_INIT_FAILED. Nem "a parancs hibázott", hanem "a folyamat EL SEM
+# INDULT": a Windows session/asztal olyan állapotba került (leállás alatt, kimerült desktop
+# heap, szétesett PnP/session), hogy új processzt már nem lehet inicializálni. Terepen
+# bizonyított (Build 218, Dell OptiPlex): egy beragadt tárolóvezérlő-driver törlése után
+# ELSŐKÉNT két pnputil hívás 140+ mp-ig lógott, majd onnantól MINDEN pnputil azonnal ezzel
+# a kóddal tért vissza - a törlő ciklus így 17 csomagot "törölt" 0,0 mp alatt, majd sikert
+# jelentett és rebootolt. Aki ilyet lát, NE folytassa a műveletet: a további hívások
+# garantáltan no-opok, és a néma hamis siker rosszabb, mint a látható hiba.
+STATUS_DLL_INIT_FAILED = 0xC0000142
+
+# A _run időtúllépéskor ezzel a (szintetikus, Windowsban elő nem forduló) kóddal tér
+# vissza, hogy a hívó meg tudja különböztetni a valódi hibakódoktól.
+CMD_TIMEOUT_RETURNCODE = -9001
+
+
+class CommandResult:
+    """subprocess.CompletedProcess-kompatibilis minimál eredmény (returncode/stdout/stderr).
+    Akkor adjuk vissza, ha nincs valódi CompletedProcess: időtúllépés vagy indítási kivétel."""
+
+    def __init__(self, returncode, stdout='', stderr=''):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def spawn_failed(result):
+    """Igaz, ha a parancs el sem indult (STATUS_DLL_INIT_FAILED) - lásd a konstans
+    kommentjét. Ilyenkor a hívónak MEG KELL ÁLLNIA, nem továbbmennie a következő elemre."""
+    return getattr(result, 'returncode', None) == STATUS_DLL_INIT_FAILED
+
+
 def _app_data_dir():
     """A DriverVarázsló saját adatmappája (debug log, HTML rendszer riportok) - a
     rendszerlemez gyökerében, NEM a program (exe) mellett. Így mindig ugyanott van (a

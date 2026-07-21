@@ -5,6 +5,9 @@
 import time
 import logging
 from app import drivers_core
+from app.common import CMD_TIMEOUT_RETURNCODE
+from app.common import spawn_failed
+from app.drivers_core import DELETE_DRIVER_TIMEOUT
 # === /AUTO-IMPORTS ===
 
 
@@ -76,7 +79,25 @@ class CliDriversMixin:
             print(f"  [{i}/{total}] {pub}... ", end="", flush=True)
 
             is_oem = pub.lower().startswith("oem")
-            res = drivers_core.delete_driver_package(self._run, pub, self.target_os_path)
+            # timeout: a pnputil a PnP query-remove-ra vár, és egy nem válaszoló eszköz
+            # (terepen: Intel RST tárolóvezérlő) percekig lógatja - lásd DELETE_DRIVER_TIMEOUT.
+            res = drivers_core.delete_driver_package(self._run, pub, self.target_os_path,
+                                                     timeout=DELETE_DRIVER_TIMEOUT)
+
+            if spawn_failed(res):
+                # A folyamat el sem indult (0xC0000142): a session szétesett, minden további
+                # törlés no-op lenne. Megállunk - a néma "sikeres törlés" sokkal rosszabb.
+                print("❌")
+                print("\n" + "!" * 50)
+                print("A Windows nem tud több folyamatot indítani (0xC0000142).")
+                print("A driver-törlés FÉLBEMARADT - indítsd újra a gépet, majd próbáld újra!")
+                print("!" * 50)
+                fail += 1
+                break
+            if getattr(res, 'returncode', 0) == CMD_TIMEOUT_RETURNCODE:
+                print(f"⏱️ (időtúllépés {DELETE_DRIVER_TIMEOUT}s - az eszköz nem válaszol)")
+                fail += 1
+                continue
 
             if drivers_core.delete_succeeded(res):
                 print("✅")

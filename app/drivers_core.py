@@ -20,6 +20,12 @@ import glob
 # === /AUTO-IMPORTS ===
 
 
+# EGY driver-csomag törlésének felső korlátja (mp). A pnputil a PnP query-remove-ra vár;
+# egy nem válaszoló eszközverem (terepen: Intel RST tárolóvezérlő, 143 mp) timeout nélkül
+# az egész törlő ciklust - GUI-ban az egész AutoFix lábat - megakasztja.
+DELETE_DRIVER_TIMEOUT = 180
+
+
 def parse_dism_driver_list(stdout):
     """`dism /English ... /Get-Drivers` kimenet -> driver-dict lista
     ({'published','original','provider','class','version'} kulcsokkal)."""
@@ -126,13 +132,18 @@ def delete_succeeded(res):
     return any(k in out for k in ('deleted', 'törölve', 'successfully'))
 
 
-def delete_driver_package(run, pub, target_os_path=None):
+def delete_driver_package(run, pub, target_os_path=None, timeout=None):
     """Egy driver-csomag törlése (online: pnputil, offline: dism). A nyers eredményt
-    adja vissza - a sikert a hívó delete_succeeded()-del dönti el."""
+    adja vissza - a sikert a hívó delete_succeeded()-del dönti el.
+
+    timeout (mp): felső korlát EGY csomag törlésére. Kell, mert a pnputil a PnP
+    query-remove-ra vár, és egy nem válaszoló eszközverem (terepen: Intel RST
+    tárolóvezérlő) percekig lógatja - timeout nélkül ez az egész AutoFix lábat
+    megakasztja. Időtúllépéskor a _run CMD_TIMEOUT_RETURNCODE-dal tér vissza."""
     if target_os_path:
-        return run(['dism', f'/Image:{target_os_path}', '/Remove-Driver', f'/Driver:{pub}'])
+        return run(['dism', f'/Image:{target_os_path}', '/Remove-Driver', f'/Driver:{pub}'], timeout=timeout)
     # ok_codes 3010: siker, de reboot kell a lezáráshoz - a delete_succeeded sikeresnek veszi.
-    return run(['pnputil', '/delete-driver', pub, '/uninstall', '/force'], ok_codes=(0, 3010))
+    return run(['pnputil', '/delete-driver', pub, '/uninstall', '/force'], ok_codes=(0, 3010), timeout=timeout)
 
 
 def force_delete_driver_files(run, pub, target_os_path=None):
