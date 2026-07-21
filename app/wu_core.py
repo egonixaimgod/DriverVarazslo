@@ -414,6 +414,22 @@ def _filter_wu_older_duplicates(matches, wu_by_uid):
     return kept, skipped
 
 
+def unoffered_requested_titles(requested_titles, found_titles):
+    """Azok a KÉRT csomagok, amelyeket a telepítő script már nem talált meg.
+
+    MIÉRT KELL: a script a saját WUA-keresésének MINDEN találatán végigmegy, és amelyik
+    nem szerepel a mi szűrőnkben, arra `SKIP:` sort ír - vagyis a SKIP-ek TÖBBSÉGE teljesen
+    normális, számolni értelmetlen. A valódi jel az, ha egy általunk KÉRT címre nem érkezik
+    `FOUND:` sor: az a csomag nem került a telepítési listába, és eddig NÉMÁN eltűnt.
+    Terepen (Build 224, 2. kör): 3 csomagot választottunk ki, a script TOTAL-ja 2 lett, a
+    harmadikról egy szó sem esett - jellemzően azért, mert az előző kör telepítése után a
+    szerver már telepítettként látja (IsInstalled), tehát nem hiba, de meg kell mondani.
+
+    Visszatérés: a hiányzó címek rendezett listája."""
+    found = set(found_titles or ())
+    return sorted(t for t in (requested_titles or ()) if t not in found)
+
+
 def verify_failed_installs(failed_titles, pkgs_before, pkgs_after):
     """A "sikertelen" telepítések UTÓELLENŐRZÉSE a DriverStore alapján.
 

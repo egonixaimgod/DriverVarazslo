@@ -38,6 +38,7 @@ from app.wu_core import _filter_wu_older_duplicates
 from app.wu_core import _install_abort_reason
 from app.wu_core import is_reboot_pending
 from app.wu_core import verify_failed_installs
+from app.wu_core import unoffered_requested_titles
 from app.common import spawn_failed
 from app.drivers_core import DELETE_DRIVER_TIMEOUT
 from app.gui.hwscan import PNP_ERROR_CODE_DESCRIPTIONS
@@ -145,6 +146,7 @@ class GuiAutofixMixin:
                 self.emit('task_progress', {'task': task_id, 'log': f'🛟 {backed_up} db hálózati driver biztonsági mentése kész (vész-visszaállításhoz).\n'})
             self.emit('task_progress', {'task': task_id, 'log': f'{total} db third-party driver eltávolítása...\n'})
             stalled_streak = 0
+            deferred = []   # beragadt csomagok - az újraindítás utáni lábon próbáljuk újra
             for i, drv in enumerate(drivers):
                 if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
                 name = drv.get('published', '')
@@ -162,15 +164,21 @@ class GuiAutofixMixin:
                 # akkor is megállít, ha a reboot-jelző valamiért nem áll.
                 if drivers_core.delete_stalled(res):
                     stalled_streak += 1
-                    self.emit('task_progress', {'task': task_id, 'log': f'⏱️ {name}: az eszköz nem válaszol a törlési kérésre (beragadt eszközverem).'})
+                    # A beragadt csomag MINDIG a "későbbre" listára kerül - akkor is, ha most
+                    # továbbmegyünk. E nélkül (terepi futás, Build 224) az iastorhsa_ext.inf
+                    # egyszerűen kimaradt: a törlés nem sikerült, a WU meg telepítettként látta,
+                    # így az a driver sosem cserélődött ki. Az újraindítás utáni söprésben
+                    # viszont 0,5 mp alatt lemegy.
+                    deferred.append(drv)
+                    self.emit('task_progress', {'task': task_id, 'log': f'⏱️ {name}: az eszköz nem válaszol a törlési kérésre - az újraindítás utánra halasztva.'})
                     if stalled_streak >= 2 or is_reboot_pending(self._run):
                         # NEM indítunk újra itt, és NEM őrlünk tovább: a maradék csomag
                         # mindegyike ugyanígy beragadna (csomagonként ~1,5-2,5 perc). A lánc
                         # úgyis újraindul pár lépéssel lejjebb - a maradékot a KÖVETKEZŐ láb
                         # elején söpörjük be, ahol friss boot után 0,5 mp/csomag (terepen mérve).
-                        pending = [d for d in drivers[i:] if d.get('published')]
+                        pending = deferred + [d for d in drivers[i + 1:] if d.get('published')]
                         self._autofix_stats_set('pending_deletes', pending)
-                        self.emit('task_progress', {'task': task_id, 'log': f'\n⚠️ A Windows eszközkezelője beragadt ezen a csomagon (újraindítás nélkül nem távolítható el).'})
+                        self.emit('task_progress', {'task': task_id, 'log': f'\n⚠️ A Windows eszközkezelője beragadt (újraindítás nélkül ezek nem távolíthatók el).'})
                         self.emit('task_progress', {'task': task_id, 'log': f'⏭️ A maradék {len(pending)} csomagot NEM erőltetjük most (csomagonként percekbe telne) - az újraindítás után, másodpercek alatt törlődnek.\n'})
                         return 'wedged'
                     continue
@@ -186,6 +194,11 @@ class GuiAutofixMixin:
                         f"A Windows nem tud több folyamatot indítani (0xC0000142) a(z) {name} törlésénél - "
                         "a rendszer eszközkezelője szétesett vagy leállás alatt van. "
                         "A driver-törlés FÉLBEMARADT. Indítsd újra a gépet, majd futtasd újra az 1 kattintásos fixet!")
+            if deferred:
+                # Végigértünk, de maradt beragadt csomag - az újraindítás utáni láb söpri be.
+                self._autofix_stats_set('pending_deletes', deferred)
+                self.emit('task_progress', {'task': task_id, 'log': f'✅ Driverek eltávolítva ({len(deferred)} db az újraindítás után fejeződik be).\n'})
+                return 'ok'
             self.emit('task_progress', {'task': task_id, 'log': '✅ Driverek eltávolítva.\n'})
         else:
             self.emit('task_progress', {'task': task_id, 'log': '✅ Nincs third-party driver a rendszerben.\n'})
@@ -281,6 +294,7 @@ class GuiAutofixMixin:
             # amelyeket a PnP közben rendben letett a DriverStore-ba.
             pkgs_before = self._get_third_party_drivers()
             round_failed_titles = []
+            round_found_titles = []   # amikre a script FOUND: sort adott (lásd a kör végi ellenőrzést)
             consecutive_failures = 0
             reboot_pending = False
             check_reboot_after_line = False
@@ -353,8 +367,11 @@ class GuiAutofixMixin:
                         self.emit('task_progress', {'task': task_id, 'log': f'[HIBA] {line[6:].strip()}'})
                     elif line.startswith("DONE:"):
                         self.emit('task_progress', {'task': task_id, 'log': f'--- {line[5:].strip()} ---'})
-                    elif line.startswith("INIT:") or line.startswith("SEARCH:") or \
-                            line.startswith("FOUND:") or line.startswith("SKIP:"):
+                    elif line.startswith("FOUND:"):
+                        # Csak gyűjtjük: a kör végén ebből derül ki, ha egy KÉRT csomag
+                        # nem került be a telepítési listába (unoffered_requested_titles).
+                        round_found_titles.append(line[6:].strip())
+                    elif line.startswith("INIT:") or line.startswith("SEARCH:") or line.startswith("SKIP:"):
                         pass  # protokoll-sorok, a kör elején már kiírtuk az összesítést
                     else:
                         self.emit('task_progress', {'task': task_id, 'log': line})
@@ -377,6 +394,13 @@ class GuiAutofixMixin:
                     # körnek (az is beragadna) - kilépünk a körökből, jöhet a katalógus-zárókör.
                     watchdog_tripped = True
                     self.emit('task_progress', {'task': task_id, 'log': '\n[HIBA] A WU telepítő 30 percen át nem adott életjelet - a watchdog leállította. Áttérés a katalógus-keresésre...'})
+
+            # --- ELTŰNT CSOMAGOK: amit kértünk, de a script már nem talált meg ---
+            # E nélkül a "Telepítendő driverek száma: 3" után némán 2 települt (terepi log).
+            if not aborted_reason:
+                unoffered = unoffered_requested_titles(title_to_uid.keys(), round_found_titles)
+                for t in unoffered:
+                    self.emit('task_progress', {'task': task_id, 'log': f'[KIHAGYVA] {t} - a Windows Update már telepítettként látja, nincs mit telepíteni.'})
 
             # --- KÖR UTÁNI UTÓELLENŐRZÉS: mi bukott el VALÓJÁBAN? ---
             # A WUA hamis orcFailed(4)-et is ad olyan csomagra, amit a PnP közben rendben
@@ -490,6 +514,26 @@ class GuiAutofixMixin:
         Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Force
         '''
         self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", task_ps])
+
+    def _reboot_or_cancel(self, status, task_id='autofix'):
+        """A lánc újraindítási pontja: 5 mp türelmi idő, ALATTA a Mégse gomb még megfog.
+
+        Korábban a `time.sleep(5)` után feltétel nélkül jött a `shutdown` - terepen
+        bizonyított (Build 224): a felhasználó megnyomta a "Folyamat Leállítása" gombot,
+        a megszakítás rögzült, és a gép 5 másodperccel később MÉGIS újraindult.
+
+        Megszakításkor az ütemezett feladatot is töröljük, különben a lánc a következő
+        bejelentkezéskor magától folytatódna - vagyis a Mégse csak látszólag állítaná meg."""
+        self.emit('task_complete', {'task': task_id, 'status': status})
+        for _ in range(10):          # 10 x 0,5 mp = a régi 5 mp-es ablak
+            if getattr(self, '_cancel_flag', False):
+                self._run(["powershell", "-NoProfile", "-Command",
+                           'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'],
+                          ok_codes=(0, 1))
+                self.emit('task_progress', {'task': task_id, 'log': '\n❗ Megszakítva - az újraindítás elmarad, a folytatás törölve.'})
+                raise Exception("Magyar_Megszakit_Flag")
+            time.sleep(0.5)
+        self._run(['shutdown', '/r', '/t', '0', '/f'])
 
     def _autofix_stats_path(self):
         return os.path.join(_app_data_dir(), 'autofix_stats.json')
@@ -709,9 +753,7 @@ class GuiAutofixMixin:
                         resume_flag += ' --skip-printer-drivers'
                     self._schedule_autofix_resume(resume_flag)
 
-                    self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve (-1. lépés)...'})
-                    time.sleep(5)
-                    self._run(['shutdown', '/r', '/t', '0', '/f'])
+                    self._reboot_or_cancel('Újraindulás felkészítve (-1. lépés)...')
                     return
 
                 if not is_resume_mode:
@@ -756,9 +798,7 @@ class GuiAutofixMixin:
 
                     self._schedule_autofix_resume('--resume-autofix')
 
-                    self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve...'})
-                    time.sleep(5)
-                    self._run(['shutdown', '/r', '/t', '0', '/f'])
+                    self._reboot_or_cancel('Újraindulás felkészítve...')
                     return
                 else:
                     self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'], ok_codes=(0, 1))  # 1: a feladat már nem létezik (idempotens duplatörlés)
@@ -785,9 +825,7 @@ class GuiAutofixMixin:
                         if del_done > 0 and rounds < AUTOFIX_MAX_DELETE_ROUNDS:
                             self.emit('task_progress', {'task': 'autofix', 'log': f'\n🔄 Maradt még törlendő - újraindulás és folytatás ({rounds}. kör)...'})
                             self._schedule_autofix_resume('--resume-autofix')
-                            self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás a törlés befejezéséhez...'})
-                            time.sleep(5)
-                            self._run(['shutdown', '/r', '/t', '0', '/f'])
+                            self._reboot_or_cancel('Újraindulás a törlés befejezéséhez...')
                             return
                         if del_done == 0:
                             self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ A maradék csomagok újraindítással sem távolíthatók el (használatban vannak) - továbblépünk a telepítésre.\n'})
@@ -805,9 +843,7 @@ class GuiAutofixMixin:
                         self.emit('task_progress', {'task': 'autofix', 'log': '\n✅ Minden törlendő driver eltávolítva!'})
                         self.emit('task_progress', {'task': 'autofix', 'log': '🔄 Újraindulás, és utána indul a TELEPÍTÉS!'})
                         self._schedule_autofix_resume('--resume-autofix')
-                        self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás a telepítés előtt...'})
-                        time.sleep(5)
-                        self._run(['shutdown', '/r', '/t', '0', '/f'])
+                        self._reboot_or_cancel('Újraindulás a telepítés előtt...')
                         return
 
                     # 🛟 Hálózati mentőöv: ha a driver-törlés után a gép internet nélkül
@@ -892,9 +928,7 @@ class GuiAutofixMixin:
 
                     self._schedule_autofix_resume('--resume-autofix')
 
-                    self.emit('task_complete', {'task': 'autofix', 'status': 'Újraindulás felkészítve...'})
-                    time.sleep(5)
-                    self._run(['shutdown', '/r', '/t', '0', '/f'])
+                    self._reboot_or_cancel('Újraindulás felkészítve...')
                     return
                 else:
                     if installed_count > 0:
@@ -918,12 +952,21 @@ class GuiAutofixMixin:
                     # ZÁRÓ ÖSSZEFOGLALÓ: lánc-szintű telepítés-szám + maradék hibakódos eszközök.
                     self._emit_autofix_summary(self._autofix_stats_total_and_clear())
 
-                    self.emit('task_progress', {'task': 'autofix', 'log': 'DCH alkalmazások (Microsoft Store) frissítésének kényszerítése...'})
+                    self.emit('task_progress', {'task': 'autofix', 'log': 'DCH alkalmazások (Microsoft Store) frissítésének elindítása...'})
                     try:
-                        # Ez aszinkron elindítja a Store App-ok (pl. Realtek Audio Console) szinkronizálását a háttérben
+                        # A DCH-driverekhez tartozó Store-alkalmazások (Intel Graphics Command
+                        # Center, Realtek Audio Console...) frissítése. Ez NEM driver-telepítés,
+                        # a driverek addigra mind fent vannak - ezért nem is várunk rá.
+                        #
+                        # SOHA ne _run-nal hívd: az UpdateScanMethod egy SZINKRON rendszerhívás,
+                        # ami végigfuttatja a teljes Store-app ellenőrzést - terepen 112 mp-ig
+                        # blokkolt, jóval a "MINDEN LÉPÉS KÉSZ" kiírás UTÁN, és a felhasználó
+                        # joggal hitte, hogy lefagyott. Popen + nem várunk rá = tényleg háttér.
                         ws_script = r"Get-CimInstance -Namespace 'Root\cimv2\mdm\dmmap' -ClassName 'MDM_EnterpriseModernAppManagement_AppManagement01' | Invoke-CimMethod -MethodName UpdateScanMethod"
-                        self._run(["powershell", "-WindowStyle", "Hidden", "-Command", ws_script])
-                        self.emit('task_progress', {'task': 'autofix', 'log': '✅ Store App-ok szinkronizálása a háttérben elindítva.'})
+                        subprocess.Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ws_script],
+                                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                         startupinfo=self._si, creationflags=self._nw)
+                        self.emit('task_progress', {'task': 'autofix', 'log': '✅ Store App-ok szinkronizálása a háttérben elindítva (nem várunk rá).'})
                     except Exception as e:
                         logging.debug(f"[AUTOFIX] Store App sync error: {e}")
                     

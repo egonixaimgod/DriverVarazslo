@@ -24,6 +24,7 @@ from app.wu_core import _iso_date_or_none
 from app.wu_core import _iter_process_lines
 from app.wu_core import _match_wu_updates_to_devices
 from app.wu_core import _parse_driver_version
+from app.wu_core import unoffered_requested_titles
 # === /AUTO-IMPORTS ===
 
 
@@ -686,6 +687,11 @@ try {
         fail = 0
         install_total = 0
         had_error = False
+        # A kijelölt elemek nevei + a script FOUND: sorai: a végén ebből derül ki, ha egy
+        # kiválasztott driver nem került a telepítési listába (lásd unoffered_requested_titles).
+        requested_titles = [str(d.get('title') or d.get('name') or '') for d in selected_pool]
+        requested_titles = [t for t in requested_titles if t]
+        found_titles = []
 
         # A sorokat a KÖZÖS _iter_process_lines olvassa (wu_core): cancel-ellenőrzés
         # 0,5 mp-enként (nem csak új sor érkezésekor - régen a Mégse halott volt, ha a
@@ -695,6 +701,7 @@ try {
                 if line.startswith("INIT:") or line.startswith("SEARCH:"):
                     self.emit('task_progress', {'task': 'wu_install', 'status': line.split(":", 1)[1].strip(), 'log': line})
                 elif line.startswith("FOUND:"):
+                    found_titles.append(line[6:].strip())
                     self.emit('task_progress', {'task': 'wu_install', 'log': f'  📦 {line[6:].strip()}'})
                 elif line.startswith("SKIP:"):
                     self.emit('task_progress', {'task': 'wu_install', 'log': f'  ⏭ {line[5:].strip()}'})
@@ -743,6 +750,12 @@ try {
             self.emit('task_progress', {'task': 'wu_install',
                                         'log': '\n❌ A Windows Update telepítő 30 percen át nem adott életjelet - a watchdog leállította! '
                                                '(Ez tipikusan beragadt WU szolgáltatásra utal - próbáld újra, vagy a katalógus-találatokat telepítsd.)'})
+
+        # Kijelölt, de a telepítési listába be sem került csomagok - e nélkül némán tűnnének
+        # el (a felhasználó 3 drivert jelöl ki, és csak 2-ről lát visszajelzést).
+        for t in unoffered_requested_titles(requested_titles, found_titles):
+            self.emit('task_progress', {'task': 'wu_install',
+                                        'log': f'  ⏭ {t} - a Windows Update már telepítettként látja, nincs mit telepíteni.'})
 
         if success > 0:
             self.emit('task_progress', {'task': 'wu_install', 'log': 'Eszközök újraszkennelése...', 'status': 'Aktiválás...'})
