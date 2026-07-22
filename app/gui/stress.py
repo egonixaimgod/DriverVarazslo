@@ -668,9 +668,14 @@ class GuiStressMixin:
 
         def worker():
             try:
+                # ok_codes=(0, 128): a 128 a taskkill "nincs ilyen futó folyamat" kódja -
+                # teljesen várt eset (a felhasználó közben bezárta a programot, vagy egy
+                # korábbi, már befejezett indításból - pl. a Benchmark nézet Heaven-je -
+                # maradt itt a PID). E nélkül minden leállítás WARNING-okat szórt a logba,
+                # amitől a valódi anomáliák nehezebben szúrnak szemet.
                 for key, pid in list(self._stress_pids.items()):
                     if pid and pid > 0:
-                        self._run(['taskkill', '/PID', str(pid), '/T', '/F'])
+                        self._run(['taskkill', '/PID', str(pid), '/T', '/F'], ok_codes=(0, 128))
                 self._stress_pids = {}
                 # Egyetlen taskkill hívás az összes ismert programnévre (a taskkill több
                 # /IM kapcsolót is elfogad) - a "nem fut ilyen" esetek várható, ártalmatlan
@@ -678,7 +683,7 @@ class GuiStressMixin:
                 image_args = []
                 for image in STRESS_KILL_IMAGES:
                     image_args += ['/IM', image]
-                self._run(['taskkill', '/F', '/T'] + image_args)
+                self._run(['taskkill', '/F', '/T'] + image_args, ok_codes=(0, 128))
                 try:
                     self._restore_power_after_stress()
                 except Exception as e:

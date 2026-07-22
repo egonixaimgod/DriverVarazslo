@@ -145,7 +145,16 @@ class GuiAutofixMixin:
             if backed_up:
                 self.emit('task_progress', {'task': task_id, 'log': f'🛟 {backed_up} db hálózati driver biztonsági mentése kész (vész-visszaállításhoz).\n'})
             self.emit('task_progress', {'task': task_id, 'log': f'{total} db third-party driver eltávolítása...\n'})
+            # A törlésre kijelölt csomagok listája a lánc-állapotba: a záró láb ebből
+            # tudja megmondani, MELYIK csomag nem került vissza a fix végére (a WU nem
+            # ismer minden gyári/alkalmazás-drivert - terepen a ViGEmBus és az AMD
+            # amdafd.inf némán, örökre eltűnt). Lásd _emit_autofix_summary.
+            self._autofix_stats_set('pre_packages', [
+                {'original': d.get('original', ''), 'provider': d.get('provider', ''),
+                 'version': d.get('version', ''), 'class': d.get('class', '')}
+                for d in drivers if d.get('original')])
             stalled_streak = 0
+            failed = []     # nem törölhető csomagok (pl. használatban lévő INF) - jelentjük
             deferred = []   # beragadt csomagok - az újraindítás utáni lábon próbáljuk újra
             for i, drv in enumerate(drivers):
                 if self._cancel_flag: raise Exception("Magyar_Megszakit_Flag")
@@ -194,6 +203,20 @@ class GuiAutofixMixin:
                         f"A Windows nem tud több folyamatot indítani (0xC0000142) a(z) {name} törlésénél - "
                         "a rendszer eszközkezelője szétesett vagy leállás alatt van. "
                         "A driver-törlés FÉLBEMARADT. Indítsd újra a gépet, majd futtasd újra az 1 kattintásos fixet!")
+
+                # NEM beragadt, de sikertelen törlés (tipikusan: "legalább egy eszköz
+                # használja a megadott INF fájlt"). Eddig ez némán elveszett, és a fázis
+                # végén a felhasználó tiszta "✅ Driverek eltávolítva"-t látott, pedig
+                # csomagok maradtak vissza - pont az a néma hamis siker, amit a Build 218
+                # óta kerülünk. Nem hiba, csak jelentendő tény: a lánc megy tovább.
+                if not drivers_core.delete_succeeded(res):
+                    failed.append(f"{name} ({drv.get('original', '')})")
+
+            if failed:
+                self.emit('task_progress', {'task': task_id, 'log': f'\nℹ️ {len(failed)} db csomagot nem lehetett eltávolítani (jellemzően használatban lévő eszköz tartja):'})
+                for f in failed:
+                    self.emit('task_progress', {'task': task_id, 'log': f'   • {f}'})
+                self.emit('task_progress', {'task': task_id, 'log': 'Ez általában nem gond: ezek a driverek maradnak, a folyamat megy tovább.\n'})
             if deferred:
                 # Végigértünk, de maradt beragadt csomag - az újraindítás utáni láb söpri be.
                 self._autofix_stats_set('pending_deletes', deferred)
@@ -676,12 +699,47 @@ class GuiAutofixMixin:
             logging.debug(f"[AUTOFIX-STATS] Összesítés sikertelen: {e}")
         return total
 
-    def _emit_autofix_summary(self, chain_total, task_id='autofix'):
+    def _emit_missing_packages(self, pre_packages, task_id='autofix'):
+        """A fix ELŐTT meglévő, de a végére VISSZA NEM KERÜLT driver-csomagok kiírása.
+
+        Miért kell: az AutoFix minden third-party csomagot töröl, és abból indul ki, hogy
+        amit a gép tényleg használ, azt a Windows Update visszaadja. Ez nem mindig igaz -
+        terepen (2026-07, X670) a `vigembus.inf` (ViGEmBus, egy FELHASZNÁLÓ ÁLTAL telepített
+        program drivere, a WU-ban nem is létezik) és az `amdafd.inf` (generikus CC_ HWID-je
+        miatt a párosítás sosem találja meg) örökre eltűnt, teljesen némán. Nem tudjuk
+        automatikusan visszatenni őket (nincs honnan), de a szerviznek TUDNIA kell róla,
+        hogy a program újratelepítésével pótolható. Csak tájékoztat, semmit nem módosít.
+
+        A párosítás az EREDETI INF-néven megy (`original`), nem a publikált oemXX.inf-en:
+        utóbbi újratelepítés után más sorszámot kap (terepen a wireguard.inf oem1 maradt,
+        de az amdgpio2.inf oem25-ből oem13 lett)."""
+        if not pre_packages:
+            return
+        try:
+            now = {(d.get('original') or '').strip().lower()
+                   for d in (self._get_third_party_drivers() or []) if d.get('original')}
+            missing = [p for p in pre_packages
+                       if (p.get('original') or '').strip().lower() not in now]
+            if not missing:
+                self.emit('task_progress', {'task': task_id, 'log': '✅ Minden korábbi driver-csomag visszakerült (vagy újabbra cserélődött).'})
+                return
+            self.emit('task_progress', {'task': task_id, 'log': f'\n⚠️ {len(missing)} db csomag NEM került vissza a fix után (a Windows Update nem ismeri):'})
+            for p in missing:
+                prov = p.get('provider') or 'ismeretlen gyártó'
+                ver = p.get('version') or '?'
+                self.emit('task_progress', {'task': task_id, 'log': f"   • {p.get('original')} - {prov} ({ver})"})
+            self.emit('task_progress', {'task': task_id, 'log': 'Ezek jellemzően külön telepített programok driverei (pl. VPN, kontroller-emulátor) - ha kellenek, telepítsd újra az adott programot.'})
+        except Exception as e:
+            logging.warning(f"[AUTOFIX] Eltűnt csomagok összevetése sikertelen (nem kritikus): {e}")
+
+    def _emit_autofix_summary(self, chain_total, pre_packages=None, task_id='autofix'):
         """ZÁRÓ ÖSSZEFOGLALÓ a lánc legvégén: hány driver települt a TELJES lánc alatt,
-        és mely eszközök maradtak hibakódosak (hogy a maradék lyuk sose legyen néma).
+        MELY csomagok nem kerültek vissza, és mely eszközök maradtak hibakódosak (hogy a
+        maradék lyuk sose legyen néma).
         Minden hibát elnyel - az összefoglaló sosem akaszthatja meg a lezárást."""
         try:
             self.emit('task_progress', {'task': task_id, 'log': f'\n📊 ÖSSZEFOGLALÓ: a teljes AutoFix lánc alatt összesen {chain_total} driver települt.'})
+            self._emit_missing_packages(pre_packages, task_id)
             res = self._run(["powershell", "-NoProfile", "-Command", WU_PNP_QUERY_PS], encoding='utf-8')
             pnp_data = []
             if res.stdout:
@@ -698,6 +756,11 @@ class GuiAutofixMixin:
                 self.emit('task_progress', {'task': task_id, 'log': 'Ezekhez a "Driver Keresés és Telepítés" menü Problémás eszközök szekciója adhat még megoldást.'})
             else:
                 self.emit('task_progress', {'task': task_id, 'log': '✅ Nem maradt hibakódos eszköz a rendszerben!'})
+            # A WU videokártya-driverei jellemzően hónapokkal a gyári kiadás mögött járnak,
+            # az AutoFix pedig szándékosan CSAK a WU-ból dolgozik (a gyártói ellenőrzés a
+            # manuális szken része, lásd app/gui/nvidia.py + vendorgpu.py). A szerviz-
+            # munkafolyamat záró lépése ezért egy manuális szken.
+            self.emit('task_progress', {'task': task_id, 'log': '\n💡 TIPP: a videokártyához a Windows Update rendszerint nem a legfrissebb drivert adja. A "Driver Keresés és Telepítés" menüben futtatott szken az NVIDIA/AMD/Intel gyári legújabb verzióját is ellenőrzi.'})
         except Exception as e:
             logging.warning(f"[AUTOFIX] Összefoglaló hiba (nem kritikus): {e}")
 
@@ -758,7 +821,24 @@ class GuiAutofixMixin:
 
                 if not is_resume_mode:
                     if is_resume_step1:
-                        self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'], ok_codes=(0, 1))  # 1: a feladat már nem létezik (idempotens duplatörlés)
+                        # ÖSSZEOMLÁS-BIZTOSÍTÁS: az ütemezett feladatot NEM töröljük, hanem
+                        # AZONNAL átállítjuk a KÖVETKEZŐ lábra (--resume-autofix).
+                        #
+                        # Ez a láb törli az összes third-party drivert; ha közben elszáll a
+                        # gép (BSOD, áramszünet, kényszerleállás), a régi kód állapotában
+                        # egyáltalán nem maradt ütemezett feladat - a lánc némán megszakadt,
+                        # a gép meg félig lecsupaszított driverekkel maradt, és a
+                        # felhasználónak kézzel kellett újraindítania az egészet.
+                        # Terepen bizonyított (2026-07, Win10 + R9 200): a leállás a
+                        # törlési fázisban történt, 9 csomag már törölve volt, és az
+                        # újraindulás után SEMMI nem folytatta.
+                        #
+                        # Azért a KÖVETKEZŐ lábra állítjuk (és nem erre a lábra vissza), mert
+                        # ha éppen a driver-törlés vitte el a gépet, egy újrapróbálás
+                        # végtelen újraindulás-hurokba vinne; a telepítő láb viszont a
+                        # meglévő állapotból is értelmesen folytatja.
+                        # (Register-ScheduledTask -Force: felülírja a meglévő bejegyzést.)
+                        self._schedule_autofix_resume('--resume-autofix')
                     self.emit('task_progress', {'task': 'autofix', 'log': '0. LÉPÉS: Rendszer előkészítése és régi driverek törlése...'})
                     
                     self._disable_sleep_sync()
@@ -903,14 +983,17 @@ class GuiAutofixMixin:
                     self._disable_wu_sync()
                     self._set_wu_pause(pause=True)
 
-                self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 MINDEN LÉPÉS KÉSZ!'})
-
                 # Újraindulunk és láncolunk egy újabb telepítő lábat, ha (a) települt valami
                 # (a friss driverek új eszközöket hozhatnak elő), VAGY (b) a kört pending-reboot
                 # / sorozatos hiba miatt vágtuk el - ilyenkor a maradék csomag CSAK újraindítás
                 # után tud rendesen felmenni (ez volt a ~20 perces, 8 hamis hibás terepi eset).
                 reboot_needed = getattr(self, '_autofix_reboot_pending', False)
                 should_chain = installed_count > 0 or reboot_needed
+                # A "MINDEN LÉPÉS KÉSZ" CSAK akkor igaz, ha nem jön még egy láb. Korábban
+                # a kör végén mindig kiment, majd közvetlenül utána a gép újraindult -
+                # a felhasználó felé ez befejezett folyamat + váratlan reboot volt.
+                if not should_chain:
+                    self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 EZ A KÖR KÉSZ!'})
                 if should_chain:
                     # A láb-statisztika a záró összefoglalóhoz ÉS a plafon számlálójához kell.
                     self._autofix_stats_add(installed_count)
@@ -949,8 +1032,12 @@ class GuiAutofixMixin:
                         lambda m: self.emit('task_progress', {'task': 'autofix', 'log': m}),
                         self._get_third_party_drivers)
 
-                    # ZÁRÓ ÖSSZEFOGLALÓ: lánc-szintű telepítés-szám + maradék hibakódos eszközök.
-                    self._emit_autofix_summary(self._autofix_stats_total_and_clear())
+                    # ZÁRÓ ÖSSZEFOGLALÓ: lánc-szintű telepítés-szám + vissza nem került
+                    # csomagok + maradék hibakódos eszközök. A pre_packages-t a stats-fájl
+                    # TÖRLÉSE ELŐTT kell kiolvasni (_autofix_stats_total_and_clear utána
+                    # már nem találná).
+                    pre_packages = self._autofix_stats_get('pre_packages') or []
+                    self._emit_autofix_summary(self._autofix_stats_total_and_clear(), pre_packages=pre_packages)
 
                     self.emit('task_progress', {'task': 'autofix', 'log': 'DCH alkalmazások (Microsoft Store) frissítésének elindítása...'})
                     try:
@@ -983,6 +1070,17 @@ class GuiAutofixMixin:
                         self.emit('ask_reboot', None)
 
             except Exception as e:
+                # A 0. lépés elején beregisztrált összeomlás-biztosító feladat (lásd ott)
+                # csak a VÁRATLAN leállásra szól. Ha a láb hibával vagy megszakítással ér
+                # véget, a lánc itt lezárul - e nélkül a gép a következő bejelentkezéskor
+                # magától nekiállna a telepítő lábnak egy olyan folyamat után, amit a
+                # felhasználó épp leállított (vagy ami hibára futott).
+                try:
+                    self._run(["powershell", "-NoProfile", "-Command",
+                               'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'],
+                              ok_codes=(0, 1))  # 1: már nem létezik - idempotens
+                except Exception as ue:
+                    logging.warning(f"[AUTOFIX] A folytató feladat törlése sikertelen a hiba-ágon: {ue}")
                 if str(e) == "Magyar_Megszakit_Flag":
                     self.emit('task_error', {'task': 'autofix', 'error': 'Felhasználó által megszakítva.'})
                 else:

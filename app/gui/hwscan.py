@@ -20,6 +20,7 @@ from app.wu_core import WU_PNP_QUERY_PS
 from app.wu_core import WuProcessAborted
 from app.wu_core import _build_wu_install_ps
 from app.wu_core import _filter_wu_scan_devices
+from app.wu_core import _is_inbox_driver
 from app.wu_core import _iso_date_or_none
 from app.wu_core import _iter_process_lines
 from app.wu_core import _match_wu_updates_to_devices
@@ -209,7 +210,11 @@ class GuiHwScanMixin:
                         # listából nem rejtjük el, csak megjelöljük, a döntés a felhasználóé.
                         # (Az AutoFix ezzel szemben automatikusan kihagyja az ilyet, lásd
                         # wu_core._filter_wu_downgrades.)
-                        "downgrade": bool(wu_date and inst_date and wu_date < inst_date and not dev.get('err_code')),
+                        # (_is_inbox_driver: a beépített generikus driver frissebb dátuma
+                        # nem downgrade-jelzés - lásd wu_core._filter_wu_downgrades.)
+                        "downgrade": bool(wu_date and inst_date and wu_date < inst_date
+                                          and not dev.get('err_code')
+                                          and not _is_inbox_driver(inst)),
                         # A pontos WU UpdateID a telepítéshez: e nélkül a telepítő csak
                         # HWID-prefix alapján tudna szűrni, ami azonos HWID-jű csomagoknál
                         # (pl. Realtek Extension + MEDIA ugyanazon hdaudio ID-n) többet
@@ -365,7 +370,7 @@ try {
     def _get_installed_driver_info(self):
         """A jelenleg telepített driverek verziója ÉS dátuma eszközönként
         (Win32_PnPSignedDriver): UPPER(eszköz instance ID) -> {'version': str, 'date':
-        'yyyy-MM-dd'} map. Fogyasztói: a katalógus-fallback már-telepítve szűrése, a
+        'yyyy-MM-dd', 'provider': str, 'inf': str} map. Fogyasztói: a katalógus-fallback már-telepítve szűrése, a
         találatok melletti "telepítve: X" kijelzés, és az AutoFix downgrade-védelme
         (wu_core._filter_wu_downgrades). A WU API útnál a szerver maga szűr az
         IsInstalled=0 feltétellel (terepen látott hiba e nélkül: a 3 perccel korábban
@@ -374,9 +379,13 @@ try {
         meglévő drivert, mint hogy elrejtsünk egy hiányzót."""
         info = {}
         try:
+            # DriverProviderName + InfName is kell: ebből derül ki, hogy a jelenlegi driver
+            # egy Windows-beépített (inbox) generikus-e. A downgrade-védelem ezt használja -
+            # egy inbox driver "újabb dátuma" nem lehet indok a gyári csomag eldobására
+            # (wu_core._filter_wu_downgrades).
             ps = ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
                   "Get-WmiObject Win32_PnPSignedDriver | Where-Object { $_.DeviceID -and $_.DriverVersion } | "
-                  "Select-Object DeviceID, DriverVersion, DriverDate | ConvertTo-Json -Compress")
+                  "Select-Object DeviceID, DriverVersion, DriverDate, DriverProviderName, InfName | ConvertTo-Json -Compress")
             res = self._run(["powershell", "-NoProfile", "-Command", ps], encoding='utf-8', timeout=120)
             data = json.loads(res.stdout) if res and res.stdout.strip() else []
             if isinstance(data, dict):
@@ -390,7 +399,9 @@ try {
                 date = ''
                 if len(raw_date) >= 8 and raw_date[:8].isdigit():
                     date = f"{raw_date[0:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
-                info[did] = {'version': d.get('DriverVersion') or '', 'date': date}
+                info[did] = {'version': d.get('DriverVersion') or '', 'date': date,
+                             'provider': d.get('DriverProviderName') or '',
+                             'inf': d.get('InfName') or ''}
             logging.info(f"[CATALOG] Telepített driver-infó: {len(info)} eszköz")
         except Exception as e:
             logging.warning(f"[CATALOG] Telepített driver-infó lekérdezése sikertelen (verzió-szűrés nélkül folytatjuk): {e}")

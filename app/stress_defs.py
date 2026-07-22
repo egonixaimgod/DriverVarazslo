@@ -43,6 +43,38 @@ STRESS_POWER_LOCK_KEYS = ['furmark', 'prime95', 'linpack', 'hwinfo', 'hdsentinel
 # esemény-vezérelt (pollozás), nem fix késleltetés.
 STRESS_STEP_TIMEOUT = 180
 
+# Konzolos program (Linpack) prompt-várásának ABSZOLÚT plafonja. A STRESS_STEP_TIMEOUT ott
+# a "mozdulatlanság" mérőórája: minden képernyő-változásnál újraindul, mert amíg a konzol
+# rajzol, addig a program dolgozik. Terepen (friss/klónozott Win11 24H2+, 2026-07) a Linpack
+# az induláskor észlelte, hogy hiányzik a WMIC (opcionális feature lett), és DISM-mel maga
+# telepítette - a százalékos csík percekig kúszott, a fix 180 mp lejárt, és az automatizálás
+# feladta egy tökéletesen dolgozó program alatt. Ez a plafon csak a VALÓDI végtelen
+# várakozást vágja el (pl. egy magától pörgő kimenet, ami sosem ér promptig).
+CONSOLE_PROMPT_MAX_WAIT = 900
+
+# "A konzol egy BILLENTYŰRE vár, de nem arra a promptra, amit mi keresünk" eset feloldása
+# (_auto_answer_console). Ugyanabból a terepi futásból: a Linpack a hiányzó WMIC miatt egy
+# "Press any key to continue . . ." sorral állt meg MÉG A MENÜ ELŐTT, és onnantól semmi nem
+# történt - a mi scriptünk a 'select an action' promptra várt, ami sosem jött volna el
+# magától. Ha a képernyő CONSOLE_UNBLOCK_AFTER mp-ig mozdulatlan ÉS az utolsó sorok egy
+# ilyen "nyomj egy gombot" markert mutatnak (ami nem a most várt prompt), küldünk egy
+# Entert - pontosan azt, amit a felhasználó tenne. Legfeljebb CONSOLE_UNBLOCK_MAX-szor, hogy
+# egy félreértett képernyőn se kezdjünk vaktában billentyűket szórni.
+CONSOLE_UNBLOCK_MARKERS = ('press any key', 'nyomjon meg egy', 'nyomj meg egy')
+CONSOLE_UNBLOCK_AFTER = 15
+CONSOLE_UNBLOCK_MAX = 3
+
+# Meddig várjuk az ablak-elrendezésnél, hogy egy program a betöltő/elemző képernyője helyett
+# a VALÓDI főablakát mutassa (_find_main_window_for_pid), és mely címek árulkodnak arról,
+# hogy még csak az átmeneti splash van kint. Terepen (2026-07) a HWiNFO64 a szenzor-
+# felderítés alatt (~20-60 mp) csak egy "Elemzés..." dialógust mutat, a főablaka pedig még
+# láthatatlan: az egyik futásnál emiatt EGYÁLTALÁN nem találtunk ablakot ("nem található
+# ablak a pozicionáláshoz"), a másiknál pedig a program a kis "Elemzés..." dialógust
+# helyezte a jobb-alsó negyedbe a szenzor-ablak helyett.
+STRESS_MAIN_WINDOW_WAIT = 90
+STRESS_SPLASH_TITLE_MARKERS = ('elemzés', 'analy', 'betölt', 'loading', 'please wait',
+                               'starting', 'indítás...')
+
 # A "Stress teszt indítása" gomb (start_stress_tests - az egyetlen AUTOMATIZÁLT út:
 # dialógus-nyomkodás + 4 részre osztott ablak-elrendezés) csak ezeket a valódi
 # terhelés-generáló teszteket indítja - a többi program (HD Sentinel, CPU-Z, GPU-Z,

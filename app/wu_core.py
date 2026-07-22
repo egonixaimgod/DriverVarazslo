@@ -192,9 +192,56 @@ def _filter_wu_scan_devices(pnp_data):
     return devices
 
 
+def _hwid_tokens(hwid):
+    """('PCI', {'VEN_1002','DEV_6811','REV_00'}) alakra bontás, vagy None, ha az azonosítónak
+    nincs busz-előtagja (pl. a csupasz 'usbmmidd')."""
+    s = str(hwid or '').strip().upper()
+    bus, sep, rest = s.partition('\\')
+    if not sep or not bus:
+        return None
+    toks = frozenset(t for t in rest.split('&') if t)
+    return (bus, toks) if toks else None
+
+
+def _hwid_matches(wu_hwid, dev_hwid):
+    """Ugyanarra az eszközre vonatkozik-e a WU-csomag hardver-azonosítója és az eszközé?
+
+    Két szabály, ÖSSZEVONVA (a token-alapú csak bővíti a találatokat, a régit nem rontja):
+
+    1. prefix-egyezés bármelyik irányban - a `usb\\vid_046d&pid_c52b` (kompozit eszköz) és a
+       `usb\\vid_046d&pid_c52b&mi_00` (interfész) egymásra illesztésére;
+    2. TOKEN-RÉSZHALMAZ azonos buszon: a WU-azonosító minden tagja szerepel az eszközében.
+
+    A 2. szabály nélkül a Windows által generált azonosítók tagsorrendje kizár valódi
+    egyezéseket. Terepen bizonyított (2026-07, Win10 + Radeon R9 200): a WU
+    `pci\\ven_1002&dev_6811&rev_00`-t ad, az eszköz azonosítói viszont
+    `PCI\\VEN_1002&DEV_6811&SUBSYS_30001682&REV_00` / `...&CC_030000` alakúak - a SUBSYS a REV
+    ELÉ ékelődik, így egyik sem prefixe a másiknak. A videokártya-driver ezért mindhárom
+    körben "nem párosítható" maradt: az AutoFix TÖRÖLTE a gyári AMD drivert, majd sosem
+    telepítette vissza, és a gép a Microsoft alap videokártya-driverén maradt - hibakód
+    nélkül, tehát az összefoglaló is tisztának látta. Ugyanez érinti a `&cc_` osztály-szintű
+    csomagokat is (előző terepi gép: `pci\\ven_1002&cc_040300`, amdafd.inf).
+
+    Busz-előtag NÉLKÜLI azonosítónál (pl. 'usbmmidd') CSAK a pontos egyezés számít: ezek
+    olyan rövidek, hogy bármilyen lazább szabály hamis találatot adna."""
+    w = str(wu_hwid or '').strip().upper()
+    d = str(dev_hwid or '').strip().upper()
+    if not w or not d:
+        return False
+    if w == d:
+        return True
+    if w.startswith(d) or d.startswith(w):
+        return True
+    wt = _hwid_tokens(w)
+    dt = _hwid_tokens(d)
+    if not wt or not dt:
+        return False
+    return wt[0] == dt[0] and wt[1] <= dt[1]
+
+
 def _match_wu_updates_to_devices(wu_results, devices, exclude_uids=None):
     """WU-találatok párosítása a jelenlévő eszközökhöz. A "legjobb mindkettőből" logika:
-    - elsődlegesen HWID prefix-egyezés (a manuális szkennelés bizonyítottan pontos módszere;
+    - elsődlegesen HWID-egyezés (`_hwid_matches`: prefix VAGY azonos buszon token-részhalmaz;
       a substring-egyezés rövid HWID-knél - pl. "usbmmidd" - hamis találatot adhat),
     - tartalékként cím<->eszköznév egyezés (az AutoFix módszere - e nélkül a SoftwareComponent
       típusú csomagok, pl. Realtek szolgáltatások, sosem párosulnak, mert nincs a jelenlévő
@@ -220,7 +267,7 @@ def _match_wu_updates_to_devices(wu_results, devices, exclude_uids=None):
             dev_hwids_upper = [str(dh).upper() for dh in dev.get('all_hwids', [])]
             dev_pnp_upper = (dev.get('pnp_id') or '').upper()
             for wu_h in hwids_upper:
-                if any(wu_h.startswith(dh) or dh.startswith(wu_h) for dh in dev_hwids_upper) or \
+                if any(_hwid_matches(wu_h, dh) for dh in dev_hwids_upper) or \
                    (dev_pnp_upper and (dev_pnp_upper.startswith(wu_h) or wu_h.startswith(dev_pnp_upper))):
                     matched_dev = dev
                     break
@@ -252,6 +299,26 @@ def _iso_date_or_none(s):
     return s if _ISO_DATE_RE.match(s) else None
 
 
+def _is_inbox_driver(inst):
+    """Windows-beépített (inbox) generikus driver-e a MOST telepített driver? A
+    _get_installed_driver_info egy elemét kapja ({'version','date','provider','inf'}).
+
+    Két, egymást erősítő jel alapján döntünk:
+    - a published INF NEM oemXX.inf: a third-party (DriverStore-ba publikált) csomagok
+      mindig oemNN.inf néven futnak, a beépítettek a saját nevükön (hdaudio.inf, pci.inf);
+    - a szolgáltató a Microsoft.
+
+    Ha egyik adat sincs meg (régi/hibás lekérdezés), False-t adunk: inkább maradjon a
+    korábbi, dátum-alapú viselkedés, mint hogy egy valódi downgrade átcsússzon."""
+    inf = (inst.get('inf') or '').strip().lower()
+    provider = (inst.get('provider') or '').strip().lower()
+    if inf:
+        return not re.match(r'^oem\d+\.inf$', inf)
+    if provider:
+        return provider.startswith('microsoft')
+    return False
+
+
 def _filter_wu_downgrades(matches, wu_by_uid, installed_info):
     """DOWNGRADE-VÉDELEM (AutoFix): kiszűri azokat a párosított WU-találatokat, amelyek
     bizonyíthatóan RÉGEBBIEK az eszköz éppen telepített driverénél. Terepi kockázat:
@@ -261,6 +328,13 @@ def _filter_wu_downgrades(matches, wu_by_uid, installed_info):
     Szabályok (szándékosan konzervatív, csak BIZONYÍTOTT downgrade esik ki):
     - hibakódos eszközt SOSEM szűrünk - egy driver nélküli/hibás eszköznek egy régebbi
       driver is jobb, mint a semmi;
+    - INBOX (Windows-beépített generikus) drivert SOSEM védünk downgrade-ként: az AutoFix
+      törli a gyári csomagot, a Windows azonnal ráteszi a saját generikusát, aminek a
+      dátuma mindig frissebb (a rendszerrel együtt szállítják), és ettől a gyári driver
+      SOHA többé nem tudna visszakerülni. Terepen bizonyított (2026-07, X670 gép): az
+      atihdwt6.inf (AMD HDMI hang, 2021-07-13) törlés után véglegesen kiesett, mert a
+      helyére került inbox hdaudio.inf 2026-05-16-os dátumot visel, és a védelem mindhárom
+      körben kiszűrte a gyári csomagot. Lásd _is_inbox_driver;
     - csak akkor szűrünk, ha a WU DriverVerDate ÉS a telepített driver dátuma is
       értelmezhető, és a WU-é szigorúan korábbi;
     - egyenlő vagy újabb dátum, hiányzó adat -> marad a találat.
@@ -280,6 +354,9 @@ def _filter_wu_downgrades(matches, wu_by_uid, installed_info):
         wu_date = _iso_date_or_none(wu.get('DriverVerDate'))
         inst = installed_info.get((dev.get('pnp_id') or '').upper()) or {}
         inst_date = _iso_date_or_none(inst.get('date'))
+        if _is_inbox_driver(inst):
+            kept.append(m)
+            continue
         if wu_date and inst_date and wu_date < inst_date:
             skipped.append({'title': m.get('title', ''),
                             'reason': f"WU driver dátuma ({wu_date}) régebbi a telepítettnél ({inst_date})"})
