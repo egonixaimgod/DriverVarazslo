@@ -881,7 +881,26 @@ class GuiAutofixMixin:
                     self._reboot_or_cancel('Újraindulás felkészítve...')
                     return
                 else:
-                    self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'], ok_codes=(0, 1))  # 1: a feladat már nem létezik (idempotens duplatörlés)
+                    # ÖSSZEOMLÁS-BIZTOSÍTÁS a TELEPÍTŐ lábon is - ugyanaz az indok, mint a
+                    # 0. lépésnél: ez a lánc leghosszabb és legkockázatosabb szakasza (itt
+                    # mennek fel a tároló-/chipset-driverek, itt él a "mérgezett session"
+                    # jelenség), és eddig a láb elején TÖRÖLTÜK a feladatot, tehát egy
+                    # összeomlás itt is némán megszakította a láncot - félig telepített
+                    # driverekkel és automatika nélkül.
+                    #
+                    # A számláló a boot-hurok ellen véd: MINDEN belépést számolunk (a
+                    # tervezett újraindításokat és az összeomlás utáni folytatásokat is),
+                    # és a plafon felett már nem hagyunk magunk után feladatot - egy soha
+                    # meg nem gyógyuló gép így legfeljebb eggyel többször indul újra, mint
+                    # a normál lánc, aztán megáll. A számláló az autofix_stats.json-nal
+                    # együtt törlődik a lánc végén (és az A lábon).
+                    starts = (self._autofix_stats_get('install_leg_starts') or 0) + 1
+                    self._autofix_stats_set('install_leg_starts', starts)
+                    if starts <= AUTOFIX_MAX_INSTALL_LEGS + 1:
+                        self._schedule_autofix_resume('--resume-autofix')
+                    else:
+                        self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'], ok_codes=(0, 1))  # 1: a feladat már nem létezik (idempotens duplatörlés)
+                        logging.warning(f"[AUTOFIX] {starts}. belépés a telepítő lábba - az összeomlás-biztosítás kikapcsolva, hogy a gép ne indulhasson újra a végtelenségig.")
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Láncolt folytatás gépújraindítás után. Régi driverek törlése kihagyva, hogy ne töröljünk friss drivereket.\n'})
                     self._disable_sleep_sync()
 

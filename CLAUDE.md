@@ -21,6 +21,32 @@ cmd /c rebuild_verzioszam_novelessel_es_github_pushal.bat < nul   # FULL RELEASE
 
 The release script bumps `BUILD_NUMBER`, builds, commits and **pushes** — see the Git / release rules before ever running it. `< nul` is required because it ends with `pause`.
 
+### Verifying logic without a machine to break
+
+"No test suite" does **not** mean "nothing is testable". The `app/*_core.py` modules import nothing from `ctypes`/`pywebview` and never call a subprocess themselves — **every one of them takes `run` as a parameter** (43 such functions across the 11 core modules) and the parsing/decision helpers are pure functions. So the risky logic — HWID matching, DISM output parsing, downgrade/duplicate filters, delete-result classification — can be exercised in-process, in a second, with a stub:
+
+```python
+from app import drivers_core
+drivers_core.parse_dism_driver_list(open('sample_dism_output.txt').read())   # pure
+
+class R: returncode, stdout, stderr = 0, 'Driver package deleted successfully.', ''
+calls = []
+def fake_run(cmd, **kw): calls.append(cmd); return R()
+drivers_core.delete_driver_package(fake_run, 'oem7.inf')   # asserts on `calls`
+```
+
+Do this for any change to matching/parsing/filtering rules, using **hardware IDs and command output copied verbatim from the field log** — that is how the R9-200 GPU-matching bug was pinned down and confirmed fixed. Put throwaway scripts in the scratchpad, not the repo. What this cannot cover is anything touching the real device stack (the mixins, the stress automation, the AutoFix chain) — those still need `build.bat` and a real machine.
+
+### Field logs are the primary bug report
+
+Bugs in this project arrive as a pasted `DriverVarázsló_debug.log` from a shop machine, not as a stack trace. Reading one:
+
+- Pair a `[CMD]` line with its result by the **`[threadName]`** — parallel workers interleave, and a command's output can otherwise look like it belongs to a different call.
+- `[CALL] Class.method(...)` / `-> return (elapsed)` brackets every API method; a `[CALL]` with no matching `->` is where execution stopped.
+- Grep `STRESSTOOLS-DEBUG` for stress-test reports, `[EMIT:` for what the user actually saw on screen, `[UI-AKCIO]`/`[CLI-INPUT]` for what they clicked or typed.
+- **A log that ends mid-line followed by a run of blank space is not a truncated paste** — it means the machine went down hard (BSOD/power loss) with the file's tail still in the page cache. Work that happened after the last readable line is invisible; reconstruct it from state instead (e.g. the third-party package count in the *next* session's startup dump). This is how the broken-chain bug was found.
+- The log's Hungarian text may render as `Ã¡`-style mojibake in the paste, and a few tools (`reg.exe`, `pnputil`) emit genuinely mis-encoded bytes; both are display-only, never a bug in itself.
+
 ## Code layout (refactored 2026-07 from a single 8000-line driver_tool.py)
 
 - **`driver_tool.py`** — thin entry point ONLY: the `BUILD_NUMBER` literal + the `__main__` block (single-instance mutex, UAC self-elevation via `_relaunch_elevated()`, logging setup, GUI-vs-CLI dispatch, WebView2 install offer + watchdog). **The `BUILD_NUMBER = <int>` line must stay in this file, at column 0, forever**: every already-deployed exe's auto-updater downloads *this file* from GitHub and regexes `^BUILD_NUMBER\s*=\s*(\d+)` out of it (and `bump_build.py` edits it here) — moving it to another file would permanently freeze all fielded installs on their current build. At startup the entry point copies it into `app.common.BUILD_NUMBER` (a module attribute defaulting to 0); **all other code reads `common.BUILD_NUMBER`**, never imports it from `driver_tool` (that would re-execute the module and duplicate state).
@@ -72,6 +98,7 @@ The release script bumps `BUILD_NUMBER`, builds, commits and **pushes** — see 
   - **The resume legs are started by the frontend, not by Python**: the scheduled task only launches the exe with the flag; `GuiBaseMixin.__init__` parses it into `self.resume_mode`/`self.resume_step1`, `get_init_data()` returns both, and **`ui.html` (in the `pywebviewready` handler) calls `startAutoFix(true)` after a 1s delay** when either is set — that's the only trigger. Consequences: (a) anything that stops the GUI from reaching `pywebviewready` (missing/broken WebView2 → CLI fallback, the single-instance mutex, a dismissed UAC prompt) silently ends the chain with no error anywhere except the debug log; (b) the auto-update check is deliberately skipped on resume legs (the `else` branch) so an update can't hijack a running chain; (c) `startAutoFix(true)` passes `skipConfirm`, so no dialog appears — the printer choice comes from argv, not from the JS `skipPrinters` value.
   - The task is `Register-ScheduledTask -TaskName "DriverVarazsloResume" -Force`, trigger `-AtLogOn`, principal `-LogonType Interactive -RunLevel Highest` (interactive+elevated is required — the GUI must be visible and admin).
   - **Leg B must never leave the machine without a scheduled task while it deletes drivers.** It used to *unregister* the task first thing and only register the next one at the very end — everything in between (restore point, ghost removal, the whole third-party delete loop, minutes of work) was an unprotected window. Field-proven (2026-07, Win10 + R9 200): the machine went down mid-delete with 9 packages already gone; no task existed, so nothing resumed, and the user found a half-stripped machine and had to restart the whole chain by hand. Leg B now **re-registers the task to `--resume-autofix` as its first action** (`-Force` overwrites) — deliberately pointing at the *next* leg, not a retry of itself: if the deletion is what killed the machine, retrying would boot-loop, whereas the install leg continues sensibly from whatever state the deletion reached.
+  - **The install leg (C) arms the same safety task**, for the same reason — it is the longest and riskiest stretch of the chain (storage/chipset drivers, the poisoned-session territory), and it too used to unregister the task on entry. It is bounded by an `install_leg_starts` counter in the stats file that counts *every* entry (planned reboots and crash resumes alike); above `AUTOFIX_MAX_INSTALL_LEGS + 1` it stops arming, so a machine that never heals reboots at most once more than a normal chain and then stops. The counter dies with the stats file at the end of the chain (and in leg A).
   - **That safety task must be removed on the error/cancel path** (the `except` in `run_autofix`'s worker unregisters it): it exists only for an *unexpected* death. Without that, a user who stops the process — or any leg that raises — would find the machine resuming into the install leg at the next logon.
   - **Running from `%TEMP%` is handled explicitly**: if `_app_exe_path()` is inside `%TEMP%`, leg A copies itself to `%PUBLIC%\DriverVarazslo_Resume.exe` (`.py` from source) and schedules *that* — otherwise the app's own temp-cleanup / Windows can delete the exe between reboots and the task launches nothing.
   - **Every reboot in the chain goes through `_reboot_or_cancel(status)`** — it keeps the 5s grace window but polls `_cancel_flag` twice a second, and on cancel it **unregisters `DriverVarazsloResume` before raising** the cancel exception. The old `time.sleep(5)` + unconditional `shutdown` ignored a Cancel pressed inside that window (field-seen, Build 224: the user cancelled and the machine rebooted anyway), and without the unregister the chain would have resumed at the next logon regardless — a Cancel that only *looks* like it stopped anything. Do not re-inline a bare `shutdown` at a chain step.
