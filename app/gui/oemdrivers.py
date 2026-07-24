@@ -19,6 +19,35 @@ import urllib.parse
 # === /AUTO-IMPORTS ===
 
 
+# WMI/SMBIOS helykitöltő értékek: összerakott (nem márkás) gépeken a gyártó/modell/
+# sorozatszám mezőkben ezek állnak - valódi adatként kezelve értelmetlen linket adnának.
+OEM_PLACEHOLDER_VALUES = (
+    'to be filled by o.e.m.', 'to be filled by oem', 'default string',
+    'system manufacturer', 'system product name', 'system serial number',
+    'oem', 'o.e.m.', 'none', 'not applicable', 'not specified', 'null', 'x.x.x')
+
+# Alaplap-gyártók: összerakott gépeknél a gyári chipset-/audio-/LAN-driver EGYETLEN
+# forrása az alaplap gyártójának oldala (a WU ezeket asztali alaplapokra jellemzően
+# nem adja - terepen: ASRock B450M Pro4, ahol a Realtek hang a Microsoft generikus
+# hdaudio.inf-jén, a LAN pedig az inbox rtcx21x64.inf-en futott a fix után is).
+# Szándékosan a gyártó DOWNLOAD/SUPPORT nyitóoldalára megyünk, nem modell-mélylinkre:
+# ezeknél az oldalszerkezet gyakran változik (az MSI/Gigabyte bot-védelem mögött van),
+# egy elrohadt mélylink pedig rosszabb, mint egy biztosan élő nyitóoldal + a kiírt
+# modellnév, amit a szerelő beír a kereső mezőbe. Ugyanaz a logika, mint a HP ágnál.
+BOARD_VENDOR_PAGES = (
+    (('asrock',), 'ASRock', 'https://www.asrock.com/support/index.asp'),
+    (('asustek', 'asus'), 'ASUS', 'https://www.asus.com/support/download-center/'),
+    (('micro-star', 'msi'), 'MSI', 'https://www.msi.com/support/download'),
+    (('gigabyte', 'giga-byte'), 'GIGABYTE', 'https://www.gigabyte.com/Support'),
+    (('biostar',), 'Biostar', 'https://www.biostar.com.tw/app/en/support/download.php'),
+)
+
+
+def _is_placeholder(value):
+    """Igaz, ha a WMI-mező csak SMBIOS-helykitöltő (nem valódi gyártó/modell/serial)."""
+    return (value or '').strip().lower() in OEM_PLACEHOLDER_VALUES
+
+
 class GuiOemDriversMixin:
     """OEM driver-oldal ajánló. A DriverToolApi része (összerakás: app/gui/api.py)."""
 
@@ -27,9 +56,11 @@ class GuiOemDriversMixin:
         eventtel modell-specifikus support-linket küld. Minden hibát elnyel."""
         try:
             ps = ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
-                  "$cs = Get-WmiObject Win32_ComputerSystem | Select-Object Manufacturer, Model; "
-                  "$bios = Get-WmiObject Win32_BIOS | Select-Object SerialNumber; "
-                  "@{Man=$cs.Manufacturer; Model=$cs.Model; Serial=$bios.SerialNumber} | ConvertTo-Json -Compress")
+                  "$cs = Get-WmiObject Win32_ComputerSystem | Select-Object -First 1 Manufacturer, Model; "
+                  "$bios = Get-WmiObject Win32_BIOS | Select-Object -First 1 SerialNumber; "
+                  "$bb = Get-WmiObject Win32_BaseBoard | Select-Object -First 1 Manufacturer, Product; "
+                  "@{Man=$cs.Manufacturer; Model=$cs.Model; Serial=$bios.SerialNumber; "
+                  "Board=$bb.Manufacturer; BoardModel=$bb.Product} | ConvertTo-Json -Compress")
             res = self._run(["powershell", "-NoProfile", "-Command", ps], encoding='utf-8', timeout=60)
             data = json.loads(res.stdout) if res and (res.stdout or '').strip() else {}
             man = (data.get('Man') or '').strip()
@@ -37,7 +68,7 @@ class GuiOemDriversMixin:
             serial = (data.get('Serial') or '').strip()
             man_l = man.lower()
             # OEM placeholder sorozatszámok kiszűrése
-            if serial.lower() in ('to be filled by o.e.m.', 'default string', 'system serial number', 'none', ''):
+            if _is_placeholder(serial):
                 serial = ''
 
             vendor = None
@@ -63,12 +94,37 @@ class GuiOemDriversMixin:
                 url = 'https://support.hp.com/hu-hu/drivers'
                 if serial:
                     note = f'Sorozatszám (az oldal bekéri): {serial}'
-            if not vendor:
-                logging.debug(f"[OEM] Nem ismert OEM gyártó ({man}), kártya kihagyva.")
-                return
+            if vendor:
+                title = f'{vendor} gép: {model}'
+                desc = ('A gyártói oldalon vannak modell-specifikus driverek (hotkey, power, '
+                        'dokkoló...), amiket a WU nem ad.')
+            else:
+                # ÖSSZERAKOTT GÉP: a gépgyártó mezők helykitöltők ("To Be Filled By O.E.M."),
+                # de az ALAPLAP gyártója/modellje ilyenkor is valós - és pont ez a hasznos
+                # adat: a gyári chipset-, hang- és LAN-driver az alaplap oldalán van.
+                # Régen itt egyszerűen feladtuk, így minden nem márkás gépnél (szervizben a
+                # gépek jó része ilyen) semmilyen mutató nem került a szerelő elé.
+                board = (data.get('Board') or '').strip()
+                board_model = (data.get('BoardModel') or '').strip()
+                board_l = board.lower()
+                for keywords, name, page in BOARD_VENDOR_PAGES:
+                    if any(k in board_l for k in keywords):
+                        vendor, url = name, page
+                        break
+                if not vendor:
+                    logging.debug(f"[OEM] Nem ismert gépgyártó ({man}) és alaplap-gyártó ({board or '?'}), kártya kihagyva.")
+                    return
+                model = '' if _is_placeholder(board_model) else board_model
+                title = f'{vendor} alaplap{": " + model if model else ""}'
+                desc = ('Összerakott gép - a gyári chipset-, hang- (pl. Realtek Audio Console) és '
+                        'LAN-driver az alaplap gyártójának oldalán van, ezeket a Windows Update '
+                        'jellemzően nem adja fel.')
+                if model:
+                    note = f'Keresd ezt a modellt az oldalon: {model}'
+                serial = ''
 
-            logging.info(f"[OEM] {vendor} gép: {model}, serial={serial or '?'} -> {url}")
-            self.emit('oem_driver_info', {'vendor': vendor, 'model': model,
-                                          'serial': serial, 'note': note, 'url': url})
+            logging.info(f"[OEM] {title}, serial={serial or '?'} -> {url}")
+            self.emit('oem_driver_info', {'vendor': vendor, 'model': model, 'serial': serial,
+                                          'note': note, 'url': url, 'title': title, 'desc': desc})
         except Exception as e:
             logging.warning(f"[OEM] Gyártói oldal ajánló hiba (nem kritikus): {e}")

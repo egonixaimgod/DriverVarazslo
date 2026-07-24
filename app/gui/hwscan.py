@@ -25,6 +25,8 @@ from app.wu_core import _iso_date_or_none
 from app.wu_core import _iter_process_lines
 from app.wu_core import _match_wu_updates_to_devices
 from app.wu_core import _parse_driver_version
+from app.wu_core import base_vendor_hwid
+from app.wu_core import mark_generic_replace_candidates
 from app.wu_core import unoffered_requested_titles
 # === /AUTO-IMPORTS ===
 
@@ -226,6 +228,15 @@ class GuiHwScanMixin:
                     if wu.get('UpdateID') not in matched_uids:
                         logging.debug(f"[WU_API] Ghost / Unmatched eszköz kihagyva: {wu.get('Title')}")
 
+                # "GYÁRI DRIVER A GENERIKUS HELYETT": megjelöljük azokat az eszközöket,
+                # amik a Windows beépített driverén futnak, pedig a chipgyártónak van
+                # sajátja. A jelölést a KÖZÖS wu_core.mark_generic_replace_candidates
+                # végzi - ugyanez fut az AutoFix katalógus-zárókörében is, hogy a két út
+                # pontosan ugyanazokat az eszközöket találja meg.
+                generic_devs = mark_generic_replace_candidates(devices_to_check, inst_info)
+                if generic_devs:
+                    logging.info(f"[CATALOG] Generikus driveren futó eszközök: {[d['name'] for d in generic_devs]}")
+
                 if not wu_api_success:
                     # Teljes katalógus-fallback: a WU API elhasalt, minden eszközt a
                     # katalógusban keresünk.
@@ -238,10 +249,24 @@ class GuiHwScanMixin:
                     # két forrás egyesítve, hogy tényleg MINDENT megtaláljunk. A pool vegyes
                     # lesz (WU-s elemek update_id-vel, katalógusosak url-lel), a telepítő
                     # diszpécser (install_selected_wu) elemenként dönti el a módot.
+                    # A hibakódos eszközök mellé a generikus driveren futók is bekerülnek:
+                    # ezekre a WU szerint "minden rendben" (ezért nem ajánl semmit), a
+                    # katalógusban viszont ott a chipgyártó csomagja.
                     leftover = [d for d in devices_to_check if d.get('err_code') and d['id'] not in matched_hwids]
-                    if leftover:
-                        self.emit('hw_scan_progress', {'status': f'🌐 Katalógus-kiegészítés {len(leftover)} problémás eszközre...'})
-                        self._catalog_search(leftover, installed_info=inst_info)
+                    todo, todo_ids = [], set()
+                    for d in leftover + generic_devs:
+                        if d['id'] in matched_hwids or d['id'] in todo_ids:
+                            continue
+                        todo_ids.add(d['id'])
+                        todo.append(d)
+                    if todo:
+                        parts = []
+                        if leftover:
+                            parts.append(f'{len(leftover)} problémás')
+                        if generic_devs:
+                            parts.append(f'{len(generic_devs)} generikus driveres')
+                        self.emit('hw_scan_progress', {'status': f'🌐 Katalógus-kiegészítés ({" + ".join(parts)} eszköz)...'})
+                        self._catalog_search(todo, installed_info=inst_info)
 
                 # A "telepített/naprakész" lista: minden eszköz, amire végül nincs találat.
                 pool_hwids = {p.get('hwid') for p in self.hw_updates_pool}
@@ -465,75 +490,137 @@ try {
             rows.append((guid, title, row_text.lower(), date_iso))
         return rows
 
+    @staticmethod
+    def _catalog_row_is_microsoft(title):
+        """Microsoft saját csomagja-e a katalógus-sor? A katalógusban a cím a
+        szolgáltató nevével kezdődik ("Realtek Semiconductor Corp. - MEDIA - ..."),
+        külön provider-oszlop nincs. Inbox driver cseréjénél egy Microsoft-csomag
+        nem hoz semmit (az van fent), ezért az ilyen sorokat kihagyjuk."""
+        return (title or '').strip().lower().startswith('microsoft')
+
     def _catalog_find_driver(self, item, installed_info, ssl_ctx):
-        """Egy eszköz legjobb katalógus-találatának felkutatása. Az eszköz ÖSSZES
-        hardver-azonosítóját végigpróbálja a legspecifikusabbtól (VEN&DEV&SUBSYS&REV) az
-        általánosabbig (VEN&DEV) - korábban csak az első HWID-vel kerestünk, és ha arra
-        nem volt katalógus-sor, az eszköz driver nélkül maradt, pedig az általánosabb
-        azonosítóra lett volna találat. Max 4 azonosítót próbál (hálózat-kímélés).
+        """Egy eszköz legjobb katalógus-találatának felkutatása.
+
+        Az eszköz ÖSSZES hardver-azonosítóját lekérdezi a legspecifikusabbtól
+        (VEN&DEV&SUBSYS&REV) az általánosabbig (VEN&DEV), max 4-et (hálózat-kímélés),
+        és a sorokat EGY HALMAZBA gyűjti, abból választ.
+
+        Miért unió, és miért nem áll meg az első találó HWID-nél: mérve (2026-07-24,
+        Realtek ALC892) a specifikus és az általános azonosító MÁS csomagot ad, és
+        történetesen a specifikus a régebbit:
+            HDAUDIO\\...&DEV_0892&SUBSYS_18496893 -> 6.0.9136.1  (2021-03-22)
+            HDAUDIO\\...&DEV_0892                 -> 6.0.9992.1  (2026-05-18)
+        A régi kód az első találó azonosítónál megállt, tehát a 2021-es drivert
+        választotta volna, és a kommentje szerint az általánosabb HWID "ugyanazt adná
+        vissza" - ez tévedés volt.
+
         Visszatérés: pool-elem dict vagy None."""
-        hwids = [h for h in (item.get('all_hwids') or []) if h]
-        if item.get('id') and item['id'] not in hwids:
-            hwids.insert(0, item['id'])
+        hwids, seen_hwid = [], set()
+        for h in ([item['id']] if item.get('id') else []) + list(item.get('all_hwids') or []):
+            hl = (h or '').strip().lower()
+            if h and hl not in seen_hwid:
+                seen_hwid.add(hl)
+                hwids.append(h)
+        # A gyártó+eszköz TÖRZS-azonosító pótlása (SUBSYS/REV/CC nélkül): az eszköz saját
+        # HWID-listája sokszor csak alrendszer-kötött ID-ket tartalmaz, a gyártó friss
+        # csomagja viszont a törzsön van indexelve (lásd wu_core.base_vendor_hwid).
+        # A keresés így is max 4 lekérdezés marad, de a törzs mindig köztük van.
+        hwids = hwids[:4]
+        base = base_vendor_hwid(item.get('id') or (hwids[0] if hwids else ''))
+        if base and base.lower() not in {h.lower() for h in hwids}:
+            hwids = hwids[:3] + [base]
         import urllib.request
+
+        inst = (installed_info or {}).get((item.get('pnp_id') or '').upper()) or {}
+        inst_ver_str = inst.get('version', '')
+        inst_ver = _parse_driver_version(inst_ver_str)
+        # "Gyári driver a generikus helyett": CSAK a mark_generic_replace_candidates
+        # által megjelölt eszközöknél lép életbe (lásd ott, hogy miért nem globális).
+        replace_inbox = bool(item.get('generic_ok')) and _is_inbox_driver(inst)
+
+        rows_by_guid = {}
         for hwid in hwids[:4]:
             try:
                 logging.debug(f"[CATALOG] Keresés: {item['name']} ({hwid})")
-                rows = self._catalog_fetch_rows(hwid, ssl_ctx)
+                for (g, t, row_l, d) in self._catalog_fetch_rows(hwid, ssl_ctx):
+                    rows_by_guid.setdefault(g, (t, row_l, d))
             except Exception as e:
                 logging.debug(f"[CATALOG] Lekérdezési hiba ({hwid}): {e}")
-                rows = []
-            if not rows:
-                continue
-            # OS/architektúra pontozás - ha minden sor kizárt, visszaesünk a teljes
-            # listára (régi viselkedés), mert egy "rossz OS-ű" driver is jobb lehet a semminél.
-            scored = [(sc, g, t, d) for (g, t, row_l, d) in rows
-                      if (sc := self._catalog_row_score(row_l)) is not None]
-            if not scored:
-                scored = [(0, g, t, d) for (g, t, _row_l, d) in rows]
-            best_score = max(s for s, _g, _t, _d in scored)
-            cands = [c for c in scored if c[0] == best_score]
-            # A legjobb pontszámúak közül a legmagasabb verziójú sor - a katalógus
-            # sor-sorrendje nem garantáltan a legfrissebbel kezd.
-            best = cands[0]
-            best_ver = _parse_driver_version(best[2])
-            for c in cands[1:]:
-                v = _parse_driver_version(c[2])
-                if v is not None and (best_ver is None or v > best_ver):
-                    best, best_ver = c, v
-            _bs, best_id, best_title, best_date = best
+        if not rows_by_guid:
+            return None
+
+        # OS/architektúra pontozás - ha minden sor kizárt, visszaesünk a teljes
+        # listára (régi viselkedés), mert egy "rossz OS-ű" driver is jobb lehet a semminél.
+        all_rows = [(g, t, row_l, d) for g, (t, row_l, d) in rows_by_guid.items()]
+        scored = [(sc, g, t, d) for (g, t, row_l, d) in all_rows
+                  if (sc := self._catalog_row_score(row_l)) is not None]
+        if not scored:
+            scored = [(0, g, t, d) for (g, t, _row_l, d) in all_rows]
+        if replace_inbox:
+            vendor_rows = [c for c in scored if not self._catalog_row_is_microsoft(c[2])]
+            if not vendor_rows:
+                logging.debug(f"[CATALOG] {item['name']}: csak Microsoft-csomag van a katalógusban, a generikus csere értelmetlen - kihagyva.")
+                return None
+            scored = vendor_rows
+
+        best_score = max(s for s, _g, _t, _d in scored)
+        cands = [c for c in scored if c[0] == best_score]
+        # A legjobb pontszámúak közül a LEGFRISSEBB DÁTUMÚ sor nyer, és csak azonos
+        # dátumnál dönt a verziószám. (A katalógus sor-sorrendje nem newest-first.)
+        #
+        # Miért a dátum az elsődleges: ugyanaz a gyártó ugyanarra az eszközre több,
+        # egymással összehasonlíthatatlan verziósémát is használ. Mérve a gépen, a
+        # Realtek NIC-re: "Realtek - Net - 1168.19.704.2024" (2024-07-03) és
+        # "Realtek Net Driver Update (10.79.50.1003)" (2025-10-02). Verzió szerint az
+        # 1168.19.704.2024 "nyerne" - pedig több mint egy évvel régebbi csomag. A
+        # kiadási dátum viszont mindkét sémán át értelmes, és a két terepi esetben
+        # (Realtek audio + Realtek LAN) is a helyes csomagot választja.
+        best = max(cands, key=lambda c: ((c[3] or ''), _parse_driver_version(c[2]) or ()))
+        best_ver = _parse_driver_version(best[2])
+        _bs, best_id, best_title, best_date = best
+
+        if replace_inbox:
+            # SZÁNDÉKOSAN NINCS verzió-összehasonlítás: a beépített driver verziója a
+            # Windows buildje (10.0.26100.8457), a gyárié meg saját sémájú (6.0.9992.1),
+            # tehát a generikus MINDIG "újabbnak" látszana, és pont a jobb drivert
+            # dobnánk el. Ugyanez a csapda a WU-ágon már kezelve van
+            # (wu_core._filter_wu_downgrades / _is_inbox_driver).
+            # Nem pörög körbe: telepítés után az eszköz oemNN.inf-en, gyári providerrel
+            # fut, így a következő szkennen már nem jelölt (is_generic_replace_candidate).
+            logging.info(f"[CATALOG] Generikus -> gyári csere jelölt: {item['name']} "
+                         f"(most: {inst.get('provider') or '?'} {inst_ver_str} / {inst.get('inf') or '?'}) -> '{best_title}'")
+        elif best_ver is not None and inst_ver is not None and best_ver <= inst_ver:
             # Már telepített (nem újabb) driver kiszűrése: ha az eszköznek van aktív
             # drivere ÉS a katalógus-találat verziója nem magasabb, nem ajánljuk fel.
-            # Ilyenkor STOP (nem megyünk általánosabb HWID-re - az ugyanazt adná vissza).
-            inst = (installed_info or {}).get((item.get('pnp_id') or '').upper()) or {}
-            inst_ver_str = inst.get('version', '')
-            inst_ver = _parse_driver_version(inst_ver_str)
-            if best_ver is not None and inst_ver is not None and best_ver <= inst_ver:
-                logging.debug(f"[CATALOG] Kihagyva (telepített {inst_ver_str} >= katalógus '{best_title}'): {item['name']}")
-                return None
-            dl_body = f'updateIDs=[{{"size":0,"languages":"","uidInfo":"{best_id}","updateID":"{best_id}"}}]'
-            dl_req = urllib.request.Request(
-                'https://www.catalog.update.microsoft.com/DownloadDialog.aspx',
-                data=dl_body.encode('utf-8'),
-                headers={'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/x-www-form-urlencoded'})
-            try:
-                dl_html = urllib.request.urlopen(dl_req, context=ssl_ctx, timeout=30).read().decode('utf-8')
-            except Exception as e:
-                logging.debug(f"[CATALOG] DownloadDialog hiba ({item['name']}): {e}")
-                continue
-            cab_link = re.search(r'downloadInformation\[0\]\.files\[0\]\.url\s*=\s*[\"\']([^\"\']+)[\"\']', dl_html)
-            if cab_link:
-                logging.debug(f"[CATALOG] Találat: {item['name']} ('{best_title}') - {cab_link.group(1)[:50]}...")
-                return {
-                    "name": item['name'], "cat": item['cat'], "hwid": item['id'],
-                    "url": cab_link.group(1), "pnp_id": item.get('pnp_id', ''),
-                    "installed_version": inst_ver_str,
-                    "installed_date": inst.get('date', ''),
-                    "wu_title": f"MS Katalógus: {best_title}",
-                    "wu_date": best_date,
-                }
-            # Volt sor, de nincs letöltési link - próbáljuk a következő azonosítót.
-        return None
+            logging.debug(f"[CATALOG] Kihagyva (telepített {inst_ver_str} >= katalógus '{best_title}'): {item['name']}")
+            return None
+
+        dl_body = f'updateIDs=[{{"size":0,"languages":"","uidInfo":"{best_id}","updateID":"{best_id}"}}]'
+        dl_req = urllib.request.Request(
+            'https://www.catalog.update.microsoft.com/DownloadDialog.aspx',
+            data=dl_body.encode('utf-8'),
+            headers={'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/x-www-form-urlencoded'})
+        try:
+            dl_html = urllib.request.urlopen(dl_req, context=ssl_ctx, timeout=30).read().decode('utf-8')
+        except Exception as e:
+            logging.debug(f"[CATALOG] DownloadDialog hiba ({item['name']}): {e}")
+            return None
+        cab_link = re.search(r'downloadInformation\[0\]\.files\[0\]\.url\s*=\s*[\"\']([^\"\']+)[\"\']', dl_html)
+        if not cab_link:
+            return None
+        logging.debug(f"[CATALOG] Találat: {item['name']} ('{best_title}') - {cab_link.group(1)[:50]}...")
+        return {
+            "name": item['name'], "cat": item['cat'], "hwid": item['id'],
+            "url": cab_link.group(1), "pnp_id": item.get('pnp_id', ''),
+            "installed_version": inst_ver_str,
+            "installed_date": inst.get('date', ''),
+            "wu_title": f"MS Katalógus: {best_title}",
+            "wu_date": best_date,
+            # A felület ezt jelöli meg külön ("most Microsoft alapdriver"), és a
+            # telepítő ezeknél futtat utóellenőrzést + szükség esetén visszaállítást.
+            "generic_replace": replace_inbox,
+            "installed_provider": inst.get('provider', ''),
+        }
 
     def _catalog_search_collect(self, devices_to_check, installed_info=None):
         """Microsoft Update Catalog keresés a megadott eszközökre 10 szálon. Az eredményt
@@ -798,6 +885,10 @@ try {
         fail = 0
         skipped = 0
         cancelled = False
+        # Generikus -> gyári cserék: (pool-elem, [publikált oemNN.inf]) párok. A telepítés
+        # UTÁN ellenőrizzük őket, és ha az eszköz hibakódos lett, visszaállunk (lásd
+        # _verify_generic_replacements). Csak itt gyűjtjük, a kiértékelés a szálak után fut.
+        generic_installs = []
 
         try:
             import concurrent.futures
@@ -903,6 +994,12 @@ try {
                 if installed_ok:
                     with counter_lock:
                         success += 1
+                        if drv.get('generic_replace'):
+                            # A pnputil kiírja, milyen néven publikálta a csomagot
+                            # ("Published Name: oem42.inf") - visszaálláskor pontosan ezt
+                            # kell törölni, semmi mást.
+                            generic_installs.append(
+                                (drv, re.findall(r'Published Name\s*:\s*(oem\d+\.inf)', res.stdout or '', re.IGNORECASE)))
                     self.emit('task_progress', {'task': task_id, 'log': f'  ✅ {name} telepítve!'})
                 elif added_zero:
                     with counter_lock:
@@ -937,6 +1034,13 @@ try {
                 """
                 self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", code14_ps])
 
+                # Generikus -> gyári cserék utóellenőrzése (és szükség esetén visszaállítás).
+                if generic_installs:
+                    rolled_back = self._verify_generic_replacements(generic_installs, task_id)
+                    if rolled_back:
+                        success -= rolled_back
+                        fail += rolled_back
+
         finally:
             logging.debug(f"[CATALOG_INSTALL] Temp dir törlése: {temp_dir}")
             for _ in range(3):
@@ -951,6 +1055,96 @@ try {
         self.emit('task_progress', {'task': task_id, 'current': total, 'total': total,
                                     'log': f'\n--- Katalógus: Sikeres: {success}, Sikertelen: {fail}' + (f', Kihagyott: {skipped}' if skipped else '') + ' ---'})
         return success, fail, cancelled
+
+    def _verify_generic_replacements(self, generic_installs, task_id='wu_install'):
+        """A generikus -> gyári drivercserék utóellenőrzése, szükség esetén VISSZAÁLLÁS.
+
+        Miért vállalható egyáltalán a csere: a Windows beépített drivere sosem tűnik el,
+        csak háttérbe kerül - ha a frissen telepített gyári csomagot töröljük és
+        újraszkennelünk, a PnP AUTOMATIKUSAN visszaköti a generikusat. Vagyis a művelet
+        visszafordítható... DE csak olyan eszközön, ami futás közben újraköthető. Épp
+        ezért a tárolóvezérlők eleve ki vannak zárva a jelöltek közül
+        (wu_core.GENERIC_REPLACE_BLOCKED_CLASSES): ott a hiba csak a következő bootnál
+        derülne ki, amikor már nincs mód visszaállni.
+
+        Döntési szabály eszközönként:
+          - hibakód 0            -> siker, marad a gyári driver;
+          - hibakód != 0         -> a most telepített csomag törlése + rescan, majd
+                                    egyetlen utóellenőrzés, és jelentés a felhasználónak;
+          - az eszköz nincs a listában -> NEM állunk vissza (jellemzően kihúzott USB-s
+                                    eszköz), csak jelezzük - egy lekérdezési hiba miatt
+                                    kár lenne eldobni egy jó gyári drivert.
+        Visszatérés: a visszaállított (tehát végül sikertelen) cserék száma."""
+        logging.info(f"[GENERIC] {len(generic_installs)} generikus->gyári csere ellenőrzése...")
+        self.emit('task_progress', {'task': task_id, 'log': '\n🔎 Gyári driverek ellenőrzése (visszaállítás, ha bármelyik hibás lett)...'})
+        # A PnP-nek kell pár másodperc, amíg az új driverre átköti az eszközt.
+        time.sleep(8)
+
+        def device_error_codes():
+            """{PNPDeviceID(nagybetűs): hibakód} a JELENLÉVŐ eszközökről."""
+            try:
+                ps = ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+                      "Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $true } | "
+                      "Select-Object PNPDeviceID, ConfigManagerErrorCode | ConvertTo-Json -Compress")
+                res = self._run(["powershell", "-NoProfile", "-Command", ps], encoding='utf-8', timeout=120)
+                data = json.loads(res.stdout) if (res.stdout or '').strip() else []
+                if isinstance(data, dict):
+                    data = [data]
+                out = {}
+                for d in data:
+                    pid = (d.get('PNPDeviceID') or '').upper()
+                    if pid:
+                        try:
+                            out[pid] = int(d.get('ConfigManagerErrorCode') or 0)
+                        except (TypeError, ValueError):
+                            out[pid] = 0
+                return out
+            except Exception as e:
+                logging.warning(f"[GENERIC] Eszköz-állapot lekérdezése sikertelen: {e}")
+                return None
+
+        codes = device_error_codes()
+        if codes is None:
+            # Nem tudjuk eldönteni - inkább hagyjuk állni a gyári drivert, de mondjuk meg.
+            self.emit('task_progress', {'task': task_id, 'log': '⚠️ Az eszközök állapotát nem sikerült ellenőrizni - a gyári driverek fent maradtak. Nézd meg az Eszközkezelőt!'})
+            return 0
+
+        rolled_back = 0
+        for drv, published_infs in generic_installs:
+            name = drv.get('name') or '?'
+            pnp_id = (drv.get('pnp_id') or '').upper()
+            code = codes.get(pnp_id)
+            if code is None:
+                logging.warning(f"[GENERIC] {name}: az eszköz nincs a jelenlévők között, visszaállítás nélkül jelezzük.")
+                self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {name}: az eszköz eltűnt a listából (kihúzva?) - a gyári driver fent maradt.'})
+                continue
+            if code == 0:
+                logging.info(f"[GENERIC] {name}: gyári driver OK (hibakód 0).")
+                self.emit('task_progress', {'task': task_id, 'log': f'  ✅ {name}: gyári driver működik (eddig Microsoft alapdriver volt).'})
+                continue
+
+            desc = PNP_ERROR_CODE_DESCRIPTIONS.get(code, f'hibakód {code}')
+            logging.warning(f"[GENERIC] {name}: a gyári driver után hibakód {code} - VISSZAÁLLÁS a Windows driverére.")
+            self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {name}: a gyári driver nem működik ({desc}) - visszaállás a Windows driverére...'})
+            if not published_infs:
+                # Nem tudjuk, mit publikált a pnputil - törölni sem tudunk pontosan.
+                self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name}: nem sikerült azonosítani a telepített csomagot, kézi visszaállítás kellhet (Eszközkezelő -> Driver visszaállítása).'})
+                rolled_back += 1
+                continue
+            for inf in published_infs:
+                self._run(['pnputil', '/delete-driver', inf, '/uninstall', '/force'], ok_codes=(0, 3010), timeout=180)
+            self._run(['pnputil', '/scan-devices'], timeout=180)
+            time.sleep(5)
+            after = device_error_codes() or {}
+            new_code = after.get(pnp_id)
+            rolled_back += 1
+            if new_code == 0:
+                self.emit('task_progress', {'task': task_id, 'log': f'  ↩️ {name}: visszaállítva a Windows alapdriverére, az eszköz újra működik.'})
+            else:
+                self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name}: a visszaállítás után is hibás (kód {new_code}) - indítsd újra a gépet, majd nézd meg az Eszközkezelőben!'})
+        if rolled_back:
+            self.emit('task_progress', {'task': task_id, 'log': f'ℹ️ {rolled_back} db gyári driver nem vált be, azoknál maradt a Windows alapdrivere.'})
+        return rolled_back
 
     # ================================================================
     # PROBLÉMÁS ESZKÖZÖK - EGYKATTINTÁSOS GYORSJAVÍTÁS

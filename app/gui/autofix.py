@@ -39,6 +39,7 @@ from app.wu_core import _install_abort_reason
 from app.wu_core import is_reboot_pending
 from app.wu_core import verify_failed_installs
 from app.wu_core import unoffered_requested_titles
+from app.wu_core import mark_generic_replace_candidates
 from app.common import spawn_failed
 from app.drivers_core import DELETE_DRIVER_TIMEOUT
 from app.gui.hwscan import PNP_ERROR_CODE_DESCRIPTIONS
@@ -475,19 +476,37 @@ class GuiAutofixMixin:
                         logging.warning(f"[AUTOFIX] PnP JSON értelmezési hiba (előző körös eszközlistával folytatunk): {e}")
                 devices_now = _filter_wu_scan_devices(pnp_data) or devices_to_check
                 problem_devs = [d for d in devices_now if d.get('err_code')]
-                if watchdog_tripped and not problem_devs:
-                    # A WU elhasalt, de hibakódos eszköz sincs - nincs mit keresni.
+                # A hibás eszközök mellé a GENERIKUS (Windows-beépített) driveren futók is
+                # bekerülnek a zárókörbe: a WU ezekre semmit nem ajánl (szerinte rendben
+                # vannak), a katalógusban viszont ott a chipgyártó saját csomagja - és a
+                # szerviz-cél az, hogy ne maradjon alaplapi hang/LAN a generikus driveren.
+                # A kiválasztás a KÖZÖS wu_core.mark_generic_replace_candidates-szel megy,
+                # pontosan úgy, ahogy a manuális szkennél (app/gui/hwscan.py) - a tároló-
+                # vezérlők és a videokártya szándékosan ki vannak zárva, lásd ott.
+                inst_info = self._get_installed_driver_info()
+                generic_devs = mark_generic_replace_candidates(devices_now, inst_info)
+                cat_devs, cat_ids = [], set()
+                for d in problem_devs + generic_devs:
+                    if d['id'] not in cat_ids:
+                        cat_ids.add(d['id'])
+                        cat_devs.append(d)
+                if watchdog_tripped and not cat_devs:
+                    # A WU elhasalt, de nincs se hibakódos, se generikus driveres eszköz.
                     self.emit('task_progress', {'task': task_id, 'log': 'ℹ️ Nincs hibakódos eszköz, a katalógus-keresés kihagyva.'})
-                elif problem_devs:
-                    self.emit('task_progress', {'task': task_id, 'log': f'\n--- KATALÓGUS-ZÁRÓKÖR: {len(problem_devs)} még hibás eszköz keresése a Microsoft Update Catalogban... ---'})
-                    inst_info = self._get_installed_driver_info()
-                    found = self._catalog_search_collect(problem_devs, inst_info)
+                elif cat_devs:
+                    detail = []
+                    if problem_devs:
+                        detail.append(f'{len(problem_devs)} hibás')
+                    if generic_devs:
+                        detail.append(f'{len(generic_devs)} Windows-alapdriveres')
+                    self.emit('task_progress', {'task': task_id, 'log': f'\n--- KATALÓGUS-ZÁRÓKÖR: {" + ".join(detail)} eszköz keresése a Microsoft Update Catalogban... ---'})
+                    found = self._catalog_search_collect(cat_devs, inst_info)
                     if found:
                         self.emit('task_progress', {'task': task_id, 'log': f'✅ A katalógusban {len(found)} eszközre van driver - telepítés...'})
                         s, _f, _c = self._install_catalog_sync(found, task_id=task_id)
                         total_installed_in_session += s
                     else:
-                        self.emit('task_progress', {'task': task_id, 'log': 'ℹ️ A katalógusban sincs driver a maradék hibás eszközökre.'})
+                        self.emit('task_progress', {'task': task_id, 'log': 'ℹ️ A katalógusban sincs telepíthető driver ezekre az eszközökre.'})
         except Exception as e:
             logging.warning(f"[AUTOFIX] Katalógus-zárókör hiba (nem kritikus): {e}")
             self.emit('task_progress', {'task': task_id, 'log': f'⚠️ Katalógus-zárókör hiba (a folyamat megy tovább): {e}'})
@@ -723,12 +742,21 @@ class GuiAutofixMixin:
             if not missing:
                 self.emit('task_progress', {'task': task_id, 'log': '✅ Minden korábbi driver-csomag visszakerült (vagy újabbra cserélődött).'})
                 return
-            self.emit('task_progress', {'task': task_id, 'log': f'\n⚠️ {len(missing)} db csomag NEM került vissza a fix után (a Windows Update nem ismeri):'})
+            self.emit('task_progress', {'task': task_id, 'log': f'\n⚠️ {len(missing)} db csomag NEM került vissza a fix után:'})
             for p in missing:
                 prov = p.get('provider') or 'ismeretlen gyártó'
                 ver = p.get('version') or '?'
-                self.emit('task_progress', {'task': task_id, 'log': f"   • {p.get('original')} - {prov} ({ver})"})
-            self.emit('task_progress', {'task': task_id, 'log': 'Ezek jellemzően külön telepített programok driverei (pl. VPN, kontroller-emulátor) - ha kellenek, telepítsd újra az adott programot.'})
+                cls = p.get('class') or ''
+                self.emit('task_progress', {'task': task_id, 'log': f"   • {p.get('original')} - {prov} ({ver}){f' [{cls}]' if cls else ''}"})
+            # A leggyakoribb ok NEM az, hogy a WU "nem ismeri" a csomagot, hanem hogy az
+            # eszköz nem volt CSATLAKOZTATVA a fix alatt: a WU (és a mi párosításunk is)
+            # csak JELENLÉVŐ hardverre ad drivert, tehát a kihúzott bluetooth-dongle /
+            # kontroller / nyomtató drivere törlődik, de nem tud visszajönni. Ez nem hiba
+            # (a teljes törlés a fix lényege), csak tudni kell róla - és van rá teendő.
+            self.emit('task_progress', {'task': task_id, 'log': 'Ennek két oka lehet:'})
+            self.emit('task_progress', {'task': task_id, 'log': '   1) Az eszköz NEM VOLT BEDUGVA a fix alatt - a Windows Update csak a jelenlévő hardverhez ad drivert.'})
+            self.emit('task_progress', {'task': task_id, 'log': '   2) Külön telepített program drivere volt (pl. VPN, kontroller-emulátor), amit a WU nem is szállít.'})
+            self.emit('task_progress', {'task': task_id, 'log': '👉 TEENDŐ: dugd be az eszközt, majd futtass egy szkennelést a "Driver Keresés és Telepítés" menüben - a program megkeresi hozzá a drivert. Programhoz tartozó drivernél telepítsd újra az adott programot.'})
         except Exception as e:
             logging.warning(f"[AUTOFIX] Eltűnt csomagok összevetése sikertelen (nem kritikus): {e}")
 
@@ -780,6 +808,12 @@ class GuiAutofixMixin:
                 skip_printers = getattr(self, 'skip_printer_drivers', True)
             else:
                 skip_printers = skip_printer_drivers
+            # A belépési log a JS-paramétert írja ki, ami a resume lábakon a frontend
+            # ALAPÉRTÉKE (mindig True), nem a felhasználó választása - egy nyomtató-panasz
+            # kivizsgálásánál pont ez a mező vinne félre. Ezért a FELOLDOTT értéket is
+            # kilogoljuk, forrás-megjelöléssel.
+            logging.info(f"[AUTOFIX] Nyomtató-kihagyás (érvényes érték): {skip_printers} "
+                         f"(forrás: {'sys.argv --skip-printer-drivers' if (is_resume_step1 or is_resume_mode) else 'GUI dialógus'})")
 
             task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if (is_resume_mode or is_resume_step1) else '1 Kattintásos Driver Javítás és Frissítés'
             self.emit('task_start', {'task': 'autofix', 'title': task_title})

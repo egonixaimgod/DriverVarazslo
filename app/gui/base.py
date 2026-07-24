@@ -312,20 +312,24 @@ class GuiBaseMixin:
         return None
 
     def _check_internet(self):
-        """Megbízható TCP port alapú internet ellenőrzés."""
+        """Megbízható TCP port alapú internet ellenőrzés.
+
+        Az időkorlát SZÁNDÉKOSAN hívásonként megy (create_connection timeout=), NEM
+        socket.setdefaulttimeout()-tal: az utóbbi a TELJES PROCESSZRE állítja be az
+        alapértelmezett socket-időkorlátot, és sosem áll vissza. Emiatt az első
+        internet-ellenőrzés után minden olyan hálózati művelet, ami nem ad meg saját
+        időkorlátot, 3 másodperc után elhasalna - egy nagy letöltésnél (NVIDIA driver,
+        stresstools.zip) ez egyetlen lassú másodperc miatt megszakadó letöltést jelent.
+        Ma minden hívónk ad explicit timeout-ot, tehát ez nem sült el; a globális
+        mellékhatást viszont ne hozzuk vissza."""
         import socket
-        try:
-            socket.setdefaulttimeout(3.0)
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("8.8.8.8", 53))
-            return True
-        except Exception:
+        for host, port in (("8.8.8.8", 53), ("www.microsoft.com", 80)):
             try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.connect(("www.microsoft.com", 80))
-                return True
-            except Exception:
-                return False
+                with socket.create_connection((host, port), timeout=3.0):
+                    return True
+            except Exception as e:
+                logging.debug(f"[NET] Internet-ellenőrzés sikertelen ({host}:{port}): {e}")
+        return False
 
     def open_file(self, path):
         logging.info(f"[API] open_file: {path}")

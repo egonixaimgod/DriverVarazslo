@@ -1658,6 +1658,7 @@ function renderHwTree() {
           + (it.wu_date ? ' <span style="color:var(--text3);font-size:11px" title="A felajánlott driver dátuma">['+esc(it.wu_date)+']</span>' : '')
           + (it.installed_version ? ' <span style="color:var(--text3);font-size:11px" title="Jelenleg telepített driver-verzió/dátum ehhez az eszközhöz">(telepítve: '+esc(it.installed_version)+(it.installed_date?' · '+esc(it.installed_date):'')+')</span>' : '')
           + (it.downgrade ? ' <span style="color:#ffb454;font-size:11px;font-weight:700" title="A felajánlott driver RÉGEBBI a jelenleg telepítettnél - telepítése visszabutítás lenne, ezért alapból nincs kijelölve">⚠️ régebbi, mint a telepített!</span>' : '')
+          + (it.generic_replace ? ' <span style="color:#5fb2ff;font-size:11px;font-weight:700" title="Ezen az eszközön most a Windows beépített, generikus drivere fut. A chip gyártójának saját drivere elérhető a Microsoft Update Catalogban - jellemzően többet tud (hang-DSP, energiakezelés, offload). Ha a csere után az eszköz hibás lenne, a program automatikusan visszaáll a Windows driverére.">🏭 most Windows alapdriver → gyári elérhető</span>' : '')
           + '</span>'
           + '<span class="hwid">'+esc(it.hwid||'')+'</span></div>'
         ).join('') + '</div>';
@@ -1839,7 +1840,10 @@ async function openVendorPage(url) {
   catch (e) { toast('Oldal megnyitási hiba: ' + e, 'error'); }
 }
 
-/* OEM (Dell/Lenovo/HP) gépre szabott driver-oldal kártya (oem_driver_info event). */
+/* Gyártói driver-oldal kártya (oem_driver_info event): márkás gépnél (Dell/Lenovo/HP)
+   a gépre szabott support-oldal, összerakott gépnél az ALAPLAP gyártójának oldala.
+   A címet/leírást a Python küldi (title/desc) - a régi OEM-szöveg ("gép", "dokkoló")
+   alaplapra értelmetlen; a fallback-ek a régi viselkedést tartják meg. */
 function renderOemCard(data) {
   const card = document.getElementById('oem-card');
   if (!card) return;
@@ -1847,8 +1851,8 @@ function renderOemCard(data) {
   card.innerHTML = '<div style="border:1px solid rgba(100,160,255,.4);background:rgba(100,160,255,.07);'
     + 'border-radius:10px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
     + '<span style="font-size:20px">🏭</span>'
-    + '<div style="flex:1;min-width:200px"><div style="font-weight:700">'+esc(data.vendor)+' gép: '+esc(data.model||'')+'</div>'
-    + '<div style="font-size:12px;color:var(--text3)">A gyártói oldalon vannak modell-specifikus driverek (hotkey, power, dokkoló...), amiket a WU nem ad.'
+    + '<div style="flex:1;min-width:200px"><div style="font-weight:700">'+esc(data.title || (data.vendor+' gép: '+(data.model||'')))+'</div>'
+    + '<div style="font-size:12px;color:var(--text3)">'+esc(data.desc || 'A gyártói oldalon vannak modell-specifikus driverek (hotkey, power, dokkoló...), amiket a WU nem ad.')
     + (data.note ? ' <b>'+esc(data.note)+'</b>' : '') + '</div></div>'
     + '<button class="btn" onclick="openVendorPage(\''+esc(data.url)+'\')">🌐 '+esc(data.vendor)+' driver-oldal</button>'
     + '</div>';

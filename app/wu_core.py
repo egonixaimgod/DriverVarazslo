@@ -171,15 +171,20 @@ def _filter_wu_scan_devices(pnp_data):
             continue
         seen_hwids.add(hwid_clean)
 
-        if pclass == "Display": cat = "🎮 Videókártya (VGA)"
-        elif pclass == "Media": cat = "🎵 Hangkártya (Audio)"
-        elif pclass == "Net": cat = "🌐 Hálózat (LAN/Wi-Fi)"
-        elif pclass == "Bluetooth": cat = "🔵 Bluetooth"
-        elif pclass == "System": cat = "⚙️ Rendszereszköz"
-        elif pclass == "USB": cat = "🔌 USB Vezérlő"
-        elif pclass in ("Camera", "Image"): cat = "📷 Webkamera"
-        elif pclass in ("Mouse", "Keyboard", "HIDClass"): cat = "🖱️ Periféria"
-        elif pclass == "Biometric": cat = "🔒 Ujjlenyomat / Biometria"
+        # A Win32_PnPEntity.PNPClass írásmódja eszközönként eltér (a hangkártyáknál pl.
+        # "MEDIA" csupa nagybetűvel), ezért a besorolás KISBETŰSÍTVE hasonlít - a régi,
+        # kis-nagybetű érzékeny összehasonlítás miatt minden hangeszköz a
+        # "🔧 Egyéb (MEDIA)" gyűjtőbe esett a "🎵 Hangkártya (Audio)" helyett.
+        pclass_l = pclass.strip().lower()
+        if pclass_l == "display": cat = "🎮 Videókártya (VGA)"
+        elif pclass_l == "media": cat = "🎵 Hangkártya (Audio)"
+        elif pclass_l == "net": cat = "🌐 Hálózat (LAN/Wi-Fi)"
+        elif pclass_l == "bluetooth": cat = "🔵 Bluetooth"
+        elif pclass_l == "system": cat = "⚙️ Rendszereszköz"
+        elif pclass_l == "usb": cat = "🔌 USB Vezérlő"
+        elif pclass_l in ("camera", "image"): cat = "📷 Webkamera"
+        elif pclass_l in ("mouse", "keyboard", "hidclass"): cat = "🖱️ Periféria"
+        elif pclass_l == "biometric": cat = "🔒 Ujjlenyomat / Biometria"
         else: cat = f"🔧 Egyéb ({pclass})"
 
         try:
@@ -187,8 +192,11 @@ def _filter_wu_scan_devices(pnp_data):
         except (TypeError, ValueError):
             err_code = 0
 
+        # pclass: a nyers PNPClass megőrzése - erre épül a "gyári driver a generikus
+        # helyett" osztály-szűrése (is_generic_replace_candidate); a 'cat' emberi
+        # felirat, azzal szűrni törékeny lenne.
         devices.append({"cat": cat, "name": n, "id": hwid_clean, "pnp_id": pid,
-                        "all_hwids": hwids_list, "err_code": err_code})
+                        "all_hwids": hwids_list, "err_code": err_code, "pclass": pclass})
     return devices
 
 
@@ -317,6 +325,131 @@ def _is_inbox_driver(inst):
     if provider:
         return provider.startswith('microsoft')
     return False
+
+
+# ============================================================================
+# "GYÁRI DRIVER A GENERIKUS HELYETT" - eszköz-kiválasztás
+#
+# Kiindulás (terepen mért, 2026-07-24): egy hibátlanul lefutott AutoFix után az
+# alaplapi hang a Microsoft generikus `hdaudio.inf`-jén, a LAN pedig az inbox
+# `rtcx21x64.inf`-en (provider: Microsoft) futott - miközben a Microsoft Update
+# Catalogban ott volt hozzájuk a chipgyártó saját csomagja (Realtek MEDIA 6.0.9992.1
+# és Realtek Net 10.79.50.1003). A WU Agent ezeket nem ajánlja fel, mert szerinte a
+# jelenlegi driver megfelelő - a katalógusban viszont elérhetők.
+#
+# Ezt a kiválasztást a MANUÁLIS SZKEN és az AUTOFIX is ezen az egy függvényen
+# keresztül végzi (mark_generic_replace_candidates), hogy a két út garantáltan
+# ugyanazokat az eszközöket találja meg - a különbség csak az, hogy a manuális
+# szken listázza és a szerelő dönt, az AutoFix pedig magától telepíti.
+# ============================================================================
+
+# Ahol a chipgyártó drivere jellemzően TÖBBET tud a Windows generikusánál (hang-DSP,
+# energiakezelés, offload-funkciók), ÉS a csere visszafordítható (az inbox driver a
+# csomag törlése után automatikusan visszaköt).
+GENERIC_REPLACE_CLASSES = {
+    'MEDIA', 'NET', 'BLUETOOTH', 'SYSTEM', 'IMAGE', 'CAMERA',
+    'BIOMETRIC', 'PORTS', 'MODEM', 'SMARTCARDREADER', 'INFRARED',
+}
+
+# SOHA nem cserélünk generikus drivert ezekben az osztályokban:
+#  - tárolóvezérlő (SCSIAdapter/HDC/DiskDrive): a rendszerlemez vezérlőjének
+#    drivercseréje INACCESSIBLE_BOOT_DEVICE-t okozhat, és a hiba csak a KÖVETKEZŐ
+#    bootnál derül ki, amikor már nincs mód visszaállni - ez az egyetlen eset, amit
+#    a "telepítsd, ellenőrizd, szükség esetén állítsd vissza" háló NEM fed le;
+#  - Display: a videokártyához az NVIDIA/AMD/Intel kártya adja a gyári legfrissebbet
+#    (app/gui/nvidia.py, vendorgpu.py), a katalógus ennél mindig régebbi;
+#  - beviteli eszközök / monitor / nyomtatósor / kötetek: itt a Microsoft drivere a
+#    helyes, gyári csere se nem elérhető, se nem kívánatos.
+GENERIC_REPLACE_BLOCKED_CLASSES = {
+    'SCSIADAPTER', 'HDC', 'DISKDRIVE', 'VOLUME', 'VOLUMESNAPSHOT', 'FLOPPYDISK',
+    'DISPLAY', 'MONITOR', 'HIDCLASS', 'KEYBOARD', 'MOUSE', 'PRINTER', 'PRINTQUEUE',
+    'USB', 'COMPUTER', 'PROCESSOR', 'FIRMWARE', 'SOFTWAREDEVICE', 'SOFTWARECOMPONENT',
+}
+
+# Csak konkrét chipet azonosító, gyártó-kódos HWID jöhet szóba (PCI\VEN_xxxx&DEV_yyyy,
+# HDAUDIO\FUNC_01&VEN_xxxx, USB\VID_xxxx&PID_yyyy). Ez zárja ki az ACPI\PNP0C02-féle
+# általános rendszer-csomópontokat, amikre se katalógus-találat nincs, se értelme -
+# egyben drasztikusan csökkenti a felesleges katalógus-lekérdezések számát.
+_VENDOR_HWID_RE = re.compile(r'^(PCI|HDAUDIO|USB)\\.*(VEN_|VID_)', re.IGNORECASE)
+
+# Windows-BUSZ/ENUMERÁTOR INF-ek: ezekhez nem létezik "gyári megfelelő", a Microsoft
+# drivere maga a helyes megoldás. Enélkül a szabály elszaladt: a gépen mért 19 jelöltből
+# 17 PCI-híd / host bridge / root port volt (pci.inf, machine.inf) - értelmetlen
+# katalógus-lekérdezések tucatjai, és a végén egy oda nem való csomag telepítése.
+# A hdaudbus.inf szándékosan itt van: az a HD Audio BUSZ enumerátora (a pci.inf párja),
+# nem a hangchip drivere - azt a hdaudio.inf adja, és azt cseréljük.
+GENERIC_REPLACE_BLOCKED_INFS = {
+    'pci.inf', 'machine.inf', 'acpi.inf', 'hal.inf', 'msisadrv.inf', 'isapnp.inf',
+    'swenum.inf', 'umbus.inf', 'compositebus.inf', 'vdrvroot.inf', 'msports.inf',
+    'hdaudbus.inf', 'ksfilter.inf', 'audioendpoint.inf', 'usbhub3.inf', 'usbxhci.inf',
+    'usb.inf', 'kdnic.inf', 'ndisvirtualbus.inf', 'spaceport.inf', 'volmgr.inf',
+    'mssmbios.inf', 'wmiacpi.inf', 'uefi.inf', 'c_firmware.inf', 'cpu.inf',
+}
+
+
+_HWID_SUFFIX_RE = re.compile(r'&(SUBSYS|REV|CC)_[0-9A-F]+', re.IGNORECASE)
+
+
+def base_vendor_hwid(hwid):
+    """A HWID gyártó+eszköz törzse, az alrendszer-/revízió-/osztálykód-utótagok nélkül:
+        HDAUDIO\\FUNC_01&VEN_10EC&DEV_0892&SUBSYS_18496893&REV_1003
+            -> HDAUDIO\\FUNC_01&VEN_10EC&DEV_0892
+        PCI\\VEN_10EC&DEV_8168&SUBSYS_81681849&REV_15  ->  PCI\\VEN_10EC&DEV_8168
+
+    Miért kell: az eszköz HWID-listája (Win32_PnPEntity.HardwareID) sokszor CSAK
+    alrendszer-kötött azonosítókat tartalmaz - a gépen mérve (Realtek ALC892) pontosan
+    kettőt, mindkettő &SUBSYS_18496893-mal. A Microsoft Update Catalogban viszont az
+    alrendszeres kulcson egy 2021-es csomag ül (6.0.9136.1), a gyártó FRISS csomagja
+    (6.0.9992.1, 2026-05-18) pedig csak az alrendszer nélküli törzsön található meg.
+    E nélkül a kiegészítés nélkül tehát pont az 5 évvel újabb drivert nem találnánk meg.
+    Üres sztringet ad, ha nincs mit levágni (a HWID már törzsalakú)."""
+    if not hwid or '\\' not in hwid:
+        return ''
+    bus, _sep, rest = hwid.partition('\\')
+    stripped = _HWID_SUFFIX_RE.sub('', rest).strip('&')
+    if not stripped or stripped.lower() == rest.strip('&').lower():
+        return ''
+    return f'{bus}\\{stripped}'
+
+
+def is_generic_replace_candidate(dev, inst):
+    """Cserélhető-e ezen az eszközön a Windows generikus drivere gyárira?
+
+    dev: a _filter_wu_scan_devices egy eleme, inst: a _get_installed_driver_info
+    hozzá tartozó rekordja ({'version','date','provider','inf'}).
+
+    Feltételek: (1) a jelenlegi driver beépített (inbox) - erre a _is_inbox_driver
+    válaszol; (2) az eszközosztály engedélyezett; (3) a HWID konkrét chipet azonosít.
+    Hibakódos eszközre False-t adunk: azokat a hívó a saját (régebbi, teljes körű)
+    hibás-eszköz ágán kezeli, különben kétszer kerülnének a keresésbe."""
+    if not dev or dev.get('err_code'):
+        return False
+    if not inst or not _is_inbox_driver(inst):
+        return False
+    pclass = (dev.get('pclass') or '').strip().upper()
+    if pclass in GENERIC_REPLACE_BLOCKED_CLASSES or pclass not in GENERIC_REPLACE_CLASSES:
+        return False
+    if (inst.get('inf') or '').strip().lower() in GENERIC_REPLACE_BLOCKED_INFS:
+        return False
+    return bool(_VENDOR_HWID_RE.match(dev.get('id') or ''))
+
+
+def mark_generic_replace_candidates(devices, installed_info):
+    """A jelöltekre ráteszi a 'generic_ok' jelzőt, és visszaadja őket listaként.
+
+    A jelző azért kell, mert a katalógus-kereső (_catalog_find_driver) CSAK a
+    megjelölt eszközöknél hagyja ki a verzió-összehasonlítást: az inbox driver
+    verziószáma a Windows buildje (10.0.26100.8457), tehát számszerűen mindig
+    magasabb, mint a gyári csomagé (Realtek 6.0.9992.1) - a verzió itt értelmetlen
+    mérce. Máshol (pl. a teljes katalógus-fallbacknél) marad a régi, verzió-alapú
+    szűrés, hogy ez a szabály ne szivárogjon ki minden eszközre."""
+    out = []
+    for dev in devices or []:
+        inst = (installed_info or {}).get((dev.get('pnp_id') or '').upper()) or {}
+        if is_generic_replace_candidate(dev, inst):
+            dev['generic_ok'] = True
+            out.append(dev)
+    return out
 
 
 def _filter_wu_downgrades(matches, wu_by_uid, installed_info):
