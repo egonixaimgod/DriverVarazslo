@@ -990,7 +990,19 @@ try {
                 # lánc végtelen reboot-loopba kerülne (field-seen: AMDIF031 amdgpio3.inf).
                 added_m = re.search(r'Added driver packages?\s*:\s*(\d+)', res.stdout or '', re.IGNORECASE)
                 added_zero = added_m is not None and int(added_m.group(1)) == 0
-                installed_ok = (res.returncode == 0 or any(k in res.stdout for k in ["Added", "sikeres", "successfully"])) and not added_zero
+                # "(Already exists in the system)": a csomag MÁR a DriverStore-ban van egy
+                # korábbi körből, a pnputil mégis "Added driver packages: N"-t ír (N>0), az
+                # added_zero-guard tehát NEM fog rá. Ha MINDEN "added successfully" sor
+                # már-létező, akkor SEMMI új nem került fel - a generikus->gyári jelölt
+                # (pl. Realtek UAD audio, ami a hdaudio.inf-en ragad és nem bind-el át)
+                # különben minden körben "1 települt"-et jelentene, végtelen reboot-loopot
+                # okozva (terepen, Build 228: az audio 3 körön át újratelepült). Ezt is
+                # no-opként kell kezelni, pontosan mint az added_zero-t.
+                add_ok_lines = len(re.findall(r'added successfully', res.stdout or '', re.IGNORECASE))
+                already_exists = len(re.findall(r'already exists in the system', res.stdout or '', re.IGNORECASE))
+                all_already = add_ok_lines > 0 and already_exists >= add_ok_lines
+                no_op = added_zero or all_already
+                installed_ok = (res.returncode == 0 or any(k in res.stdout for k in ["Added", "sikeres", "successfully"])) and not no_op
                 if installed_ok:
                     with counter_lock:
                         success += 1
@@ -1001,10 +1013,11 @@ try {
                             generic_installs.append(
                                 (drv, re.findall(r'Published Name\s*:\s*(oem\d+\.inf)', res.stdout or '', re.IGNORECASE)))
                     self.emit('task_progress', {'task': task_id, 'log': f'  ✅ {name} telepítve!'})
-                elif added_zero:
+                elif no_op:
                     with counter_lock:
                         skipped += 1
-                    self.emit('task_progress', {'task': task_id, 'log': f'  ↷ {name} már naprakész (nincs új csomag) - kihagyva.'})
+                    reason = 'már a rendszerben van' if all_already else 'nincs új csomag'
+                    self.emit('task_progress', {'task': task_id, 'log': f'  ↷ {name} már naprakész ({reason}) - kihagyva.'})
                 else:
                     with counter_lock:
                         fail += 1

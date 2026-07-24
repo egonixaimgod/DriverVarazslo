@@ -41,6 +41,7 @@ from app.wu_core import verify_failed_installs
 from app.wu_core import unoffered_requested_titles
 from app.wu_core import mark_generic_replace_candidates
 from app.common import spawn_failed
+from app.common import CMD_TIMEOUT_RETURNCODE
 from app.drivers_core import DELETE_DRIVER_TIMEOUT
 from app.gui.hwscan import PNP_ERROR_CODE_DESCRIPTIONS
 from datetime import datetime
@@ -53,9 +54,16 @@ from datetime import datetime
 AUTOFIX_MAX_DELETE_ROUNDS = 3
 
 # Hány TELEPÍTŐ láb futhat egy láncban (a pending-reboot miatti újraindításokkal együtt).
-# A lánc önmagát láncolja tovább, amíg települ valami vagy reboot van függőben - ez a
-# plafon zárja ki a végtelen újraindulás-ciklust egy sosem gyógyuló gépen.
-AUTOFIX_MAX_INSTALL_LEGS = 3
+# A lánc önmagát láncolja tovább, amíg települ valami vagy reboot van függőben, és a
+# NORMÁL leállás az, hogy egy körben már NULLA új driver települ (explicit user decision,
+# Build 228: "addig induljon újra, amíg már nem talál újabb drivert; amikor nem talált
+# újabbat, akkor van kész"). Ez a szám ezért NEM a szokásos működés kerete, hanem egy
+# magas biztonsági backstop egy patologikus, sosem gyógyuló gép ellen (ahol minden körben
+# ténylegesen felkerül egy FRISS csomag, ami sosem bind-el át). Reális gépen sosem érjük
+# el: a Build-228-as loop oka egy már-létező csomag téves "1 települt"-ként számolása volt,
+# amit a hwscan._install_catalog_sync "already exists" no-op-ként kezel - a jelölt így a
+# következő körben már nem hoz telepítést, és a lánc magától lezárul.
+AUTOFIX_MAX_INSTALL_LEGS = 10
 
 
 class GuiAutofixMixin:
@@ -1096,19 +1104,27 @@ class GuiAutofixMixin:
                     try:
                         # A DCH-driverekhez tartozó Store-alkalmazások (Intel Graphics Command
                         # Center, Realtek Audio Console...) frissítése. Ez NEM driver-telepítés,
-                        # a driverek addigra mind fent vannak - ezért nem is várunk rá.
+                        # a driverek addigra fent vannak.
                         #
-                        # SOHA ne _run-nal hívd: az UpdateScanMethod egy SZINKRON rendszerhívás,
-                        # ami végigfuttatja a teljes Store-app ellenőrzést - terepen 112 mp-ig
-                        # blokkolt, jóval a "MINDEN LÉPÉS KÉSZ" kiírás UTÁN, és a felhasználó
-                        # joggal hitte, hogy lefagyott. Popen + nem várunk rá = tényleg háttér.
+                        # Explicit user decision (Build 228): VÁRUNK rá, max 10 percig. A régi
+                        # fire-and-forget Popen azért volt rossz, mert a lánc végén NINCS
+                        # reboot, a felhasználó pedig előbb-utóbb bezárja az appot - az
+                        # exitkori cleanup_zombies() `taskkill /F /T` viszont a teljes
+                        # process-fát kilövi, így a háttérbe küldött Store-sync gyakran
+                        # sosem futott végig. Ezért most SZINKRON, a saját 10 perces
+                        # időkorlátjával (_run elnyeli a TimeoutExpired-et -> CMD_TIMEOUT_
+                        # RETURNCODE, nem dob kivételt): ha időben végez, "kész"; ha a 10 percet
+                        # túllépi, jelezzük, hogy a háttérben folytatódhat, és továbblépünk.
                         ws_script = r"Get-CimInstance -Namespace 'Root\cimv2\mdm\dmmap' -ClassName 'MDM_EnterpriseModernAppManagement_AppManagement01' | Invoke-CimMethod -MethodName UpdateScanMethod"
-                        subprocess.Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ws_script],
-                                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                         startupinfo=self._si, creationflags=self._nw)
-                        self.emit('task_progress', {'task': 'autofix', 'log': '✅ Store App-ok szinkronizálása a háttérben elindítva (nem várunk rá).'})
+                        self.emit('task_progress', {'task': 'autofix', 'log': '⏳ Store App-ok szinkronizálása folyamatban (legfeljebb 10 percig várunk rá)...', 'indeterminate': True})
+                        ws_res = self._run(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ws_script], timeout=600)
+                        if ws_res.returncode == CMD_TIMEOUT_RETURNCODE:
+                            self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ A Store-szinkron 10 perc alatt nem fejeződött be - a Windows a háttérben magától folytatja. Továbblépünk.'})
+                        else:
+                            self.emit('task_progress', {'task': 'autofix', 'log': '✅ Store App-ok szinkronizálása kész.'})
                     except Exception as e:
                         logging.debug(f"[AUTOFIX] Store App sync error: {e}")
+                        self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ A Store-szinkront nem sikerült elindítani (nem kritikus, a driverek fent vannak).'})
                     
                     try:
                         self.emit('task_progress', {'task': 'autofix', 'log': '\nA FOLYAMAT SIKERESEN BEFEJEZŐDÖTT!'})
