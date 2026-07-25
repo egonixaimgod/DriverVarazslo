@@ -147,7 +147,13 @@ def _filter_wu_scan_devices(pnp_data):
     (virtuális/ROOT/ignorált osztályok nélkül, HWID szerint deduplikálva) és kategorizálja őket."""
     if not isinstance(pnp_data, list):
         pnp_data = [pnp_data] if pnp_data else []
-    seen_hwids = set()
+    # HWID -> a már felvett eszköz dict-je. A deduplikálás azért kell, hogy két AZONOS
+    # eszközre (2 db ugyanolyan NIC, 4 db azonos USB-vezérlő) ne fusson le kétszer
+    # ugyanaz a WU-/katalógus-lekérdezés. A duplikátum viszont NEM veszhet el nyomtalanul:
+    # ha a második példány hibakódos és az elsőnek nincs hibája, a hibakód (és a
+    # példányszám) felkerül a megtartott eszközre - különben egy döglött második
+    # hangkártya/hálókártya sosem jelent meg a "Problémás eszközök" listán.
+    seen_hwids = {}
     devices = []
     for d in pnp_data:
         n = d.get("Name") or "Ismeretlen Eszköz"
@@ -167,9 +173,24 @@ def _filter_wu_scan_devices(pnp_data):
             continue
 
         hwid_clean = hwids_list[0] if hwids_list else pid
-        if not hwid_clean or hwid_clean in seen_hwids:
+        if not hwid_clean:
             continue
-        seen_hwids.add(hwid_clean)
+        try:
+            err_code = int(d.get("ConfigManagerErrorCode") or 0)
+        except (TypeError, ValueError):
+            err_code = 0
+        prev = seen_hwids.get(hwid_clean)
+        if prev is not None:
+            # Azonos hardver másodpéldánya: nem külön eszközként visszük tovább (fölösleges
+            # duplikált keresés lenne), de a hibakódját és a példányszámot megőrizzük.
+            prev['dup_count'] = prev.get('dup_count', 1) + 1
+            prev.setdefault('dup_pnp_ids', []).append(pid)
+            if err_code and not prev.get('err_code'):
+                prev['err_code'] = err_code
+                prev['err_from_dup'] = True
+                logging.info(f"[PNP] Azonos HWID másodpéldánya hibakódos ({err_code}): {n} - "
+                             f"a hibakód átvéve a megtartott példányra ({hwid_clean}).")
+            continue
 
         # A Win32_PnPEntity.PNPClass írásmódja eszközönként eltér (a hangkártyáknál pl.
         # "MEDIA" csupa nagybetűvel), ezért a besorolás KISBETŰSÍTVE hasonlít - a régi,
@@ -187,16 +208,21 @@ def _filter_wu_scan_devices(pnp_data):
         elif pclass_l == "biometric": cat = "🔒 Ujjlenyomat / Biometria"
         else: cat = f"🔧 Egyéb ({pclass})"
 
-        try:
-            err_code = int(d.get("ConfigManagerErrorCode") or 0)
-        except (TypeError, ValueError):
-            err_code = 0
-
         # pclass: a nyers PNPClass megőrzése - erre épül a "gyári driver a generikus
         # helyett" osztály-szűrése (is_generic_replace_candidate); a 'cat' emberi
         # felirat, azzal szűrni törékeny lenne.
-        devices.append({"cat": cat, "name": n, "id": hwid_clean, "pnp_id": pid,
-                        "all_hwids": hwids_list, "err_code": err_code, "pclass": pclass})
+        dev = {"cat": cat, "name": n, "id": hwid_clean, "pnp_id": pid,
+               "all_hwids": hwids_list, "err_code": err_code, "pclass": pclass}
+        seen_hwids[hwid_clean] = dev
+        devices.append(dev)
+    # A deduplikálás LISTÁT SZŰKÍT, tehát meg kell mondania, mit vont össze - különben egy
+    # "eltűnt az egyik hálókártyám" bejelentés visszakövethetetlen (lásd CLAUDE.md).
+    merged = [(d['name'], d['dup_count']) for d in devices if d.get('dup_count')]
+    if merged:
+        logging.info(f"[PNP] {len(devices)} eszköz a szűrés után; azonos HWID-ű példányok "
+                     f"összevonva: {merged}")
+    else:
+        logging.info(f"[PNP] {len(devices)} eszköz a szűrés után (nincs többpéldányos eszköz).")
     return devices
 
 
@@ -238,13 +264,27 @@ def _hwid_matches(wu_hwid, dev_hwid):
         return False
     if w == d:
         return True
-    if w.startswith(d) or d.startswith(w):
-        return True
     wt = _hwid_tokens(w)
     dt = _hwid_tokens(d)
-    if not wt or not dt:
+    # Busz-előtag NÉLKÜLI azonosító (pl. 'usbmmidd'): csak a fenti pontos egyezés számít.
+    # A korábbi kód itt még egy nyers string-prefixet is elfogadott, ami pont az ellen
+    # hatott, amit a docstring ígér: az 'USB' így illeszkedett az 'USBMMIDD'-re.
+    if not wt or not dt or wt[0] != dt[0]:
         return False
-    return wt[0] == dt[0] and wt[1] <= dt[1]
+    # ALSÓ KORLÁT: a szűkebb azonosítónak legalább 2 tokenesnek kell lennie. Egyetlen
+    # tokenes azonosító (pl. 'PCI\VEN_8086') különben a gép ÖSSZES Intel PCI-eszközére
+    # illeszkedne - részhalmazként ÉS prefixként is -, és a csomag egy tetszőleges
+    # eszközhöz rendelődne. Rossz telepítést ez nem okoz (a pnputil úgyis ellenőrzi az
+    # alkalmazhatóságot), viszont a downgrade-védelem és a "telepítve: X" kijelzés a
+    # ROSSZ eszköz adatait nézné. A terepen bizonyított esetek mind 2+ tokenesek:
+    # ven+dev+rev (R9 200), ven+cc (amdafd), vid+pid (USB kompozit).
+    if min(len(wt[1]), len(dt[1])) < 2:
+        return False
+    # Részhalmaz MINDKÉT irányban: a WU-azonosító lehet általánosabb (ven+dev vs.
+    # ven+dev+subsys+rev), de lehet specifikusabb is (a kompozit USB-eszköz szülője
+    # rövidebb, mint a csomag &MI_00-s interfész-azonosítója). Ez a két irány váltja ki
+    # a régi string-prefix szabályt, annak hamis találatai nélkül.
+    return wt[1] <= dt[1] or dt[1] <= wt[1]
 
 
 def _match_wu_updates_to_devices(wu_results, devices, exclude_uids=None):
@@ -349,6 +389,18 @@ def _is_inbox_driver(inst):
 GENERIC_REPLACE_CLASSES = {
     'MEDIA', 'NET', 'BLUETOOTH', 'SYSTEM', 'IMAGE', 'CAMERA',
     'BIOMETRIC', 'PORTS', 'MODEM', 'SMARTCARDREADER', 'INFRARED',
+    # 2026-07 bővítés:
+    #  - SDHOST/MEMORY: kártyaolvasók (Realtek RTS5227/5229 gyakorlatilag minden üzleti
+    #    laptopban). A gyári driver érdemben többet tud (kártyafelismerés, energiakezelés),
+    #    a csere pedig visszafordítható - a rollback-háló fedi.
+    #  - SENSOR: laptop-szenzorok (Intel ISH, gyorsulásmérő, fényérzékelő).
+    #  - DISPLAY: SZÁNDÉKOS kivétel a "videokártyához a gyártói kártya a jobb forrás"
+    #    szabály alól. Ez az ág CSAK akkor fut, ha az eszköz JELENLEG inbox driveren van
+    #    (_is_inbox_driver) - vagyis a Microsoft Basic Display Adapteren, gyorsítás nélkül.
+    #    Ott bármilyen valódi driver jobb a semminél, és a gyártói kártyák közül az
+    #    AMD/Intel csak LINK-OUT (nem telepít), az NVIDIA-é meg csak a manuális szkenben
+    #    fut - tehát AutoFix után a gép addig a basic display-en maradt volna.
+    'SDHOST', 'MEMORY', 'SENSOR', 'DISPLAY',
 }
 
 # SOHA nem cserélünk generikus drivert ezekben az osztályokban:
@@ -362,7 +414,7 @@ GENERIC_REPLACE_CLASSES = {
 #    helyes, gyári csere se nem elérhető, se nem kívánatos.
 GENERIC_REPLACE_BLOCKED_CLASSES = {
     'SCSIADAPTER', 'HDC', 'DISKDRIVE', 'VOLUME', 'VOLUMESNAPSHOT', 'FLOPPYDISK',
-    'DISPLAY', 'MONITOR', 'HIDCLASS', 'KEYBOARD', 'MOUSE', 'PRINTER', 'PRINTQUEUE',
+    'MONITOR', 'HIDCLASS', 'KEYBOARD', 'MOUSE', 'PRINTER', 'PRINTQUEUE',
     'USB', 'COMPUTER', 'PROCESSOR', 'FIRMWARE', 'SOFTWAREDEVICE', 'SOFTWARECOMPONENT',
 }
 
@@ -432,6 +484,76 @@ def is_generic_replace_candidate(dev, inst):
     if (inst.get('inf') or '').strip().lower() in GENERIC_REPLACE_BLOCKED_INFS:
         return False
     return bool(_VENDOR_HWID_RE.match(dev.get('id') or ''))
+
+
+# A MÉLY KATALÓGUS-SZKENBŐL kizárt osztályok. SZÁNDÉKOSAN SZŰKEBB, mint a
+# GENERIC_REPLACE_BLOCKED_CLASSES, mert más a kockázat: ott a Microsoft generikus driverét
+# cserélnénk gyárira (ismeretlen kimenetel), itt egy MEGLÉVŐ gyári drivert frissítenénk a
+# saját újabb verziójára (ugyanaz, amit a WU is tenne). Ezért a HID/Display/Ports itt
+# engedélyezett - a verzió-kapu miatt csak szigorúan újabb csomag jöhet szóba.
+#
+# Ami viszont NEM engedhető, mert a hiba VISSZAFORDÍTHATATLAN:
+#  - tárolóvezérlő + lemez: egy rossz csere INACCESSIBLE_BOOT_DEVICE-szal jelentkezik a
+#    KÖVETKEZŐ bootnál, amikor már semmilyen visszaállításunk nem fut le. Ez a projekt
+#    egyik legerősebb szabálya (lásd CLAUDE.md), és a mély szken nem kerülheti meg:
+#    élő mérésen a kör be is hozta a "Standard NVM Express Controller"-t és a "Standard
+#    SATA AHCI Controller"-t, mielőtt ez a lista elkészült.
+#  - USB-vezérlő: egy bukott csere a billentyűzetet és az egeret viszi el, azaz pont azt,
+#    amivel javítani lehetne.
+#  - FIRMWARE: BIOS/UEFI-frissítés, teljesen más kockázati osztály - hatókörön kívül.
+#  - MONITOR: a monitor-INF EDID/színprofil metaadat, nem funkcionális driver.
+DEEP_CATALOG_BLOCKED_CLASSES = {
+    'SCSIADAPTER', 'HDC', 'DISKDRIVE', 'VOLUME', 'VOLUMESNAPSHOT', 'FLOPPYDISK',
+    'USB', 'FIRMWARE', 'MONITOR', 'COMPUTER', 'PROCESSOR',
+}
+
+
+def deep_catalog_candidates(devices, installed_info):
+    """MÉLY KATALÓGUS-SZKEN eszközhalmaza: azok az eszközök, amikre egyáltalán ÉRTELMES
+    megkérdezni a Microsoft Update Catalogot.
+
+    A mély szken célja, hogy egy RÉGI, de hibátlanul működő gyári driver is frissülhessen -
+    a WU Agent ilyet nem ajánl fel (szerinte az eszköz rendben van), a szűk katalógus-
+    kiegészítés pedig csak a hibakódos és az inbox-driveres eszközöket nézte. Ezért itt
+    NINCS osztály-whitelist és nincs inbox-feltétel.
+
+    Három szűrő viszont marad, és mind MÉRÉSEN alapul (élő gép, 2026-07, 99 eszköz):
+    - a VISSZAFORDÍTHATATLAN kockázatú osztályok kizárása (DEEP_CATALOG_BLOCKED_CLASSES) -
+      lásd ott, ez a legfontosabb a háromból;
+    - gyártó-kódos HWID kell (_VENDOR_HWID_RE): egy 'ACPI\\PNP0C02' rendszer-csomópontra a
+      katalógus sosem ad találatot, csak hálózati kört és időt visz;
+    - busz-enumerátor INF-en futó eszköz kimarad (GENERIC_REPLACE_BLOCKED_INFS): PCI-hidak,
+      root portok, ACPI-csomópontok - ezekhez gyári driver nem is létezik.
+    A szűrők a 99 eszközt 16-ra vágták, a teljes katalógus-kör 22 mp lett (10 szálon).
+
+    A csomag-szintű döntés (mi számít újabbnak) VÁLTOZATLANUL a _catalog_find_driver
+    verzió-kapuja - ez a függvény csak azt mondja meg, kit érdemes megkérdezni."""
+    out = []
+    dropped = {'osztály': [], 'nincs gyártói HWID': [], 'busz-INF': []}
+    for dev in devices or []:
+        name = dev.get('name') or '?'
+        if (dev.get('pclass') or '').strip().upper() in DEEP_CATALOG_BLOCKED_CLASSES:
+            dropped['osztály'].append(f"{name} [{dev.get('pclass')}]")
+            continue
+        if not _VENDOR_HWID_RE.match(dev.get('id') or ''):
+            dropped['nincs gyártói HWID'].append(name)
+            continue
+        inst = (installed_info or {}).get((dev.get('pnp_id') or '').upper()) or {}
+        if (inst.get('inf') or '').strip().lower() in GENERIC_REPLACE_BLOCKED_INFS:
+            dropped['busz-INF'].append(f"{name} [{inst.get('inf')}]")
+            continue
+        out.append(dev)
+    # A terepi kérdés MINDIG az, hogy "miért nem kapott az X eszköz drivert?" - és az első
+    # lépés annak eldöntése, hogy egyáltalán MEGKÉRDEZTÜK-e rá a katalógust. E nélkül a
+    # szűrő némán ejtene eszközöket (lásd CLAUDE.md: a listaszűkítő döntéseknek meg kell
+    # nevezniük, mit dobtak el). Egy összegző sor + kategóriánként a nevek, DEBUG-on -
+    # nem hot loop (szkennenként egyszer fut), de a nevek sokan lehetnek.
+    logging.info(f"[CATALOG] Mély szken köre: {len(out)}/{len(devices or [])} eszköz "
+                 f"(kizárva: {', '.join(f'{k}={len(v)}' for k, v in dropped.items() if v) or 'semmi'})")
+    for reason, names in dropped.items():
+        if names:
+            logging.debug(f"[CATALOG] Mély szkenből kizárva ({reason}): {names}")
+    return out
 
 
 def mark_generic_replace_candidates(devices, installed_info):

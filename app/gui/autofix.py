@@ -40,6 +40,9 @@ from app.wu_core import is_reboot_pending
 from app.wu_core import verify_failed_installs
 from app.wu_core import unoffered_requested_titles
 from app.wu_core import mark_generic_replace_candidates
+from app.wu_core import _is_inbox_driver
+from app.wu_core import is_generic_replace_candidate
+from app.wu_core import deep_catalog_candidates
 from app.common import spawn_failed
 from app.common import CMD_TIMEOUT_RETURNCODE
 from app.drivers_core import DELETE_DRIVER_TIMEOUT
@@ -52,6 +55,13 @@ from datetime import datetime
 # egy kör elég; a plafon csak a végtelen ciklus ellen véd, a tényleges leállási feltétel az,
 # hogy egy kör alatt haladjunk (ha nulla csomag törlődik, azok eltávolíthatatlanok).
 AUTOFIX_MAX_DELETE_ROUNDS = 3
+
+# A katalógus-zárókör MINDEN eszközre lefut-e (True), vagy csak a hibakódosakra és a
+# Windows-alapdriveren futókra (False). True esetén egy régi, de hibátlanul működő gyári
+# driver is frissülhet - a WU ilyet nem ajánl, mert szerinte az eszköz rendben van.
+# Ára: eszközönként max 4 HTTP-lekérdezés a katalógus felé (10 szálon, ~1 perc egy
+# átlagos gépen). A _catalog_find_driver verzió-kapuja miatt downgrade-et nem hozhat.
+AUTOFIX_DEEP_CATALOG = True
 
 # Hány TELEPÍTŐ láb futhat egy láncban (a pending-reboot miatti újraindításokkal együtt).
 # A lánc önmagát láncolja tovább, amíg települ valami vagy reboot van függőben, és a
@@ -506,8 +516,16 @@ class GuiAutofixMixin:
                 # vezérlők és a videokártya szándékosan ki vannak zárva, lásd ott.
                 inst_info = self._get_installed_driver_info()
                 generic_devs = mark_generic_replace_candidates(devices_now, inst_info)
+                # MÉLY KATALÓGUS-KÖR (AUTOFIX_DEEP_CATALOG): a hibás és a generikus
+                # driveres eszközök mellé MINDEN eszköz bekerül. Enélkül egy eszköz, ami
+                # egy régi gyári driveren hibátlanul fut, sosem kapott újabbat: a WU
+                # szerint rendben van, inbox-jelölt nem lévén a katalógust meg se kérdeztük
+                # rá. A verzió-kapu (_catalog_find_driver) csak SZIGORÚAN újabb csomagot
+                # enged át, tehát ez nem hozhat downgrade-et - és pont ez a kapu az, ami a
+                # kört is véget vet: a második lábon már semmi nem lesz újabb.
+                deep_devs = deep_catalog_candidates(devices_now, inst_info) if AUTOFIX_DEEP_CATALOG else []
                 cat_devs, cat_ids = [], set()
-                for d in problem_devs + generic_devs:
+                for d in problem_devs + generic_devs + deep_devs:
                     if d['id'] not in cat_ids:
                         cat_ids.add(d['id'])
                         cat_devs.append(d)
@@ -515,12 +533,22 @@ class GuiAutofixMixin:
                     # A WU elhasalt, de nincs se hibakódos, se generikus driveres eszköz.
                     self.emit('task_progress', {'task': task_id, 'log': 'ℹ️ Nincs hibakódos eszköz, a katalógus-keresés kihagyva.'})
                 elif cat_devs:
+                    # A felirat a TÉNYLEGES kört írja le. Korábban csak a hibás + generikus
+                    # eszközöket sorolta fel, így a mély körnél "0 hibás + 1 Windows-
+                    # alapdriveres eszköz keresése" jelent volna meg, miközben 16 eszköz
+                    # lekérdezése futott - a log ([EMIT:]) is ezt a téves számot őrizte volna.
+                    primary_ids = {d['id'] for d in problem_devs + generic_devs}
+                    deep_extra = sum(1 for d in cat_devs if d['id'] not in primary_ids)
                     detail = []
                     if problem_devs:
                         detail.append(f'{len(problem_devs)} hibás')
                     if generic_devs:
                         detail.append(f'{len(generic_devs)} Windows-alapdriveres')
-                    self.emit('task_progress', {'task': task_id, 'log': f'\n--- KATALÓGUS-ZÁRÓKÖR: {" + ".join(detail)} eszköz keresése a Microsoft Update Catalogban... ---'})
+                    if deep_extra:
+                        detail.append(f'{deep_extra} mélykeresés')
+                    logging.info(f"[AUTOFIX] Katalógus-zárókör: {len(cat_devs)} eszköz "
+                                 f"(hibás={len(problem_devs)}, generikus={len(generic_devs)}, mély={deep_extra})")
+                    self.emit('task_progress', {'task': task_id, 'log': f'\n--- KATALÓGUS-ZÁRÓKÖR: {" + ".join(detail)} eszköz keresése a Microsoft Update Catalogban ({len(cat_devs)} db)... ---'})
                     found = self._catalog_search_collect(cat_devs, inst_info)
                     if found:
                         self.emit('task_progress', {'task': task_id, 'log': f'✅ A katalógusban {len(found)} eszközre van driver - telepítés...'})
@@ -781,6 +809,57 @@ class GuiAutofixMixin:
         except Exception as e:
             logging.warning(f"[AUTOFIX] Eltűnt csomagok összevetése sikertelen (nem kritikus): {e}")
 
+    def _emit_driver_health(self, devices, task_id='autofix'):
+        """DRIVER-EGÉSZSÉGJELENTÉS: mely eszközök maradtak a fix végén a Windows BEÉPÍTETT
+        (inbox) driverén, gyári helyett.
+
+        Miért kell: eddig a záró összefoglaló csak azt mondta meg, mi települt, mi tűnt el
+        és mi maradt hibakódos - a legcsendesebb hiányt viszont nem: azt az eszközt, ami
+        hibakód nélkül, "működőnek látszva" fut a Microsoft generikus driverén, mert sem a
+        WU, sem a katalógus nem adott rá gyárit. Terepen mérve (2026-07-24, ASRock B450M):
+        egy hibátlanul lefutott lánc után az alaplapi hang és a LAN is így maradt - a
+        szerviznek pont ezt kell tudnia, mert ilyenkor az alaplapgyártó oldaláról kell
+        kézzel pótolni.
+
+        A listázandó kör PONTOSAN a cserejelölés feltételrendszere
+        (is_generic_replace_candidate): osztály-whitelist + busz-enumerátor INF-tiltólista +
+        gyártó-kódos HWID. Ez nem szépészeti szűrés - élő gépen mérve (2026-07, 99 eszköz)
+        a puszta "inbox driveren fut" feltétel 42 sort adott, amiből 40 PCI-híd, ACPI-
+        csomópont és WAN Miniport volt (machine.inf / pci.inf / netrasa.inf), azaz olyan
+        eszközök, amikhez gyári driver NEM IS LÉTEZIK. Egy ilyen lista használhatatlan: a
+        szerelő nem tudja kiszűrni belőle azt az egy sort, ami tényleg teendő. A szűkített
+        feltétellel ugyanaz a gép 1 sort ad - a generikus driveren maradt alaplapi hangot.
+
+        A többi inbox-driveres eszköz csak összesített számként jelenik meg. Semmit nem
+        módosít, minden hibát elnyel."""
+        try:
+            inst_info = self._get_installed_driver_info()
+            worth, by_design = [], 0
+            for dev in devices or []:
+                if dev.get('err_code'):
+                    continue   # a hibakódosakat a másik szekció listázza
+                inst = inst_info.get((dev.get('pnp_id') or '').upper()) or {}
+                if not inst or not _is_inbox_driver(inst):
+                    continue
+                if is_generic_replace_candidate(dev, inst):
+                    worth.append((dev, inst))
+                else:
+                    by_design += 1
+            if not worth and not by_design:
+                self.emit('task_progress', {'task': task_id, 'log': '✅ Nincs olyan eszköz, ami Windows-alapdriveren maradt.'})
+                return
+            if worth:
+                self.emit('task_progress', {'task': task_id, 'log': f'\n🏭 {len(worth)} eszköz Windows-alapdriveren maradt (gyári driver jobb lenne):'})
+                for dev, inst in worth:
+                    ver = inst.get('version') or '?'
+                    inf = inst.get('inf') or '?'
+                    self.emit('task_progress', {'task': task_id, 'log': f"   • {dev['name']} [{dev.get('cat', '')}] - {inf} {ver}"})
+                self.emit('task_progress', {'task': task_id, 'log': '👉 Ezekhez sem a Windows Update, sem a Microsoft Update Catalog nem adott gyári csomagot. Alaplapi hang/LAN/chipset esetén az alaplap- vagy gépgyártó letöltőoldaláról pótolható (lásd a "Driver Keresés és Telepítés" menü gyártói kártyáit).'})
+            if by_design:
+                self.emit('task_progress', {'task': task_id, 'log': f'ℹ️ További {by_design} eszköz a Windows beépített driverén fut, és ez így HELYES: PCI-hidak és ACPI-csomópontok (ezekhez gyári driver nem is létezik), illetve tárolóvezérlő, USB-vezérlő, billentyűzet/egér és monitor, ahol a Microsoft drivere a biztonságos választás.'})
+        except Exception as e:
+            logging.warning(f"[AUTOFIX] Driver-egészségjelentés hiba (nem kritikus): {e}")
+
     def _emit_autofix_summary(self, chain_total, pre_packages=None, task_id='autofix'):
         """ZÁRÓ ÖSSZEFOGLALÓ a lánc legvégén: hány driver települt a TELJES lánc alatt,
         MELY csomagok nem kerültek vissza, és mely eszközök maradtak hibakódosak (hogy a
@@ -796,7 +875,8 @@ class GuiAutofixMixin:
                     pnp_data = json.loads(res.stdout)
                 except Exception as e:
                     logging.warning(f"[AUTOFIX] PnP JSON értelmezési hiba (a maradék hibás eszközök listája üres marad): {e}")
-            problems = [d for d in _filter_wu_scan_devices(pnp_data) if d.get('err_code')]
+            all_devs = _filter_wu_scan_devices(pnp_data)
+            problems = [d for d in all_devs if d.get('err_code')]
             if problems:
                 self.emit('task_progress', {'task': task_id, 'log': f'⚠️ Továbbra is hibakódos eszköz: {len(problems)} db'})
                 for p in problems:
@@ -805,6 +885,8 @@ class GuiAutofixMixin:
                 self.emit('task_progress', {'task': task_id, 'log': 'Ezekhez a "Driver Keresés és Telepítés" menü Problémás eszközök szekciója adhat még megoldást.'})
             else:
                 self.emit('task_progress', {'task': task_id, 'log': '✅ Nem maradt hibakódos eszköz a rendszerben!'})
+            # Egészségjelentés: mi maradt Windows-alapdriveren (a leg csendesebb hiány).
+            self._emit_driver_health(all_devs, task_id)
             # A WU videokártya-driverei jellemzően hónapokkal a gyári kiadás mögött járnak,
             # az AutoFix pedig szándékosan CSAK a WU-ból dolgozik (a gyártói ellenőrzés a
             # manuális szken része, lásd app/gui/nvidia.py + vendorgpu.py). A szerviz-

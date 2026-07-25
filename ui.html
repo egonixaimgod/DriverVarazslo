@@ -605,6 +605,13 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
             <button class="btn btn-sm" onclick="deselectAllHw()" id="btn-desel-all-hw" disabled>☐ Törlés</button>
             <button class="btn btn-sm" onclick="installNicPack()" id="btn-nicpack" title="LAN/Wi-Fi vész-driverek telepítése a nicpack.zip-ből - akkor kell, ha a gépnek nincs hálózati drivere, ezért internetje sincs. A csomagot az exe mellett vagy a C:\DriverVarazslo mappában keresi, végszükségben letölti.">🛟 LAN Mentőcsomag</button>
           </div>
+          <div style="margin:-4px 0 10px">
+            <label style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);cursor:pointer"
+                   title="Bekapcsolva a program a Microsoft Update Catalogot MINDEN eszközre megkérdezi, nem csak a hibásakra és a Windows-alapdriveren futókra. Így egy régi, de működő gyári driver is frissülhet - a Windows Update ilyet nem ajánl fel. Cserébe a szken 1-2 perccel hosszabb.">
+              <input type="checkbox" id="hw-deep-scan" checked>
+              <span>🌐 Mély keresés (a katalógus minden eszközre - lassabb, de a régi gyári drivereket is frissíti)</span>
+            </label>
+          </div>
           <div style="margin-bottom:10px">
             <div class="progress" id="hw-progress" style="display:none"><div class="progress-fill" id="hw-progress-fill"></div></div>
             <div id="hw-status" style="color:var(--text2);font-size:12px;margin-top:6px"></div>
@@ -1603,7 +1610,10 @@ async function startHwScan() {
   document.getElementById('btn-hw-scan').disabled = true;
   updateHwButtons();
   try {
-    await api().start_hw_scan();
+    /* Mély keresés: a katalógust minden eszközre megkérdezzük (lásd a checkbox title-jét
+       és app/gui/hwscan.py: start_hw_scan(deep=...)). Alapértelmezés: be. */
+    const deepEl = document.getElementById('hw-deep-scan');
+    await api().start_hw_scan(deepEl ? !!deepEl.checked : true);
   } catch (e) {
     document.getElementById('hw-status').textContent = '❌ Hiba: ' + e;
     document.getElementById('hw-progress').style.display = 'none';

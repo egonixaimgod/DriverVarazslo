@@ -27,6 +27,7 @@ from app.wu_core import _match_wu_updates_to_devices
 from app.wu_core import _parse_driver_version
 from app.wu_core import base_vendor_hwid
 from app.wu_core import mark_generic_replace_candidates
+from app.wu_core import deep_catalog_candidates as wu_core_deep_candidates
 from app.wu_core import unoffered_requested_titles
 # === /AUTO-IMPORTS ===
 
@@ -57,8 +58,14 @@ PNP_ERROR_CODE_DESCRIPTIONS = {
 class GuiHwScanMixin:
     """Driver Keresés és Telepítés nézet: hardver-szken, WU/Catalog keresés, kiválasztott driverek telepítése. A DriverToolApi része (összerakás: app/gui/api.py)."""
 
-    def start_hw_scan(self):
-        logging.info("[API] start_hw_scan() hívás")
+    def start_hw_scan(self, deep=True):
+        """Hardver-szken. deep=True (alapértelmezés): a Microsoft Update Catalogot MINDEN
+        olyan eszközre megkérdezzük, amire a WU Agent nem adott ajánlatot - nem csak a
+        hibakódosakra és a Windows-alapdriveren futókra. Lassabb (eszközönként max 4 HTTP
+        lekérdezés, 10 szálon), cserébe ez az egyetlen mód, amivel egy RÉGI, de hibátlanul
+        működő gyári driver is frissülni tud. deep=False: a korábbi, szűk kiegészítés."""
+        logging.info(f"[API] start_hw_scan(deep={deep}) hívás")
+        deep = bool(deep)
         if self.target_os_path:
             self.emit('toast', {'message': '❌ Hiba: Hardver keresés csak Élő rendszeren működik!', 'type': 'error'})
             self.emit('hw_scan_result', {'pool': [], 'installed': [], 'sys_info': '❌ Offline módban nem elérhető', 'time': ''})
@@ -253,8 +260,18 @@ class GuiHwScanMixin:
                     # ezekre a WU szerint "minden rendben" (ezért nem ajánl semmit), a
                     # katalógusban viszont ott a chipgyártó csomagja.
                     leftover = [d for d in devices_to_check if d.get('err_code') and d['id'] not in matched_hwids]
+                    # MÉLY SZKEN (deep=True, alapértelmezés): a katalógust MINDEN olyan
+                    # eszközre megkérdezzük, amire a WU nem adott ajánlatot - nem csak a
+                    # hibakódosakra és a generikus driveresekre. Enélkül egy eszköz, ami
+                    # hibátlanul fut egy RÉGI gyári driveren, sosem kapott újabbat: a WU
+                    # szerint rendben van, inbox-jelölt nem lévén a katalógust meg se
+                    # kérdeztük rá. A csomagok szűrése változatlan (a _catalog_find_driver
+                    # verzió-kapuja csak SZIGORÚAN újabb csomagot enged át), tehát a mély
+                    # szken nem hoz downgrade-et, csak lefedettséget.
+                    rest = wu_core_deep_candidates(
+                        [d for d in devices_to_check if d['id'] not in matched_hwids], inst_info) if deep else []
                     todo, todo_ids = [], set()
-                    for d in leftover + generic_devs:
+                    for d in leftover + generic_devs + rest:
                         if d['id'] in matched_hwids or d['id'] in todo_ids:
                             continue
                         todo_ids.add(d['id'])
@@ -265,6 +282,10 @@ class GuiHwScanMixin:
                             parts.append(f'{len(leftover)} problémás')
                         if generic_devs:
                             parts.append(f'{len(generic_devs)} generikus driveres')
+                        primary_ids = {d['id'] for d in leftover + generic_devs}
+                        extra = sum(1 for d in todo if d['id'] not in primary_ids)
+                        if extra:
+                            parts.append(f'{extra} mélykeresés')
                         self.emit('hw_scan_progress', {'status': f'🌐 Katalógus-kiegészítés ({" + ".join(parts)} eszköz)...'})
                         self._catalog_search(todo, installed_info=inst_info)
 
@@ -665,10 +686,37 @@ try {
         threads = [threading.Thread(target=cat_worker, daemon=True, name=f"catalog-{i}") for i in range(10)]
         for t in threads:
             t.start()
+        # A join-plafon az ESZKÖZSZÁMHOZ igazodik. A fix 120 mp a szűk kiegészítéshez
+        # (1-5 eszköz) készült; a mély szken 25-30 eszközt ad, eszközönként max 4 HTTP
+        # lekérdezéssel - ott a régi plafon lejárt volna, MIELŐTT a szálak végeznek, és a
+        # `found` lista hiányosan (ráadásul még írás közben) került volna vissza.
+        # ~4 mp/eszköz 10 szálon bőven tartalékos, a 900 mp abszolút ceiling.
+        join_timeout = min(900, max(120, len(devices_to_check) * 4))
         for t in threads:
-            t.join(timeout=120)
-        logging.info(f"[CATALOG] Kész - {len(found)} eszközre van katalógus-találat")
-        return found
+            t.join(timeout=join_timeout)
+        alive = [t for t in threads if t.is_alive()]
+        if alive:
+            logging.warning(f"[CATALOG] {len(alive)} szál még fut a {join_timeout}s plafon után - "
+                            f"a találati lista hiányos lehet ({len(found)} db).")
+        # UGYANAZ A CSOMAG TÖBB ESZKÖZRE: egy chipset-csomag jellemzően több PnP-eszközt
+        # szolgál ki (élő mérés: az "AMD PCI" kétszer szerepelt, azonos letöltési URL-lel),
+        # és enélkül ugyanazt a cab-ot kétszer töltenénk le és telepítenénk. A második
+        # telepítés amúgy is "already exists" no-op lenne, csak sávszélességbe kerül.
+        by_url, deduped = {}, []
+        for hit in found:
+            u = hit.get('url') or ''
+            if u and u in by_url:
+                by_url[u].append(hit.get('name'))
+                continue
+            by_url[u] = []
+            deduped.append(hit)
+        for u, extra in by_url.items():
+            if extra:
+                logging.info(f"[CATALOG] Azonos csomag több eszközre, egyszer telepítjük - "
+                             f"kihagyott duplikátumok: {extra}")
+        logging.info(f"[CATALOG] Kész - {len(deduped)} eszközre van katalógus-találat"
+                     + (f" ({len(found) - len(deduped)} duplikált csomag összevonva)" if len(found) != len(deduped) else ""))
+        return deduped
 
     def _catalog_search(self, devices_to_check, installed_info=None):
         """Katalógus-keresés a manuális szkenhez: a találatok a self.hw_updates_pool-ba

@@ -157,11 +157,20 @@ def get_offline_drivers(run, target_os_path, all_drivers=False):
 
 def delete_succeeded(res):
     """Egy driver-törlő parancs eredményéből eldönti, sikeres volt-e (a returncode
-    mellett a lokalizált sikerszövegeket is elfogadja, kis/nagybetű-függetlenül)."""
-    if res.returncode == 0:
+    mellett a lokalizált sikerszövegeket is elfogadja, kis/nagybetű-függetlenül).
+
+    A 3010 (ERROR_SUCCESS_REBOOT_REQUIRED) MAGÁBAN sikernek számít: a csomag törlődött,
+    csak a lezáráshoz kell újraindítás - az AutoFix úgyis újraindul. Korábban ez a kód
+    a szöveges ágra esett vissza, és mivel a magyar pnputil "a törlése sikerült" alakot
+    ír (nem "törölve"), a szűrő nem talált benne semmit -> a sikeresen törölt csomag a
+    "nem sikerült eltávolítani" listára került. Csak jelentési hiba volt, de pont a záró
+    összefoglalót rontotta el. A szöveges tartalék ezért TÖBB tőre illeszkedik: a magyar
+    ragozás két külön tövet ad ('törl'-és/-ése, de 'töröl'-ve/-t), egyetlen minta nem fedi
+    mindkettőt."""
+    if res.returncode in (0, 3010):
         return True
     out = (res.stdout or '').lower()
-    return any(k in out for k in ('deleted', 'törölve', 'successfully'))
+    return any(k in out for k in ('deleted', 'successfully', 'törl', 'töröl', 'sikerült', 'eltávolít'))
 
 
 def delete_stalled(res):
