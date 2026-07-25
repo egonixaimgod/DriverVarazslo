@@ -28,6 +28,7 @@ from app.wu_core import _parse_driver_version
 from app.wu_core import base_vendor_hwid
 from app.wu_core import mark_generic_replace_candidates
 from app.wu_core import deep_catalog_candidates as wu_core_deep_candidates
+from app.wu_core import inf_package_applies
 from app.wu_core import unoffered_requested_titles
 # === /AUTO-IMPORTS ===
 
@@ -644,6 +645,11 @@ try {
             "url": cab_link.group(1), "pnp_id": item.get('pnp_id', ''),
             "installed_version": inst_ver_str,
             "installed_date": inst.get('date', ''),
+            # A telepítés UTÁNI kötés-ellenőrzéshez: az eszköz ÖSSZES valódi hardver-
+            # azonosítója (a csomag alkalmazhatóságához) és a MOSTANI INF-je (ha telepítés
+            # után sem változik, a csomag felment ugyan, de az eszköz nem vette át).
+            "all_hwids": list(item.get('all_hwids') or []),
+            "installed_inf": (inst.get('inf') or '').strip().lower(),
             "wu_title": f"MS Katalógus: {best_title}",
             "wu_date": best_date,
             # A felület ezt jelöli meg külön ("most Microsoft alapdriver"), és a
@@ -954,6 +960,13 @@ try {
         # UTÁN ellenőrizzük őket, és ha az eszköz hibakódos lett, visszaállunk (lásd
         # _verify_generic_replacements). Csak itt gyűjtjük, a kiértékelés a szálak után fut.
         generic_installs = []
+        # Sikeresnek látszó telepítések, amiknél MEG KELL NÉZNI, hogy az eszköz tényleg
+        # átvette-e a drivert (bind). Elemei: (pool-elem, reboot_pending).
+        bind_checks = []
+        # Azok az elemek, amikre a csomag NEM alkalmazható / nem kötött rá. A hívó (AutoFix)
+        # ezt átviszi a következő lábra, hogy ne töltse le újra ugyanazt.
+        no_bind = []
+        self._catalog_no_bind = no_bind
 
         try:
             import concurrent.futures
@@ -1041,6 +1054,19 @@ try {
                         fail += 1
                     return
 
+                # ALKALMAZHATÓSÁG-ELLENŐRZÉS a telepítés ELŐTT (lásd wu_core.inf_package_applies):
+                # a katalógus a törzs-HWID-re más gépgyártóra szabott változatot is adhat,
+                # ami feltelepül, de sosem köt rá az eszközre. Ilyet meg se próbálunk.
+                if not self.target_os_path and drv.get('all_hwids'):
+                    applies = inf_package_applies(ext_path, drv.get('all_hwids'))
+                    if applies is False:
+                        logging.warning(f"[CATALOG_INSTALL] Nem alkalmazható csomag, kihagyva: {name} ({drv.get('wu_title')})")
+                        self.emit('task_progress', {'task': task_id, 'log': f'  ↷ {name}: a katalógus csomagja más gépre/alaplapra készült (az INF nem ismeri ezt az eszközt) - kihagyva.'})
+                        with counter_lock:
+                            skipped += 1
+                            no_bind.append(drv)
+                        return
+
                 self.emit('task_progress', {'task': task_id, 'log': f'  Telepítés: {name}...'})
                 is_offline = bool(self.target_os_path)
                 if is_offline:
@@ -1071,6 +1097,14 @@ try {
                 if installed_ok:
                     with counter_lock:
                         success += 1
+                        # "reboot kell" esetén az eszköz csak a következő indulásnál veszi
+                        # át a drivert - ilyenkor a kötés-ellenőrzés MOST még hamis negatív
+                        # lenne (terepen: AMD PSP 3010-nel jött fel, és a reboot után rendben
+                        # átkötött). Ezért a reboot-jelzést külön visszük.
+                        reboot_pending = (res.returncode == 3010
+                                          or 'reboot is needed' in (res.stdout or '').lower())
+                        if drv.get('pnp_id') and drv.get('installed_inf') and not is_offline:
+                            bind_checks.append((drv, reboot_pending))
                         if drv.get('generic_replace'):
                             # A pnputil kiírja, milyen néven publikálta a csomagot
                             # ("Published Name: oem42.inf") - visszaálláskor pontosan ezt
@@ -1111,6 +1145,34 @@ try {
                 }
                 """
                 self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", code14_ps])
+
+                # KÖTÉS-ELLENŐRZÉS: a pnputil "Added driver packages: N" (N>0) csak annyit
+                # jelent, hogy a csomag bekerült a DriverStore-ba - NEM azt, hogy az eszköz
+                # át is vette. Terepen mérve (2026-07-25) két ilyen is volt egy futásban:
+                # a Clevo-változatú Realtek hangdriver és egy NVIDIA katalógus-csomag
+                # (32.0.15.9595), ami a nála SPECIFIKUSABB HWID-en álló 32.0.15.9186 mögött
+                # maradt. Mindkettő "✅ telepítve"-ként jelent meg, a lánc pedig minden
+                # lábon újra letöltötte őket. Sikernek csak a ténylegesen ÁTVETT driver
+                # számít; a többi "kihagyva", és a hívó a következő lábra átviszi.
+                if bind_checks:
+                    now_info = self._get_installed_driver_info()
+                    stuck = []
+                    for drv, reboot_pending in bind_checks:
+                        if reboot_pending:
+                            continue   # csak a következő bootnál dől el - most nem ítélkezünk
+                        cur = (now_info.get((drv.get('pnp_id') or '').upper()) or {})
+                        cur_inf = (cur.get('inf') or '').strip().lower()
+                        if cur_inf and cur_inf == drv.get('installed_inf'):
+                            stuck.append(drv)
+                    for drv in stuck:
+                        logging.warning(f"[CATALOG_INSTALL] A csomag felment, de az eszköz NEM vette át: "
+                                        f"{drv.get('name')} - marad {drv.get('installed_inf')} "
+                                        f"({drv.get('wu_title')})")
+                        self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {drv.get("name")}: a csomag feltelepült, de az eszköz TOVÁBBRA IS a régi driverén fut ({drv.get("installed_inf")}) - a Windows nem ezt választotta.'})
+                        no_bind.append(drv)
+                    if stuck:
+                        success -= len(stuck)
+                        skipped += len(stuck)
 
                 # Generikus -> gyári cserék utóellenőrzése (és szükség esetén visszaállítás).
                 if generic_installs:
@@ -1181,6 +1243,18 @@ try {
                 logging.warning(f"[GENERIC] Eszköz-állapot lekérdezése sikertelen: {e}")
                 return None
 
+        # A hibakód mellé a TÉNYLEGESEN betöltött INF is kell: a hibakód 0 csak annyit
+        # jelent, hogy az eszköz működik - azt nem, hogy a gyári drivert vette át. Terepen
+        # (2026-07-25) ez pontosan félrevezetett: a Realtek hangcsomag felment, a hibakód 0
+        # maradt, a felület "✅ gyári driver működik"-et írt, miközben az eszköz végig a
+        # Microsoft hdaudio.inf-jén futott (ugyanabban a futásban a záró egészségjelentés
+        # már helyesen jelezte). Sikernek csak az számít, ha az INF is kicserélődött.
+        inf_now = {}
+        try:
+            inf_now = self._get_installed_driver_info() or {}
+        except Exception as e:
+            logging.warning(f"[GENERIC] Telepített driver-infó lekérdezése sikertelen: {e}")
+
         codes = device_error_codes()
         if codes is None:
             # Nem tudjuk eldönteni - inkább hagyjuk állni a gyári drivert, de mondjuk meg.
@@ -1197,7 +1271,15 @@ try {
                 self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {name}: az eszköz eltűnt a listából (kihúzva?) - a gyári driver fent maradt.'})
                 continue
             if code == 0:
-                logging.info(f"[GENERIC] {name}: gyári driver OK (hibakód 0).")
+                cur = (inf_now.get(pnp_id) or {})
+                if cur and _is_inbox_driver(cur):
+                    # Feltelepült, de az eszköz maradt a Windows driverén - NEM siker.
+                    # Visszaállítani nincs mit (a generikus eleve rajta van), de kimondjuk.
+                    logging.warning(f"[GENERIC] {name}: a gyári csomag felment, de az eszköz "
+                                    f"a Windows driverén maradt ({cur.get('inf')}) - nem valódi csere.")
+                    self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {name}: a gyári csomag feltelepült, de az eszköz TOVÁBBRA IS a Windows driverén fut ({cur.get("inf")}) - valószínűleg más gépre szabott változat.'})
+                    continue
+                logging.info(f"[GENERIC] {name}: gyári driver OK (hibakód 0, INF: {cur.get('inf') or '?'}).")
                 self.emit('task_progress', {'task': task_id, 'log': f'  ✅ {name}: gyári driver működik (eddig Microsoft alapdriver volt).'})
                 continue
 

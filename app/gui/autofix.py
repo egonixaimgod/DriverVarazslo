@@ -550,11 +550,36 @@ class GuiAutofixMixin:
                                  f"(hibás={len(problem_devs)}, generikus={len(generic_devs)}, mély={deep_extra})")
                     self.emit('task_progress', {'task': task_id, 'log': f'\n--- KATALÓGUS-ZÁRÓKÖR: {" + ".join(detail)} eszköz keresése a Microsoft Update Catalogban ({len(cat_devs)} db)... ---'})
                     found = self._catalog_search_collect(cat_devs, inst_info)
+                    # MÁR MEGBUKOTT CSOMAGOK KISZŰRÉSE (lábakon átívelő emlékezet). Ha egy
+                    # csomag egy korábbi lábon feltelepült, de az eszköz nem vette át (más
+                    # gépre szabott változat, vagy egy specifikusabb HWID-en álló driver
+                    # verte), akkor a katalógus MINDEN további lábon újra megtalálja - a
+                    # verzió-kapu szerint ugyanis a telepített verzió változatlanul régebbi.
+                    # Terepen (2026-07-25) ez az NVIDIA-csomag KÉTSZERI letöltését jelentette
+                    # (~1,2 GB, 2,5 perc a semmiért). A tiltólista a lánc végéig él.
+                    tried = self._autofix_stats_get('catalog_no_bind') or []
+                    tried_keys = {(t.get('pnp', ''), t.get('title', '')) for t in tried}
+                    skipped_known = 0
+                    if tried_keys:
+                        before = len(found)
+                        found = [h for h in found
+                                 if ((h.get('pnp_id') or '').upper(), h.get('wu_title') or '') not in tried_keys]
+                        skipped_known = before - len(found)
+                        if skipped_known:
+                            self.emit('task_progress', {'task': task_id, 'log': f'↷ {skipped_known} csomag kihagyva: egy korábbi körben már felment, de az eszköz nem vette át (nem töltjük le újra).'})
                     if found:
                         self.emit('task_progress', {'task': task_id, 'log': f'✅ A katalógusban {len(found)} eszközre van driver - telepítés...'})
                         s, _f, _c = self._install_catalog_sync(found, task_id=task_id)
                         total_installed_in_session += s
-                    else:
+                        # Amit most nem vett át az eszköz, azt jegyezzük fel a következő lábnak.
+                        fresh = [{'pnp': (d.get('pnp_id') or '').upper(), 'title': d.get('wu_title') or '',
+                                  'name': d.get('name') or ''}
+                                 for d in (getattr(self, '_catalog_no_bind', None) or [])]
+                        if fresh:
+                            self._autofix_stats_set('catalog_no_bind', tried + fresh)
+                            logging.info(f"[AUTOFIX] {len(fresh)} nem-kötő katalógus-csomag feljegyezve a következő lábnak: "
+                                         f"{[f['name'] for f in fresh]}")
+                    elif not skipped_known:
                         self.emit('task_progress', {'task': task_id, 'log': 'ℹ️ A katalógusban sincs telepíthető driver ezekre az eszközökre.'})
         except Exception as e:
             logging.warning(f"[AUTOFIX] Katalógus-zárókör hiba (nem kritikus): {e}")
@@ -784,19 +809,63 @@ class GuiAutofixMixin:
         if not pre_packages:
             return
         try:
-            now = {(d.get('original') or '').strip().lower()
-                   for d in (self._get_third_party_drivers() or []) if d.get('original')}
-            missing = [p for p in pre_packages
-                       if (p.get('original') or '').strip().lower() not in now]
-            if not missing:
+            current = [d for d in (self._get_third_party_drivers() or []) if d.get('original')]
+            now = {(d.get('original') or '').strip().lower() for d in current}
+            gone = [p for p in pre_packages
+                    if (p.get('original') or '').strip().lower() not in now]
+            if not gone:
                 self.emit('task_progress', {'task': task_id, 'log': '✅ Minden korábbi driver-csomag visszakerült (vagy újabbra cserélődött).'})
                 return
-            self.emit('task_progress', {'task': task_id, 'log': f'\n⚠️ {len(missing)} db csomag NEM került vissza a fix után:'})
-            for p in missing:
+
+            # HÁROM CSOPORT, nem egy. A puszta "ez az INF-név nincs meg" félrevezet: terepen
+            # (2026-07-25) a listára került az `nv_dispi.inf` (helyette az `nvle.inf` van fent,
+            # ugyanattól a gyártótól, ugyanabban az osztályban) és 11 db Razer csomag, holott
+            # az egér VÉGIG BE VOLT DUGVA és működik - a WU csak egy másik, általánosabb Razer
+            # csomagot rakott fel. A régi szöveg ezekre azt tanácsolta, hogy "dugd be az
+            # eszközt", ami ilyenkor konkrétan téves. Ezért:
+            #   - lecserélve: ugyanattól a gyártótól UGYANABBAN az osztályban van csomag;
+            #   - más csomagra váltott: a gyártótól van csomag, de más osztályban;
+            #   - tényleg eltűnt: a gyártótól semmi nincs fent -> ez az igazi teendő.
+            def _prov(p):
+                return (p.get('provider') or '').strip().lower()
+
+            def _cls(p):
+                return (p.get('class') or '').strip().lower()
+
+            def _same_vendor(a, b):
+                a, b = _prov(a), _prov(b)
+                return bool(a) and bool(b) and (a.startswith(b) or b.startswith(a))
+
+            replaced, vendor_other, missing = [], [], []
+            for p in gone:
+                same_vendor = [c for c in current if _same_vendor(p, c)]
+                if any(_cls(c) == _cls(p) for c in same_vendor):
+                    replaced.append(p)
+                elif same_vendor:
+                    vendor_other.append(p)
+                else:
+                    missing.append(p)
+
+            def _line(p):
                 prov = p.get('provider') or 'ismeretlen gyártó'
                 ver = p.get('version') or '?'
                 cls = p.get('class') or ''
-                self.emit('task_progress', {'task': task_id, 'log': f"   • {p.get('original')} - {prov} ({ver}){f' [{cls}]' if cls else ''}"})
+                return f"   • {p.get('original')} - {prov} ({ver}){f' [{cls}]' if cls else ''}"
+
+            if replaced:
+                self.emit('task_progress', {'task': task_id, 'log': f'\nℹ️ {len(replaced)} csomag LECSERÉLŐDÖTT ugyanannak a gyártónak egy másik csomagjára (az eszköz működik):'})
+                for p in replaced:
+                    self.emit('task_progress', {'task': task_id, 'log': _line(p)})
+            if vendor_other:
+                self.emit('task_progress', {'task': task_id, 'log': f'\nℹ️ {len(vendor_other)} csomag helyett a gyártó MÁSIK csomagja került fel (jellemzően általánosabb; az eszköz működik, de a gyártói szoftver extra funkciói hiányozhatnak):'})
+                for p in vendor_other:
+                    self.emit('task_progress', {'task': task_id, 'log': _line(p)})
+            if not missing:
+                self.emit('task_progress', {'task': task_id, 'log': '✅ Nincs olyan csomag, ami nyom nélkül eltűnt volna.'})
+                return
+            self.emit('task_progress', {'task': task_id, 'log': f'\n⚠️ {len(missing)} db csomag NEM került vissza a fix után:'})
+            for p in missing:
+                self.emit('task_progress', {'task': task_id, 'log': _line(p)})
             # A leggyakoribb ok NEM az, hogy a WU "nem ismeri" a csomagot, hanem hogy az
             # eszköz nem volt CSATLAKOZTATVA a fix alatt: a WU (és a mi párosításunk is)
             # csak JELENLÉVŐ hardverre ad drivert, tehát a kihúzott bluetooth-dongle /

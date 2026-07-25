@@ -287,6 +287,80 @@ def _hwid_matches(wu_hwid, dev_hwid):
     return wt[1] <= dt[1] or dt[1] <= wt[1]
 
 
+# INF-ből kiolvasható hardver-azonosító: BUSZ\TOKEN&TOKEN... alak. A `_` megkövetelése
+# zárja ki a registry-utakat (SYSTEM\CurrentControlSet\...), amikben nincs VEN_/DEV_-szerű tag.
+_INF_HWID_RE = re.compile(r'\b([A-Z0-9]{2,12}\\[A-Z0-9_&\.\-]{4,})', re.IGNORECASE)
+
+
+def extract_inf_hardware_ids(text):
+    """Egy INF fájl szövegéből a benne felsorolt hardver-azonosítók halmaza."""
+    out = set()
+    for m in _INF_HWID_RE.finditer(text or ''):
+        cand = m.group(1).strip().upper().rstrip('.,;')
+        if '_' in cand:
+            out.add(cand)
+    return out
+
+
+def _read_text_best_effort(path):
+    """INF beolvasása: a fájlok hol UTF-16 LE (BOM-mal), hol ANSI, hol UTF-8 kódolásúak."""
+    try:
+        with open(path, 'rb') as f:
+            raw = f.read()
+    except Exception as e:
+        logging.debug(f"[INF] Nem olvasható ({path}): {e}")
+        return ''
+    if raw[:2] in (b'\xff\xfe', b'\xfe\xff'):
+        try:
+            return raw.decode('utf-16')
+        except Exception:
+            pass
+    for enc in ('utf-8', 'cp1252', 'latin-1'):
+        try:
+            return raw.decode(enc)
+        except Exception:
+            continue
+    return ''
+
+
+def inf_package_applies(ext_dir, dev_hwids):
+    """Vonatkozik-e a kicsomagolt driver-csomag EGYÁLTALÁN erre az eszközre?
+
+    Miért kell: a katalógus a gyártó+eszköz TÖRZS-azonosítójára (SUBSYS nélkül) az adott
+    chip ÖSSZES gépgyártó-specifikus változatát visszaadja, és a legfrissebb dátumú nyer -
+    ami könnyen egy másik gyártó gépére szabott csomag. Terepen mérve (2026-07-25, ASRock
+    B450M + Realtek ALC892): a katalógus a `HDXClevo.inf` / `HDXWHITE.inf` (Clevo-laptop)
+    változatot adta 6.0.9992.1 verzióval. A pnputil ezt szó nélkül a DriverStore-ba tette
+    ("Added driver packages: 4"), de a SUBSYS_18496893-as ASRock hangchipre SOHA nem
+    kötötte rá - se telepítéskor, se újraindítás után. Eredmény: hamis "✅ telepítve",
+    az eszköz marad a hdaudio.inf-en, és a következő láb újra letölti ugyanazt.
+
+    Ez a függvény azt csinálja, amit a PnP is: megnézi, hogy a csomag INF-jeiben szerepel-e
+    az eszköz valamelyik VALÓDI hardver-azonosítója. (Szándékosan a nyers `all_hwids`
+    listával hasonlítunk, nem a keresésnél szintetizált törzs-azonosítóval - a Windows is
+    az igazi ID-kre illeszt.)
+
+    Visszatérés: True (illeszkedik), False (biztosan nem), None (nem eldönthető - nem
+    találtunk értelmezhető azonosítót az INF-ekben, ilyenkor NEM blokkolunk)."""
+    dev_hwids = [h for h in (dev_hwids or []) if h]
+    if not dev_hwids:
+        return None
+    inf_ids = set()
+    for root, _dirs, files in os.walk(ext_dir):
+        for fn in files:
+            if fn.lower().endswith('.inf'):
+                inf_ids |= extract_inf_hardware_ids(_read_text_best_effort(os.path.join(root, fn)))
+    if not inf_ids:
+        return None
+    for inf_id in inf_ids:
+        for dh in dev_hwids:
+            if _hwid_matches(inf_id, dh):
+                return True
+    logging.info(f"[INF] A csomag egyik INF-je sem illeszkedik az eszközre. "
+                 f"Eszköz-ID-k: {dev_hwids[:3]} | INF-ben {len(inf_ids)} azonosító, minta: {sorted(inf_ids)[:4]}")
+    return False
+
+
 def _match_wu_updates_to_devices(wu_results, devices, exclude_uids=None):
     """WU-találatok párosítása a jelenlévő eszközökhöz. A "legjobb mindkettőből" logika:
     - elsődlegesen HWID-egyezés (`_hwid_matches`: prefix VAGY azonos buszon token-részhalmaz;
