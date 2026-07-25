@@ -578,6 +578,15 @@ try {
         best = max(cands, key=lambda c: ((c[3] or ''), _parse_driver_version(c[2]) or ()))
         best_ver = _parse_driver_version(best[2])
         _bs, best_id, best_title, best_date = best
+        # EGY összegző sor a teljes választásról (a soronkénti pontozás szándékosan nem
+        # logol - lásd common._CALL_LOG_EXCLUDE). Ebből visszafejthető, MIÉRT ez a csomag
+        # nyert: hány sorból, hány HWID-ről, milyen pontszámmal, és mik voltak a közeli
+        # versenytársak (cím + dátum). Egy rossz választásnál pontosan ez a sor kell.
+        rivals = ', '.join(f"{t[:40]}|{d or '?'}" for _s, _g, t, d in
+                           sorted(cands, key=lambda c: (c[3] or ''), reverse=True)[1:4])
+        logging.info(f"[CATALOG] Döntés: {item['name']} - {len(rows_by_guid)} sor / {len(hwids[:4])} HWID, "
+                     f"legjobb pont={best_score}, {len(cands)} holtverseny -> NYERTES: '{best_title}' "
+                     f"[{best_date or '?'}] v={best_ver}" + (f" | közeli: {rivals}" if rivals else ""))
 
         if replace_inbox:
             # SZÁNDÉKOSAN NINCS verzió-összehasonlítás: a beépített driver verziója a
@@ -776,6 +785,14 @@ try {
         # A telepítő script a KÖZÖS _build_wu_install_ps-ből jön - az AutoFix (GUI és CLI)
         # is ugyanazt használja, itt csak a szűrők (kijelölt UpdateID-k) különböznek.
         ps_script = _build_wu_install_ps(target_uids=pool_uids, target_hwids=pool_hwids)
+        # Ez volt a projekt EGYETLEN olyan Popen-je, ami nem írta ki a futtatott parancsot
+        # (a többi mind logol egy "[CMD] Popen futtatása:" sort) - ráadásul pont a manuális
+        # telepítési úton, ami történetileg a "AutoFix megy, a manuális némán törött"
+        # hibaosztály helyszíne (Build ~192). A kért UpdateID-k/HWID-ek nélkül egy
+        # "semmit nem telepített" bejelentést nem lehet kivizsgálni.
+        logging.info(f"[WU_INSTALL] Kért UpdateID-k ({len(pool_uids)}): {pool_uids}")
+        logging.info(f"[WU_INSTALL] Kért HWID-ek ({len(pool_hwids)}): {pool_hwids}")
+        logging.debug(f"[CMD] Popen futtatása: {ps_script[:300]}...")
         process = subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace',

@@ -330,6 +330,13 @@ _CALL_LOG_EXCLUDE = {
     '_send_unicode_char', '_send_vk', '_window_title', '_find_child_by_text',
     '_find_window_for_pid', '_read_console_screen', '_normalize_ctrl_text',
     '_text_alternatives',
+    # Katalógus-sor pontozó: eszközönként MINDEN sorra (25-100 db) meghívódik, és
+    # bejegyzésenként 2 sort írna (belépés + visszatérés). Terepen (Build 228) egyetlen
+    # 2 eszközös katalógus-kör több SZÁZ sornyi zajt termelt, ami az 5 MB-os rotáló
+    # logból kiszorítja a valódi előzményt - épp azt, amiből a hibát keressük. A
+    # tényleges DÖNTÉS (mennyi sorból melyik nyert és miért) egyetlen összegző sorként
+    # megy ki a _catalog_find_driver-ből, ami többet ér, mint a hívásonkénti nyers zaj.
+    '_catalog_row_score', '_catalog_row_is_microsoft',
 }
 
 

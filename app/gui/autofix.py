@@ -123,8 +123,21 @@ class GuiAutofixMixin:
                 self.emit('task_progress', {'task': task_id, 'log': f'{data} db szellemeszköz azonosítva. Törlés folyamatban...\n'})
             elif event == 'done':
                 self.emit('task_progress', {'task': task_id, 'log': f'✅ {data}\n'})
+            # A per-eszköz események a FELÜLETRE szándékosan nem mennek ki (az AutoFix itt
+            # csendes), de a LOGBA igen: enélkül csak annyi maradt, hogy "10 db törölve",
+            # és egy "eltűnt az eszközöm" bejelentésnél semmi nyom nem volt arról, MELYIK
+            # 10 eszközt szedtük ki. Ez törlés - a nevének látszania kell.
+            elif event == 'rm':
+                logging.info(f"[GHOST] Törlés indul: {data}")
+            elif event == 'ok':
+                logging.info(f"[GHOST] Törölve: {data}")
+            elif event == 'fail':
+                logging.warning(f"[GHOST] Törlés SIKERTELEN: {data}")
+            elif event == 'other':
+                logging.debug(f"[GHOST] script: {data}")
 
         process.wait()
+        logging.info(f"[GHOST] Szellemeszköz-törlő script vége (returncode={process.returncode}).")
 
     def _delete_third_party_sync(self, task_id='autofix', skip_classes=None):
         """Third-party csomagok törlése. Visszatérés: 'ok' (végigért) vagy 'wedged'

@@ -17,6 +17,7 @@ import os
 import shutil
 import json
 import glob
+import logging
 from app.common import CMD_TIMEOUT_RETURNCODE
 # === /AUTO-IMPORTS ===
 
@@ -65,6 +66,15 @@ def parse_dism_driver_list(stdout):
                 current["version"] = val
     if current and "published" in current:
         drivers.append(current)
+    # NÉMA PARZOLÁSI HIBA elleni jelzés: ha a DISM adott kimenetet, de egyetlen csomagot
+    # sem sikerült kinyerni, az szinte biztosan a /English hiánya (más nyelvű Windows/
+    # WinPE) vagy megváltozott kimeneti formátum - és eddig ez egy csendes "0 driver"
+    # eredményként jelent meg a felületen, mindenféle nyom nélkül (CLAUDE.md-ben
+    # dokumentált hibaosztály). Ez a sor teszi a logból azonnal felismerhetővé.
+    if not drivers and (stdout or '').strip():
+        logging.warning(f"[DRIVERS] DISM-parzolás NULLA csomagot adott {len((stdout or '').splitlines())} sornyi "
+                        f"kimenetből - /English hiányzik vagy változott a formátum? Első 300 kar.: "
+                        f"{(stdout or '')[:300]!r}")
     return drivers
 
 
@@ -88,15 +98,25 @@ def filter_phantom_packages(drivers, target_os_path=None):
     FileRepository-jában."""
     rep = _file_repository_path(target_os_path)
     valid_drivers = []
+    dropped = []
     for d in drivers:
         pub = d.get("published", "")
         if not pub:
+            dropped.append('(névtelen bejegyzés)')
             continue
         if pub.lower().startswith("oem"):
             valid_drivers.append(d)
             continue
         if glob.glob(os.path.join(rep, f"{pub}_*")):
             valid_drivers.append(d)
+        else:
+            dropped.append(f"{pub} ({d.get('original', '?')})")
+    # A kiszűrt csomagok EDDIG némán tűntek el a listából: ha valaki azt jelenti, hogy
+    # "hiányzik egy driver a listáról", enélkül semmi nyom nem maradt róla. Nem hiba
+    # (pont ez a szűrő dolga), de látszania kell.
+    if dropped:
+        logging.info(f"[DRIVERS] Szellem-szűrő: {len(dropped)} csomag kihagyva (nincs FileRepository mappájuk): "
+                     f"{', '.join(dropped[:10])}{' ...' if len(dropped) > 10 else ''}")
     return valid_drivers
 
 
@@ -179,26 +199,42 @@ def force_delete_driver_files(run, pub, target_os_path=None):
     rep = _file_repository_path(target_os_path)
     inf_dir = _inf_dir_path(target_os_path)
     found_any = False
+    # A takeown/icacls/rmdir a _run-on át naplózódik, de a Python-oldali shutil.rmtree /
+    # os.remove NEM hagyna semmi nyomot - pedig ez a legdestruktívabb művelet a
+    # programban (a DriverStore FileRepository mappáit tünteti el). Ha egy force-törlés
+    # olyat visz el, amit nem kellett volna, a logból pontosan látszania kell, MIT.
+    logging.warning(f"[DRIVERS] FORCE-TÖRLÉS indul: {pub} (repo={rep}, inf={inf_dir})")
 
     dirs = glob.glob(os.path.join(rep, f"{pub}_*"))
+    logging.info(f"[DRIVERS] Force-törlés: {len(dirs)} FileRepository mappa illeszkedik a(z) {pub} névre.")
     if dirs:
         for d in dirs:
+            logging.warning(f"[DRIVERS] Force-törlés - mappa: {d}")
             run(f'takeown /f "{d}" /r /A', shell=True)
             run(f'icacls "{d}" /grant *S-1-5-32-544:F /t', shell=True)
-            shutil.rmtree(d, ignore_errors=True)
+            try:
+                shutil.rmtree(d)
+                logging.info(f"[DRIVERS] Force-törlés - rmtree OK: {d}")
+            except Exception as e:
+                logging.warning(f"[DRIVERS] Force-törlés - rmtree sikertelen ({d}): {e} - rmdir következik")
             run(f'rmdir /s /q "{d}"', shell=True)
+            logging.info(f"[DRIVERS] Force-törlés - mappa maradt-e: {os.path.exists(d)} ({d})")
         found_any = True
 
     bname = os.path.splitext(pub)[0]
     for ext in ['.inf', '.pnf', '.INF', '.PNF']:
         fpath = os.path.join(inf_dir, bname + ext)
         if os.path.exists(fpath):
+            logging.warning(f"[DRIVERS] Force-törlés - fájl: {fpath}")
             run(f'takeown /f "{fpath}" /A', shell=True)
             run(f'icacls "{fpath}" /grant *S-1-5-32-544:F', shell=True)
             try:
                 os.remove(fpath)
+                logging.info(f"[DRIVERS] Force-törlés - fájl törölve: {fpath}")
                 found_any = True
-            except OSError:
+            except OSError as e:
+                logging.warning(f"[DRIVERS] Force-törlés - os.remove sikertelen ({fpath}): {e} - del /f /q következik")
                 run(f'del /f /q "{fpath}"', shell=True)
                 found_any = True
+    logging.warning(f"[DRIVERS] FORCE-TÖRLÉS vége: {pub} - talált/törölt: {found_any}")
     return found_any
