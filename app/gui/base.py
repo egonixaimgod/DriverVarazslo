@@ -64,6 +64,12 @@ class GuiBaseMixin:
         # energiagazdálkodási beállításokat (lásd _lock_power_for_stress/_restore_power_after_stress).
         self._restore_power_after_stress()
 
+        # Ugyanez a logika a másik "ideiglenes rendszerállapot" esetre: ha egy AutoFix lánc
+        # a telepítő lábon szakadt meg (BSOD/áramszünet), ott maradhat a NoAutoUpdate=1
+        # csoportházirend, ami a TELJES Windows Update-et letiltja. Lásd a metódus
+        # docstringjét (app/gui/autofix.py) - szűk, bizonyíték-alapú feltétellel takarít.
+        self._cleanup_leftover_autofix_policy()
+
         logging.info("[INIT] DriverToolApi kész.")
 
     def set_window(self, window):

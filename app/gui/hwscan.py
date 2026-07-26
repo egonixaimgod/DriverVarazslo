@@ -391,7 +391,11 @@ try {
         except subprocess.TimeoutExpired:
             logging.error("[WU_API] WU API timeout (300s) - szolgáltatás-újraindítás, majd azonnali továbblépés (nincs második keresési kör)...")
             self.emit('hw_scan_progress', {'status': '⚠️ A Windows Update API nem válaszol (5 perc) - áttérés a katalógus keresésre...'})
-            self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ Windows Update API időtúllépés! Szolgáltatások újraindítása...'})
+            # A 'autofix' csatornára CSAK akkor írunk, ha tényleg AutoFix fut: kézi
+            # szkennelésnél ez a sor a logban ([EMIT:]) az AutoFix-hez tartozónak látszott,
+            # és egy terepi bejelentés kivizsgálásakor pont ez viszi félre a nyomot.
+            if getattr(self, '_task_busy', None) == 'autofix' or getattr(self, 'resume_mode', False) or getattr(self, 'resume_step1', False):
+                self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ Windows Update API időtúllépés! Szolgáltatások újraindítása...'})
 
             # A WU szolgáltatások újraindítása a GÉPET gyógyítja (a következő keresés már
             # jó eséllyel másodpercek alatt lefut), de az EREDMÉNYRE itt már nem várunk újra.

@@ -155,22 +155,55 @@ def get_offline_drivers(run, target_os_path, all_drivers=False):
     return filter_phantom_packages(drivers, target_os_path)
 
 
+# A törlés-kimenet SIKERTELENSÉGÉT jelző töredékek. Ezeket a pozitív tövek ELŐTT kell
+# nézni, különben a magyar HIBAüzenet is sikernek látszik - lásd delete_succeeded.
+# Ékezet nélküli előtagokkal dolgozunk ('nem siker'), mert a pnputil ANSI-ban ír
+# (CLAUDE.md: a kimenete terepen mojibake-ként érkezik), és egy elrontott 'ü' miatt a
+# teljes szóra illesztés némán elhasalna.
+DELETE_FAILURE_MARKERS = (
+    'nem siker',        # "nem sikerült" (a 'siker' pozitív tő ELŐTT kell illeszkednie!)
+    'sikertelen',
+    'nem lehet',
+    'nem tudta',
+    'failed', 'failure', 'unable', 'cannot', 'could not', 'denied',
+    'access is denied', 'in use',
+)
+
+# A SIKERT jelző töredékek. A magyar ragozás két külön tövet ad ('törl'-és/-ése, de
+# 'töröl'-ve/-t), egyetlen minta nem fedi mindkettőt; az ékezet nélküli párok
+# ('torl'/'torol'/'eltavolit') a mojibake-es kimenetre valók.
+DELETE_SUCCESS_MARKERS = (
+    'deleted', 'successfully', 'removed',
+    'törl', 'töröl', 'torl', 'torol',
+    'sikerült', 'sikerul', 'siker',
+    'eltávolít', 'eltavolit',
+)
+
+
 def delete_succeeded(res):
     """Egy driver-törlő parancs eredményéből eldönti, sikeres volt-e (a returncode
-    mellett a lokalizált sikerszövegeket is elfogadja, kis/nagybetű-függetlenül).
+    mellett a lokalizált szövegeket is figyelembe véve, kis/nagybetű-függetlenül).
 
     A 3010 (ERROR_SUCCESS_REBOOT_REQUIRED) MAGÁBAN sikernek számít: a csomag törlődött,
-    csak a lezáráshoz kell újraindítás - az AutoFix úgyis újraindul. Korábban ez a kód
-    a szöveges ágra esett vissza, és mivel a magyar pnputil "a törlése sikerült" alakot
-    ír (nem "törölve"), a szűrő nem talált benne semmit -> a sikeresen törölt csomag a
-    "nem sikerült eltávolítani" listára került. Csak jelentési hiba volt, de pont a záró
-    összefoglalót rontotta el. A szöveges tartalék ezért TÖBB tőre illeszkedik: a magyar
-    ragozás két külön tövet ad ('törl'-és/-ése, de 'töröl'-ve/-t), egyetlen minta nem fedi
-    mindkettőt."""
+    csak a lezáráshoz kell újraindítás - az AutoFix úgyis újraindul.
+
+    A SORREND LÉNYEGI, nem stílus: a szöveges ág CSAK akkor fut, ha a returncode NEM
+    0/3010 - vagyis pont a HIBÁS esetben. A magyar pnputil hibaüzenete viszont
+    "A(z) oem12.inf illesztőprogram-csomag TÖRLÉSE nem sikerült" alakú, azaz tartalmazza
+    a 'törl' pozitív tövet -> a régi, csak-pozitív szűrő egy bukott törlést SIKERNEK
+    minősített. Ez pontosan az a néma hamis siker, amit a Build 218 óta kerülünk: az
+    AutoFix 'nem törölhető csomagok' listája (app/gui/autofix.py) némán üres maradt, és a
+    fázis tiszta '✅ Driverek eltávolítva'-t írt ki, miközben csomagok maradtak vissza.
+    Ezért előbb a TAGADÓ alakokra nézünk, és csak utána a sikertövekre."""
     if res.returncode in (0, 3010):
         return True
     out = (res.stdout or '').lower()
-    return any(k in out for k in ('deleted', 'successfully', 'törl', 'töröl', 'sikerült', 'eltávolít'))
+    if not out:
+        # Nincs mihez nyúlni: a nem-nulla returncode marad az egyetlen jel -> hiba.
+        return False
+    if any(k in out for k in DELETE_FAILURE_MARKERS):
+        return False
+    return any(k in out for k in DELETE_SUCCESS_MARKERS)
 
 
 def delete_stalled(res):

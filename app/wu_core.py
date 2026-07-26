@@ -1067,6 +1067,154 @@ def _is_printer_protected(drv, protected_infs, printing_vendors, skip_classes):
 
 
 # ============================================================================
+# BOOT-PATH (RENDSZERLEMEZ-ÚTVONAL) VÉDELEM - KÖZÖS MAG (GUI + CLI AutoFix)
+#
+# MIÉRT: az AutoFix törlési fázisának SZÁNDÉKOSAN nincs osztályszűrése (a "mindent
+# letörlünk, a WU tegyen fel tisztát" a termék lényege, explicit user decision), és a
+# pnputil hívás /force-szal megy - vagyis a HASZNÁLATBAN LÉVŐ tárolóvezérlő-drivert is
+# leszedi. Amíg a rendszerlemez sima AHCI/NVMe módban van, ez ártalmatlan: a Microsoft
+# inbox storahci/stornvme átveszi. DE ha a lemez Intel VMD vagy RST RAID vezérlő mögött
+# ül (11. gen+ Intel gépeken gyári alapbeállítás, és sok üzleti desktopon is), akkor az
+# inbox verem nem feltétlenül fedi le a vezérlőt -> a KÖVETKEZŐ bootnál
+# INACCESSIBLE_BOOT_DEVICE, és onnantól SEMMILYEN visszaállításunk nem fut le. A
+# visszaállítási pont sem ér semmit, mert nem lehet elindulni hozzá.
+#
+# A megoldás NEM osztály-alapú tiltás (az túl széles lenne, és pont a fix lényegét venné
+# el), hanem célzott: megkeressük, milyen eszközlánc hordozza a RENDSZERLEMEZT, és ha
+# ezen a láncon third-party (oemNN.inf) driver van, AZT AZ EGY-KÉT CSOMAGOT védjük -
+# pontosan úgy, ahogy a nyomtatóknál már bevált.
+#
+# FAIL-SAFE: ha a lánc felderítése bármiért nem sikerül, NEM a régi (védtelen)
+# viselkedésre esünk vissza, hanem a tárolóvezérlő-osztályokat védjük le összesen. Egy
+# feleslegesen bent maradt tárolódriver a legrosszabb esetben elavult marad; egy tévesen
+# letörölt boot-driver viszont nem bootoló gép.
+# ============================================================================
+
+# A tárolóvezérlő-osztályok - CSAK a fail-safe ágon (ha a boot-lánc felderítése elbukott).
+BOOT_FALLBACK_PROTECT_CLASSES = {'scsiadapter', 'hdc', 'diskdrive'}
+
+_BOOT_PATH_PS = r"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$out = @{ Infs = @(); Chain = @(); Found = $false }
+$diskIds = @()
+$sysDrive = "$env:SystemDrive"
+# 1) Elsődleges út: WMI asszociációk C: -> partíció -> fizikai lemez PNPDeviceID.
+try {
+    $l2p = @(Get-CimInstance Win32_LogicalDiskToPartition -ErrorAction SilentlyContinue)
+    $d2p = @(Get-CimInstance Win32_DiskDriveToDiskPartition -ErrorAction SilentlyContinue)
+    $disks = @(Get-CimInstance Win32_DiskDrive -ErrorAction SilentlyContinue)
+    $partIds = @($l2p | Where-Object { $_.Dependent.DeviceID -eq $sysDrive } | ForEach-Object { $_.Antecedent.DeviceID })
+    foreach ($rel in $d2p) {
+        if ($partIds -contains $rel.Dependent.DeviceID) {
+            foreach ($dk in $disks) {
+                if ($dk.DeviceID -eq $rel.Antecedent.DeviceID -and $dk.PNPDeviceID) { $diskIds += "$($dk.PNPDeviceID)" }
+            }
+        }
+    }
+} catch {}
+# 2) Tartalék út: Storage modul (Get-Partition/Get-Disk). A Path alakja
+#    \\?\scsi#disk&ven...#4&abc&0&000000#{guid} -> ebből instance ID-t képezünk.
+if ($diskIds.Count -eq 0) {
+    try {
+        $p = Get-Partition -DriveLetter ($sysDrive.TrimEnd(':')) -ErrorAction Stop
+        $d = Get-Disk -Number $p.DiskNumber -ErrorAction Stop
+        if ($d.Path) {
+            $raw = "$($d.Path)" -replace '^\\\\\?\\', ''
+            $raw = $raw -replace '#\{[0-9a-fA-F\-]+\}$', ''
+            $diskIds += ($raw -replace '#', '\')
+        }
+    } catch {}
+}
+$seen = @{}
+foreach ($id in ($diskIds | Select-Object -Unique)) {
+    $cur = "$id"
+    for ($i = 0; $i -lt 12 -and $cur; $i++) {
+        if ($seen.ContainsKey($cur)) { break }
+        $seen[$cur] = $true
+        $dev = $null
+        try { $dev = Get-PnpDevice -InstanceId $cur -ErrorAction Stop } catch {}
+        $inf = ''; $svc = ''
+        try { $inf = "$((Get-PnpDeviceProperty -InstanceId $cur -KeyName 'DEVPKEY_Device_DriverInfPath' -ErrorAction SilentlyContinue).Data)" } catch {}
+        try { $svc = "$((Get-PnpDeviceProperty -InstanceId $cur -KeyName 'DEVPKEY_Device_Service' -ErrorAction SilentlyContinue).Data)" } catch {}
+        $out.Found = $true
+        $out.Chain += [PSCustomObject]@{
+            Id = $cur
+            Name = $(if ($dev) { "$($dev.FriendlyName)" } else { '' })
+            Class = $(if ($dev) { "$($dev.Class)" } else { '' })
+            Inf = $inf
+            Service = $svc
+        }
+        if ($inf) { $out.Infs += $inf }
+        $parent = ''
+        try { $parent = "$((Get-PnpDeviceProperty -InstanceId $cur -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue).Data)" } catch {}
+        if (-not $parent -or $parent -eq $cur -or $parent -like 'HTREE*') { break }
+        $cur = $parent
+    }
+}
+$out | ConvertTo-Json -Compress -Depth 4
+"""
+
+
+def _collect_boot_path_protection(run_fn):
+    """Felderíti, milyen eszközlánc hordozza a RENDSZERLEMEZT, és mely driver-csomagok
+    élnek ezen a láncon.
+
+    Visszatérés: (protected_infs, chain, detected)
+      - protected_infs: a láncon lévő INF-nevek halmaza kisbetűvel (pl. {'oem7.inf'});
+      - chain: a lánc eszközei (név/osztály/INF/szolgáltatás) - CSAK naplózásra, de a
+        terepi kérdésre ("miért maradt bent ez a driver?") ez az egyetlen válasz;
+      - detected: sikerült-e egyáltalán felderíteni a láncot. HAMIS esetén a hívónak a
+        fail-safe ágra kell mennie (BOOT_FALLBACK_PROTECT_CLASSES) - lásd a fenti blokk
+        magyarázatát: egy nem bootoló gép visszafordíthatatlan, egy bent maradt elavult
+        tárolódriver nem."""
+    protected_infs = set()
+    chain = []
+    detected = False
+    try:
+        res = run_fn(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", _BOOT_PATH_PS],
+                     encoding='utf-8', timeout=180)
+        data = json.loads(res.stdout) if res and (res.stdout or '').strip() else {}
+        detected = bool(data.get('Found'))
+        infs = data.get('Infs') or []
+        if isinstance(infs, str):
+            infs = [infs]
+        for inf in infs:
+            base = os.path.basename(str(inf)).strip().lower()
+            if base.endswith('.inf'):
+                protected_infs.add(base)
+        raw_chain = data.get('Chain') or []
+        if isinstance(raw_chain, dict):
+            raw_chain = [raw_chain]
+        chain = raw_chain
+    except Exception as e:
+        logging.warning(f"[BOOT-PROTECT] A rendszerlemez eszközláncának felderítése sikertelen: {e}")
+        detected = False
+    if detected:
+        for c in chain:
+            logging.info(f"[BOOT-PROTECT] Boot-lánc: {c.get('Name') or '?'} [{c.get('Class') or '?'}] "
+                         f"INF={c.get('Inf') or '-'} szolgáltatás={c.get('Service') or '-'}")
+        logging.info(f"[BOOT-PROTECT] A rendszerlemez útvonalán lévő védett INF-ek: {sorted(protected_infs)}")
+    else:
+        logging.warning("[BOOT-PROTECT] A rendszerlemez eszközlánca NEM azonosítható - "
+                        "fail-safe: a tárolóvezérlő-osztályok csomagjait védjük.")
+    return protected_infs, chain, detected
+
+
+def _is_boot_path_protected(drv, protected_infs, detected):
+    """Egy third-party driver-bejegyzésről eldönti, hogy a rendszerlemez útvonalához
+    tartozik-e, tehát tilos törölni.
+
+    Sikeres felderítés esetén az INF-név dönt (a publikált oemNN.inf ÉS az eredeti név
+    is - ugyanaz a kettősség, mint a nyomtatóvédelemnél). Sikertelen felderítés esetén
+    az osztály dönt (fail-safe)."""
+    if not detected:
+        return (drv.get('class', '') or '').strip().lower() in BOOT_FALLBACK_PROTECT_CLASSES
+    if (drv.get('published', '') or '').lower() in protected_infs:
+        return True
+    return (drv.get('original', '') or '').lower() in protected_infs
+
+
+# ============================================================================
 # HÁLÓZATI DRIVER MENTŐÖV - KÖZÖS MAG (GUI AutoFix + CLI AutoFix)
 # Terepen látott kockázat: az AutoFix a LAN/Wi-Fi drivert is törli, és ha sem a
 # beépített, sem a WU-s driver nem fedi le az adott kártyát (valós eset: friss

@@ -14,6 +14,8 @@ from app.wu_core import is_reboot_pending
 from app.wu_core import _build_wu_install_ps
 from app.wu_core import _collect_printer_protection
 from app.wu_core import _is_printer_protected
+from app.wu_core import _collect_boot_path_protection
+from app.wu_core import _is_boot_path_protected
 from app.wu_core import _iter_process_lines
 from app.wu_core import _export_net_driver_backup
 from app.wu_core import _restore_net_driver_backup
@@ -99,6 +101,30 @@ manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkenne
         print("  FÁZIS 4: Third-party driverek törlése")
         print("=" * 50)
         drivers = self.get_third_party_drivers()
+        logging.info(f"[AUTOFIX-CLI-DELETE] Törlési fázis indul: {len(drivers)} third-party csomag a listán.")
+
+        # BOOT-PATH VÉDELEM (közös mag, mint a GUI AutoFixben): a rendszerlemezt hordozó
+        # eszközlánc third-party drivereit nem töröljük - egy Intel VMD / RST RAID mögötti
+        # rendszerlemeznél a /force-os pnputil különben leszedné a boot-kritikus vezérlő-
+        # drivert, és a következő bootnál INACCESSIBLE_BOOT_DEVICE jönne.
+        boot_infs, boot_chain, boot_detected = _collect_boot_path_protection(self._run)
+        if boot_detected:
+            chain_txt = ' → '.join(f"{c.get('Name') or '?'} [{c.get('Class') or '?'}]" for c in boot_chain) or '?'
+            print(f"💾 Rendszerlemez útvonala: {chain_txt}")
+        else:
+            print("⚠️ A rendszerlemez eszközlánca nem azonosítható - biztonságból MINDEN tárolóvezérlő-driver védve marad.")
+        boot_protected = [d for d in drivers if _is_boot_path_protected(d, boot_infs, boot_detected)]
+        if boot_protected:
+            boot_keys = {id(d) for d in boot_protected}
+            drivers = [d for d in drivers if id(d) not in boot_keys]
+            print(f"🛡️ {len(boot_protected)} db boot-kritikus tárolódriver VÉDVE (nem törlődik):")
+            for d in boot_protected:
+                line = f"{d.get('published', '?')} ({d.get('original', '?')}) - {d.get('provider', '?')} [{d.get('class', '?')}]"
+                print(f"   • {line}")
+                logging.warning(f"[BOOT-PROTECT] Törlésből KIZÁRVA (boot-kritikus): {line}")
+        else:
+            logging.info("[BOOT-PROTECT] A törlési listán nincs a rendszerlemez útvonalához tartozó csomag.")
+
         # Nyomtató-védelem 2.0 (közös mag, mint a GUI AutoFixben): a jelenlévő nyomtatók/
         # szkennerek által használt INF-ek és a nyomtató-gyártók csomagjai nem törlődnek.
         protected_infs, printing_vendors = _collect_printer_protection(self._run)
@@ -107,6 +133,10 @@ manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkenne
         drivers = [d for d in drivers if id(d) not in protected_keys]
         if protected:
             print(f"🖨️ {len(protected)} db nyomtatóhoz/szkennerhez tartozó driver védve (nem törlődik).")
+            for d in protected:
+                logging.info(f"[PRINTER-PROTECT] Törlésből kizárva: {d.get('published', '?')} "
+                             f"({d.get('original', '?')}) - {d.get('provider', '?')} [{d.get('class', '?')}]")
+        logging.info(f"[AUTOFIX-CLI-DELETE] Ténylegesen törlendő csomagok: {len(drivers)} db.")
         if drivers:
             print(f"Talált: {len(drivers)} db third-party driver")
             # 🛟 Hálózati mentőöv: Net-driverek exportja törlés előtt (közös mag).
