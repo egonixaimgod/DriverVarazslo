@@ -14,6 +14,7 @@ alatt különben némán üres listát ad. A driver-verzió a valódi kimenetben
 
 # === AUTO-IMPORTS ===
 import os
+import re
 import shutil
 import json
 import glob
@@ -39,9 +40,24 @@ DELETE_DRIVER_TIMEOUT = 60
 PNP_REMOVAL_STALL_CODES = (480, 482)
 
 
+def _dism_date_to_iso(val):
+    """A DISM `Date : 9/9/2025` mezője -> 'YYYY-MM-DD' (rendezhető), különben ''.
+    A `/English` kimenet mindig M/D/YYYY alakú - a lokalizált formátumokra nem
+    számítunk, mert minden hívás /English-sel megy (lásd get_third_party_drivers)."""
+    m = re.match(r'^\s*(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\s*$', val or '')
+    if not m:
+        return ''
+    mo, d, y = m.group(1), m.group(2), m.group(3)
+    return f"{y}-{int(mo):02d}-{int(d):02d}"
+
+
 def parse_dism_driver_list(stdout):
     """`dism /English ... /Get-Drivers` kimenet -> driver-dict lista
-    ({'published','original','provider','class','version'} kulcsokkal)."""
+    ({'published','original','provider','class','version','date'} kulcsokkal).
+
+    A 'date' ISO alakú ('YYYY-MM-DD') és a DISM `Date :` sorából jön: a
+    DriverStore-takarítás ez alapján dönti el, melyik a csomagcsalád LEGÚJABB kiadása
+    (dátum elsődleges, verzió csak holtversenynél - lásd wu_core.release_rank)."""
     drivers = []
     current = {}
     for line in (stdout or '').splitlines():
@@ -62,6 +78,8 @@ def parse_dism_driver_list(stdout):
                 current["provider"] = val
             elif "Class Name" in key:
                 current["class"] = val
+            elif key == "Date":
+                current["date"] = _dism_date_to_iso(val)
             elif "Version" in key:
                 current["version"] = val
     if current and "published" in current:

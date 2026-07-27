@@ -16,6 +16,8 @@ Csak élő rendszeren fut (offline cél-OS-nél a hívók elutasítják)."""
 import re
 import json
 import logging
+from app.wu_core import _iso_date_or_none
+from app.wu_core import _parse_driver_version
 # === /AUTO-IMPORTS ===
 
 
@@ -49,11 +51,29 @@ def get_active_published_infs(run):
         return None
 
 
+def dup_release_key(d):
+    """Rendezési kulcs egy DriverStore-csomaghoz: DÁTUM elsődleges, verzió a holtverseny-
+    döntő (közös szabály: wu_core.release_rank).
+
+    Korábban tisztán verzió-alapú volt, és egy gyártói verziósémaváltásnál a RÉGEBBI
+    csomagot tartotta meg 'keep'-ként (a frissebbet meg törölhetőnek jelölte) - ugyanaz
+    a hibaosztály, ami a katalógus-kaput is érintette. Az aktív-INF védelem emiatt sem
+    sérülhet: azt a build_duplicate_groups külön, ettől függetlenül érvényesíti.
+
+    A verzió-tagra a szigorúbb `_parse_driver_version` fut (min. 3 tagú szám-sorozat), és
+    ha az nem ad eredményt, a régi, megengedőbb `dup_version_key`-re esünk vissza - így a
+    holtverseny-döntés sosem lesz gyengébb, mint a dátum bevezetése előtt volt."""
+    date_iso = _iso_date_or_none(d.get('date')) or ''
+    ver = _parse_driver_version(d.get('version')) or dup_version_key(d.get('version'))
+    return (date_iso, ver)
+
+
 def build_duplicate_groups(drivers, active_infs):
     """Third-party driver-lista -> duplikátum-csoportok. Egy csoport = azonos eredeti
-    inf-név; a legújabb verzió megmarad ('keep'), a többi törölhető jelölt ('dups'),
-    kivéve az aktívan használtakat ('active': True, nem törölhető; active_infs None
-    esetén MINDEN aktívnak számít). Visszatérés: (csoport-lista, törölhetők száma)."""
+    inf-név; a legújabb KIADÁS marad meg ('keep' - dátum elsődleges, verzió holtversenynél),
+    a többi törölhető jelölt ('dups'), kivéve az aktívan használtakat ('active': True,
+    nem törölhető; active_infs None esetén MINDEN aktívnak számít).
+    Visszatérés: (csoport-lista, törölhetők száma)."""
     groups = {}
     for d in drivers:
         orig = (d.get('original') or '').strip().lower()
@@ -65,13 +85,25 @@ def build_duplicate_groups(drivers, active_infs):
     for orig, items in groups.items():
         if len(items) < 2:
             continue
-        items_sorted = sorted(items, key=lambda d: dup_version_key(d.get('version')), reverse=True)
+        items_sorted = sorted(items, key=dup_release_key, reverse=True)
         keep, rest = items_sorted[0], items_sorted[1:]
+        # A DÖNTÉS BIZONYÍTÉKA A LOGBA, ha a dátum és a verzió NEM ugyanazt mondja: ez az
+        # egyetlen eset, ahol a megtartott csomag verziószáma kisebb a törölhetőkénél, és
+        # egy "miért a régebbi verziót tartotta meg?" bejelentésre csak ez a sor válaszol.
+        keep_v = _parse_driver_version(keep.get('version')) or dup_version_key(keep.get('version'))
+        for d in rest:
+            d_v = _parse_driver_version(d.get('version')) or dup_version_key(d.get('version'))
+            if d_v > keep_v:
+                logging.info(f"[DUPDRV] {orig}: a DÁTUM dönt, nem a verzió - megtartva "
+                             f"{keep.get('published')} v{keep.get('version')} [{keep.get('date') or '?'}], "
+                             f"törölhető {d.get('published')} v{d.get('version')} [{d.get('date') or '?'}] "
+                             f"(magasabb verziószám, de régebbi kiadás).")
         dups = []
         for d in rest:
             pub_l = (d.get('published') or '').lower()
             dups.append({
                 'published': d.get('published', ''), 'version': d.get('version', ''),
+                'date': d.get('date', ''),
                 'provider': d.get('provider', ''), 'class': d.get('class', ''),
                 # active_infs None (lekérdezési hiba) -> mindent aktívnak
                 # jelölünk = semmi sem törölhető (biztonságos irány).
@@ -79,7 +111,8 @@ def build_duplicate_groups(drivers, active_infs):
             })
         result.append({
             'original': orig,
-            'keep': {'published': keep.get('published', ''), 'version': keep.get('version', '')},
+            'keep': {'published': keep.get('published', ''), 'version': keep.get('version', ''),
+                     'date': keep.get('date', '')},
             'provider': keep.get('provider', ''), 'class': keep.get('class', ''),
             'dups': dups,
         })

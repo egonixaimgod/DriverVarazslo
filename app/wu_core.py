@@ -129,9 +129,63 @@ def _iter_process_lines(process, run_fn, cancel_check=None, inactivity_timeout=1
 # ============================================================================
 
 # WU driver-kereséskor figyelmen kívül hagyott PnP eszközosztályok (mindhárom út közös szűrője).
-WU_SCAN_IGNORED_CLASSES = ['Volume', 'VolumeSnapshot', 'DiskDrive', 'CDROM', 'Monitor', 'Battery',
-                           'Processor', 'Computer',
-                           'LegacyDriver', 'Endpoint', 'AudioEndpoint', 'PrintQueue', 'Printer', 'WPD']
+# A DRIVER-KERESÉSBŐL TELJESEN KIHAGYOTT eszközosztályok. FIGYELEM: ez a szűrő a
+# `_filter_wu_scan_devices`-ben fut, tehát MINDKÉT forrásra hat - a WU Agent SEM lát
+# ilyen eszközt, nem csak a katalógus. Ami ide kerül, arra a program soha, semmilyen
+# úton nem ad drivert; ezért csak olyan osztály lehet itt, amihez gyári driver NEM
+# LÉTEZIK (tisztán szoftveres/absztrakt objektumok) vagy amit külön kapcsoló véd.
+#
+# 2026-07-27 (explicit user decision, "driverezzük fel normálisan a gépet"): a Monitor,
+# a Battery és a Processor KIKERÜLT innen. Egyik sem absztrakt objektum és egyikhez sem
+# tartozik boot-kockázat:
+#  - Monitor: a monitor-INF nem "csak metaadat" - EDID-felülbírálást ÉS a gyári ICC
+#    színprofilt hozza magával, tehát pont az a csomag, ami a színkezelést helyre teszi
+#    (lásd app/colorprofile_core.py: a fix a kalibrációt gyári alapra állítja, a gyári
+#    alap viszont a monitor INF-jéből jön). Rossz monitor-driver a képen kívül semmit
+#    nem tud elrontani, és a Windows alap-monitordrivere sosem tűnik el mögüle;
+#  - Processor: az AMD/Intel chipset-csomagok processzor-energiakezelő drivert is
+#    szállítanak (a WU is ad rá csomagot);
+#  - Battery: a gyártói akku-/töltésvezérlő driverek ide tartoznak (laptopoknál valós).
+# 2026-07-27, MÁSODIK KÖR (explicit user decision, "MINDEN kapjon drivert, semmi ne
+# legyen kizárva, kivéve amit checkboxszal nem engedek"): innen kikerült a Printer, a
+# CDROM, a WPD és a DiskDrive is.
+#  - Printer: a FIZIKAI nyomtató mostantól kap drivert. Eddig itt volt, és ez egy csúnya
+#    aszimmetriát okozott: a nyomtató-checkbox csak a TÖRLÉSTŐL védte, a keresésből
+#    viszont eleve ki volt zárva - vagyis kipipálatlan checkboxnál az AutoFix letörölte a
+#    nyomtató driverét, és soha nem is kereshetett helyette újat. A checkbox jelentése
+#    változatlan (= ne töröljük a meglévőt), de ha mégis törlődik, a WU most már tud
+#    helyette telepíteni;
+#  - CDROM / WPD: optikai meghajtó és hordozható eszköz (telefon). Ritkán van rájuk gyári
+#    csomag, de ha van, semmi nem indokolja a kizárást - a keresés úgyis csak akkor talál,
+#    ha tényleg létezik csomag;
+#  - DiskDrive: NEM kikerült, hanem ÁTKERÜLT a checkbox-vezérelt körbe: benne van a
+#    STORAGE_RISK_CLASSES-ben, tehát a tároló-kapcsoló dönt róla (mint a vezérlőkről).
+#    Így az SSD-firmware / gyártói lemez-csomagok is elérhetők, de csak tudatosan.
+#
+# AMI MARAD, és miért - kizárólag olyan osztályok, amikhez driver FOGALMILAG nem tartozik
+# (mind `SWD\`/`ROOT\` szoftver-objektum, nem hardver), plusz a HAL:
+#  - Volume, VolumeSnapshot: a kötet (C:, D:) és az árnyékmásolat mint PnP-objektum. Nem
+#    hardver; a mögöttes LEMEZT és VEZÉRLŐT külön driverezzük (DiskDrive/SCSIAdapter/HDC);
+#  - Endpoint, AudioEndpoint: a `SWD\MMDEVAPI\...` hang-VÉGPONTOK ("Hangszórók (Realtek)",
+#    "Mikrofon"). Ezek a hangkártya KIMENETEI, nem a hangkártya - azt a MEDIA osztályban
+#    driverezzük;
+#  - PrintQueue: a `SWD\PRINTENUM\...` nyomtatási SOR, nem a nyomtató (az már Printer);
+#  - LegacyDriver: nem-PnP, régi driver-bejegyzés; nincs mögötte eszköz, amire telepíteni
+#    lehetne;
+#  - Computer: a HAL ("ACPI x64-based PC"). Ezt kicserélni azt jelenti, hogy a gép nem
+#    indul el - és a WU/katalógus amúgy sem szállít hozzá csomagot.
+# (AutoFix: soha; manuális szken: igen, piros figyelmeztetéssel).
+WU_SCAN_IGNORED_CLASSES = ['Volume', 'VolumeSnapshot', 'Computer',
+                           'LegacyDriver', 'Endpoint', 'AudioEndpoint', 'PrintQueue']
+
+# VIRTUÁLIS (hypervisor-vendég) eszközök neve. Régen ez egy nyers `"virtual" in név`
+# részszöveg-vizsgálat volt, ami VALÓDI hardvert is kizárt: az "Intel(R) Virtual Buttons"
+# (a hangerő/bekapcsoló gombok sok üzleti laptopon és 2-in-1-en) csak azért esett ki, mert
+# a nevében szerepel a "Virtual" szó - és erről semmilyen napló nem szólt. A minta ezért
+# konkrét hypervisor-nevekre szűkült, szóhatárral; a valóban virtuális Microsoft-eszközöket
+# (Basic Render, RDPBUS, NDIS Virtual Bus) amúgy is a `ROOT\`/osztály-szabály fogja.
+_VIRTUAL_DEVICE_NAME_RE = re.compile(
+    r'\b(vmware|virtualbox|vbox|qemu|parallels|hyper-?v|xen|virtio)\b', re.IGNORECASE)
 
 # A jelenlévő PnP eszközök lekérdezése (a kimenetet a _filter_wu_scan_devices dolgozza fel).
 # A ConfigManagerErrorCode is jön: a hibakódos eszközök (28 = nincs driver, 10 = nem indul,
@@ -155,6 +209,12 @@ def _filter_wu_scan_devices(pnp_data):
     # hangkártya/hálókártya sosem jelent meg a "Problémás eszközök" listán.
     seen_hwids = {}
     devices = []
+    # MIT DOBTUNK EL, ÉS MIÉRT - okonként. A CLAUDE.md szabálya szerint minden
+    # listaszűkítő döntésnek meg kell neveznie, mit ejtett; ez a függvény viszont sokáig
+    # NÉGY okból dobott el eszközöket úgy, hogy egyikről sem szólt egy sort sem. Emiatt a
+    # "miért nem kapott az X eszköz drivert?" kérdésre a terepi logból nem lehetett
+    # válaszolni - csak a forráskódból, és ott is csak ha az ember tudta, hol keresse.
+    dropped = {'nincs PNPDeviceID': [], 'virtuális gép eszköze': [], 'osztály': []}
     for d in pnp_data:
         n = d.get("Name") or "Ismeretlen Eszköz"
         pid = d.get("PNPDeviceID") or ""
@@ -164,12 +224,20 @@ def _filter_wu_scan_devices(pnp_data):
             hwids_list = [hwids_list]
 
         if not pid:
+            dropped['nincs PNPDeviceID'].append(n)
             continue
-        if "virtual" in n.lower() or "pseudo" in n.lower() or "vmware" in n.lower():
+        if _VIRTUAL_DEVICE_NAME_RE.search(n):
+            dropped['virtuális gép eszköze'].append(n)
             continue
-        if pid.upper().startswith("ROOT\\"):
-            continue
+        # A `ROOT\` szűrő 2026-07-27-én MEGSZŰNT (explicit user decision): a ROOT-ból
+        # enumerált eszközök többsége Microsoft szoftver-eszköz (Basic Render, RDPBUS,
+        # volmgr) - azokra úgysincs csomag, tehát a felvételük csak pár fölösleges
+        # összehasonlítás -, DE ide kerülnek az alkalmazások által telepített driverek is
+        # (ViGEmBus, VPN TAP-adapterek). Azokat eddig NÉMÁN kizártuk a keresésből ÉS a
+        # "Problémás eszközök" listáról is, vagyis egy hibás VPN-adapter sosem tűnt fel.
+        # A katalógus-oldal amúgy is kiszűri őket (a `ROOT\...` nem gyártó-kódos HWID).
         if pclass in WU_SCAN_IGNORED_CLASSES:
+            dropped['osztály'].append(f"{n} [{pclass}]")
             continue
 
         hwid_clean = hwids_list[0] if hwids_list else pid
@@ -223,6 +291,15 @@ def _filter_wu_scan_devices(pnp_data):
                      f"összevonva: {merged}")
     else:
         logging.info(f"[PNP] {len(devices)} eszköz a szűrés után (nincs többpéldányos eszköz).")
+    # A KIZÁRÁSOK okonként: összesítő INFO-n, a nevek DEBUG-on. Ez a sor a válasz arra,
+    # hogy "mit NEM néztünk meg egyáltalán" - eddig ez a terepi logból hiányzott.
+    total_dropped = sum(len(v) for v in dropped.values())
+    if total_dropped:
+        logging.info(f"[PNP] {total_dropped} eszköz kizárva a driver-keresésből "
+                     f"({', '.join(f'{k}={len(v)}' for k, v in dropped.items() if v)}).")
+        for reason, names in dropped.items():
+            if names:
+                logging.debug(f"[PNP] Kizárva ({reason}): {names}")
     return devices
 
 
@@ -303,7 +380,17 @@ def extract_inf_hardware_ids(text):
 
 
 def _read_text_best_effort(path):
-    """INF beolvasása: a fájlok hol UTF-16 LE (BOM-mal), hol ANSI, hol UTF-8 kódolásúak."""
+    """INF beolvasása: a fájlok hol UTF-16 LE (BOM-mal), hol BOM NÉLKÜLI UTF-16 LE/BE-ben,
+    hol ANSI, hol UTF-8 kódolásúak.
+
+    A BOM NÉLKÜLI UTF-16 ág nem elméleti: a `latin-1` fallback SOHA nem dob kivételt,
+    tehát egy ilyen fájlt is "sikeresen" beolvasunk - csak épp `P\\x00C\\x00I\\x00...`
+    alakban, amiben a hardver-azonosító minta nem illeszkedik, így a fájl NULLA
+    azonosítót ad. Terepen (2026-07-27, RTX 3060) pont ez történt: az NVIDIA
+    katalógus-csomag display-INF-je nem adott egyetlen azonosítót sem, csak a
+    (sima ANSI) nvhda.inf 158 HDAUDIO-s ID-je jött át - a csomagot ezért
+    "nem erre a gépre való"-ként vetettük el, és 1,1 GB letöltés ment a kukába
+    (kétszer, két külön lábon). A BOM nélküli UTF-16-ot ezért felismerjük."""
     try:
         with open(path, 'rb') as f:
             raw = f.read()
@@ -315,6 +402,20 @@ def _read_text_best_effort(path):
             return raw.decode('utf-16')
         except Exception:
             pass
+    # BOM nélküli UTF-16 felismerése: az INF-ek ASCII-tartalmúak, ezért UTF-16-ban minden
+    # második bájt 0x00. A minta-vizsgálat az első ~4 KB páros/páratlan pozícióin fut
+    # (a teljes fájl végigszámolása nagy display-INF-eknél felesleges munka lenne).
+    probe = raw[:4096]
+    if len(probe) >= 16:
+        even_nul = probe[0::2].count(0)
+        odd_nul = probe[1::2].count(0)
+        half = len(probe) // 2
+        for enc, nul in (('utf-16-le', odd_nul), ('utf-16-be', even_nul)):
+            if half and nul >= half * 0.8:
+                try:
+                    return raw.decode(enc, errors='replace')
+                except Exception:
+                    break
     for enc in ('utf-8', 'cp1252', 'latin-1'):
         try:
             return raw.decode(enc)
@@ -346,18 +447,46 @@ def inf_package_applies(ext_dir, dev_hwids):
     if not dev_hwids:
         return None
     inf_ids = set()
+    per_file = []          # (fájlnév, hány azonosítót adott) - a döntés bizonyítéka a logban
     for root, _dirs, files in os.walk(ext_dir):
         for fn in files:
             if fn.lower().endswith('.inf'):
-                inf_ids |= extract_inf_hardware_ids(_read_text_best_effort(os.path.join(root, fn)))
+                ids = extract_inf_hardware_ids(_read_text_best_effort(os.path.join(root, fn)))
+                per_file.append((fn, len(ids)))
+                inf_ids |= ids
     if not inf_ids:
+        logging.info(f"[INF] A csomag {len(per_file)} INF-jéből egyetlen hardver-azonosítót sem "
+                     f"sikerült kiolvasni - nem döntünk, a pnputil-ra bízzuk. Fájlok: {per_file[:8]}")
         return None
     for inf_id in inf_ids:
         for dh in dev_hwids:
             if _hwid_matches(inf_id, dh):
                 return True
+
+    # VÉTÓ ELŐTTI JÓZANSÁGI PRÓBA: csak akkor mondjuk ki, hogy "ez a csomag nem ennek az
+    # eszköznek szól", ha egyáltalán a MEGFELELŐ INF-et olvastuk. Ha a kicsomagolt fából
+    # egyetlen azonosító sem esik az eszköz saját BUSZÁRA (pl. az eszköz PCI\..., a
+    # kiolvasott ID-k viszont mind HDAUDIO\...), akkor bizonyíthatóan nem a készülékhez
+    # tartozó INF-et néztük - jellemzően mert a fő INF-et nem sikerült dekódolni.
+    # Ilyenkor NEM vétózunk (None = eldönthetetlen): a pnputil úgyis ellenőrzi az
+    # alkalmazhatóságot, a telepítés utáni kötés-ellenőrzés pedig elkapja, ha mégsem
+    # kötött rá. Terepen (2026-07-27) a régi, feltétel nélküli False dobta el a
+    # jogosan újabb NVIDIA display-csomagot (32.0.15.9595 > telepített 32.0.15.9186).
+    # A valódi terepi rossz-csomag esetet (Clevo-változatú Realtek audio) ez NEM
+    # gyengíti: ott a device is HDAUDIO\, az INF-ek is HDAUDIO\-sak - azonos busz,
+    # tehát a vétó ott továbbra is életbe lép.
+    dev_buses = {b for b in ((_hwid_tokens(d) or (None,))[0] for d in dev_hwids) if b}
+    inf_buses = {b for b in ((_hwid_tokens(i) or (None,))[0] for i in inf_ids) if b}
+    if dev_buses and not (dev_buses & inf_buses):
+        logging.warning(f"[INF] A csomag INF-jei NEM az eszköz buszáról valók "
+                        f"(eszköz: {sorted(dev_buses)}, INF-ekben: {sorted(inf_buses)[:6]}) - "
+                        f"valószínűleg a fő INF-et nem sikerült beolvasni, ezért NEM vétózunk. "
+                        f"Fájlok: {per_file[:8]}")
+        return None
+
     logging.info(f"[INF] A csomag egyik INF-je sem illeszkedik az eszközre. "
-                 f"Eszköz-ID-k: {dev_hwids[:3]} | INF-ben {len(inf_ids)} azonosító, minta: {sorted(inf_ids)[:4]}")
+                 f"Eszköz-ID-k: {dev_hwids[:3]} | INF-ben {len(inf_ids)} azonosító, minta: {sorted(inf_ids)[:4]} "
+                 f"| INF-enként: {per_file[:8]}")
     return False
 
 
@@ -475,6 +604,13 @@ GENERIC_REPLACE_CLASSES = {
     #    AMD/Intel csak LINK-OUT (nem telepít), az NVIDIA-é meg csak a manuális szkenben
     #    fut - tehát AutoFix után a gép addig a basic display-en maradt volna.
     'SDHOST', 'MEMORY', 'SENSOR', 'DISPLAY',
+    #  - MONITOR (2026-07-27, explicit user decision): a "Generic PnP Monitor" a Windows
+    #    beépített monitordrivere; a gyártói monitor-INF EDID-felülbírálást ÉS a gyári
+    #    ICC színprofilt hozza. Ez az a csomag, ami a színkezelést ténylegesen gyári
+    #    alapra teszi (párja: app/colorprofile_core.py, ami az egyedi kalibrációt szedi
+    #    le). Kockázata gyakorlatilag nincs: boot-kritikus nem lehet, és a rollback-háló
+    #    (_verify_generic_replacements) itt is fut.
+    'MONITOR',
 }
 
 # SOHA nem cserélünk generikus drivert ezekben az osztályokban:
@@ -484,19 +620,27 @@ GENERIC_REPLACE_CLASSES = {
 #    a "telepítsd, ellenőrizd, szükség esetén állítsd vissza" háló NEM fed le;
 #  - Display: a videokártyához az NVIDIA/AMD/Intel kártya adja a gyári legfrissebbet
 #    (app/gui/nvidia.py, vendorgpu.py), a katalógus ennél mindig régebbi;
-#  - beviteli eszközök / monitor / nyomtatósor / kötetek: itt a Microsoft drivere a
-#    helyes, gyári csere se nem elérhető, se nem kívánatos.
+#  - beviteli eszközök / nyomtatósor / kötetek: itt a Microsoft drivere a helyes, gyári
+#    csere se nem elérhető, se nem kívánatos.
+# A MONITOR 2026-07-27-én ÁTKERÜLT az engedélyezett osztályok közé - lásd ott az indoklást.
 GENERIC_REPLACE_BLOCKED_CLASSES = {
     'SCSIADAPTER', 'HDC', 'DISKDRIVE', 'VOLUME', 'VOLUMESNAPSHOT', 'FLOPPYDISK',
-    'MONITOR', 'HIDCLASS', 'KEYBOARD', 'MOUSE', 'PRINTER', 'PRINTQUEUE',
+    'HIDCLASS', 'KEYBOARD', 'MOUSE', 'PRINTER', 'PRINTQUEUE',
     'USB', 'COMPUTER', 'PROCESSOR', 'FIRMWARE', 'SOFTWAREDEVICE', 'SOFTWARECOMPONENT',
 }
 
-# Csak konkrét chipet azonosító, gyártó-kódos HWID jöhet szóba (PCI\VEN_xxxx&DEV_yyyy,
-# HDAUDIO\FUNC_01&VEN_xxxx, USB\VID_xxxx&PID_yyyy). Ez zárja ki az ACPI\PNP0C02-féle
-# általános rendszer-csomópontokat, amikre se katalógus-találat nincs, se értelme -
-# egyben drasztikusan csökkenti a felesleges katalógus-lekérdezések számát.
-_VENDOR_HWID_RE = re.compile(r'^(PCI|HDAUDIO|USB)\\.*(VEN_|VID_)', re.IGNORECASE)
+# Csak konkrét chipet/eszközt azonosító, gyártó-kódos HWID jöhet szóba
+# (PCI\VEN_xxxx&DEV_yyyy, HDAUDIO\FUNC_01&VEN_xxxx, USB\VID_xxxx&PID_yyyy). Ez zárja ki
+# az ACPI\PNP0C02-féle általános rendszer-csomópontokat, amikre se katalógus-találat
+# nincs, se értelme - egyben drasztikusan csökkenti a felesleges lekérdezések számát.
+#
+# A MONITOR\ ág külön eset (2026-07-27): a monitorok azonosítója `MONITOR\ACI27FA` alakú,
+# vagyis nincs benne VEN_/VID_ tag, mégis PONTOSAN egy gyártót+típust azonosít (a 3 betűs
+# PnP-gyártókód + a modellkód), és a katalógusban valódi monitor-csomagok ülnek rá
+# (EDID-felülbírálás + gyári ICC színprofil). Enélkül a monitor hiába kerül be az
+# eszközlistába, a katalógust sosem kérdeznénk meg rá.
+_VENDOR_HWID_RE = re.compile(r'^(?:(?:PCI|HDAUDIO|USB)\\.*(?:VEN_|VID_)|MONITOR\\[A-Z0-9]{5,})',
+                             re.IGNORECASE)
 
 # Windows-BUSZ/ENUMERÁTOR INF-ek: ezekhez nem létezik "gyári megfelelő", a Microsoft
 # drivere maga a helyes megoldás. Enélkül a szabály elszaladt: a gépen mért 19 jelöltből
@@ -572,17 +716,140 @@ def is_generic_replace_candidate(dev, inst):
 #    egyik legerősebb szabálya (lásd CLAUDE.md), és a mély szken nem kerülheti meg:
 #    élő mérésen a kör be is hozta a "Standard NVM Express Controller"-t és a "Standard
 #    SATA AHCI Controller"-t, mielőtt ez a lista elkészült.
-#  - USB-vezérlő: egy bukott csere a billentyűzetet és az egeret viszi el, azaz pont azt,
-#    amivel javítani lehetne.
-#  - FIRMWARE: BIOS/UEFI-frissítés, teljesen más kockázati osztály - hatókörön kívül.
-#  - MONITOR: a monitor-INF EDID/színprofil metaadat, nem funkcionális driver.
-DEEP_CATALOG_BLOCKED_CLASSES = {
-    'SCSIADAPTER', 'HDC', 'DISKDRIVE', 'VOLUME', 'VOLUMESNAPSHOT', 'FLOPPYDISK',
-    'USB', 'FIRMWARE', 'MONITOR', 'COMPUTER', 'PROCESSOR',
-}
+# 2026-07-27 (explicit user decision, "ott is csak a tárolóvezérlőnek kéne kint lennie"):
+# a lista LESZŰKÜLT a tároló-osztályokra. Ami korábban itt állt - USB, FIRMWARE, COMPUTER,
+# PROCESSOR, VOLUME, VOLUMESNAPSHOT, FLOPPYDISK -, azt MÉRÉSSEL ellenőrizve mind kidobja
+# már a másik két szűrő is, tehát a felsorolásuk itt semmit nem védett, csak azt a
+# látszatot keltette, hogy védjük őket:
+#   System Firmware   UEFI\RES_{...}        -> elhasal a gyártói-HWID teszten
+#   AMD Ryzen 5 5600  ACPI\AUTHENTICAMD_... -> elhasal a gyártói-HWID teszten
+#   Computer          COMPUTER\{GUID}       -> elhasal a gyártói-HWID teszten
+#   USB xHCI / hub / composite              -> busz-INF (usbxhci.inf/usbhub3.inf/usb.inf)
+# Az EGYETLEN eset, amit az USB-tiltás ténylegesen fogott, egy VALÓDI gyári USB-vezérlő-
+# driveren futó vezérlő volt - vagyis pont az, amit frissíteni KELL (ugyanaz, amit a WU is
+# tenne). A MONITOR ugyanezen a napon került ki, más okból (lásd a GENERIC_REPLACE_CLASSES
+# melletti indoklást: EDID + gyári ICC profil).
+#
+# A tároló marad az egyetlen valódi határvonal, mert ott a hiba VISSZAFORDÍTHATATLAN
+# (INACCESSIBLE_BOOT_DEVICE a következő bootnál) - és azt is a felhasználó oldhatja fel a
+# fix indító dialógusán (include_risky, lásd deep_catalog_candidates).
+# A TÁROLÓ-osztályok: az egyetlen eszközcsoport, ahol egy rossz driver a KÖVETKEZŐ
+# bootnál INACCESSIBLE_BOOT_DEVICE-t okoz, vagyis olyan állapotot, amiből már semmilyen
+# visszaállításunk (a visszaállítási pontot is beleértve) nem tud kikapaszkodni - csak
+# helyreállító média. Ezért ez a halmaz több helyen is határvonal:
+#  - katalógus mély szken: alapból kizárva; `include_risky=True`-val bekérhető, `risky`
+#    jelzővel. A MANUÁLIS szken mindig így hívja (pirosan, előre be nem jelölve, ember
+#    dönt), az AutoFix pedig akkor, ha a felhasználó a fix indító dialógusán engedte;
+#  - AutoFix WU-út: `filter_autofix_risky_devices` - ugyanaz a kapcsoló vezérli (a firmware külön kapcsolón).
+# Vagyis a fix indító dialógusának tároló-checkboxa MINDKÉT AutoFix-forrásra hat.
+STORAGE_RISK_CLASSES = {'SCSIADAPTER', 'HDC', 'DISKDRIVE'}
+
+# FIRMWARE: a másik, külön kapcsolóval védett csoport (explicit user decision, 2026-07-27).
+# Miért nem elég ide a "tároló" kategória: a firmware-frissítés NEM drivert cserél, hanem
+# NEM FELEJTŐ MEMÓRIÁT ÍR ÚJRA (UEFI/BIOS, SSD-vezérlő, TPM, dokkoló). Következmények,
+# amik semmilyen más művelettel nem hasonlíthatók össze:
+#  - VISSZAFORDÍTHATATLAN: nincs az a visszaállítási pont, driver-rollback vagy
+#    Windows-újratelepítés, ami egy felírt firmware-t visszahozna;
+#  - egy megszakadt írás (áramszünet a flash közben) HARDVERESEN teszi tönkre az eszközt -
+#    a gép nem "nem indul el", hanem nincs többé;
+#  - a TPM firmware-frissítése bizonyos esetekben ÉRVÉNYTELENÍTI a BitLocker-kulcsokat.
+# Ezért a firmware NEM megy fel magától: a felhasználó a fix indító dialógusán, külön
+# jelölőnégyzettel engedélyezheti (alapértelmezés KI).
+FIRMWARE_RISK_CLASSES = {'FIRMWARE'}
+
+# A `risky` jelölt találatokhoz tartozó, FELÜLETRE kiírandó figyelmeztetések (a manuális
+# szken pirosan mutatja őket, előre be nem jelölve).
+RISKY_CLASS_WARNING = ('Tárolóvezérlő/lemez: egy rossz driver esetén a Windows a KÖVETKEZŐ '
+                       'indításnál nem biztos, hogy elindul (INACCESSIBLE_BOOT_DEVICE). '
+                       'A telepítés előtt a program készít visszaállítási pontot, DE ha a gép '
+                       'nem bootol, azt már csak helyreállító környezetből (WinRE / telepítő '
+                       'USB) lehet visszatölteni - a program onnan nem tud segíteni. '
+                       'Csak akkor telepítsd, ha van kéznél helyreállító média!')
+
+FIRMWARE_CLASS_WARNING = ('FIRMWARE-frissítés: ez nem drivert cserél, hanem újraírja az eszköz '
+                          'nem felejtő memóriáját (UEFI/BIOS, SSD, TPM). VISSZAFORDÍTHATATLAN - '
+                          'sem visszaállítási pont, sem Windows-újratelepítés nem hozza vissza a '
+                          'régit. Írás közbeni áramszünet HARDVERESEN teheti tönkre az eszközt, '
+                          'TPM-nél pedig érvénytelenítheti a BitLocker-kulcsokat. Csak stabil '
+                          'tápellátás mellett és mentett BitLocker-kulccsal telepítsd!')
+
+# WU-csomag firmware-nek minősítése. Elsődlegesen a DriverClass dönt (ez a WUA saját
+# kategóriája), a cím-minta pedig azokra a csomagokra való, amiket a szerver más
+# kategóriába sorol, de a nevük szerint mégis flashelnek valamit. SZÁNDÉKOSAN
+# megengedő: ha egy csomag firmware-nek nevezi magát, akkor firmware - és minden
+# kiszűrt csomag NÉV SZERINT a logba kerül, hogy a túlszűrés is látható legyen.
+_FIRMWARE_TITLE_RE = re.compile(r'\bfirmware\b', re.IGNORECASE)
 
 
-def deep_catalog_candidates(devices, installed_info):
+def is_firmware_update(wu):
+    """Igaz, ha a WU-találat firmware-csomag (nem sima driver)."""
+    if (wu.get('DriverClass') or '').strip().upper() == 'FIRMWARE':
+        return True
+    return bool(_FIRMWARE_TITLE_RE.search((wu.get('Title') or '') + ' ' + (wu.get('DriverModel') or '')))
+
+
+def filter_firmware_updates(matches, wu_by_uid, allow_firmware):
+    """A párosított WU-találatokból kiszűri a firmware-csomagokat, ha nincs engedélyezve.
+
+    Miért kell az ESZKÖZ-szintű szűrés MELLETT is: egy firmware-csomag nem feltétlenül a
+    `Firmware` osztályú eszközhöz párosul (egy SSD-firmware a tárolóvezérlőhöz, egy
+    dokkoló-firmware egy USB-eszközhöz is köthető), ezért a csomag oldalán is meg kell
+    fogni. Visszatérés: (megtartott matches, kiszűrt [{'title','reason'}] lista)."""
+    if allow_firmware:
+        return list(matches or []), []
+    kept, skipped = [], []
+    for m in matches or []:
+        wu = (wu_by_uid or {}).get(m.get('uid')) or {}
+        if is_firmware_update(wu):
+            skipped.append({'title': m.get('title', ''),
+                            'reason': f"firmware-csomag (osztály: {wu.get('DriverClass') or '?'}) - "
+                                      f"a fix indításakor nem volt engedélyezve"})
+        else:
+            kept.append(m)
+    if skipped:
+        logging.warning("[AUTOFIX-WU] Firmware-csomagok kihagyva (nem volt engedélyezve): "
+                        f"{[s['title'] for s in skipped]}")
+    return kept, skipped
+
+
+# A mély katalógus-szkenből ALAPBÓL kizárt osztályok: a tároló és a firmware. Mindkettőt
+# a felhasználó oldhatja fel a fix indító dialógusán (külön-külön). Semmi más nincs itt -
+# lásd fent, miért lett volna no-op.
+DEEP_CATALOG_BLOCKED_CLASSES = STORAGE_RISK_CLASSES | FIRMWARE_RISK_CLASSES
+
+
+def filter_autofix_risky_devices(devices, allow_storage=False, allow_firmware=False):
+    """Az AutoFix WU-útjáról kiszűri a KOCKÁZATOS osztályokat, amiket a felhasználó nem
+    engedélyezett a fix indításakor. Két, egymástól FÜGGETLEN kapcsoló:
+      - tároló (STORAGE_RISK_CLASSES): rossz driver -> a gép nem bootol;
+      - firmware (FIRMWARE_RISK_CLASSES): visszafordíthatatlan, akár hardveres kár.
+    Visszatérés: (megtartott, {'tároló': [...], 'firmware': [...]})."""
+    kept = []
+    dropped = {'tároló': [], 'firmware': []}
+    for d in devices or []:
+        pclass = (d.get('pclass') or '').strip().upper()
+        if pclass in STORAGE_RISK_CLASSES and not allow_storage:
+            dropped['tároló'].append(d)
+        elif pclass in FIRMWARE_RISK_CLASSES and not allow_firmware:
+            dropped['firmware'].append(d)
+        else:
+            kept.append(d)
+    for label, items in dropped.items():
+        if items:
+            # Nevesítve: a "miért nem kapott a gépem X drivert?" kérdésre ez a válasz.
+            names = ['{0} [{1}]'.format(d.get('name') or '?', d.get('pclass') or '?') for d in items]
+            logging.info(f"[AUTOFIX-WU] {len(items)} {label}-eszköz kihagyva a WU-egyeztetésből "
+                         f"(a fix indításakor nem volt engedélyezve): {names}")
+    if allow_storage or allow_firmware:
+        enabled = [n for n, on in (('tároló', allow_storage), ('firmware', allow_firmware)) if on]
+        risky_now = [d.get('name') for d in kept
+                     if (d.get('pclass') or '').strip().upper() in (STORAGE_RISK_CLASSES | FIRMWARE_RISK_CLASSES)]
+        if risky_now:
+            logging.warning(f"[AUTOFIX-WU] A felhasználó ENGEDÉLYEZTE ({', '.join(enabled)}): {risky_now}")
+    return kept, dropped
+
+
+def deep_catalog_candidates(devices, installed_info, include_risky=False, include_firmware=False):
     """MÉLY KATALÓGUS-SZKEN eszközhalmaza: azok az eszközök, amikre egyáltalán ÉRTELMES
     megkérdezni a Microsoft Update Catalogot.
 
@@ -601,14 +868,34 @@ def deep_catalog_candidates(devices, installed_info):
     A szűrők a 99 eszközt 16-ra vágták, a teljes katalógus-kör 22 mp lett (10 szálon).
 
     A csomag-szintű döntés (mi számít újabbnak) VÁLTOZATLANUL a _catalog_find_driver
-    verzió-kapuja - ez a függvény csak azt mondja meg, kit érdemes megkérdezni."""
+    kiadás-kapuja - ez a függvény csak azt mondja meg, kit érdemes megkérdezni.
+
+    Két KÜLÖN feloldó kapcsoló van, mert két külön kockázat:
+      include_risky=True   -> a TÁROLÓ-osztályok (STORAGE_RISK_CLASSES) is bekerülnek,
+      include_firmware=True-> a FIRMWARE-osztály (FIRMWARE_RISK_CLASSES) is bekerül.
+    Az így bevont eszközök `risky=True` + `risk_reason` jelzőt kapnak. A MANUÁLIS szken
+    mindkettőt True-val hívja (a találat pirosan, ELŐRE BE NEM JELÖLVE jelenik meg, és
+    ember indítja a telepítést), az AutoFix pedig annyit enged, amennyit a felhasználó a
+    fix indító dialógusán bejelölt - alapértelmezésben egyiket sem."""
     out = []
     dropped = {'osztály': [], 'nincs gyártói HWID': [], 'busz-INF': []}
+    risky_added = []
     for dev in devices or []:
         name = dev.get('name') or '?'
-        if (dev.get('pclass') or '').strip().upper() in DEEP_CATALOG_BLOCKED_CLASSES:
-            dropped['osztály'].append(f"{name} [{dev.get('pclass')}]")
-            continue
+        pclass = (dev.get('pclass') or '').strip().upper()
+        if pclass in DEEP_CATALOG_BLOCKED_CLASSES:
+            # Tároló és firmware: KÜLÖN kapcsolóval kérhetők be, de akkor is megjelölve.
+            allowed = ((pclass in STORAGE_RISK_CLASSES and include_risky) or
+                       (pclass in FIRMWARE_RISK_CLASSES and include_firmware))
+            if allowed:
+                dev = dict(dev)
+                dev['risky'] = True
+                dev['risk_reason'] = (FIRMWARE_CLASS_WARNING if pclass in FIRMWARE_RISK_CLASSES
+                                      else RISKY_CLASS_WARNING)
+                risky_added.append(f"{name} [{dev.get('pclass')}]")
+            else:
+                dropped['osztály'].append(f"{name} [{dev.get('pclass')}]")
+                continue
         if not _VENDOR_HWID_RE.match(dev.get('id') or ''):
             dropped['nincs gyártói HWID'].append(name)
             continue
@@ -627,6 +914,11 @@ def deep_catalog_candidates(devices, installed_info):
     for reason, names in dropped.items():
         if names:
             logging.debug(f"[CATALOG] Mély szkenből kizárva ({reason}): {names}")
+    if risky_added:
+        # Destruktív-kockázatú eszköz bevonása: NEVESÍTVE a logba (CLAUDE.md Rule 0) -
+        # ha egy gép a szken után nem indul, ez a sor mondja meg, mit ajánlottunk fel rá.
+        logging.warning(f"[CATALOG] KOCKÁZATOS (tároló) eszközök bevonva a manuális szkenbe, "
+                        f"piros figyelmeztetéssel és előre BE NEM jelölve: {risky_added}")
     return out
 
 
@@ -707,6 +999,54 @@ def _parse_driver_version(text):
         if best is None or len(parts) > len(best):
             best = parts
     return best
+
+
+def release_rank(date_str, version_text):
+    """Egy driver-kiadás rendezési kulcsa: (ISO dátum, verzió-tuple).
+
+    DÁTUM AZ ELSŐDLEGES, a verzió csak azonos dátumnál dönt (explicit user decision,
+    2026-07-27: "kit érdekel milyen verziót adnak neki, ha dátum szerint újabb, az mehet
+    fel"). Ugyanaz a gyártó ugyanarra az eszközre egymással ÖSSZEHASONLÍTHATATLAN
+    verziósémákat használ, és a szám-alapú összevetés ilyenkor bizonyítottan a rossz
+    csomagot választja:
+      - AMD SMBus (terep, 2026-07-27): telepítve 5.12.0.38 / 2017-08-30, a katalógusban
+        'System Driver Update (2.0.0.26)' / 2025-12-03. Verzió szerint az 5.12 "nyer",
+        így a gép egy 2017-es driveren maradt egy 2025-ös helyett;
+      - Realtek NIC: 'Realtek - Net - 1168.19.704.2024' (2024-07-03) vs
+        'Realtek Net Driver Update (10.79.50.1003)' (2025-10-02) - verzió szerint az
+        előbbi három nagyságrenddel "nagyobb", holott több mint egy évvel régebbi.
+    A katalógus SOR-választása (`_catalog_find_driver`) már régóta így dönt; ez a
+    függvény ugyanezt a szabályt teszi elérhetővé a többi döntési pontnak is, hogy a
+    projektben egyetlen "melyik az újabb kiadás?" definíció legyen."""
+    return (_iso_date_or_none(date_str) or '', _parse_driver_version(version_text) or ())
+
+
+def is_newer_release(cand_date, cand_version, cur_date, cur_version):
+    """Újabb-e a jelölt kiadás a jelenleginél? DÁTUM dönt, verzió csak holtversenynél.
+
+    Visszatérés:
+      True  - a jelölt bizonyítottan újabb (telepíthető),
+      False - a jelölt bizonyítottan NEM újabb (kihagyandó),
+      None  - nem eldönthető (nincs használható dátum SEM verzió mindkét oldalon).
+              A hívók a None-t SOSEM kezelik kizárásként: inkább felajánlunk egy
+              esetleg fölösleges csomagot, mint hogy némán kihagyjunk egy szükségeset
+              (a pnputil úgyis ellenőrzi az alkalmazhatóságot, a telepítés utáni
+              kötés-ellenőrzés pedig elkapja, ha az eszköz mégsem vette át).
+
+    Ha csak az egyik oldalon van dátum, a dátumokat nem lehet összevetni - ilyenkor
+    esünk vissza a verzió-összehasonlításra (ez a régi viselkedés)."""
+    cd, cur_d = _iso_date_or_none(cand_date), _iso_date_or_none(cur_date)
+    cv, cur_v = _parse_driver_version(cand_version), _parse_driver_version(cur_version)
+    if cd and cur_d:
+        if cd != cur_d:
+            return cd > cur_d
+        # Azonos dátum: a verzió a holtverseny-döntő (pl. ugyanaznap kiadott javítás).
+        if cv is not None and cur_v is not None:
+            return cv > cur_v
+        return False
+    if cv is not None and cur_v is not None:
+        return cv > cur_v
+    return None
 
 
 # ============================================================================
@@ -806,9 +1146,13 @@ def _filter_wu_older_duplicates(matches, wu_by_uid):
             continue
 
         def _rank(item):
+            # DÁTUM az elsődleges, a verzió csak azonos dátumnál dönt (közös szabály:
+            # release_rank). Korábban fordítva volt, és egy gyártói verziósémaváltás
+            # ilyenkor a RÉGEBBI csomagot tartotta meg a családból - pont az a hiba,
+            # ami miatt a katalógus sor-választása is dátum-elsődlegű.
             m, wu = item
-            ver = _parse_driver_version(m.get('title', '')) or _parse_driver_version(wu.get('Title', ''))
-            return (ver or (), _iso_date_or_none(wu.get('DriverVerDate')) or '')
+            return release_rank(wu.get('DriverVerDate'),
+                                m.get('title', '') or wu.get('Title', ''))
 
         best = max(items, key=_rank)
         for m, _wu in items:
@@ -816,7 +1160,7 @@ def _filter_wu_older_duplicates(matches, wu_by_uid):
                 kept.append(m)
             else:
                 skipped.append({'title': m.get('title', ''),
-                                'reason': f"ugyanazon driver újabb verziója is elérhető: {best[0].get('title', '')}"})
+                                'reason': f"ugyanazon driver újabb kiadása is elérhető: {best[0].get('title', '')}"})
     return kept, skipped
 
 

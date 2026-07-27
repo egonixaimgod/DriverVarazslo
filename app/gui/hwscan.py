@@ -25,6 +25,8 @@ from app.wu_core import _iso_date_or_none
 from app.wu_core import _iter_process_lines
 from app.wu_core import _match_wu_updates_to_devices
 from app.wu_core import _parse_driver_version
+from app.wu_core import is_newer_release
+from app.wu_core import release_rank
 from app.wu_core import base_vendor_hwid
 from app.wu_core import mark_generic_replace_candidates
 from app.wu_core import deep_catalog_candidates as wu_core_deep_candidates
@@ -269,8 +271,14 @@ class GuiHwScanMixin:
                     # kérdeztük rá. A csomagok szűrése változatlan (a _catalog_find_driver
                     # verzió-kapuja csak SZIGORÚAN újabb csomagot enged át), tehát a mély
                     # szken nem hoz downgrade-et, csak lefedettséget.
+                    # include_risky=True: a MANUÁLIS szken a tárolóvezérlő/lemez drivereket is
+                    # megkeresi (az AutoFix soha) - de `risky` jelzővel, piros
+                    # figyelmeztetéssel és ELŐRE BE NEM JELÖLVE. Itt ember dönt, és a
+                    # szerelőnek látnia kell, HOGY LÉTEZIK csomag, még ha a telepítése
+                    # mérlegelendő is. Lásd wu_core.DEEP_CATALOG_RISKY_CLASSES.
                     rest = wu_core_deep_candidates(
-                        [d for d in devices_to_check if d['id'] not in matched_hwids], inst_info) if deep else []
+                        [d for d in devices_to_check if d['id'] not in matched_hwids],
+                        inst_info, include_risky=True, include_firmware=True) if deep else []
                     todo, todo_ids = [], set()
                     for d in leftover + generic_devs + rest:
                         if d['id'] in matched_hwids or d['id'] in todo_ids:
@@ -624,11 +632,44 @@ try {
             # fut, így a következő szkennen már nem jelölt (is_generic_replace_candidate).
             logging.info(f"[CATALOG] Generikus -> gyári csere jelölt: {item['name']} "
                          f"(most: {inst.get('provider') or '?'} {inst_ver_str} / {inst.get('inf') or '?'}) -> '{best_title}'")
-        elif best_ver is not None and inst_ver is not None and best_ver <= inst_ver:
-            # Már telepített (nem újabb) driver kiszűrése: ha az eszköznek van aktív
-            # drivere ÉS a katalógus-találat verziója nem magasabb, nem ajánljuk fel.
-            logging.debug(f"[CATALOG] Kihagyva (telepített {inst_ver_str} >= katalógus '{best_title}'): {item['name']}")
-            return None
+        elif _is_inbox_driver(inst):
+            # A telepített driver a Windows BEÉPÍTETT generikusa, de az eszköz nem jelölt a
+            # gyári cserére (különben a fenti `replace_inbox` ág vitte volna). Ilyenkor a
+            # dátum-szabályt NEM alkalmazzuk: az inbox driver dátuma a Windowsé (a
+            # `input.inf` pl. 2006-06-21-et visel), így minden gyári csomag "újabbnak"
+            # látszana, és a mély szken csendben átvenné a generikus->gyári csere
+            # szerepét - épp azokon az osztályokon (HID, billentyűzet, egér), amiket a
+            # mark_generic_replace_candidates SZÁNDÉKOSAN kihagy, és rollback-ellenőrzés
+            # nélkül. Ezt a döntést ott kell meghozni, nem itt.
+            if best_ver is not None and inst_ver is not None and best_ver <= inst_ver:
+                logging.debug(f"[CATALOG] Kihagyva (Windows-alapdriveren fut, nem gyári-csere jelölt; "
+                              f"telepített {inst_ver_str} >= katalógus '{best_title}'): {item['name']}")
+                return None
+        else:
+            # ÚJABB-E EGYÁLTALÁN? DÁTUM DÖNT, a verzió csak azonos dátumnál (közös mag:
+            # wu_core.is_newer_release). A régi, tisztán verzió-alapú kapu a gyártói
+            # verziósémaváltásoknál bizonyítottan a rossz csomagot tartotta meg: terepen
+            # (2026-07-27) az AMD SMBus 5.12.0.38 / 2017-08-30 "nagyobb" volt, mint a
+            # katalógus 2.0.0.26 / 2025-12-03 csomagja, így a gép egy 2017-es driveren
+            # maradt. A WU-ág (wu_core._filter_wu_downgrades) és a katalógus SOR-választása
+            # már régóta dátum-alapú - ez a kapu volt az utolsó verzió-alapú döntés a
+            # telepítési úton.
+            newer = is_newer_release(best_date, best_title, inst.get('date'), inst_ver_str)
+            if newer is False:
+                logging.debug(f"[CATALOG] Kihagyva (nem újabb kiadás - telepített {inst_ver_str} "
+                              f"[{inst.get('date') or '?'}] vs katalógus '{best_title}' [{best_date or '?'}]): {item['name']}")
+                return None
+            if newer is None:
+                logging.info(f"[CATALOG] Nem eldönthető, melyik újabb (telepített {inst_ver_str} "
+                             f"[{inst.get('date') or '?'}] vs '{best_title}' [{best_date or '?'}]) - felajánljuk: {item['name']}")
+            elif _parse_driver_version(best_title) is not None and inst_ver is not None \
+                    and _parse_driver_version(best_title) <= inst_ver:
+                # Pont az a helyzet, amiért a szabály átállt: dátum szerint újabb, verzió
+                # szerint nem. Ez INFO-szintű, mert egy "miért települt rá kisebb verzió?"
+                # kérdésre ez az egyetlen válasz a terepi logból.
+                logging.info(f"[CATALOG] Dátum szerint ÚJABB, verzió szerint nem - a dátum dönt: "
+                             f"{item['name']} - telepített {inst_ver_str} [{inst.get('date') or '?'}] "
+                             f"-> '{best_title}' [{best_date or '?'}]")
 
         dl_body = f'updateIDs=[{{"size":0,"languages":"","uidInfo":"{best_id}","updateID":"{best_id}"}}]'
         dl_req = urllib.request.Request(
@@ -660,6 +701,11 @@ try {
             # telepítő ezeknél futtat utóellenőrzést + szükség esetén visszaállítást.
             "generic_replace": replace_inbox,
             "installed_provider": inst.get('provider', ''),
+            # KOCKÁZATOS (tárolóvezérlő/lemez) találat: a felület pirossal jelöli és NEM
+            # jelöli be előre. Csak a manuális szkenben fordulhat elő - az AutoFix az
+            # ilyen eszközöket meg sem kérdezi (wu_core.deep_catalog_candidates).
+            "risky": bool(item.get('risky')),
+            "risk_reason": item.get('risk_reason') or '',
         }
 
     def _catalog_search_collect(self, devices_to_check, installed_info=None):
@@ -1006,15 +1052,42 @@ try {
                 ext_path = os.path.join(temp_dir, f"drv_ext_{idx}")
 
                 self.emit('task_progress', {'task': task_id, 'log': f'-> {name} letöltése...'})
-                try:
-                    logging.debug(f"[CATALOG_INSTALL] Letöltés: {url[:80]}...")
-                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-                    with urllib.request.urlopen(req, context=ssl_ctx, timeout=120) as resp, open(cab_path, 'wb') as f:
-                        shutil.copyfileobj(resp, f)
-                    logging.debug(f"[CATALOG_INSTALL] Letöltve: {cab_path}")
-                except Exception as e:
-                    logging.error(f"[CATALOG_INSTALL] Letöltési hiba ({name}): {e}")
-                    self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name} letöltési hiba: {e}'})
+                # ÚJRAPRÓBÁLKOZÁS: a katalógus cab-jai százmegásak (egy videokártya-csomag
+                # 1,1 GB), és egy ekkora letöltés alatt egy megszakadt kapcsolat teljesen
+                # hétköznapi. Terepen (2026-07-27) az NVIDIA-csomag [WinError 10054]
+                # ("a távoli gép bontotta a kapcsolatot") hibával elhasalt 18 másodperc
+                # után, egyetlen próbálkozás után véglegesen sikertelenként könyvelve -
+                # pedig a következő lábon ugyanaz az URL simán lejött. A félbemaradt fájlt
+                # minden kör elején töröljük (ugyanaz a szabály, mint a stresstools.zip-nél:
+                # a maradék épp azt a helyet enné el, ami az újrapróbáláshoz kell).
+                CATALOG_DL_ATTEMPTS = 3
+                dl_ok, last_err = False, None
+                for attempt in range(1, CATALOG_DL_ATTEMPTS + 1):
+                    if self._check_cancel():
+                        return
+                    try:
+                        logging.debug(f"[CATALOG_INSTALL] Letöltés ({attempt}/{CATALOG_DL_ATTEMPTS}): {url[:80]}...")
+                        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+                        with urllib.request.urlopen(req, context=ssl_ctx, timeout=120) as resp, open(cab_path, 'wb') as f:
+                            shutil.copyfileobj(resp, f)
+                        logging.debug(f"[CATALOG_INSTALL] Letöltve: {cab_path} ({os.path.getsize(cab_path)} byte, "
+                                      f"{attempt}. próbálkozásra)")
+                        dl_ok = True
+                        break
+                    except Exception as e:
+                        last_err = e
+                        logging.warning(f"[CATALOG_INSTALL] Letöltési hiba ({name}, {attempt}/{CATALOG_DL_ATTEMPTS}): {e}")
+                        try:
+                            if os.path.exists(cab_path):
+                                os.remove(cab_path)
+                        except Exception as ce:
+                            logging.debug(f"[CATALOG_INSTALL] A félbemaradt fájl törlése sikertelen ({cab_path}): {ce}")
+                        if attempt < CATALOG_DL_ATTEMPTS:
+                            self.emit('task_progress', {'task': task_id, 'log': f'  ↻ {name} letöltése megszakadt ({e}) - újrapróbálás ({attempt + 1}/{CATALOG_DL_ATTEMPTS})...'})
+                            time.sleep(3)
+                if not dl_ok:
+                    logging.error(f"[CATALOG_INSTALL] Letöltés VÉGLEG sikertelen {CATALOG_DL_ATTEMPTS} próbálkozás után ({name}): {last_err}")
+                    self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name} letöltési hiba {CATALOG_DL_ATTEMPTS} próbálkozás után: {last_err}'})
                     with counter_lock:
                         fail += 1
                     return

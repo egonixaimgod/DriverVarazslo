@@ -15,6 +15,7 @@ from app.common import _app_data_dir
 from app.common import _app_exe_path
 from app.common import _ps_quote
 from app import backup_core
+from app import colorprofile_core
 from app import drivers_core
 from app import dupdrivers_core
 from app import nicpack_core
@@ -27,6 +28,8 @@ from app.wu_core import WuProcessAborted
 from app.wu_core import _build_wu_install_ps
 from app.wu_core import _filter_wu_downgrades
 from app.wu_core import _filter_wu_scan_devices
+from app.wu_core import filter_autofix_risky_devices
+from app.wu_core import filter_firmware_updates
 from app.wu_core import _iter_process_lines
 from app.wu_core import _match_wu_updates_to_devices
 from app.wu_core import _collect_printer_protection
@@ -429,6 +432,17 @@ class GuiAutofixMixin:
                     # Nem néma: üres pnp_data = üres eszközlista = a WU-egyeztetés csendben kihagyna mindent.
                     logging.warning(f"[AUTOFIX] PnP JSON értelmezési hiba (üres eszközlistával folytatunk): {e}")
             devices_to_check = _filter_wu_scan_devices(pnp_data)
+            # TÁROLÓVEZÉRLŐ-KAPU: a fix indításakor bejelölt engedély nélkül a
+            # SCSIAdapter/HDC/DiskDrive eszközök NEM kerülnek a WU-egyeztetésbe. Enélkül
+            # az AutoFix felügyelet nélkül tett fel NVMe/AHCI vezérlődrivert, miközben a
+            # katalógus-ágakon ugyanez tiltva volt (lásd wu_core.filter_autofix_risky_devices).
+            devices_to_check, risky_skipped = filter_autofix_risky_devices(
+                devices_to_check,
+                allow_storage=getattr(self, '_autofix_allow_storage', False),
+                allow_firmware=getattr(self, '_autofix_allow_firmware', False))
+            for _label, _items in risky_skipped.items():
+                if _items:
+                    self.emit('task_progress', {'task': task_id, 'log': f'🛡️ {len(_items)} {_label}-eszköz kihagyva (a fix indításakor nem engedélyezted).'})
 
             self.emit('task_progress', {'task': task_id, 'log': f'✅ {len(devices_to_check)} hardverelem azonosítva. Egyeztetés...'})
             # A _search_wu_api HÁROM külön kimenetelt ad, és ezeket NEM szabad összemosni:
@@ -457,6 +471,13 @@ class GuiAutofixMixin:
             # telepítettnél RÉGEBBI csomagot ajánl (pl. friss gyári NVIDIA driver után) -
             # hibátlan eszközön az ilyet kihagyjuk, hibakódos eszközön sosem szűrünk.
             wu_by_uid = {w.get('UpdateID'): w for w in wu_results if w.get('UpdateID')}
+            # FIRMWARE-KAPU csomag-szinten is: egy firmware-csomag nem feltétlenül a
+            # `Firmware` OSZTÁLYÚ eszközhöz párosul (SSD-firmware a tárolóvezérlőhöz,
+            # dokkoló-firmware egy USB-eszközhöz), ezért az eszközszűrő nem elég.
+            matches, fw_skipped = filter_firmware_updates(
+                matches, wu_by_uid, getattr(self, '_autofix_allow_firmware', False))
+            for d in fw_skipped:
+                self.emit('task_progress', {'task': task_id, 'log': f'🛡️ [KIHAGYVA] {d["title"]} - {d["reason"]}'})
             installed_info = self._get_installed_driver_info()
             matches, downgrades = _filter_wu_downgrades(matches, wu_by_uid, installed_info)
             for d in downgrades:
@@ -680,7 +701,14 @@ class GuiAutofixMixin:
                 # rá. A verzió-kapu (_catalog_find_driver) csak SZIGORÚAN újabb csomagot
                 # enged át, tehát ez nem hozhat downgrade-et - és pont ez a kapu az, ami a
                 # kört is véget vet: a második lábon már semmi nem lesz újabb.
-                deep_devs = deep_catalog_candidates(devices_now, inst_info) if AUTOFIX_DEEP_CATALOG else []
+                # include_risky: a fix indításakor bejelölt tároló-engedély a KATALÓGUS-ágra
+                # is hat, nem csak a WU-ra - a felhasználó egy kapcsolóval dönt a
+                # tárolódriverekről, nem forrásonként külön (explicit user decision).
+                deep_devs = deep_catalog_candidates(
+                    devices_now, inst_info,
+                    include_risky=getattr(self, '_autofix_allow_storage', False),
+                    include_firmware=getattr(self, '_autofix_allow_firmware', False)
+                ) if AUTOFIX_DEEP_CATALOG else []
                 cat_devs, cat_ids = [], set()
                 for d in problem_devs + generic_devs + deep_devs:
                     if d['id'] not in cat_ids:
@@ -756,9 +784,25 @@ class GuiAutofixMixin:
         telepítő láb -> --resume-autofix) ezen keresztül megy: korábban ugyanez a ~25 sor
         háromszor szerepelt, és bármelyik módosítása után szétcsúszhatott a másik kettő.
 
+        A NYOMTATÓ-KIHAGYÁS FLAG-JÉT IS ITT FŰZZÜK HOZZÁ, nem a hívási helyeken: a lábak
+        külön processzek, a felhasználó választása kizárólag a feladat argumentumában él
+        tovább (lásd CLAUDE.md), és a hét hívási helyből eddig CSAK az A láb tette hozzá.
+        A B láb és a telepítő lábak ezért `--resume-autofix`-ot ütemeztek flag nélkül, így
+        a lánc 2. lábától a beállítás némán elveszett: a terepi logban a bekapcsolt
+        checkbox mellett is `Nyomtató-kihagyás (érvényes érték): False` állt volna a
+        későbbi lábakon. Ma ennek látható következménye nincs (csak a B láb töröl), de a
+        log így ÖNMAGÁNAK MOND ELLENT, és az első nyomtató-érzékeny lépés a telepítő lábon
+        némán rossz ágra futna. Egy helyen kezelve ez nem felejthető el.
+
         A feladat AtLogOn triggerrel, interaktív + legmagasabb jogosultsággal fut - a
         folytatást ténylegesen az ui.html indítja el (get_init_data resume flag-jei
         alapján), ezért a GUI-nak láthatóan és adminként kell elindulnia."""
+        if getattr(self, '_autofix_skip_printers', False) and '--skip-printer-drivers' not in resume_flag:
+            resume_flag += ' --skip-printer-drivers'
+        if getattr(self, '_autofix_allow_storage', False) and '--allow-storage-drivers' not in resume_flag:
+            resume_flag += ' --allow-storage-drivers'
+        if getattr(self, '_autofix_allow_firmware', False) and '--allow-firmware' not in resume_flag:
+            resume_flag += ' --allow-firmware'
         exe_path = _app_exe_path()
         temp_env = os.environ.get('TEMP', '!!').lower()
         # Ha temp mappából fut a program, a következő indulásig törlődhet alóla az exe -
@@ -1112,14 +1156,43 @@ class GuiAutofixMixin:
         except Exception as e:
             logging.debug(f"[AUTOFIX] Fast Startup állapot lekérdezése sikertelen (nem kritikus): {e}")
 
-    def _emit_autofix_summary(self, chain_total, pre_packages=None, task_id='autofix'):
+    def _emit_catalog_no_bind(self, no_bind, task_id='autofix'):
+        """Jelentés azokról a katalógus-csomagokról, amiket a lánc MEGTALÁLT, de az eszköz
+        végül nem kapott meg (a csomag nem erre a gépre való, vagy nem kötött rá).
+
+        Miért kell: ezek a lánc alatt bizonyítottan LÉTEZŐ, újabb driverek, amik némán
+        elvesztek. A 'catalog_no_bind' lista eddig kizárólag a lábak közti ismétlés
+        megelőzésére szolgált, majd a lánc végén az állapotfájllal együtt törlődött -
+        a szerelő sosem tudta meg, hogy pl. az RTX 3060-hoz volt egy újabb csomag a
+        katalógusban (terepi futás, 2026-07-27: 32.0.15.9595 a telepített 32.0.15.9186
+        helyett), csak épp nem sikerült ráadni. Márpedig ezekre van kézi megoldás:
+        a gyártói (NVIDIA/AMD/Intel) kártya a manuális szkenben."""
+        if not no_bind:
+            return
+        try:
+            names = []
+            for nb in no_bind:
+                nm = (nb.get('name') or '?').strip()
+                ttl = (nb.get('title') or '').strip()
+                names.append(f"{nm} - {ttl}" if ttl else nm)
+            logging.info(f"[AUTOFIX] A katalógusban volt csomag, de az eszköz nem kapta meg: {names}")
+            self.emit('task_progress', {'task': task_id, 'log': f'\n📎 {len(names)} db csomagot megtaláltunk a Microsoft Update Catalogban, de az eszköz végül NEM vette át:'})
+            for n in names:
+                self.emit('task_progress', {'task': task_id, 'log': f'   • {n}'})
+            self.emit('task_progress', {'task': task_id, 'log': 'Ezek jellemzően más gépgyártóra szabott változatok, vagy a Windows egy nála pontosabban illeszkedő drivert részesített előnyben.'})
+            self.emit('task_progress', {'task': task_id, 'log': '👉 TEENDŐ: videokártyánál a "Driver Keresés és Telepítés" menü gyártói (NVIDIA/AMD/Intel) kártyája adja a legfrissebb drivert; alaplapi eszköznél az alaplapgyártó letöltőoldala.'})
+        except Exception as e:
+            logging.warning(f"[AUTOFIX] A nem-kötő katalógus-csomagok jelentése hiba (nem kritikus): {e}")
+
+    def _emit_autofix_summary(self, chain_total, pre_packages=None, task_id='autofix', no_bind=None):
         """ZÁRÓ ÖSSZEFOGLALÓ a lánc legvégén: hány driver települt a TELJES lánc alatt,
-        MELY csomagok nem kerültek vissza, és mely eszközök maradtak hibakódosak (hogy a
-        maradék lyuk sose legyen néma).
+        MELY csomagok nem kerültek vissza, mely katalógus-csomagokat nem vett át az eszköz,
+        és mely eszközök maradtak hibakódosak (hogy a maradék lyuk sose legyen néma).
         Minden hibát elnyel - az összefoglaló sosem akaszthatja meg a lezárást."""
         try:
             self.emit('task_progress', {'task': task_id, 'log': f'\n📊 ÖSSZEFOGLALÓ: a teljes AutoFix lánc alatt összesen {chain_total} driver települt.'})
             self._emit_missing_packages(pre_packages, task_id)
+            self._emit_catalog_no_bind(no_bind, task_id)
             res = self._run(["powershell", "-NoProfile", "-Command", WU_PNP_QUERY_PS], encoding='utf-8')
             pnp_data = []
             if res.stdout:
@@ -1155,8 +1228,9 @@ class GuiAutofixMixin:
         except Exception as e:
             logging.warning(f"[AUTOFIX] Összefoglaló hiba (nem kritikus): {e}")
 
-    def run_autofix(self, skip_printer_drivers=True):
-        logging.info(f"[API] run_autofix() indítása (skip_printer_drivers={skip_printer_drivers})")
+    def run_autofix(self, skip_printer_drivers=True, allow_storage_drivers=False, allow_firmware=False):
+        logging.info(f"[API] run_autofix() indítása (skip_printer_drivers={skip_printer_drivers}, "
+                     f"allow_storage_drivers={allow_storage_drivers}, allow_firmware={allow_firmware})")
         if self.target_os_path:
             self.emit('toast', {'message': 'Az 1 kattintásos fix csak az Élő (jelenlegi) rendszeren futtatható le biztonságosan!', 'type': 'error'})
             return
@@ -1169,14 +1243,28 @@ class GuiAutofixMixin:
             # sys.argv-ből visszaolvasni (lásd __init__: self.skip_printer_drivers).
             if is_resume_step1 or is_resume_mode:
                 skip_printers = getattr(self, 'skip_printer_drivers', True)
+                allow_storage = getattr(self, 'allow_storage_drivers', False)
+                allow_fw = getattr(self, 'allow_firmware_updates', False)
             else:
                 skip_printers = skip_printer_drivers
+                allow_storage = bool(allow_storage_drivers)
+                allow_fw = bool(allow_firmware)
             # A belépési log a JS-paramétert írja ki, ami a resume lábakon a frontend
             # ALAPÉRTÉKE (mindig True), nem a felhasználó választása - egy nyomtató-panasz
             # kivizsgálásánál pont ez a mező vinne félre. Ezért a FELOLDOTT értéket is
             # kilogoljuk, forrás-megjelöléssel.
             logging.info(f"[AUTOFIX] Nyomtató-kihagyás (érvényes érték): {skip_printers} "
                          f"(forrás: {'sys.argv --skip-printer-drivers' if (is_resume_step1 or is_resume_mode) else 'GUI dialógus'})")
+            logging.info(f"[AUTOFIX] Tárolóvezérlő-driverek engedélyezve: {allow_storage} "
+                         f"(forrás: {'sys.argv --allow-storage-drivers' if (is_resume_step1 or is_resume_mode) else 'GUI dialógus'})")
+            # A feloldott értékek innentől a _schedule_autofix_resume-é: MINDEN további láb
+            # ütemezésekor ő fűzi hozzá a flageket, hogy a választás ne veszhessen el a
+            # lánc közepén (lásd ott a részletes indoklást).
+            logging.info(f"[AUTOFIX] Firmware-frissítések engedélyezve: {allow_fw} "
+                         f"(forrás: {'sys.argv --allow-firmware' if (is_resume_step1 or is_resume_mode) else 'GUI dialógus'})")
+            self._autofix_skip_printers = skip_printers
+            self._autofix_allow_storage = allow_storage
+            self._autofix_allow_firmware = allow_fw
 
             task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if (is_resume_mode or is_resume_step1) else '1 Kattintásos Driver Javítás és Frissítés'
             self.emit('task_start', {'task': 'autofix', 'title': task_title})
@@ -1221,10 +1309,9 @@ class GuiAutofixMixin:
 
                     # A nyomtató-kihagyás választása MÁSIK PROCESSZBE megy át, ezért nem
                     # paraméter, hanem a feladat argumentumába épített flag (lásd CLAUDE.md).
-                    resume_flag = '--resume-step1'
-                    if skip_printers:
-                        resume_flag += ' --skip-printer-drivers'
-                    self._schedule_autofix_resume(resume_flag)
+                    # A flag hozzáfűzése a _schedule_autofix_resume dolga (self._autofix_skip_printers),
+                    # hogy a lánc egyetlen későbbi lábán se maradhasson le.
+                    self._schedule_autofix_resume('--resume-step1')
 
                     self._reboot_or_cancel('Újraindulás felkészítve (-1. lépés)...')
                     return
@@ -1273,6 +1360,16 @@ class GuiAutofixMixin:
                     skip_cls = AUTOFIX_PRINTER_SKIP_CLASSES if skip_printers else None
 
                     self._delete_ghost_devices_sync(skip_classes=skip_cls)
+                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
+
+                    # SZÍNPROFILOK GYÁRI ALAPÁLLAPOTBA (explicit user decision, 2026-07-27).
+                    # Itt a helye: a driver-törlés ELŐTT, de a szellemeszközök után - a
+                    # hozzárendelések a monitor-eszközökre mutatnak, és a közvetlenül
+                    # ezutáni újraindítás tölti újra a gamma-rámpát. Sosem állítja meg a
+                    # láncot (a core mindent elnyel).
+                    colorprofile_core.reset_color_profiles(
+                        self._run,
+                        lambda m: self.emit('task_progress', {'task': 'autofix', 'log': m}))
                     if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
 
                     # A visszatérési értéket NEM dobjuk el: a 'wedged' azt jelenti, hogy a
@@ -1481,7 +1578,11 @@ class GuiAutofixMixin:
                     # TÖRLÉSE ELŐTT kell kiolvasni (_autofix_stats_total_and_clear utána
                     # már nem találná).
                     pre_packages = self._autofix_stats_get('pre_packages') or []
-                    self._emit_autofix_summary(self._autofix_stats_total_and_clear(), pre_packages=pre_packages)
+                    # Ugyanígy a stats-fájl TÖRLÉSE ELŐTT: a lánc alatt megtalált, de az
+                    # eszköz által át nem vett katalógus-csomagok (lásd _emit_catalog_no_bind).
+                    no_bind = self._autofix_stats_get('catalog_no_bind') or []
+                    self._emit_autofix_summary(self._autofix_stats_total_and_clear(),
+                                               pre_packages=pre_packages, no_bind=no_bind)
 
                     self.emit('task_progress', {'task': 'autofix', 'log': 'DCH alkalmazások (Microsoft Store) frissítésének elindítása...'})
                     try:

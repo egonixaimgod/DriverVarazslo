@@ -44,6 +44,15 @@ class GuiBaseMixin:
         self.resume_mode = '--resume-autofix' in sys.argv
         self.resume_step1 = '--resume-step1' in sys.argv
         self.skip_printer_drivers = '--skip-printer-drivers' in sys.argv
+        # Az AutoFix indító dialógusán bejelölt "tárolóvezérlő-driverek is" választás. A
+        # lábak külön processzek, ezért a nyomtató-flaghez hasonlóan CSAK az ütemezett
+        # feladat argumentumában él tovább (lásd _schedule_autofix_resume). Alapértelmezés:
+        # KI - tárolódriver csak kifejezett engedéllyel mehet fel felügyelet nélkül.
+        self.allow_storage_drivers = '--allow-storage-drivers' in sys.argv
+        # Firmware-frissítések (UEFI/BIOS, SSD, TPM) engedélyezése - a tárolótól KÜLÖN
+        # kapcsoló, mert más a kockázat: a firmware-írás visszafordíthatatlan, és egy
+        # megszakadt flash hardveresen teszi tönkre az eszközt. Alapértelmezés: KI.
+        self.allow_firmware_updates = '--allow-firmware' in sys.argv
         self._si = subprocess.STARTUPINFO()
         self._si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         self._nw = subprocess.CREATE_NO_WINDOW

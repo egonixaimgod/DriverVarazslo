@@ -1006,10 +1006,20 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
     <div class="modal-header"><h3 id="mc-title">Megerősítés</h3></div>
     <div class="modal-body">
       <div id="mc-message" style="line-height:1.8;font-size:13px;white-space:pre-line"></div>
-      <label class="toggle" id="mc-skip-printers-row" style="display:none;margin-top:14px" title="A nyomtató és szkenner/multifunkciós driverek nem törlődnek, mert ezek gyakran csak gyári driverrel működnek jól.">
+      <label class="toggle" id="mc-skip-printers-row" style="display:none;margin-top:14px" title="Bekapcsolva a meglévő nyomtató/szkenner driverek NEM törlődnek - ezek gyakran csak a gyári driverrel működnek jól, és egy multifunkciós készülék segéd-driverei több eszközosztályban szétszórva ülnek. FONTOS: ez csak a TÖRLÉSRE vonatkozik. Újabb nyomtató-drivert a program mindkét állásban keres és telepít, ha a Windows Update kínál.">
         <input type="checkbox" id="mc-skip-printers" checked>
         <span class="toggle-track"></span>
-        Nyomtató és szkenner driverek kihagyása (ajánlott)
+        Meglévő nyomtató/szkenner driverek megtartása (ajánlott)
+      </label>
+      <label class="toggle" id="mc-allow-storage-row" style="display:none;margin-top:10px" title="Alapból KI. Bekapcsolva a fix a Windows Update-ből a tárolóvezérlő (NVMe/SATA/RAID) drivereit is feltelepíti. Kockázat: ha rossz driver kerül fel, a gép a KÖVETKEZŐ indításnál nem biztos, hogy elindul (INACCESSIBLE_BOOT_DEVICE), és azt már csak helyreállító médiával lehet javítani. A Microsoft Update Catalogból tárolódriver ekkor SEM települ automatikusan - azt a Driver Keresés és Telepítés menü mutatja meg, piros jelöléssel.">
+        <input type="checkbox" id="mc-allow-storage">
+        <span class="toggle-track"></span>
+        ⛔ Tárolóvezérlő-driverek (NVMe/SATA) telepítése is – kockázatos!
+      </label>
+      <label class="toggle" id="mc-allow-firmware-row" style="display:none;margin-top:10px" title="Alapból KI. Bekapcsolva a fix a firmware-frissítéseket is feltelepíti (UEFI/BIOS, SSD-vezérlő, TPM, dokkoló). Ez NEM drivert cserél, hanem újraírja az eszköz nem felejtő memóriáját: VISSZAFORDÍTHATATLAN, sem visszaállítási pont, sem Windows-újratelepítés nem hozza vissza a régit. Írás közbeni áramszünet hardveresen teheti tönkre az eszközt, TPM-nél pedig érvénytelenítheti a BitLocker-kulcsokat. Csak stabil tápellátás mellett (UPS/laptop akku) és mentett BitLocker-kulccsal!">
+        <input type="checkbox" id="mc-allow-firmware">
+        <span class="toggle-track"></span>
+        ⚡ Firmware-frissítések (UEFI/BIOS, SSD, TPM) is – VISSZAFORDÍTHATATLAN!
       </label>
       <div id="mc-note-row" style="display:none;margin-top:14px">
         <textarea id="mc-note-input" rows="3" placeholder="Pl.: időszakos fagyás játék közben, gyanús kattogó hang a gépből..." style="width:100%;padding:10px 12px;border-radius:var(--r-sm);border:1px solid var(--glass-border);background:rgba(20,12,38,0.6);color:var(--text);font:13px var(--font);resize:vertical"></textarea>
@@ -1124,13 +1134,18 @@ function _uiElemDesc(el, phase) {
   let d = el.tagName ? el.tagName.toLowerCase() : '?';
   if (el.id) d += '#' + el.id;
   if (el.dataset && el.dataset.view) d += '[view=' + el.dataset.view + ']';
-  // A jelölőnégyzet állapota a CAPTURE fázisú kattintáskor még a váltás ELŐTTI érték,
-  // a change eseménykor pedig a végleges - ezt meg kell különböztetni, különben a log
-  // két, látszólag ellentmondó sort mutat ugyanarra a kattintásra (ma ez konkrétan
-  // félrevitt egy nyomtató-checkbox vizsgálatot). A 'change' sor a mérvadó.
+  // A jelölőnégyzet állapota a CAPTURE fázisú kattintáskor MÁR A VÁLTÁS UTÁNI érték: a
+  // HTML "pre-click activation" lépése a checkedness-t még a click esemény kiküldése
+  // ELŐTT átbillenti (csak akkor állítja vissza, ha az eseményt valaki lefújja). A
+  // korábbi felirat ezt fordítva állította ("valtas_elotti"), és a terepi log így
+  // önmagának mondott ellent: a 2026-07-27-i futásban az alapból BEKAPCSOLT
+  // nyomtató-checkbox egyetlen kattintás után 'valtas_elotti checked=false' +
+  // 'VEGLEGES checked=false' sorokat adott - mintha a kattintás nem csinált volna semmit,
+  // holott épp az kapcsolta ki (a run_autofix(false) ezt vissza is igazolta). Mindkét sor
+  // ugyanazt a (már átbillentett) értéket mutatja, ezért egyformán jelöljük.
   if (el.type === 'checkbox' || el.type === 'radio') {
     d += (phase === 'change') ? '(VEGLEGES checked=' + el.checked + ')'
-                              : '(valtas_elotti checked=' + el.checked + ')';
+                              : '(kattintas_utan checked=' + el.checked + ')';
   }
   const txt = ((el.innerText || el.value || '') + '').trim().replace(/\s+/g, ' ').slice(0, 60);
   if (txt) d += ' "' + txt + '"';
@@ -1639,10 +1654,12 @@ function onHwScanResult(data) {
   document.getElementById('hw-progress-fill').style.width = '100%';
   document.getElementById('hw-status').textContent = '✅ ' + hwPool.length + ' letölthető + ' + hwInstalled.length + ' telepített driver' + (data.time ? ' (' + data.time + ')' : '');
   if (data.sys_info) document.getElementById('sys-info').textContent = data.sys_info;
-  // Select all available by default - KIVÉVE a downgrade-jelölteket (a WU a telepítettnél
-  // régebbi drivert ajánl): azok láthatóak, de alapból nincsenek kipipálva.
+  // Select all available by default - KIVÉVE (a) a downgrade-jelölteket (a WU a
+  // telepítettnél régebbi drivert ajánl) és (b) a KOCKÁZATOS, tárolóvezérlő/lemez
+  // találatokat: mindkettő ott van a listán láthatóan, de alapból nincs kipipálva,
+  // mert a telepítésük tudatos emberi döntést kíván (lásd wu_core.RISKY_CLASS_WARNING).
   hwSelectedIndices.clear();
-  hwPool.forEach((d, i) => { if (!d.downgrade) hwSelectedIndices.add(i); });
+  hwPool.forEach((d, i) => { if (!d.downgrade && !d.risky) hwSelectedIndices.add(i); });
   renderHwTree();
   updateHwButtons();
   setTimeout(() => { document.getElementById('hw-progress').style.display = 'none'; }, 2000);
@@ -1676,6 +1693,7 @@ function renderHwTree() {
           + (it.installed_version ? ' <span style="color:var(--text3);font-size:11px" title="Jelenleg telepített driver-verzió/dátum ehhez az eszközhöz">(telepítve: '+esc(it.installed_version)+(it.installed_date?' · '+esc(it.installed_date):'')+')</span>' : '')
           + (it.downgrade ? ' <span style="color:#ffb454;font-size:11px;font-weight:700" title="A felajánlott driver RÉGEBBI a jelenleg telepítettnél - telepítése visszabutítás lenne, ezért alapból nincs kijelölve">⚠️ régebbi, mint a telepített!</span>' : '')
           + (it.generic_replace ? ' <span style="color:#5fb2ff;font-size:11px;font-weight:700" title="Ezen az eszközön most a Windows beépített, generikus drivere fut. A chip gyártójának saját drivere elérhető a Microsoft Update Catalogban - jellemzően többet tud (hang-DSP, energiakezelés, offload). Ha a csere után az eszköz hibás lenne, a program automatikusan visszaáll a Windows driverére.">🏭 most Windows alapdriver → gyári elérhető</span>' : '')
+          + (it.risky ? ' <span style="color:#ff5f6d;font-size:11px;font-weight:800" title="'+esc(it.risk_reason||'')+'">⛔ KOCKÁZATOS: tárolóvezérlő/lemez - rossz driver esetén a Windows nem indul el!</span>' : '')
           + '</span>'
           + '<span class="hwid">'+esc(it.hwid||'')+'</span></div>'
         ).join('') + '</div>';
@@ -1916,17 +1934,23 @@ function updateWuStatus(data) {
 }
 async function startAutoFix(skipConfirm = false) {
   let ok = skipConfirm;
-  let skipPrinters = true; // resume hívásnál irreleváns, a Python úgyis argv-ből dönt
+  // Resume hívásnál mindkettő irreleváns: a Python az ütemezett feladat argumentumából
+  // (sys.argv) olvassa vissza a felhasználó eredeti választását.
+  let skipPrinters = true;
+  let allowStorage = false;
+  let allowFirmware = false;
   if (!ok) {
     const res = await showAutoFixConfirm('1 Kattintásos Driver Fix', 'Megerősíted a teljes automatikus javítás (visszaállítási pont, driver törlés és újratelepítés) indítását?');
     ok = res.ok;
     skipPrinters = res.skipPrinters;
+    allowStorage = res.allowStorage;
+    allowFirmware = res.allowFirmware;
   }
   if (ok) {
     document.getElementById('btn-autofix').disabled = true;
     document.getElementById('btn-autofix').textContent = '⏳ FOLYAMATBAN...';
     try {
-      await api().run_autofix(skipPrinters);
+      await api().run_autofix(skipPrinters, allowStorage, allowFirmware);
     } catch (e) {
       toast('Autofix hiba: ' + e, 'error');
       document.getElementById('btn-autofix').disabled = false;
@@ -2631,8 +2655,12 @@ function showAutoFixConfirm(title, message) {
   return new Promise(resolve => {
     confirmResolver = (val) => {
       const skip = document.getElementById('mc-skip-printers').checked;
+      const storage = document.getElementById('mc-allow-storage').checked;
+      const firmware = document.getElementById('mc-allow-firmware').checked;
       document.getElementById('mc-skip-printers-row').style.display = 'none';
-      resolve({ ok: val, skipPrinters: skip });
+      document.getElementById('mc-allow-storage-row').style.display = 'none';
+      document.getElementById('mc-allow-firmware-row').style.display = 'none';
+      resolve({ ok: val, skipPrinters: skip, allowStorage: storage, allowFirmware: firmware });
     };
     document.getElementById('mc-title').textContent = title;
     document.getElementById('mc-message').textContent = message;
@@ -2640,6 +2668,12 @@ function showAutoFixConfirm(title, message) {
     document.getElementById('mc-cancel').textContent = 'Mégse';
     document.getElementById('mc-yes').textContent = 'Igen';
     document.getElementById('mc-skip-printers-row').style.display = 'flex';
+    // A tároló-kapcsoló MINDIG kikapcsolva nyílik, akkor is, ha az előző futásnál be volt
+    // jelölve: ez egy gépenként mérlegelendő, boot-kritikus döntés, nem "beállítás".
+    document.getElementById('mc-allow-storage').checked = false;
+    document.getElementById('mc-allow-storage-row').style.display = 'flex';
+    document.getElementById('mc-allow-firmware').checked = false;
+    document.getElementById('mc-allow-firmware-row').style.display = 'flex';
     document.getElementById('modal-confirm').classList.add('active');
   });
 }
