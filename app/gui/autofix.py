@@ -1087,14 +1087,27 @@ class GuiAutofixMixin:
                 cls = p.get('class') or ''
                 return f"   • {p.get('original')} - {prov} ({ver}){f' [{cls}]' if cls else ''}"
 
+            # A két JÓINDULATÚ csoport képernyő-listája felül van korlátozva: terepen
+            # (2026-07-28, a Razer-csomagbloat utáni első futás) a "lecserélődött" csoport
+            # 175 tételes fala az összefoglaló minden hasznos sorát kigörgette a képernyőről.
+            # A teljes névsor ilyenkor EGY log-sorba kerül (a törlési fázis amúgy is nevén
+            # nevezett minden csomagot); a "tényleg eltűnt" csoport szándékosan NINCS
+            # levágva - az a teendős lista, ott minden név a felhasználóé.
+            BUCKET_SCREEN_MAX = 15
+
+            def _emit_bucket(items, header):
+                self.emit('task_progress', {'task': task_id, 'log': header})
+                for p in items[:BUCKET_SCREEN_MAX]:
+                    self.emit('task_progress', {'task': task_id, 'log': _line(p)})
+                if len(items) > BUCKET_SCREEN_MAX:
+                    self.emit('task_progress', {'task': task_id, 'log': f'   … és további {len(items) - BUCKET_SCREEN_MAX} hasonló csomag (a teljes névsor a debug logban).'})
+                    logging.info(f"[AUTOFIX] Teljes csoport-névsor ({len(items)} db): "
+                                 f"{sorted(p.get('original') or '?' for p in items)}")
+
             if replaced:
-                self.emit('task_progress', {'task': task_id, 'log': f'\nℹ️ {len(replaced)} csomag LECSERÉLŐDÖTT ugyanannak a gyártónak egy másik csomagjára (az eszköz működik):'})
-                for p in replaced:
-                    self.emit('task_progress', {'task': task_id, 'log': _line(p)})
+                _emit_bucket(replaced, f'\nℹ️ {len(replaced)} csomag LECSERÉLŐDÖTT ugyanannak a gyártónak egy másik csomagjára (az eszköz működik):')
             if vendor_other:
-                self.emit('task_progress', {'task': task_id, 'log': f'\nℹ️ {len(vendor_other)} csomag helyett a gyártó MÁSIK csomagja került fel (jellemzően általánosabb; az eszköz működik, de a gyártói szoftver extra funkciói hiányozhatnak):'})
-                for p in vendor_other:
-                    self.emit('task_progress', {'task': task_id, 'log': _line(p)})
+                _emit_bucket(vendor_other, f'\nℹ️ {len(vendor_other)} csomag helyett a gyártó MÁSIK csomagja került fel (jellemzően általánosabb; az eszköz működik, de a gyártói szoftver extra funkciói hiányozhatnak):')
             if not missing:
                 self.emit('task_progress', {'task': task_id, 'log': '✅ Nincs olyan csomag, ami nyom nélkül eltűnt volna.'})
                 return
