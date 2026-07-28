@@ -178,6 +178,15 @@ def _iter_process_lines(process, run_fn, cancel_check=None, inactivity_timeout=1
 WU_SCAN_IGNORED_CLASSES = ['Volume', 'VolumeSnapshot', 'Computer',
                            'LegacyDriver', 'Endpoint', 'AudioEndpoint', 'PrintQueue']
 
+# Az összehasonlítás NAGYBETŰSÍTVE megy. A Win32_PnPEntity.PNPClass írásmódja eszközönként
+# eltér - a hangkártyák pl. csupa nagybetűs "MEDIA"-t jelentenek -, és ezt a projekt már
+# egyszer megtanulta: a kategorizálás (lentebb, `pclass_l`) pont emiatt kisbetűsít, mert a
+# kis-nagybetű érzékeny hasonlítás minden hangeszközt a "🔧 Egyéb" gyűjtőbe dobott. Ez a
+# lista viszont ugyanabban a függvényben, néhány sorral feljebb, NYERSEN hasonlított: egy
+# "VOLUME"-ot vagy "COMPUTER"-t jelentő gépen a kötet-objektum/HAL némán átcsúszott volna a
+# driver-keresésbe. A lista maga olvasható (canonical) alakban marad.
+_WU_SCAN_IGNORED_UPPER = {c.upper() for c in WU_SCAN_IGNORED_CLASSES}
+
 # VIRTUÁLIS (hypervisor-vendég) eszközök neve. Régen ez egy nyers `"virtual" in név`
 # részszöveg-vizsgálat volt, ami VALÓDI hardvert is kizárt: az "Intel(R) Virtual Buttons"
 # (a hangerő/bekapcsoló gombok sok üzleti laptopon és 2-in-1-en) csak azért esett ki, mert
@@ -236,7 +245,7 @@ def _filter_wu_scan_devices(pnp_data):
         # (ViGEmBus, VPN TAP-adapterek). Azokat eddig NÉMÁN kizártuk a keresésből ÉS a
         # "Problémás eszközök" listáról is, vagyis egy hibás VPN-adapter sosem tűnt fel.
         # A katalógus-oldal amúgy is kiszűri őket (a `ROOT\...` nem gyártó-kódos HWID).
-        if pclass in WU_SCAN_IGNORED_CLASSES:
+        if pclass.strip().upper() in _WU_SCAN_IGNORED_UPPER:
             dropped['osztály'].append(f"{n} [{pclass}]")
             continue
 
@@ -586,75 +595,105 @@ def _is_inbox_driver(inst):
 # szken listázza és a szerelő dönt, az AutoFix pedig magától telepíti.
 # ============================================================================
 
-# Ahol a chipgyártó drivere jellemzően TÖBBET tud a Windows generikusánál (hang-DSP,
-# energiakezelés, offload-funkciók), ÉS a csere visszafordítható (az inbox driver a
-# csomag törlése után automatikusan visszaköt).
-GENERIC_REPLACE_CLASSES = {
-    'MEDIA', 'NET', 'BLUETOOTH', 'SYSTEM', 'IMAGE', 'CAMERA',
-    'BIOMETRIC', 'PORTS', 'MODEM', 'SMARTCARDREADER', 'INFRARED',
-    # 2026-07 bővítés:
-    #  - SDHOST/MEMORY: kártyaolvasók (Realtek RTS5227/5229 gyakorlatilag minden üzleti
-    #    laptopban). A gyári driver érdemben többet tud (kártyafelismerés, energiakezelés),
-    #    a csere pedig visszafordítható - a rollback-háló fedi.
-    #  - SENSOR: laptop-szenzorok (Intel ISH, gyorsulásmérő, fényérzékelő).
-    #  - DISPLAY: SZÁNDÉKOS kivétel a "videokártyához a gyártói kártya a jobb forrás"
-    #    szabály alól. Ez az ág CSAK akkor fut, ha az eszköz JELENLEG inbox driveren van
-    #    (_is_inbox_driver) - vagyis a Microsoft Basic Display Adapteren, gyorsítás nélkül.
-    #    Ott bármilyen valódi driver jobb a semminél, és a gyártói kártyák közül az
-    #    AMD/Intel csak LINK-OUT (nem telepít), az NVIDIA-é meg csak a manuális szkenben
-    #    fut - tehát AutoFix után a gép addig a basic display-en maradt volna.
-    'SDHOST', 'MEMORY', 'SENSOR', 'DISPLAY',
-    #  - MONITOR (2026-07-27, explicit user decision): a "Generic PnP Monitor" a Windows
-    #    beépített monitordrivere; a gyártói monitor-INF EDID-felülbírálást ÉS a gyári
-    #    ICC színprofilt hozza. Ez az a csomag, ami a színkezelést ténylegesen gyári
-    #    alapra teszi (párja: app/colorprofile_core.py, ami az egyedi kalibrációt szedi
-    #    le). Kockázata gyakorlatilag nincs: boot-kritikus nem lehet, és a rollback-háló
-    #    (_verify_generic_replacements) itt is fut.
-    'MONITOR',
-}
-
-# SOHA nem cserélünk generikus drivert ezekben az osztályokban:
-#  - tárolóvezérlő (SCSIAdapter/HDC/DiskDrive): a rendszerlemez vezérlőjének
-#    drivercseréje INACCESSIBLE_BOOT_DEVICE-t okozhat, és a hiba csak a KÖVETKEZŐ
-#    bootnál derül ki, amikor már nincs mód visszaállni - ez az egyetlen eset, amit
-#    a "telepítsd, ellenőrizd, szükség esetén állítsd vissza" háló NEM fed le;
-#  - Display: a videokártyához az NVIDIA/AMD/Intel kártya adja a gyári legfrissebbet
-#    (app/gui/nvidia.py, vendorgpu.py), a katalógus ennél mindig régebbi;
-#  - beviteli eszközök / nyomtatósor / kötetek: itt a Microsoft drivere a helyes, gyári
-#    csere se nem elérhető, se nem kívánatos.
-# A MONITOR 2026-07-27-én ÁTKERÜLT az engedélyezett osztályok közé - lásd ott az indoklást.
-GENERIC_REPLACE_BLOCKED_CLASSES = {
-    'SCSIADAPTER', 'HDC', 'DISKDRIVE', 'VOLUME', 'VOLUMESNAPSHOT', 'FLOPPYDISK',
-    'HIDCLASS', 'KEYBOARD', 'MOUSE', 'PRINTER', 'PRINTQUEUE',
-    'USB', 'COMPUTER', 'PROCESSOR', 'FIRMWARE', 'SOFTWAREDEVICE', 'SOFTWARECOMPONENT',
-}
-
-# Csak konkrét chipet/eszközt azonosító, gyártó-kódos HWID jöhet szóba
-# (PCI\VEN_xxxx&DEV_yyyy, HDAUDIO\FUNC_01&VEN_xxxx, USB\VID_xxxx&PID_yyyy). Ez zárja ki
-# az ACPI\PNP0C02-féle általános rendszer-csomópontokat, amikre se katalógus-találat
-# nincs, se értelme - egyben drasztikusan csökkenti a felesleges lekérdezések számát.
+# OSZTÁLY-SZŰRÉS: 2026-07-28-tól NINCS (explicit user decision - "ITT IS MINDENT
+# KERESSEN, kivéve amit checkboxszal nem engedek").
 #
-# A MONITOR\ ág külön eset (2026-07-27): a monitorok azonosítója `MONITOR\ACI27FA` alakú,
-# vagyis nincs benne VEN_/VID_ tag, mégis PONTOSAN egy gyártót+típust azonosít (a 3 betűs
-# PnP-gyártókód + a modellkód), és a katalógusban valódi monitor-csomagok ülnek rá
-# (EDID-felülbírálás + gyári ICC színprofil). Enélkül a monitor hiába kerül be az
-# eszközlistába, a katalógust sosem kérdeznénk meg rá.
-_VENDOR_HWID_RE = re.compile(r'^(?:(?:PCI|HDAUDIO|USB)\\.*(?:VEN_|VID_)|MONITOR\\[A-Z0-9]{5,})',
-                             re.IGNORECASE)
+# Ez a kör korábban KÉT osztálylistával dolgozott: egy szűk engedélyező whitelisttel
+# (16 osztály) és egy tiltólistával. Mindkettő megszűnt, mert a termék szabálya közben
+# egységes lett: a gép MINDEN hardvere kapjon drivert, és pontosan KÉT kivétel legyen -
+# amit a felhasználó jelölőnégyzettel kizár (tároló, firmware), illetve ami fogalmilag
+# nem hardver (WU_SCAN_IGNORED_CLASSES, a lánc legelején). A whitelist ezt bontotta meg:
+# egy gyári driveren futó NYOMTATÓ, billentyűzet vagy USB-vezérlő hiába volt a
+# Windows generikus driverén, ez a kör meg sem kérdezte rá a katalógust - miközben
+# ugyanez az eszköz a 4. körben (mély szken) már bekerült volna, ha épp gyári driveren
+# futott volna. Ugyanaz az eszköz tehát AZÉRT nem kapott jobb drivert, mert ROSSZABB
+# driveren futott. Ez volt a régi felállás legnehezebben védhető pontja.
+#
+# AMI MARADT, és miért NEM osztályszűrés:
+#  - a tároló és a firmware: ugyanaz a KÉT JELÖLŐNÉGYZET vezérli, mint a WU-utat és a
+#    mély szkent (STORAGE_RISK_CLASSES / FIRMWARE_RISK_CLASSES, lentebb). A szerelő EGY
+#    döntést hoz a tárolódriverekről, nem forrásonként külön - ez már 2026-07-27-én is
+#    explicit döntés volt, csak ez a kör maradt ki belőle;
+#  - a busz-enumerátor INF-ek (GENERIC_REPLACE_BLOCKED_INFS) és a gyártó-kódos HWID
+#    követelménye: ezek nem azt mondják meg, hogy MILYEN hardvert nem szabad
+#    driverezni, hanem azt, hogy hol NINCS MIT KERESNI (PCI-híd, ACPI-csomópont: ezekhez
+#    gyári csomag nem létezik, a lekérdezés csak hálózati kör). Ugyanez a két szűrő él a
+#    4. körben is.
+#
+# FIGYELEM a tárolóra, ha a felhasználó ENGEDÉLYEZI: ezen a körön SZÁNDÉKOSAN nincs
+# verzió-összehasonlítás (lásd _catalog_find_driver), vagyis bejelölt tároló-checkbox
+# mellett ez az ág a Microsoft beépített NVMe/AHCI driverét cserélheti gyárira. A
+# rollback-háló (_verify_generic_replacements) ezt NEM tudja megfogni, mert a hiba a
+# KÖVETKEZŐ bootnál jelentkezik (INACCESSIBLE_BOOT_DEVICE). Pontosan ezért van a
+# checkbox alapból KI, és pontosan ezt mondja ki a RISKY_CLASS_WARNING szövege is
+# (helyreállító média kell hozzá) - a felhasználó tájékozottan vállalja.
 
-# Windows-BUSZ/ENUMERÁTOR INF-ek: ezekhez nem létezik "gyári megfelelő", a Microsoft
-# drivere maga a helyes megoldás. Enélkül a szabály elszaladt: a gépen mért 19 jelöltből
-# 17 PCI-híd / host bridge / root port volt (pci.inf, machine.inf) - értelmetlen
-# katalógus-lekérdezések tucatjai, és a végén egy oda nem való csomag telepítése.
-# A hdaudbus.inf szándékosan itt van: az a HD Audio BUSZ enumerátora (a pci.inf párja),
-# nem a hangchip drivere - azt a hdaudio.inf adja, és azt cseréljük.
-GENERIC_REPLACE_BLOCKED_INFS = {
-    'pci.inf', 'machine.inf', 'acpi.inf', 'hal.inf', 'msisadrv.inf', 'isapnp.inf',
-    'swenum.inf', 'umbus.inf', 'compositebus.inf', 'vdrvroot.inf', 'msports.inf',
-    'hdaudbus.inf', 'ksfilter.inf', 'audioendpoint.inf', 'usbhub3.inf', 'usbxhci.inf',
-    'usb.inf', 'kdnic.inf', 'ndisvirtualbus.inf', 'spaceport.inf', 'volmgr.inf',
-    'mssmbios.inf', 'wmiacpi.inf', 'uefi.inf', 'c_firmware.inf', 'cpu.inf',
-}
+# TÖRÖLT SZŰRŐK (2026-07-28) - ne kerüljenek vissza eszköz-szűrőként.
+#
+# Itt állt két konstans, amit MINDKÉT katalógus-kör (generikus csere és mély szken)
+# használt eszközök kizárására:
+#   _VENDOR_HWID_RE            - csak gyártó-kódos HWID-jű eszközre kerestünk;
+#   GENERIC_REPLACE_BLOCKED_INFS - Windows busz-enumerátor INF-en futó eszköz kimaradt
+#                                  (pci.inf, machine.inf, cpu.inf, usbxhci.inf, ...).
+# Az indoklásuk az volt, hogy "ezekhez úgysem létezik gyári driver". MÉRÉSSEL megdőlt:
+# amint a generikus-csere kör szűrők nélkül futott, a machine.inf-en ülő "Alaplap
+# erőforrásai" csomópontra megjött az Intel System 11.7.0.1019, a HD Audio VEZÉRLŐRE
+# pedig az Intel System 9.21 - két valódi, addig elrejtett chipset-driver.
+#
+# Amitől ténylegesen védtek (más gyártó csomagja egy általános azonosítón át), azt most
+# a keresőKULCS szintjén oldjuk meg: lásd is_specific_hwid alább. Az a helyes hely -
+# az eszközt nem kizárni kell, hanem nem szabad TÍPUSKÓDDAL kérdezni rá.
+#
+# A MONITOR\ ág, ami a _VENDOR_HWID_RE-ben külön kivétel volt (MONITOR\ACI27FA: nincs
+# benne VEN_/VID_, mégis pontosan egy gyártót+típust azonosít), az is_specific_hwid-ben
+# él tovább.
+
+
+# ÁLTALÁNOS (típus-szintű) hardver-azonosítók felismerése. Ezek nem EGY eszközt
+# azonosítanak, hanem egy eszköz-FAJTÁT, és a Microsoft Update Catalog ilyen kulcsra
+# BÁRMELYIK gyártó arra a fajtára szánt csomagját visszaadja.
+#
+# Terepen mérve (2026-07-28, Intel Q170 alapú HP gép), miután a 3. körből kikerült az
+# eszköz-szintű szűrés:
+#   Kommunikációs port (COM2)   ACPI\PNP0501       -> "LG Electronics - Ports" csomag
+#   USB-gyökérhub (USB 3.0)     USB\ROOT_HUB30     -> "AMD - USB" csomag EGY INTEL GÉPRE
+#   PCI Express-gyökér komplex  ACPI\PNP0A08       -> "AMD - System" csomag, szintén
+# Az USB-hub esete a legtanulságosabb: az eszköznek VAN Intel-specifikus azonosítója is
+# (USB\ROOT_HUB30&VID8086&PIDA12F), csak épp az általános kulcsról behozott AMD-csomag
+# dátuma frissebb volt, és a sorválasztás azt hozta ki győztesnek.
+#
+# A megoldás NEM az eszköz kizárása (minden eszközre keresünk, ez a termék szabálya),
+# hanem az, hogy TÍPUSKÓDDAL nem kérdezünk. Amelyik eszköznek csak ilyen azonosítója van,
+# arra egyszerűen nem lesz találat - ami az őszinte eredmény, hiszen a típuskódos találat
+# eleve más gyártó másik eszközére szólt volna.
+_HWID_VENDOR_TOKEN_RE = re.compile(r'(?:VEN|VID)_?[0-9A-Z]{4}', re.IGNORECASE)
+_HWID_GENERIC_PNP_RE = re.compile(r'^(?:VEN_PNP&DEV_[0-9A-F]{3,4}|PNP[0-9A-F]{3,4})(?:&.*)?$',
+                                  re.IGNORECASE)
+# ACPI gyártókód: 3 betűs gyártó-előtag + hexa modellkód (ACPI\INT3F0D = Intel). A
+# PNP-előtagot a fenti minta már kiszűrte, az az általános ("Plug and Play") gyártókód.
+_HWID_ACPI_VENDOR_RE = re.compile(r'^[A-Z]{3}[0-9A-F]{3,4}', re.IGNORECASE)
+
+
+def is_specific_hwid(hwid):
+    """Konkrét eszközt (gyártó+modell) azonosít-e a HWID, vagy csak egy eszköz-FAJTÁT?
+
+    Csak az előbbivel érdemes a katalógust kérdezni - lásd a fenti blokk méréseit."""
+    h = (hwid or '').strip().upper()
+    if not h or h.startswith('*'):
+        # A csillagos azonosítók (*PNP0501) mindig kompatibilitási típuskódok.
+        return False
+    bus, sep, rest = h.partition('\\')
+    if not sep:
+        bus, rest = '', h
+    if _HWID_GENERIC_PNP_RE.match(rest):
+        return False
+    if _HWID_VENDOR_TOKEN_RE.search(rest):
+        return True
+    if bus == 'MONITOR' and re.match(r'^[A-Z0-9]{5,}', rest):
+        return True
+    if bus == 'ACPI' and _HWID_ACPI_VENDOR_RE.match(rest):
+        return True
+    return False
 
 
 _HWID_SUFFIX_RE = re.compile(r'&(SUBSYS|REV|CC)_[0-9A-F]+', re.IGNORECASE)
@@ -682,33 +721,61 @@ def base_vendor_hwid(hwid):
     return f'{bus}\\{stripped}'
 
 
-def is_generic_replace_candidate(dev, inst):
+def is_generic_replace_candidate(dev, inst, allow_storage=False, allow_firmware=False):
     """Cserélhető-e ezen az eszközön a Windows generikus drivere gyárira?
 
     dev: a _filter_wu_scan_devices egy eleme, inst: a _get_installed_driver_info
     hozzá tartozó rekordja ({'version','date','provider','inf'}).
 
-    Feltételek: (1) a jelenlegi driver beépített (inbox) - erre a _is_inbox_driver
-    válaszol; (2) az eszközosztály engedélyezett; (3) a HWID konkrét chipet azonosít.
-    Hibakódos eszközre False-t adunk: azokat a hívó a saját (régebbi, teljes körű)
-    hibás-eszköz ágán kezeli, különben kétszer kerülnének a keresésbe."""
+    Feltételek:
+      (1) a jelenlegi driver beépített (inbox) - erre a _is_inbox_driver válaszol.
+          Ez nem szűrés, hanem a kör DEFINÍCIÓJA: ha az eszköz már gyári driveren fut,
+          nem "generikus csere", hanem frissítés kérdése (azt a 4. kör intézi);
+      (2) az osztálya nincs a felhasználó által KI NEM engedett kockázati körben
+          (tároló / firmware - ugyanaz a két jelölőnégyzet, mint mindenhol máshol);
+    TÖBB FELTÉTEL NINCS (2026-07-28, explicit user decision: "menjen ki minden driver,
+    mindenre keressen, maximum nem talál"). Ez a kör korábban HÁROM további szűrőt
+    használt, és mind a három kikerült:
+      - osztály-whitelist és osztály-tiltólista: lásd a fenti blokk indoklását;
+      - busz-enumerátor INF-ek (pci.inf, machine.inf, cpu.inf, ...);
+      - gyártó-kódos HWID követelménye.
+    Az utóbbi kettő nem hibás szabály volt - mérve tényleg nincs gyári csomag PCI-hídra
+    vagy ACPI-csomópontra (a processzor ACPI-azonosítójára a katalógus 0 sort ad, ugyanazon
+    a gépen a PCI chipset-eszközre 25-öt) -, de a termék szabálya az lett, hogy a
+    tiltólista PONTOSAN két tételből álljon: amit a felhasználó kipipál, és ami nem
+    hardver (WU_SCAN_IGNORED_CLASSES). Egy eredménytelen katalógus-lekérdezés ára néhány
+    másodperc; egy néma szűrő ára az, hogy senki nem tudja, mit nem kerestünk meg.
+    Ha ez a kör valaha érezhetően lassú lesz, a helyes válasz NEM egy új eszköz-szűrő,
+    hanem a lekérdezések gyorsítása (több szál / találat-gyorsítótár).
+
+    A biztonsági hálót ez nem gyengíti: a telepítés előtt az inf_package_applies
+    ellenőrzi, hogy a csomag INF-je erre az eszközre való-e, utána a kötés-ellenőrzés
+    látja, ha az eszköz nem vette át, a _verify_generic_replacements pedig visszaáll,
+    ha az eszköz hibás lett. Vagyis egy oda nem való találat legrosszabb esetben is
+    kidobott letöltés, nem elrontott gép.
+
+    Hibakódos eszközre False-t adunk: azokat a hívó a saját (teljes körű) hibás-eszköz
+    ágán kezeli, különben kétszer kerülnének a keresésbe."""
     if not dev or dev.get('err_code'):
         return False
     if not inst or not _is_inbox_driver(inst):
         return False
     pclass = (dev.get('pclass') or '').strip().upper()
-    if pclass in GENERIC_REPLACE_BLOCKED_CLASSES or pclass not in GENERIC_REPLACE_CLASSES:
+    if pclass in STORAGE_RISK_CLASSES and not allow_storage:
         return False
-    if (inst.get('inf') or '').strip().lower() in GENERIC_REPLACE_BLOCKED_INFS:
+    if pclass in FIRMWARE_RISK_CLASSES and not allow_firmware:
         return False
-    return bool(_VENDOR_HWID_RE.match(dev.get('id') or ''))
+    return True
 
 
-# A MÉLY KATALÓGUS-SZKENBŐL kizárt osztályok. SZÁNDÉKOSAN SZŰKEBB, mint a
-# GENERIC_REPLACE_BLOCKED_CLASSES, mert más a kockázat: ott a Microsoft generikus driverét
-# cserélnénk gyárira (ismeretlen kimenetel), itt egy MEGLÉVŐ gyári drivert frissítenénk a
-# saját újabb verziójára (ugyanaz, amit a WU is tenne). Ezért a HID/Display/Ports itt
-# engedélyezett - a verzió-kapu miatt csak szigorúan újabb csomag jöhet szóba.
+# A MÉLY KATALÓGUS-SZKENBŐL kizárt osztályok. 2026-07-28 óta a generikus-csere körrel
+# AZONOS a szabály (ott is megszűnt az osztály-whitelist/tiltólista): mindkét kör csak a
+# két, jelölőnégyzettel vezérelt kockázati csoportot zárja ki. Korábban ez a lista volt a
+# szűkebb - azzal az indokkal, hogy itt csak egy MEGLÉVŐ gyári drivert frissítünk a saját
+# újabb verziójára, míg ott a Microsoft generikusát cserélnénk gyárira -, de ez a
+# különbségtétel azt eredményezte, hogy ugyanaz az eszköz AZÉRT nem kapott jobb drivert,
+# mert ROSSZABB (generikus) driveren futott. A termék szabálya egységes lett: minden
+# hardver kapjon drivert, kivéve amit a felhasználó kipipál, illetve ami nem hardver.
 #
 # Ami viszont NEM engedhető, mert a hiba VISSZAFORDÍTHATATLAN:
 #  - tárolóvezérlő + lemez: egy rossz csere INACCESSIBLE_BOOT_DEVICE-szal jelentkezik a
@@ -727,8 +794,9 @@ def is_generic_replace_candidate(dev, inst):
 #   USB xHCI / hub / composite              -> busz-INF (usbxhci.inf/usbhub3.inf/usb.inf)
 # Az EGYETLEN eset, amit az USB-tiltás ténylegesen fogott, egy VALÓDI gyári USB-vezérlő-
 # driveren futó vezérlő volt - vagyis pont az, amit frissíteni KELL (ugyanaz, amit a WU is
-# tenne). A MONITOR ugyanezen a napon került ki, más okból (lásd a GENERIC_REPLACE_CLASSES
-# melletti indoklást: EDID + gyári ICC profil).
+# tenne). A MONITOR ugyanezen a napon került ki, más okból: a gyártói monitor-INF
+# EDID-felülbírálást ÉS a gyári ICC színprofilt hozza, vagyis pont az a csomag, ami a
+# színkezelést gyári alapra teszi (párja: app/colorprofile_core.py).
 #
 # A tároló marad az egyetlen valódi határvonal, mert ott a hiba VISSZAFORDÍTHATATLAN
 # (INACCESSIBLE_BOOT_DEVICE a következő bootnál) - és azt is a felhasználó oldhatja fel a
@@ -772,6 +840,46 @@ FIRMWARE_CLASS_WARNING = ('FIRMWARE-frissítés: ez nem drivert cserél, hanem �
                           'régit. Írás közbeni áramszünet HARDVERESEN teheti tönkre az eszközt, '
                           'TPM-nél pedig érvénytelenítheti a BitLocker-kulcsokat. Csak stabil '
                           'tápellátás mellett és mentett BitLocker-kulccsal telepítsd!')
+
+# A fenti két figyelmeztetés RÖVID, listába való párja (a hosszú szöveg a tooltipbe megy).
+# Azért Pythonból jön és nem a ui.html-be van beégetve, mert a felület sokáig EGYETLEN,
+# tárolóvezérlőre szabott feliratot írt ki minden `risky` találatra - egy firmware-csomag
+# mellé is azt, hogy "a Windows nem indul el", ami se nem igaz, se nem a valódi kockázat.
+RISKY_CLASS_LABEL = '⛔ KOCKÁZATOS: tárolóvezérlő/lemez - rossz driver esetén a Windows nem indul el!'
+FIRMWARE_CLASS_LABEL = '⛔ KOCKÁZATOS: FIRMWARE - visszafordíthatatlan, megszakadt írásnál az eszköz tönkremehet!'
+
+
+def device_risk_marker(dev):
+    """Az eszköz KOCKÁZATI besorolása: (risky, rövid felirat, hosszú indoklás).
+
+    Egyetlen helyen mondja meg, mi számít kockázatosnak - eddig ez a szabály a
+    deep_catalog_candidates belsejében élt, ezért a katalógus MÁSIK két belépési pontján
+    (hibakódos eszközök, WU-találatok) ugyanaz az NVMe-vezérlő jelöletlenül, a manuális
+    szkenben ELŐRE BEJELÖLVE jelent meg. Nem osztályonként külön szabály: a hívónak elég
+    ezt meghívnia, és a jelölés mindenhol ugyanaz lesz.
+
+    Nem kockázatos eszközre (False, '', '')."""
+    pclass = (dev.get('pclass') or '').strip().upper()
+    if pclass in FIRMWARE_RISK_CLASSES:
+        return True, FIRMWARE_CLASS_LABEL, FIRMWARE_CLASS_WARNING
+    if pclass in STORAGE_RISK_CLASSES:
+        return True, RISKY_CLASS_LABEL, RISKY_CLASS_WARNING
+    return False, '', ''
+
+
+def mark_device_risk(dev):
+    """A device_risk_marker jelzőit ráteszi az eszköz-dict MÁSOLATÁRA (ha kockázatos).
+
+    Másolat, mert ugyanaz a dict több listában is szerepelhet (leftover / generic / deep),
+    és a jelölés nem szivároghat át olyan ágra, ahol nem szánjuk oda."""
+    risky, label, reason = device_risk_marker(dev)
+    if not risky:
+        return dev
+    out = dict(dev)
+    out['risky'] = True
+    out['risk_label'] = label
+    out['risk_reason'] = reason
+    return out
 
 # WU-csomag firmware-nek minősítése. Elsődlegesen a DriverClass dönt (ez a WUA saját
 # kategóriája), a cím-minta pedig azokra a csomagokra való, amiket a szerver más
@@ -818,11 +926,18 @@ def filter_firmware_updates(matches, wu_by_uid, allow_firmware):
 DEEP_CATALOG_BLOCKED_CLASSES = STORAGE_RISK_CLASSES | FIRMWARE_RISK_CLASSES
 
 
-def filter_autofix_risky_devices(devices, allow_storage=False, allow_firmware=False):
-    """Az AutoFix WU-útjáról kiszűri a KOCKÁZATOS osztályokat, amiket a felhasználó nem
-    engedélyezett a fix indításakor. Két, egymástól FÜGGETLEN kapcsoló:
+def filter_autofix_risky_devices(devices, allow_storage=False, allow_firmware=False,
+                                 log_tag='AUTOFIX-WU', context='a WU-egyeztetésből'):
+    """Az AutoFix eszközlistájáról kiszűri a KOCKÁZATOS osztályokat, amiket a felhasználó
+    nem engedélyezett a fix indításakor. Két, egymástól FÜGGETLEN kapcsoló:
       - tároló (STORAGE_RISK_CLASSES): rossz driver -> a gép nem bootol;
       - firmware (FIRMWARE_RISK_CLASSES): visszafordíthatatlan, akár hardveres kár.
+
+    MINDKÉT AutoFix-forrás ezen megy át (WU-egyeztetés és katalógus-zárókör), ezért a
+    naplócímke és a szövegkörnyezet paraméter: a `[AUTOFIX-WU] ... a WU-egyeztetésből`
+    sor grep-elhető marad, a katalógus-kör pedig a saját nevén nevezi, mit ejtett -
+    különben a terepi logban a két kör kizárásai megkülönböztethetetlenek lennének.
+
     Visszatérés: (megtartott, {'tároló': [...], 'firmware': [...]})."""
     kept = []
     dropped = {'tároló': [], 'firmware': []}
@@ -838,14 +953,14 @@ def filter_autofix_risky_devices(devices, allow_storage=False, allow_firmware=Fa
         if items:
             # Nevesítve: a "miért nem kapott a gépem X drivert?" kérdésre ez a válasz.
             names = ['{0} [{1}]'.format(d.get('name') or '?', d.get('pclass') or '?') for d in items]
-            logging.info(f"[AUTOFIX-WU] {len(items)} {label}-eszköz kihagyva a WU-egyeztetésből "
+            logging.info(f"[{log_tag}] {len(items)} {label}-eszköz kihagyva {context} "
                          f"(a fix indításakor nem volt engedélyezve): {names}")
     if allow_storage or allow_firmware:
         enabled = [n for n, on in (('tároló', allow_storage), ('firmware', allow_firmware)) if on]
         risky_now = [d.get('name') for d in kept
                      if (d.get('pclass') or '').strip().upper() in (STORAGE_RISK_CLASSES | FIRMWARE_RISK_CLASSES)]
         if risky_now:
-            logging.warning(f"[AUTOFIX-WU] A felhasználó ENGEDÉLYEZTE ({', '.join(enabled)}): {risky_now}")
+            logging.warning(f"[{log_tag}] A felhasználó ENGEDÉLYEZTE ({', '.join(enabled)}): {risky_now}")
     return kept, dropped
 
 
@@ -858,17 +973,31 @@ def deep_catalog_candidates(devices, installed_info, include_risky=False, includ
     kiegészítés pedig csak a hibakódos és az inbox-driveres eszközöket nézte. Ezért itt
     NINCS osztály-whitelist és nincs inbox-feltétel.
 
-    Három szűrő viszont marad, és mind MÉRÉSEN alapul (élő gép, 2026-07, 99 eszköz):
-    - a VISSZAFORDÍTHATATLAN kockázatú osztályok kizárása (DEEP_CATALOG_BLOCKED_CLASSES) -
-      lásd ott, ez a legfontosabb a háromból;
-    - gyártó-kódos HWID kell (_VENDOR_HWID_RE): egy 'ACPI\\PNP0C02' rendszer-csomópontra a
-      katalógus sosem ad találatot, csak hálózati kört és időt visz;
-    - busz-enumerátor INF-en futó eszköz kimarad (GENERIC_REPLACE_BLOCKED_INFS): PCI-hidak,
-      root portok, ACPI-csomópontok - ezekhez gyári driver nem is létezik.
-    A szűrők a 99 eszközt 16-ra vágták, a teljes katalógus-kör 22 mp lett (10 szálon).
+    EGYETLEN szűrő maradt: a felhasználó által ki nem engedett kockázati osztályok
+    (DEEP_CATALOG_BLOCKED_CLASSES = tároló + firmware, mindkettő külön jelölőnégyzeten).
+
+    2026-07-28 (explicit user decision): a másik kettő - a gyártó-kódos HWID követelménye
+    és a busz-enumerátor INF-ek tiltása - KIKERÜLT, ugyanazon a napon, mint a 3. körből.
+    A termék szabálya az, hogy a tiltólista PONTOSAN két tételből álljon: amit a
+    felhasználó kipipál, és ami nem hardver (WU_SCAN_IGNORED_CLASSES). Ami emellett szólt:
+    - a két szűrő itt nagyrészt NO-OP lett: a busz-INF-ek (pci.inf, machine.inf, cpu.inf)
+      mind Windows-BEÉPÍTETT driverek, tehát az ezeken futó eszköz `_is_inbox_driver`
+      szerint amúgy is a 3. kör (generikus->gyári) jelöltje, ahol már nincs szűrés;
+    - a "nincs rá gyári csomag" hiedelem MÉRÉSSEL megdőlt: a 3. kör szűrő nélküli
+      futása egy machine.inf-en ülő "Alaplap erőforrásai" csomópontra megtalálta az
+      Intel System 11.7.0.1019 csomagot, a HD Audio VEZÉRLŐRE pedig az Intel System
+      9.21-et - két valódi driver, amit ezek a szűrők addig elrejtettek;
+    - a rossz gyártójú találat ellen (AMD-csomag Intel gépre) NEM ez a két szűrő véd,
+      hanem a keresőKULCS szintjén az is_specific_hwid: típuskódos azonosítóval
+      (ACPI\\PNP0501, USB\\ROOT_HUB30) nem kérdezünk, mert arra bármely gyártó csomagja
+      illeszkedik. Az eszköz maga akkor is bekerül, csak a saját azonosítóival keressük.
+    Ha ez a kör valaha érezhetően lassú lesz, a helyes válasz több szál vagy találat-
+    gyorsítótár, NEM egy új eszköz-szűrő.
 
     A csomag-szintű döntés (mi számít újabbnak) VÁLTOZATLANUL a _catalog_find_driver
-    kiadás-kapuja - ez a függvény csak azt mondja meg, kit érdemes megkérdezni.
+    kiadás-kapuja - ez a függvény csak azt mondja meg, kit érdemes megkérdezni. Ez a kapu
+    az, ami a megnövelt kört is ártalmatlanná teszi: csak SZIGORÚAN újabb kiadás mehet fel,
+    tehát a plusz eszközök legrosszabb esetben is csak eredménytelen lekérdezések.
 
     Két KÜLÖN feloldó kapcsoló van, mert két külön kockázat:
       include_risky=True   -> a TÁROLÓ-osztályok (STORAGE_RISK_CLASSES) is bekerülnek,
@@ -878,7 +1007,7 @@ def deep_catalog_candidates(devices, installed_info, include_risky=False, includ
     ember indítja a telepítést), az AutoFix pedig annyit enged, amennyit a felhasználó a
     fix indító dialógusán bejelölt - alapértelmezésben egyiket sem."""
     out = []
-    dropped = {'osztály': [], 'nincs gyártói HWID': [], 'busz-INF': []}
+    dropped = {'osztály': []}
     risky_added = []
     for dev in devices or []:
         name = dev.get('name') or '?'
@@ -888,21 +1017,13 @@ def deep_catalog_candidates(devices, installed_info, include_risky=False, includ
             allowed = ((pclass in STORAGE_RISK_CLASSES and include_risky) or
                        (pclass in FIRMWARE_RISK_CLASSES and include_firmware))
             if allowed:
-                dev = dict(dev)
-                dev['risky'] = True
-                dev['risk_reason'] = (FIRMWARE_CLASS_WARNING if pclass in FIRMWARE_RISK_CLASSES
-                                      else RISKY_CLASS_WARNING)
+                # A jelölés a KÖZÖS mark_device_risk-ből jön, hogy a manuális szken másik
+                # két katalógus-belépési pontja (hibakódos, WU) ugyanazt a feliratot kapja.
+                dev = mark_device_risk(dev)
                 risky_added.append(f"{name} [{dev.get('pclass')}]")
             else:
                 dropped['osztály'].append(f"{name} [{dev.get('pclass')}]")
                 continue
-        if not _VENDOR_HWID_RE.match(dev.get('id') or ''):
-            dropped['nincs gyártói HWID'].append(name)
-            continue
-        inst = (installed_info or {}).get((dev.get('pnp_id') or '').upper()) or {}
-        if (inst.get('inf') or '').strip().lower() in GENERIC_REPLACE_BLOCKED_INFS:
-            dropped['busz-INF'].append(f"{name} [{inst.get('inf')}]")
-            continue
         out.append(dev)
     # A terepi kérdés MINDIG az, hogy "miért nem kapott az X eszköz drivert?" - és az első
     # lépés annak eldöntése, hogy egyáltalán MEGKÉRDEZTÜK-e rá a katalógust. E nélkül a
@@ -917,12 +1038,13 @@ def deep_catalog_candidates(devices, installed_info, include_risky=False, includ
     if risky_added:
         # Destruktív-kockázatú eszköz bevonása: NEVESÍTVE a logba (CLAUDE.md Rule 0) -
         # ha egy gép a szken után nem indul, ez a sor mondja meg, mit ajánlottunk fel rá.
-        logging.warning(f"[CATALOG] KOCKÁZATOS (tároló) eszközök bevonva a manuális szkenbe, "
+        logging.warning(f"[CATALOG] KOCKÁZATOS (tároló/firmware) eszközök bevonva a keresésbe, "
                         f"piros figyelmeztetéssel és előre BE NEM jelölve: {risky_added}")
     return out
 
 
-def mark_generic_replace_candidates(devices, installed_info):
+def mark_generic_replace_candidates(devices, installed_info,
+                                    allow_storage=False, allow_firmware=False):
     """A jelöltekre ráteszi a 'generic_ok' jelzőt, és visszaadja őket listaként.
 
     A jelző azért kell, mert a katalógus-kereső (_catalog_find_driver) CSAK a
@@ -930,13 +1052,31 @@ def mark_generic_replace_candidates(devices, installed_info):
     verziószáma a Windows buildje (10.0.26100.8457), tehát számszerűen mindig
     magasabb, mint a gyári csomagé (Realtek 6.0.9992.1) - a verzió itt értelmetlen
     mérce. Máshol (pl. a teljes katalógus-fallbacknél) marad a régi, verzió-alapú
-    szűrés, hogy ez a szabály ne szivárogjon ki minden eszközre."""
+    szűrés, hogy ez a szabály ne szivárogjon ki minden eszközre.
+
+    A két kockázati kapcsoló ugyanaz, mint a másik három körben: a MANUÁLIS szken
+    mindkettőt True-val hívja (a találat pirosan, előre be nem jelölve jelenik meg),
+    az AutoFix annyit enged, amennyit a felhasználó a fix indító dialógusán bejelölt.
+    Az így bevont kockázatos eszköz `risky` jelölést is kap - a felületnek látnia kell,
+    hogy egy tároló-/firmware-csere emberi döntés, nem rutinfeladat."""
     out = []
+    risky_added = []
     for dev in devices or []:
         inst = (installed_info or {}).get((dev.get('pnp_id') or '').upper()) or {}
-        if is_generic_replace_candidate(dev, inst):
+        if is_generic_replace_candidate(dev, inst, allow_storage=allow_storage,
+                                        allow_firmware=allow_firmware):
             dev['generic_ok'] = True
+            dev = mark_device_risk(dev)
+            if dev.get('risky'):
+                risky_added.append(f"{dev.get('name') or '?'} [{dev.get('pclass') or '?'}]")
             out.append(dev)
+    if risky_added:
+        # CLAUDE.md Rule 0: destruktív kockázatú eszköz bevonása NEVESÍTVE a logba. Ezen a
+        # körön nincs verzió-összehasonlítás, tehát egy tároló-jelölt a Microsoft beépített
+        # NVMe/AHCI driverének gyárira cserélését jelenti - ha egy gép a fix után nem
+        # indul, ez a sor mondja meg, mit tettünk fel rá.
+        logging.warning(f"[GENERIC] KOCKÁZATOS (tároló/firmware) generikus->gyári jelöltek "
+                        f"(a felhasználó engedélyezte): {risky_added}")
     return out
 
 

@@ -684,6 +684,32 @@ class GuiAutofixMixin:
                     except Exception as e:
                         logging.warning(f"[AUTOFIX] PnP JSON értelmezési hiba (előző körös eszközlistával folytatunk): {e}")
                 devices_now = _filter_wu_scan_devices(pnp_data) or devices_to_check
+                # TÁROLÓ-/FIRMWARE-KAPU A ZÁRÓKÖR EGÉSZÉRE (2026-07-28).
+                #
+                # Eddig ez a kapu csak a mély szkenre (deep_catalog_candidates) volt
+                # ráhúzva, a `problem_devs` ág viszont NYERSEN a hibakódos eszközöket
+                # vette - és sem a _catalog_search_collect, sem a _catalog_find_driver nem
+                # szűr osztály szerint. Vagyis egy hibakódos NVMe/AHCI vezérlőre vagy egy
+                # Firmware osztályú eszközre az AutoFix FELÜGYELET NÉLKÜL feltett egy
+                # katalógus-csomagot akkor is, ha a felhasználó egyik jelölőnégyzetet sem
+                # pipálta be - pont azt, amit a projekt legerősebb szabálya tilt
+                # (INACCESSIBLE_BOOT_DEVICE a következő bootnál, illetve visszafordíthatatlan
+                # firmware-írás). A checkbox tehát megkerülhető volt egy hibakódon keresztül.
+                #
+                # A szűrés itt, a lista TETEJÉN történik, nem áganként: így a zárókör
+                # HÁROM forrása (hibakódos + generikus csere + mély szken) garantáltan
+                # ugyanazt a kaput kapja, és egy jövőbeli negyedik ág sem tudja megkerülni.
+                # (A generikus-csere ág amúgy is kizárja ezeket az osztályokat, a mély szken
+                # pedig a saját include_risky/include_firmware kapcsolóján - a dupla szűrés
+                # idempotens, csak a `problem_devs`-nél változik érdemben a viselkedés.)
+                devices_now, cat_risky_skipped = filter_autofix_risky_devices(
+                    devices_now,
+                    allow_storage=getattr(self, '_autofix_allow_storage', False),
+                    allow_firmware=getattr(self, '_autofix_allow_firmware', False),
+                    log_tag='AUTOFIX-CAT', context='a katalógus-zárókörből')
+                for _label, _items in cat_risky_skipped.items():
+                    if _items:
+                        self.emit('task_progress', {'task': task_id, 'log': f'🛡️ {len(_items)} {_label}-eszköz kihagyva a katalógus-keresésből is (a fix indításakor nem engedélyezted).'})
                 problem_devs = [d for d in devices_now if d.get('err_code')]
                 # A hibás eszközök mellé a GENERIKUS (Windows-beépített) driveren futók is
                 # bekerülnek a zárókörbe: a WU ezekre semmit nem ajánl (szerinte rendben
@@ -693,7 +719,15 @@ class GuiAutofixMixin:
                 # pontosan úgy, ahogy a manuális szkennél (app/gui/hwscan.py) - a tároló-
                 # vezérlők és a videokártya szándékosan ki vannak zárva, lásd ott.
                 inst_info = self._get_installed_driver_info()
-                generic_devs = mark_generic_replace_candidates(devices_now, inst_info)
+                # A két kockázati kapcsoló ezt a kört is vezérli (2026-07-28): korábban a
+                # generikus->gyári csere SAJÁT osztály-tiltólistával dolgozott, amiben a
+                # tároló és a firmware fixen benne volt - vagyis a felhasználó akkor sem
+                # kapta meg őket, ha kifejezetten bejelölte. A devices_now amúgy is át van
+                # szűrve fent, ez a dupla kapu csak explicitté teszi a szándékot.
+                generic_devs = mark_generic_replace_candidates(
+                    devices_now, inst_info,
+                    allow_storage=getattr(self, '_autofix_allow_storage', False),
+                    allow_firmware=getattr(self, '_autofix_allow_firmware', False))
                 # MÉLY KATALÓGUS-KÖR (AUTOFIX_DEEP_CATALOG): a hibás és a generikus
                 # driveres eszközök mellé MINDEN eszköz bekerül. Enélkül egy eszköz, ami
                 # egy régi gyári driveren hibátlanul fut, sosem kapott újabbat: a WU

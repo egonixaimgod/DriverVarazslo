@@ -32,6 +32,12 @@ from app.wu_core import mark_generic_replace_candidates
 from app.wu_core import deep_catalog_candidates as wu_core_deep_candidates
 from app.wu_core import inf_package_applies
 from app.wu_core import unoffered_requested_titles
+from app.wu_core import is_specific_hwid
+from app.wu_core import device_risk_marker
+from app.wu_core import mark_device_risk
+from app.wu_core import is_firmware_update
+from app.wu_core import FIRMWARE_CLASS_LABEL
+from app.wu_core import FIRMWARE_CLASS_WARNING
 # === /AUTO-IMPORTS ===
 
 
@@ -211,6 +217,23 @@ class GuiHwScanMixin:
                     inst = inst_info.get((dev.get('pnp_id') or '').upper()) or {}
                     wu_date = _iso_date_or_none((wu_by_uid.get(m['uid']) or {}).get('DriverVerDate')) or ''
                     inst_date = _iso_date_or_none(inst.get('date')) or ''
+                    # KOCKÁZATI JELÖLÉS A WU-TALÁLATOKRA IS (2026-07-28). A manuális szken
+                    # szerződése: tároló-/firmware-találat PIROSAN és ELŐRE BE NEM JELÖLVE
+                    # jelenik meg, mert emberi döntést kíván. Ezt eddig CSAK a mély
+                    # katalógus-szken tette rá (deep_catalog_candidates), így ugyanaz az
+                    # NVMe-vezérlő pirosan VAGY némán, előre bepipálva jelent meg attól
+                    # függően, melyik forrás találta meg - egy "mindet telepít" kattintás
+                    # pedig csendben tett fel boot-kritikus drivert.
+                    # A csomag-szintű firmware-vizsgálat sem elhagyható: egy SSD-firmware a
+                    # TÁROLÓVEZÉRLŐHÖZ, egy dokkoló-firmware egy USB-eszközhöz párosul,
+                    # tehát az eszközosztály önmagában nem fogná meg (lásd
+                    # wu_core.filter_firmware_updates ugyanezt az AutoFix oldalán).
+                    risky, risk_label, risk_reason = device_risk_marker(dev)
+                    if not risky and is_firmware_update(wu_by_uid.get(m['uid']) or {}):
+                        risky, risk_label, risk_reason = True, FIRMWARE_CLASS_LABEL, FIRMWARE_CLASS_WARNING
+                    if risky:
+                        logging.warning(f"[HW_SCAN] KOCKÁZATOS WU-találat, előre BE NEM jelölve: "
+                                        f"{dev['name']} [{dev.get('pclass') or '?'}] - '{m['title']}'")
                     self.hw_updates_pool.append({
                         "name": dev['name'], "cat": dev['cat'], "hwid": dev['id'],
                         "wu_title": m['title'], "pnp_id": dev.get('pnp_id', ''),
@@ -231,7 +254,8 @@ class GuiHwScanMixin:
                         # HWID-prefix alapján tudna szűrni, ami azonos HWID-jű csomagoknál
                         # (pl. Realtek Extension + MEDIA ugyanazon hdaudio ID-n) többet
                         # telepítene, mint amit a felhasználó kijelölt.
-                        "update_id": m['uid']
+                        "update_id": m['uid'],
+                        "risky": risky, "risk_label": risk_label, "risk_reason": risk_reason
                     })
                 # A párosítatlan (ghost) WU-találatok kimaradnak a poolból
                 for wu in wu_results:
@@ -243,7 +267,11 @@ class GuiHwScanMixin:
                 # sajátja. A jelölést a KÖZÖS wu_core.mark_generic_replace_candidates
                 # végzi - ugyanez fut az AutoFix katalógus-zárókörében is, hogy a két út
                 # pontosan ugyanazokat az eszközöket találja meg.
-                generic_devs = mark_generic_replace_candidates(devices_to_check, inst_info)
+                # allow_storage/allow_firmware=True: a MANUÁLIS szken - ahogy a hibakódos és
+                # a mély körben is - megkeresi a kockázatos eszközökre is a gyári drivert,
+                # de a találat pirosan és ELŐRE BE NEM JELÖLVE jelenik meg. Itt ember dönt.
+                generic_devs = mark_generic_replace_candidates(
+                    devices_to_check, inst_info, allow_storage=True, allow_firmware=True)
                 if generic_devs:
                     logging.info(f"[CATALOG] Generikus driveren futó eszközök: {[d['name'] for d in generic_devs]}")
 
@@ -262,7 +290,13 @@ class GuiHwScanMixin:
                     # A hibakódos eszközök mellé a generikus driveren futók is bekerülnek:
                     # ezekre a WU szerint "minden rendben" (ezért nem ajánl semmit), a
                     # katalógusban viszont ott a chipgyártó csomagja.
-                    leftover = [d for d in devices_to_check if d.get('err_code') and d['id'] not in matched_hwids]
+                    # A hibakódos ág eszközei is átmennek a KÖZÖS kockázati jelölőn
+                    # (mark_device_risk): egy hibakódos tárolóvezérlő/firmware-eszköz eddig
+                    # jelöletlenül, tehát PIROS FIGYELMEZTETÉS NÉLKÜL és ELŐRE BEJELÖLVE
+                    # került a listára - miközben a mély szken ugyanazt az eszközt pirossal
+                    # hozta. A jelölés így nem attól függ, melyik ág találta meg.
+                    leftover = [mark_device_risk(d) for d in devices_to_check
+                                if d.get('err_code') and d['id'] not in matched_hwids]
                     # MÉLY SZKEN (deep=True, alapértelmezés): a katalógust MINDEN olyan
                     # eszközre megkérdezzük, amire a WU nem adott ajánlatot - nem csak a
                     # hibakódosakra és a generikus driveresekre. Enélkül egy eszköz, ami
@@ -549,19 +583,37 @@ try {
         vissza" - ez tévedés volt.
 
         Visszatérés: pool-elem dict vagy None."""
-        hwids, seen_hwid = [], set()
+        hwids, seen_hwid, generic_skipped = [], set(), []
         for h in ([item['id']] if item.get('id') else []) + list(item.get('all_hwids') or []):
             hl = (h or '').strip().lower()
-            if h and hl not in seen_hwid:
-                seen_hwid.add(hl)
-                hwids.append(h)
+            if not h or hl in seen_hwid:
+                continue
+            seen_hwid.add(hl)
+            # TÍPUSKÓDDAL NEM KÉRDEZÜNK (wu_core.is_specific_hwid). Egy ACPI\PNP0501
+            # ("soros port") vagy USB\ROOT_HUB30 kulcsra a katalógus BÁRMELYIK gyártó
+            # arra a fajtára szánt csomagját visszaadja - terepen mérve egy Intel gép
+            # USB-gyökérhubjára így jött vissza egy AMD-csomag, egy COM-portra pedig egy
+            # LG-s. Az eszköz maga NINCS kizárva: a specifikus azonosítóival kérdezzük.
+            if not is_specific_hwid(h):
+                generic_skipped.append(h)
+                continue
+            hwids.append(h)
+        if not hwids:
+            # Nincs egyetlen konkrét azonosító sem - a keresés értelmetlen lenne. Ezt ki
+            # KELL írni, különben a "miért nem kapott az X eszköz drivert?" kérdésre nincs
+            # válasz a terepi logban (CLAUDE.md Rule 0).
+            logging.debug(f"[CATALOG] Kihagyva (csak típuskódos azonosítói vannak, "
+                          f"azokra bármely gyártó csomagja illeszkedne): {item['name']} {generic_skipped}")
+            return None
         # A gyártó+eszköz TÖRZS-azonosító pótlása (SUBSYS/REV/CC nélkül): az eszköz saját
         # HWID-listája sokszor csak alrendszer-kötött ID-ket tartalmaz, a gyártó friss
         # csomagja viszont a törzsön van indexelve (lásd wu_core.base_vendor_hwid).
         # A keresés így is max 4 lekérdezés marad, de a törzs mindig köztük van.
         hwids = hwids[:4]
-        base = base_vendor_hwid(item.get('id') or (hwids[0] if hwids else ''))
-        if base and base.lower() not in {h.lower() for h in hwids}:
+        # A törzs is átmegy a típuskód-vizsgálaton: az item['id'] lehet általános
+        # azonosító is, és egy típuskódos törzzsel ugyanúgy más gyártó csomagját hoznánk be.
+        base = base_vendor_hwid(hwids[0] if hwids else '')
+        if base and is_specific_hwid(base) and base.lower() not in {h.lower() for h in hwids}:
             hwids = hwids[:3] + [base]
         import urllib.request
 
@@ -701,10 +753,15 @@ try {
             # telepítő ezeknél futtat utóellenőrzést + szükség esetén visszaállítást.
             "generic_replace": replace_inbox,
             "installed_provider": inst.get('provider', ''),
-            # KOCKÁZATOS (tárolóvezérlő/lemez) találat: a felület pirossal jelöli és NEM
-            # jelöli be előre. Csak a manuális szkenben fordulhat elő - az AutoFix az
-            # ilyen eszközöket meg sem kérdezi (wu_core.deep_catalog_candidates).
+            # KOCKÁZATOS (tárolóvezérlő/lemez/firmware) találat: a felület pirossal jelöli
+            # és NEM jelöli be előre. Alapesetben csak a manuális szkenben fordulhat elő -
+            # az AutoFix ilyen eszközt csak akkor kérdez meg, ha a felhasználó a fix indító
+            # dialógusán engedélyezte (wu_core.filter_autofix_risky_devices + a
+            # deep_catalog_candidates include_risky/include_firmware kapcsolói).
+            # A risk_label a listába való RÖVID felirat: a felület korábban minden `risky`
+            # találatra a tárolóvezérlős szöveget írta ki, firmware-re is.
             "risky": bool(item.get('risky')),
+            "risk_label": item.get('risk_label') or '',
             "risk_reason": item.get('risk_reason') or '',
         }
 
@@ -1279,10 +1336,16 @@ try {
         Miért vállalható egyáltalán a csere: a Windows beépített drivere sosem tűnik el,
         csak háttérbe kerül - ha a frissen telepített gyári csomagot töröljük és
         újraszkennelünk, a PnP AUTOMATIKUSAN visszaköti a generikusat. Vagyis a művelet
-        visszafordítható... DE csak olyan eszközön, ami futás közben újraköthető. Épp
-        ezért a tárolóvezérlők eleve ki vannak zárva a jelöltek közül
-        (wu_core.GENERIC_REPLACE_BLOCKED_CLASSES): ott a hiba csak a következő bootnál
-        derülne ki, amikor már nincs mód visszaállni.
+        visszafordítható... DE csak olyan eszközön, ami futás közben újraköthető.
+
+        EZ A HÁLÓ NEM FEDI A TÁROLÓVEZÉRLŐT. Ott a hiba a KÖVETKEZŐ bootnál jelentkezik
+        (INACCESSIBLE_BOOT_DEVICE), amikor ez az ellenőrzés már rég lefutott - visszaállni
+        csak helyreállító médiáról lehet. A tároló ezért 2026-07-28-ig fixen tiltva volt
+        ezen a körön; azóta a fix indító dialógusának tároló-jelölőnégyzete engedheti be
+        (wu_core.is_generic_replace_candidate allow_storage), alapból KI, és a felület
+        piros figyelmeztetéssel, előre be nem jelölve hozza. Ha ide mégis érkezik
+        tároló-eszköz, azt a felhasználó tájékozottan engedte - de a "sikeres" verdikt
+        ilyenkor csak annyit jelent, hogy FUTÁS KÖZBEN nem lett hibás.
 
         Döntési szabály eszközönként:
           - hibakód 0            -> siker, marad a gyári driver;

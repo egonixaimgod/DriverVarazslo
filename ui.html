@@ -1693,7 +1693,7 @@ function renderHwTree() {
           + (it.installed_version ? ' <span style="color:var(--text3);font-size:11px" title="Jelenleg telepített driver-verzió/dátum ehhez az eszközhöz">(telepítve: '+esc(it.installed_version)+(it.installed_date?' · '+esc(it.installed_date):'')+')</span>' : '')
           + (it.downgrade ? ' <span style="color:#ffb454;font-size:11px;font-weight:700" title="A felajánlott driver RÉGEBBI a jelenleg telepítettnél - telepítése visszabutítás lenne, ezért alapból nincs kijelölve">⚠️ régebbi, mint a telepített!</span>' : '')
           + (it.generic_replace ? ' <span style="color:#5fb2ff;font-size:11px;font-weight:700" title="Ezen az eszközön most a Windows beépített, generikus drivere fut. A chip gyártójának saját drivere elérhető a Microsoft Update Catalogban - jellemzően többet tud (hang-DSP, energiakezelés, offload). Ha a csere után az eszköz hibás lenne, a program automatikusan visszaáll a Windows driverére.">🏭 most Windows alapdriver → gyári elérhető</span>' : '')
-          + (it.risky ? ' <span style="color:#ff5f6d;font-size:11px;font-weight:800" title="'+esc(it.risk_reason||'')+'">⛔ KOCKÁZATOS: tárolóvezérlő/lemez - rossz driver esetén a Windows nem indul el!</span>' : '')
+          + (it.risky ? ' <span style="color:#ff5f6d;font-size:11px;font-weight:800" title="'+esc(it.risk_reason||'')+'">'+esc(it.risk_label||'⛔ KOCKÁZATOS - telepítése tudatos döntést kíván!')+'</span>' : '')
           + '</span>'
           + '<span class="hwid">'+esc(it.hwid||'')+'</span></div>'
         ).join('') + '</div>';
