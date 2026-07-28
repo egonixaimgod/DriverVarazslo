@@ -360,14 +360,14 @@ def _make_logged(cls_name, fn):
         arg_s = ', '.join([_trunc_repr(a, 200) for a in args] +
                           [f'{k}={_trunc_repr(v, 200)}' for k, v in kwargs.items()])
         logging.log(level, f"[CALL] {cls_name}.{fn.__name__}({arg_s})")
-        t0 = time.time()
+        t0 = time.monotonic()
         try:
             rv = fn(self, *args, **kwargs)
         except Exception as e:
-            logging.error(f"[CALL] {cls_name}.{fn.__name__} KIVÉTEL ({time.time() - t0:.2f}s): {e}",
+            logging.error(f"[CALL] {cls_name}.{fn.__name__} KIVÉTEL ({time.monotonic() - t0:.2f}s): {e}",
                           exc_info=True)
             raise
-        logging.log(level, f"[CALL] {cls_name}.{fn.__name__} -> {_trunc_repr(rv, 300)} ({time.time() - t0:.2f}s)")
+        logging.log(level, f"[CALL] {cls_name}.{fn.__name__} -> {_trunc_repr(rv, 300)} ({time.monotonic() - t0:.2f}s)")
         return rv
     return wrapper
 

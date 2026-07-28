@@ -17,7 +17,7 @@ import threading
 import time
 import logging
 
-BUILD_NUMBER = 237
+BUILD_NUMBER = 238
 
 from app import common
 common.BUILD_NUMBER = BUILD_NUMBER
@@ -328,8 +328,8 @@ if __name__ == "__main__":
     # Watchdog: ha 15mp alatt nem indul el a GUI, bezárja az ablakot és CLI-re vált
     def webview_watchdog():
         TIMEOUT = 60  # seconds
-        start = time.time()
-        while time.time() - start < TIMEOUT:
+        start = time.monotonic()
+        while time.monotonic() - start < TIMEOUT:
             if _webview_ready.is_set():
                 logging.info("[WATCHDOG] WebView2 sikeresen elindult")
                 return  # GUI OK

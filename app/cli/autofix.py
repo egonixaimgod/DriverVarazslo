@@ -60,7 +60,7 @@ manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkenne
             print("❌ Megszakítva.")
             return
 
-        start_time = time.time()
+        start_time = time.monotonic()
 
         # FÁZIS 0: Alvó mód + Fast Startup letiltása
         print("\n" + "=" * 50)
@@ -281,7 +281,7 @@ manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkenne
             dupdrivers_core.auto_cleanup_duplicates(self._run, print, self.get_third_party_drivers)
 
         # Összegzés
-        elapsed = int(time.time() - start_time)
+        elapsed = int(time.monotonic() - start_time)
         print("\n" + "=" * 60)
         print(f"  ⚡ AUTOFIX KÉSZ! (Idő: {elapsed // 60} perc {elapsed % 60} mp)")
         print("=" * 60)

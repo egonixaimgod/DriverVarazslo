@@ -30,11 +30,11 @@ class CliBaseMixin:
         # stdin alapból DEVNULL - lásd DriverToolApi._run azonos sorát (érvénytelenné vált
         # örökölt stdin handle elleni védelem; CLI-ben konzisztencia okán ugyanígy).
         kwargs.setdefault('stdin', subprocess.DEVNULL)
-        start = time.time()
+        start = time.monotonic()
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, errors='replace',
                                   startupinfo=self._si, creationflags=self._nw, **kwargs)
-            elapsed = time.time() - start
+            elapsed = time.monotonic() - start
             if spawn_failed(result):
                 # Lásd common.STATUS_DLL_INIT_FAILED - a folyamat el sem indult.
                 logging.error(f"[CMD_CLI] A FOLYAMAT EL SEM INDULT (0xC0000142 / STATUS_DLL_INIT_FAILED, {elapsed:.1f}s). Parancs: {cmd_str[:200]}")
@@ -55,7 +55,7 @@ class CliBaseMixin:
         except subprocess.TimeoutExpired as e:
             # Lásd DriverToolApi._run azonos ágát: időtúllépéskor eredményt adunk vissza,
             # nem kivételt, hogy egy beragadt segédprogram ne akassza meg a folyamatot.
-            elapsed = time.time() - start
+            elapsed = time.monotonic() - start
             logging.error(f"[CMD_CLI] IDŐTÚLLÉPÉS ({elapsed:.1f}s, limit={kwargs.get('timeout')}s): {cmd_str[:200]}")
             partial = e.stdout or ''
             if isinstance(partial, (bytes, bytearray)):

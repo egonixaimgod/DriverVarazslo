@@ -124,7 +124,7 @@ class GuiToolsInstallMixin:
                 dl_state = {'last': 0.0}
 
                 def dl_progress(phase, done, total):
-                    now = time.time()
+                    now = time.monotonic()
                     if now - dl_state['last'] < 0.4 and not (total and done >= total):
                         return
                     dl_state['last'] = now

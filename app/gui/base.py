@@ -153,11 +153,11 @@ class GuiBaseMixin:
         # ettől kezdve MINDEN parancsindítást "[WinError 6] A leíró érvénytelen" hibával
         # buktatna el (terepen bizonyított: stressz teszt után a taskkill sem futott le).
         kwargs.setdefault('stdin', subprocess.DEVNULL)
-        start = time.time()
+        start = time.monotonic()
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, errors='replace',
                                   startupinfo=self._si, creationflags=self._nw, **kwargs)
-            elapsed = time.time() - start
+            elapsed = time.monotonic() - start
             # Log eredmény
             if spawn_failed(result):
                 # A folyamat el sem indult - lásd common.STATUS_DLL_INIT_FAILED. Külön,
@@ -184,7 +184,7 @@ class GuiBaseMixin:
             # már kilőtte a gyereket; mi CommandResult-ot adunk vissza (nem kivételt), hogy
             # egy beragadt segédprogram (terepen: pnputil /delete-driver egy nem válaszoló
             # eszközön 143 mp-ig) ne akassza meg az egész AutoFix lábat.
-            elapsed = time.time() - start
+            elapsed = time.monotonic() - start
             logging.error(f"[CMD] IDŐTÚLLÉPÉS ({elapsed:.1f}s, limit={kwargs.get('timeout')}s): {cmd_str[:200]}")
             partial = (e.stdout or b'') if isinstance(e.stdout, (bytes, bytearray)) else (e.stdout or '')
             if isinstance(partial, (bytes, bytearray)):
@@ -215,13 +215,13 @@ class GuiBaseMixin:
 
         def wrapper():
             logging.info(f"[THREAD:{task}] Háttérszál indul...")
-            start_time = time.time()
+            start_time = time.monotonic()
             try:
                 target()
-                elapsed = time.time() - start_time
+                elapsed = time.monotonic() - start_time
                 logging.info(f"[THREAD:{task}] Befejezve ({elapsed:.1f}s)")
             except Exception as e:
-                elapsed = time.time() - start_time
+                elapsed = time.monotonic() - start_time
                 logging.error(f"[THREAD:{task}] HIBA ({elapsed:.1f}s): {e}")
                 logging.error(f"[THREAD:{task}] Traceback:\n{traceback.format_exc()}")
                 self.emit('task_error', {'task': task, 'error': str(e)})

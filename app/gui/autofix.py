@@ -46,7 +46,8 @@ from app.wu_core import verify_failed_installs
 from app.wu_core import unoffered_requested_titles
 from app.wu_core import mark_generic_replace_candidates
 from app.wu_core import _is_inbox_driver
-from app.wu_core import is_generic_replace_candidate
+from app.wu_core import HEALTH_REPORT_SKIP_INFS
+from app.wu_core import is_specific_hwid
 from app.wu_core import deep_catalog_candidates
 from app.common import spawn_failed
 from app.common import CMD_TIMEOUT_RETURNCODE
@@ -1113,6 +1114,26 @@ class GuiAutofixMixin:
         except Exception as e:
             logging.warning(f"[AUTOFIX] Eltűnt csomagok összevetése sikertelen (nem kritikus): {e}")
 
+    @staticmethod
+    def _health_report_worth_listing(dev, inst):
+        """Érdemes-e ezt az inbox-driveres eszközt KIÍRNI a záró egészségjelentésbe?
+
+        Nem szűrő a keresés felé: a katalógust minden eszközre megkérdezzük. Ez kizárólag
+        azt dönti el, hogy a szerelőnek van-e ezzel TEENDŐJE - lásd _emit_driver_health.
+
+        Két feltétel, mindkettő kell:
+          1) konkrét, gyártó-kódos hardver-azonosító (is_specific_hwid). Egy típuskódos
+             azonosítóra (ACPI\\VEN_PNP&DEV_0100 - rendszeridőzítő, ROOT\\..., *PNP...)
+             eleve nem létezik gyári csomag, és a katalógus is csak vaktalálatot adna rá.
+          2) az eszköz nem Windows busz-/beviteli-/szoftver-INF-en fut
+             (HEALTH_REPORT_SKIP_INFS): PCI-híd, USB-gyökérhub, WAN Miniport, HID-egér.
+        """
+        if not is_specific_hwid(dev.get('id') or ''):
+            return False
+        if (inst.get('inf') or '').strip().lower() in HEALTH_REPORT_SKIP_INFS:
+            return False
+        return True
+
     def _emit_driver_health(self, devices, task_id='autofix'):
         """DRIVER-EGÉSZSÉGJELENTÉS: mely eszközök maradtak a fix végén a Windows BEÉPÍTETT
         (inbox) driverén, gyári helyett.
@@ -1125,14 +1146,24 @@ class GuiAutofixMixin:
         szerviznek pont ezt kell tudnia, mert ilyenkor az alaplapgyártó oldaláról kell
         kézzel pótolni.
 
-        A listázandó kör PONTOSAN a cserejelölés feltételrendszere
-        (is_generic_replace_candidate): osztály-whitelist + busz-enumerátor INF-tiltólista +
-        gyártó-kódos HWID. Ez nem szépészeti szűrés - élő gépen mérve (2026-07, 99 eszköz)
-        a puszta "inbox driveren fut" feltétel 42 sort adott, amiből 40 PCI-híd, ACPI-
-        csomópont és WAN Miniport volt (machine.inf / pci.inf / netrasa.inf), azaz olyan
-        eszközök, amikhez gyári driver NEM IS LÉTEZIK. Egy ilyen lista használhatatlan: a
-        szerelő nem tudja kiszűrni belőle azt az egy sort, ami tényleg teendő. A szűkített
-        feltétellel ugyanaz a gép 1 sort ad - a generikus driveren maradt alaplapi hangot.
+        A JELENTÉS SZŰRŐJE SZÁNDÉKOSAN SZŰKEBB, MINT A KERESÉSÉ (2026-07-28). Sokáig
+        `is_generic_replace_candidate` volt a feltétel, de aznap abból kikerült az
+        osztály-whitelist, a busz-enumerátor INF-tiltás és a gyártó-kódos HWID követelménye
+        (a KERESÉS mostantól mindent megkérdez - lásd wu_core). A jelentés viszont ettől
+        használhatatlanná vált: terepi futásban (2026-07-28, AMD Ryzen 7 5700X, 108 eszköz)
+        **87 sort** írt ki "gyári driver jobb lenne" címmel - PCI-hidakat, DMA-vezérlőt,
+        rendszeridőzítőt, WAN Miniportokat -, miközben az "ez így helyes" rovatba mindössze
+        5 eszköz került. Pont a fordítottja annak, ami hasznos.
+        Ez ugyanaz a hiba, amit egy korábbi mérés (2026-07, 99 eszköz) már megmutatott: a
+        puszta "inbox driveren fut" feltétel 42 sorból 40 használhatatlant adott.
+
+        A kereséstől eltérően itt tehát MEGMARAD a szűkítés, mert más a kérdés:
+          - a keresés kérdése: "megéri-e megkérdezni a katalógust?" -> mindenre igen, egy
+            eredménytelen lekérdezés ára néhány másodperc;
+          - a jelentés kérdése: "van-e ezzel a szerelőnek TEENDŐJE?" -> csak ott, ahol
+            egyáltalán LÉTEZHET gyári driver. Egy pci.inf-en futó PCI-hídhoz nem létezik,
+            így az nem teendő, hanem zaj.
+        A feltétel: konkrét (nem típuskódos) hardver-azonosító ÉS nem Windows busz-INF.
 
         A többi inbox-driveres eszköz csak összesített számként jelenik meg. Semmit nem
         módosít, minden hibát elnyel."""
@@ -1145,7 +1176,7 @@ class GuiAutofixMixin:
                 inst = inst_info.get((dev.get('pnp_id') or '').upper()) or {}
                 if not inst or not _is_inbox_driver(inst):
                     continue
-                if is_generic_replace_candidate(dev, inst):
+                if self._health_report_worth_listing(dev, inst):
                     worth.append((dev, inst))
                 else:
                     by_design += 1
@@ -1160,7 +1191,7 @@ class GuiAutofixMixin:
                     self.emit('task_progress', {'task': task_id, 'log': f"   • {dev['name']} [{dev.get('cat', '')}] - {inf} {ver}"})
                 self.emit('task_progress', {'task': task_id, 'log': '👉 Ezekhez sem a Windows Update, sem a Microsoft Update Catalog nem adott gyári csomagot. Alaplapi hang/LAN/chipset esetén az alaplap- vagy gépgyártó letöltőoldaláról pótolható (lásd a "Driver Keresés és Telepítés" menü gyártói kártyáit).'})
             if by_design:
-                self.emit('task_progress', {'task': task_id, 'log': f'ℹ️ További {by_design} eszköz a Windows beépített driverén fut, és ez így HELYES: PCI-hidak és ACPI-csomópontok (ezekhez gyári driver nem is létezik), illetve tárolóvezérlő, USB-vezérlő, billentyűzet/egér és monitor, ahol a Microsoft drivere a biztonságos választás.'})
+                self.emit('task_progress', {'task': task_id, 'log': f'ℹ️ További {by_design} eszköz a Windows beépített driverén fut, és ez így HELYES: PCI-hidak, ACPI-csomópontok, USB-gyökérhubok, WAN Miniportok, billentyűzet/egér - ezekhez gyári driver nem is létezik, a gyártók ide szoftvert adnak, nem drivert.'})
         except Exception as e:
             logging.warning(f"[AUTOFIX] Driver-egészségjelentés hiba (nem kritikus): {e}")
 
@@ -1171,22 +1202,56 @@ class GuiAutofixMixin:
         szándékos (hiberboot mellett a reboot nem építi újra a PnP vermet), de tartós
         változás az ügyfél gépén, amiről eddig semmilyen visszajelzés nem ment ki. Az
         állapotot nem feltételezzük, hanem LEKÉRDEZZÜK - így ha a powercfg valamiért
-        elbukott, nem írunk ki valótlant. Hibát elnyel."""
+        elbukott, nem írunk ki valótlant. Hibát elnyel.
+
+        KÉT registry-értéket kell nézni, és sokáig csak az egyiket néztük (2026-07-28-i
+        terepi log): a `powercfg /h off` a `HibernateEnabled`-et nullázza (Control\\Power),
+        a Gyors Rendszerindítás checkbox-át (`HiberbootEnabled`, Session Manager\\Power)
+        NEM bántja - az 1-en marad, csak hatástalan, mert a Fast Startup hibernálásra épül.
+        Az addigi kód csak a HiberbootEnabled-et olvasta, így egy TÖKÉLETESEN sikeres
+        `powercfg /h off` (returncode=0) után is azt hitte, hogy a Fast Startup vissza van
+        kapcsolva: WARNING ment a naplóba, a felhasználó pedig NEM kapta meg a tájékoztatót
+        a maradandó változásról - épp azt, amiért ez a függvény készült.
+        Igaz állítás: a Gyors Rendszerindítás akkor és csak akkor működik, ha MINDKÉT
+        érték 1."""
         try:
-            res = self._run(['reg', 'query', r'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power',
-                             '/v', 'HiberbootEnabled'], ok_codes=(0, 1))
-            out = (res.stdout or '')
-            enabled = None
-            m = re.search(r'HiberbootEnabled\s+REG_DWORD\s+0x([0-9a-fA-F]+)', out)
+            res = self._run(['reg', 'query', r'HKLM\SYSTEM\CurrentControlSet\Control\Power',
+                             '/v', 'HibernateEnabled'], ok_codes=(0, 1))
+            hib = None
+            m = re.search(r'HibernateEnabled\s+REG_DWORD\s+0x([0-9a-fA-F]+)', res.stdout or '')
             if m:
-                enabled = int(m.group(1), 16) != 0
-            logging.info(f"[AUTOFIX] Gyors Rendszerindítás (HiberbootEnabled) a lánc végén: {enabled} "
-                         f"(reg query returncode={res.returncode}).")
-            if enabled is False:
+                hib = int(m.group(1), 16) != 0
+
+            res2 = self._run(['reg', 'query', r'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power',
+                              '/v', 'HiberbootEnabled'], ok_codes=(0, 1))
+            boot = None
+            m2 = re.search(r'HiberbootEnabled\s+REG_DWORD\s+0x([0-9a-fA-F]+)', res2.stdout or '')
+            if m2:
+                boot = int(m2.group(1), 16) != 0
+
+            # A checkbox önmagában nem árul el semmit: hibernálás nélkül hatástalan.
+            if hib is False:
+                enabled = False           # powercfg /h off megvolt -> Fast Startup nem működik
+            elif hib is True and boot is not None:
+                enabled = boot            # hibernálás él -> a checkbox dönt
+            else:
+                enabled = None            # nem sikerült megállapítani
+            logging.info(f"[AUTOFIX] Gyors Rendszerindítás a lánc végén: {enabled} "
+                         f"(HibernateEnabled={hib} rc={res.returncode}, "
+                         f"HiberbootEnabled={boot} rc={res2.returncode}).")
+
+            # Az üzenetet CSAK akkor küldjük ki, ha a mi beavatkozásunk hatása látszik
+            # (HibernateEnabled=0). Ha a hibernálás vissza van kapcsolva, akkor a lánc
+            # `powercfg /h off` lépése nem érvényesült - ilyenkor azt állítani, hogy "mi
+            # kapcsoltuk ki, így kapcsolod vissza", valótlan lenne, és a javasolt
+            # `powercfg /h on` sem azt csinálná, amit a szöveg ígér.
+            if hib is False:
                 self.emit('task_progress', {'task': task_id, 'log': '\nℹ️ A Gyors Rendszerindítás (Fast Startup) KIKAPCSOLVA maradt - erre a driverek megbízható újra-felismeréséhez volt szükség.'})
                 self.emit('task_progress', {'task': task_id, 'log': '   Ez így biztonságosabb, a hidegindítás viszont pár másodperccel lassabb lehet. Visszakapcsolás (rendszergazdaként): powercfg /h on'})
-            elif enabled is True:
-                logging.warning("[AUTOFIX] A Gyors Rendszerindítás VISSZA van kapcsolva - a lánc powercfg /h off lépése vagy elbukott, vagy valami visszaállította.")
+            elif hib is True:
+                logging.warning(f"[AUTOFIX] A hibernálás VISSZA van kapcsolva (HibernateEnabled=1, "
+                                f"Fast Startup checkbox={boot}) - a lánc powercfg /h off lépése vagy "
+                                f"elbukott, vagy valami visszaállította. Tájékoztató nem megy ki.")
         except Exception as e:
             logging.debug(f"[AUTOFIX] Fast Startup állapot lekérdezése sikertelen (nem kritikus): {e}")
 

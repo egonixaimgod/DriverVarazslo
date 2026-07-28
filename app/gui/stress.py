@@ -402,7 +402,7 @@ class GuiStressMixin:
         state = {'last': 0.0}
 
         def cb(phase, done, total):
-            now = time.time()
+            now = time.monotonic()
             is_final = bool(total) and done >= total
             if now - state['last'] < 0.3 and not is_final:
                 return
@@ -436,7 +436,7 @@ class GuiStressMixin:
                 dl_state = {'last': 0.0}
 
                 def dl_progress(phase, done, total):
-                    now = time.time()
+                    now = time.monotonic()
                     if now - dl_state['last'] < 0.4 and not (total and done >= total):
                         return
                     dl_state['last'] = now
@@ -515,9 +515,9 @@ class GuiStressMixin:
                 still_running = []
                 if launched > 0:
                     self.emit('task_progress', {'task': 'stress', 'log': '\n⏳ Várakozás, amíg az indító dialógusok automatikus végignyomkodása befejeződik...'})
-                    join_deadline = time.time() + 600
+                    join_deadline = time.monotonic() + 600
                     waited = 0
-                    while time.time() < join_deadline and any(t.is_alive() for t in auto_threads):
+                    while time.monotonic() < join_deadline and any(t.is_alive() for t in auto_threads):
                         if self._check_cancel():
                             break
                         time.sleep(1)

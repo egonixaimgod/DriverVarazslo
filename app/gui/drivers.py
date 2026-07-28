@@ -21,7 +21,7 @@ class GuiDriversMixin:
         logging.info(f"[API] load_drivers(all_drivers={all_drivers})")
         def worker():
             self.emit('drivers_loading')
-            start = time.time()
+            start = time.monotonic()
             try:
                 if self.target_os_path:
                     logging.info(f"[DRIVERS] Offline mód: {self.target_os_path}")
@@ -32,7 +32,7 @@ class GuiDriversMixin:
                 else:
                     logging.info("[DRIVERS] Third-party driverek lekérdezés")
                     drivers = self._get_third_party_drivers()
-                elapsed = time.time() - start
+                elapsed = time.monotonic() - start
                 logging.info(f"[DRIVERS] Betöltve: {len(drivers)} driver ({elapsed:.1f}s)")
                 self.emit('drivers_loaded', {'drivers': drivers, 'elapsed': round(elapsed, 1)})
             except Exception as e:

@@ -86,7 +86,19 @@ def _iter_process_lines(process, run_fn, cancel_check=None, inactivity_timeout=1
         except Exception as e:
             logging.debug(f"[WU-WATCHDOG] process.wait a taskkill után sem tért vissza: {e}")
 
-    last_output = time.time()
+    # MINDEN IDŐMÉRÉS time.monotonic() - SOHA time.time() (2026-07-28, terepen bizonyított).
+    # A time.time() a FALI ÓRÁT olvassa, amit a Windows óraszinkron ugraszthat. Terepi log
+    # (friss gép, teszt SSD, első hálózati szinkron a lánc közben): a rendszeróra menet közben
+    # +4 óra 51 percet ugrott. Ott épp egy 10 másodperces sleep-be esett, ezért "csak" a napló
+    # és a mérések látszottak abszurdnak (`_scan_and_install_wu_sync -> 12 (17742.34s)`).
+    # HA UGYANEZ EBBE A CIKLUSBA ESIK, a figyelő azonnal `inactivity_timeout`-nyi némaságot
+    # lát, TASKKILL-eli a FUTÓ WUA-telepítőt és `WuProcessAborted('hang')`-et dob - vagyis egy
+    # tökéletesen működő driver-telepítést lő ki a semmiért. A terepi futásban ez 2 perccel a
+    # telepítési fázis előtt történt: színtiszta szerencse, hogy nem oda esett.
+    # A monotonic órát az óraállítás nem érinti. Ugyanezért lett átállítva az összes többi
+    # határidő/eltelt-idő mérés is; time.time() már csak ott maradt, ahol tényleg abszolút
+    # időbélyeg kell (egyedi fájlnév, cache-buster URL, fájl mtime-hoz hasonlítás).
+    last_output = time.monotonic()
     while True:
         if cancel_check and cancel_check():
             _kill('cancel')
@@ -94,14 +106,14 @@ def _iter_process_lines(process, run_fn, cancel_check=None, inactivity_timeout=1
         try:
             item = q.get(timeout=0.5)
         except queue.Empty:
-            if time.time() - last_output > inactivity_timeout:
+            if time.monotonic() - last_output > inactivity_timeout:
                 logging.error(f"[WU-WATCHDOG] {inactivity_timeout}s óta nincs kimenet - a WU folyamat beragadt.")
                 _kill('hang')
                 raise WuProcessAborted('hang')
             continue
         if item is None:
             break
-        last_output = time.time()
+        last_output = time.monotonic()
         line = item.strip()
         if line:
             yield line
@@ -627,6 +639,43 @@ def _is_inbox_driver(inst):
 # KÖVETKEZŐ bootnál jelentkezik (INACCESSIBLE_BOOT_DEVICE). Pontosan ezért van a
 # checkbox alapból KI, és pontosan ezt mondja ki a RISKY_CLASS_WARNING szövege is
 # (helyreállító média kell hozzá) - a felhasználó tájékozottan vállalja.
+
+# CSAK A ZÁRÓ JELENTÉSHEZ (_emit_driver_health) - SOHA NEM A KERESÉSHEZ.
+#
+# Windows-beépített busz-, enumerátor-, beviteli- és szoftvereszköz-INF-ek. Az ezeken futó
+# eszközökre a katalógust TOVÁBBRA IS megkérdezzük (a keresésnek nincs INF-szűrője), de a
+# záró "gyári driver jobb lenne" listára nem kerülnek fel, mert nincs mögöttük teendő:
+# PCI-hídhoz, DMA-vezérlőhöz, WAN Miniporthoz vagy HID-egérhez gyári csomag nem létezik.
+#
+# Miért van rá szükség: 2026-07-28-án a keresésből kikerültek az osztály- és INF-szűrők, és
+# a jelentés - ami ugyanazt a feltételt használta - terepi futásban 87 sort írt ki
+# "gyári driver jobb lenne" címmel (PCI-hidak, rendszeridőzítő, WAN Miniportok), miközben
+# az "ez így helyes" rovatba 5 eszköz került. A szerelő ebből nem tudja kiszedni azt a
+# 1-2 sort, ami tényleg teendő. Ugyanezt egy korábbi mérés is megmutatta (42-ből 40 zaj).
+#
+# NEM szerepel a listán a hdaudio.inf és a monitor.inf: a generikus driveren maradt
+# hangchip és a "Generic PnP Monitor" a két LEGFONTOSABB teendő - előbbihez az alaplapgyártó
+# ad drivert, utóbbihoz a gyári monitor-INF (és vele a gyári ICC színprofil).
+HEALTH_REPORT_SKIP_INFS = {
+    # busz- és rendszer-enumerátorok
+    'pci.inf', 'machine.inf', 'acpi.inf', 'hal.inf', 'msisadrv.inf', 'isapnp.inf',
+    'swenum.inf', 'umbus.inf', 'compositebus.inf', 'vdrvroot.inf', 'msports.inf',
+    'hdaudbus.inf', 'ksfilter.inf', 'audioendpoint.inf', 'usbhub3.inf', 'usbxhci.inf',
+    'usb.inf', 'kdnic.inf', 'ndisvirtualbus.inf', 'spaceport.inf', 'volmgr.inf',
+    'volume.inf', 'volsnap.inf', 'disk.inf', 'mshdc.inf', 'uaspstor.inf',
+    'mssmbios.inf', 'wmiacpi.inf', 'uefi.inf', 'c_firmware.inf', 'cpu.inf',
+    'chargearbitration.inf', 'rdpbus.inf', 'tpm.inf', 'acpipagr.inf', 'umpass.inf',
+    'sdbus.inf', 'battery.inf', 'cmbatt.inf',
+    # beviteli eszközök: a gyártók ide SZOFTVERT adnak (Synapse, Logi Options), nem drivert
+    'input.inf', 'msmouse.inf', 'keyboard.inf', 'hidserv.inf', 'hidclass.inf',
+    'hidusb.inf', 'hidi2c.inf', 'hidbth.inf',
+    # Microsoft osztály-driverek, amikhez gyári alternatíva nem létezik
+    'usbstor.inf', 'cdrom.inf', 'wpdfs.inf', 'wpdmtp.inf',
+    # szoftver-eszközök és WAN miniportok: nincs mögöttük fizikai hardver
+    'c_swdevice.inf', 'netrasa.inf', 'netavpna.inf', 'netsstpa.inf', 'netloop.inf',
+    'vwifibus.inf', 'netvwifibus.inf', 'basicrender.inf', 'printqueue.inf',
+}
+
 
 # TÖRÖLT SZŰRŐK (2026-07-28) - ne kerüljenek vissza eszköz-szűrőként.
 #

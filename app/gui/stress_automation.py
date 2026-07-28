@@ -296,9 +296,9 @@ class GuiStressAutomationMixin:
         user32 = self._stress_user32()
         logging.info(f"[STRESSTOOLS-DEBUG] _auto_answer_console indul (pid={pid}, script={script})")
         hwnd = None
-        deadline = time.time() + STRESS_STEP_TIMEOUT  # leterhelt (lassú HDD-s) gépen ez percekig is eltarthat
+        deadline = time.monotonic() + STRESS_STEP_TIMEOUT  # leterhelt (lassú HDD-s) gépen ez percekig is eltarthat
         attempt = 0
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             attempt += 1
             hwnd = self._find_console_window_for_pid(pid)
             if hwnd:
@@ -321,15 +321,15 @@ class GuiStressAutomationMixin:
                 # DISM-telepítés friss Win11-en) percekig dolgozhat, miközben végig
                 # látszik, hogy halad. hard_deadline: abszolút plafon a valódi végtelen
                 # ciklus ellen.
-                prompt_deadline = time.time() + STRESS_STEP_TIMEOUT
-                hard_deadline = time.time() + CONSOLE_PROMPT_MAX_WAIT
+                prompt_deadline = time.monotonic() + STRESS_STEP_TIMEOUT
+                hard_deadline = time.monotonic() + CONSOLE_PROMPT_MAX_WAIT
                 screen = None
                 prompt_found = False
                 progress_extends = 0
-                last_change = time.time()
+                last_change = time.monotonic()
                 unblocks = 0
                 poll = 0
-                while time.time() < prompt_deadline and time.time() < hard_deadline:
+                while time.monotonic() < prompt_deadline and time.monotonic() < hard_deadline:
                     poll += 1
                     if not user32.IsWindow(hwnd):
                         logging.warning(f"[STRESSTOOLS-DEBUG] A konzolablak (hwnd={hwnd}, pid={pid}) már NEM létezik a(z) '{prompt}' promptra várva - a program valószínűleg bezáródott/összeomlott. Automatizálás megszakítva. Utolsó ismert képernyőtartalom:\n{screen}")
@@ -339,8 +339,8 @@ class GuiStressAutomationMixin:
                     if new_screen is not None:
                         if self._console_screen_is_progressing(screen, new_screen):
                             # A program dolgozik (rajzol) - türelem-óra újraindítása.
-                            prompt_deadline = time.time() + STRESS_STEP_TIMEOUT
-                            last_change = time.time()
+                            prompt_deadline = time.monotonic() + STRESS_STEP_TIMEOUT
+                            last_change = time.monotonic()
                             progress_extends += 1
                             if progress_extends == 1 or progress_extends % 20 == 0:
                                 last_line = (new_screen.splitlines() or ['(üres)'])[-1]
@@ -354,22 +354,22 @@ class GuiStressAutomationMixin:
                         # sosem jönne el (lásd CONSOLE_UNBLOCK_MARKERS: a Linpack a hiányzó
                         # WMIC miatt pont így állt meg a menü előtt).
                         if (unblocks < CONSOLE_UNBLOCK_MAX
-                                and time.time() - last_change >= CONSOLE_UNBLOCK_AFTER
+                                and time.monotonic() - last_change >= CONSOLE_UNBLOCK_AFTER
                                 and self._console_is_blocked_on_keypress(screen, prompt)):
                             unblocks += 1
                             logging.info(f"[STRESSTOOLS] A konzol egy billentyűre vár (nem a most keresett '{prompt}' promptra), és {CONSOLE_UNBLOCK_AFTER} mp-e mozdulatlan - Enter küldése a folytatáshoz (pid={pid}, {unblocks}/{CONSOLE_UNBLOCK_MAX}).")
                             user32.SetForegroundWindow(hwnd)
                             time.sleep(0.15)
                             self._send_vk(user32, VK_RETURN)
-                            last_change = time.time()
-                            prompt_deadline = time.time() + STRESS_STEP_TIMEOUT
+                            last_change = time.monotonic()
+                            prompt_deadline = time.monotonic() + STRESS_STEP_TIMEOUT
                     if poll % 10 == 0:  # kb. 5 mp-enként állapotjelzés
                         last_line = screen.splitlines()[-1] if screen else '(nem olvasható)'
                         logging.info(f"[STRESSTOOLS-DEBUG] Még várom a(z) '{prompt}' promptot (pid={pid}, {poll}. próba), a képernyő utolsó sora most: '{last_line}'")
                     time.sleep(0.5)
                 if not prompt_found:
                     reason = (f"a képernyő {STRESS_STEP_TIMEOUT} mp-ig mozdulatlan volt"
-                              if time.time() < hard_deadline
+                              if time.monotonic() < hard_deadline
                               else f"a(z) {CONSOLE_PROMPT_MAX_WAIT} mp-es abszolút várakozási plafon lejárt")
                     logging.warning(f"[STRESSTOOLS] A(z) '{prompt}' prompt nem jelent meg (pid={pid}, {reason}, {progress_extends} haladás-hosszabbítás után), automatizálás megszakítva. A konzol képernyője most:\n{screen}")
                     return False
@@ -421,8 +421,8 @@ class GuiStressAutomationMixin:
                     # változnia kell (choice-menünél a következő menü jelenik meg, set /p-nél
                     # a beírt karakterek visszhangja, pause-nál a program kimenete). Lassú
                     # gépre méretezett türelmi idő: 10 mp.
-                    verify_deadline = time.time() + 10
-                    while time.time() < verify_deadline:
+                    verify_deadline = time.monotonic() + 10
+                    while time.monotonic() < verify_deadline:
                         check_screen = self._read_console_screen(pid)
                         if check_screen is not None and check_screen != screen_before:
                             consumed = True
@@ -510,10 +510,10 @@ class GuiStressAutomationMixin:
         Visszaad: (ablak hwnd, gomb hwnd) vagy (None, None)."""
         user32 = self._stress_user32()
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
-        deadline = time.time() + timeout
+        deadline = time.monotonic() + timeout
         attempt = 0
         logging.info(f"[STRESSTOOLS-DEBUG] _find_pid_window_with_child_text indul: pid={pid}, keresett szöveg(ek)={self._text_alternatives(text_or_alts)}, timeout={timeout}s")
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             attempt += 1
             result = {'hwnd': None, 'btn': None}
             windows_seen = []
@@ -538,7 +538,7 @@ class GuiStressAutomationMixin:
             except Exception as e:
                 logging.warning(f"[STRESSTOOLS] EnumWindows hiba (pid={pid}): {e}")
             if result['btn']:
-                logging.info(f"[STRESSTOOLS-DEBUG] Találat: pid={pid} ablak hwnd={result['hwnd']} title='{self._window_title(result['hwnd'])}', gomb hwnd={result['btn']} ({attempt}. próbálkozásra, {time.time() - (deadline - timeout):.1f}mp alatt)")
+                logging.info(f"[STRESSTOOLS-DEBUG] Találat: pid={pid} ablak hwnd={result['hwnd']} title='{self._window_title(result['hwnd'])}', gomb hwnd={result['btn']} ({attempt}. próbálkozásra, {time.monotonic() - (deadline - timeout):.1f}mp alatt)")
                 return result['hwnd'], result['btn']
             if attempt % 10 == 0:  # kb. 3 mp-enként egy állapotjelzés
                 titles = [f"'{t}'" for _, t in windows_seen] or ['(egy sem)']
@@ -646,8 +646,8 @@ class GuiStressAutomationMixin:
         user32 = self._stress_user32()
         SMTO_NORMAL = 0x0000
         for attempt in range(1, retries + 1):
-            deadline = time.time() + wait_secs
-            while time.time() < deadline:
+            deadline = time.monotonic() + wait_secs
+            while time.monotonic() < deadline:
                 if not user32.IsWindow(btn) or not user32.IsWindowVisible(btn):
                     logging.info(f"[STRESSTOOLS-DEBUG] Utolsó lépés ('{labels}') visszaigazolva (pid={pid}): a gomb/dialógus eltűnt ({attempt}. próbálkozási körben).")
                     return True
@@ -765,7 +765,7 @@ class GuiStressAutomationMixin:
 
         Időtúllépéskor a legutóbb talált ablakkal térünk vissza (jobb egy splash, mint a
         semmi), ha az sem volt, None-nal - a hívó ilyenkor a szokásos figyelmeztetést adja."""
-        deadline = time.time() + timeout
+        deadline = time.monotonic() + timeout
         last = None
         waited_logged = False
         while True:
@@ -778,7 +778,7 @@ class GuiStressAutomationMixin:
                 if not waited_logged:
                     logging.info(f"[STRESSTOOLS-DEBUG] A pid={pid} még csak a betöltő képernyőjét mutatja ('{title}') - várunk a valódi főablakra (max {timeout} mp).")
                     waited_logged = True
-            if time.time() >= deadline:
+            if time.monotonic() >= deadline:
                 break
             time.sleep(0.5)
         logging.warning(f"[STRESSTOOLS] A pid={pid} főablaka {timeout} mp alatt sem jött elő; a pozicionálás a legutóbb látott ablakkal folytatódik (hwnd={last}).")

@@ -101,7 +101,7 @@ class GuiHwScanMixin:
 
         def worker():
             try:
-                _start = time.time()
+                _start = time.monotonic()
                 
                 # Internet ellenőrzés
                 self.emit('hw_scan_progress', {'status': '⏳ Internetkapcsolat ellenőrzése...'})
@@ -352,7 +352,7 @@ class GuiHwScanMixin:
                 if problems:
                     logging.info(f"[HW_SCAN] Problémás eszközök: {[(p['name'], p['code'], p['has_fix']) for p in problems]}")
 
-                elapsed = int(time.time() - _start)
+                elapsed = int(time.monotonic() - _start)
                 _m, _s = divmod(elapsed, 60)
                 time_str = f"{_m} perc {_s} mp" if _m else f"{_s} mp"
                 mode = "WU API" if self.wu_api_mode else "Katalógus"
