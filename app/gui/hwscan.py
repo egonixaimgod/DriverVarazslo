@@ -14,7 +14,7 @@ import json
 import glob
 import traceback
 import queue
-from app.common import _ps_quote
+from app.common import _ps_quote, _app_data_dir
 from app import dupdrivers_core
 from app.wu_core import WU_PNP_QUERY_PS
 from app.wu_core import WuProcessAborted
@@ -827,6 +827,24 @@ try {
             if extra:
                 logging.info(f"[CATALOG] Azonos csomag több eszközre, egyszer telepítjük - "
                              f"kihagyott duplikátumok: {extra}")
+        # TARTÓS NO-BIND JELÖLÉS: amit egy korábbi futás már feltett/kipróbált, de az
+        # eszköz nem vette át (catalog_no_bind.json), azt megjelöljük - a felület így
+        # nem ajánlja fel ELŐRE BEJELÖLVE ugyanazt a más gépre szabott csomagot minden
+        # AutoFix után (terepi visszajelzés, 2026-07-28). Csak jelölés: a felhasználó
+        # bejelölheti, az AutoFix saját (láncon belüli) tiltólistáját nem érinti.
+        known = {((t.get('pnp') or '').upper(), t.get('title') or ''): (t.get('reason') or '')
+                 for t in self._no_bind_load()}
+        if known:
+            marked = []
+            for hit in deduped:
+                k = ((hit.get('pnp_id') or '').upper(), hit.get('wu_title') or '')
+                if k in known:
+                    hit['prev_no_bind'] = True
+                    hit['prev_no_bind_reason'] = known[k]
+                    marked.append(hit.get('name'))
+            if marked:
+                logging.info(f"[CATALOG] {len(marked)} találat megjelölve (korábbi futásban az eszköz "
+                             f"nem vette át, nem lesz előre bejelölve): {marked}")
         logging.info(f"[CATALOG] Kész - {len(deduped)} eszközre van katalógus-találat"
                      + (f" ({len(found) - len(deduped)} duplikált csomag összevonva)" if len(found) != len(deduped) else ""))
         return deduped
@@ -1042,6 +1060,69 @@ try {
             self.emit('task_progress', {'task': 'wu_install', 'log': '❌ A WU telepítés hibával leállt! (részletek fent a naplóban)'})
         return success, fail, False
 
+    # ------------------------------------------------------------------
+    # FUTÁSOKON ÁTÍVELŐ "nem kötött rá" emlékezet (catalog_no_bind.json).
+    # Miért kell az autofix_stats.json-beli lista MELLÉ: az a lánccal együtt törlődik,
+    # így a kézi szken az AutoFix után újra felajánlotta (előre bejelölve!) azokat a
+    # csomagokat, amikről a lánc már bizonyította, hogy más gépre szabottak vagy az
+    # eszköz nem veszi át őket. A fájl CSAK jelölésre való (a felület nem jelöli be
+    # előre + jelvényt tesz rá) - telepítést nem tilt, az AutoFix köreit nem szűri:
+    # egy friss lánc a törlés/újratelepítés után szándékosan újra próbálkozhat, és egy
+    # esetleg tévesen feljegyzett csomagot a felhasználó kézzel bármikor feltehet.
+    # Kulcs: (pnp_id, csomagcím) - egy ÚJABB katalógus-kiadás címe eltér, azt tehát
+    # semmi nem jelöli meg. Sikeres, IGAZOLTAN átvett telepítés törli a bejegyzést.
+    # ------------------------------------------------------------------
+    def _no_bind_store_path(self):
+        return os.path.join(_app_data_dir(), 'catalog_no_bind.json')
+
+    def _no_bind_load(self):
+        """A tartós no-bind lista beolvasása; hibánál üres lista (a jelölés elmaradása
+        nem hiba, csak a kényelmi funkció esik ki)."""
+        try:
+            with open(self._no_bind_store_path(), 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return data if isinstance(data, list) else []
+        except FileNotFoundError:
+            return []
+        except Exception as e:
+            logging.debug(f"[CATALOG] catalog_no_bind.json nem olvasható: {e}")
+            return []
+
+    def _no_bind_record(self, no_bind_items, bound_ok_items=None):
+        """Nem-kötő csomagok feljegyzése + igazoltan átvett telepítések kivezetése."""
+        try:
+            existing = self._no_bind_load()
+            bound_keys = {((d.get('pnp_id') or '').upper(), d.get('wu_title') or '')
+                          for d in (bound_ok_items or [])}
+            removed = [t.get('name') or t.get('title') for t in existing
+                       if ((t.get('pnp') or '').upper(), t.get('title') or '') in bound_keys]
+            if removed:
+                existing = [t for t in existing
+                            if ((t.get('pnp') or '').upper(), t.get('title') or '') not in bound_keys]
+                logging.info(f"[CATALOG] {len(removed)} bejegyzés törölve a tartós no-bind listáról "
+                             f"(az eszköz most már átvette a csomagot): {removed}")
+            keys = {((t.get('pnp') or '').upper(), t.get('title') or '') for t in existing}
+            added = []
+            for d in (no_bind_items or []):
+                k = ((d.get('pnp_id') or '').upper(), d.get('wu_title') or '')
+                if not k[1] or k in keys:
+                    continue
+                keys.add(k)
+                existing.append({'pnp': k[0], 'title': k[1], 'name': d.get('name') or '',
+                                 'reason': d.get('no_bind_reason') or '',
+                                 'recorded': time.strftime('%Y-%m-%d')})
+                added.append(d.get('name') or k[1])
+            if not added and not removed:
+                return
+            existing = existing[-100:]   # ne nőhessen korlátlanul
+            with open(self._no_bind_store_path(), 'w', encoding='utf-8') as f:
+                json.dump(existing, f, ensure_ascii=False, indent=1)
+            if added:
+                logging.info(f"[CATALOG] {len(added)} nem-kötő csomag feljegyezve a tartós emlékezetbe "
+                             f"({self._no_bind_store_path()}): {added}")
+        except Exception as e:
+            logging.warning(f"[CATALOG] A tartós no-bind lista frissítése nem sikerült: {e}")
+
     def _install_catalog_sync(self, selected_pool, task_id='wu_install'):
         """A kijelölt katalógusos (url-es) elemek telepítése: cab letöltés -> expand ->
         pnputil /add-driver /install (offline cél-OS-nél dism /Add-Driver); .msu csomagnál
@@ -1074,6 +1155,10 @@ try {
         # ezt átviszi a következő lábra, hogy ne töltse le újra ugyanazt.
         no_bind = []
         self._catalog_no_bind = no_bind
+        # Azok az elemek, amiknél a kötés-ellenőrzés IGAZOLTA, hogy az eszköz átvette a
+        # drivert - ezek kulcsát a tartós no-bind emlékezetből törölni kell (ha egy
+        # korábban nem-kötő csomag most mégis felment, a jelölése elavult).
+        bound_ok = []
 
         try:
             import concurrent.futures
@@ -1117,8 +1202,18 @@ try {
                 # pedig a következő lábon ugyanaz az URL simán lejött. A félbemaradt fájlt
                 # minden kör elején töröljük (ugyanaz a szabály, mint a stresstools.zip-nél:
                 # a maradék épp azt a helyet enné el, ami az újrapróbáláshoz kell).
+                #
+                # A kör a KICSOMAGOLÁST is magában foglalja (2026-07-28, terepi log): a
+                # szerver a kapcsolat bontását nem mindig jelzi hibával - a http.client a
+                # darabolt olvasásnál kivétel NÉLKÜL ad vissza rövid fájlt, így az NVIDIA
+                # 1,22 GB-os cab-jából 139 MB jött le "sikeresen", majd az expand kód=1-gyel
+                # elhasalt (amit senki nem nézett), és a hiba "nincs INF a csomagban"-ként,
+                # VÉGLEGES bukásként jelent meg - a pont erre épített retry egyszer sem
+                # indult el. Ezért: (a) a letöltött méretet a Content-Length-hez mérjük,
+                # (b) az expand hibája és a hiányzó INF is újrapróbálást vált ki (sérült
+                # cab), nem végleges hibát.
                 CATALOG_DL_ATTEMPTS = 3
-                dl_ok, last_err = False, None
+                pkg_ok, last_err = False, None
                 for attempt in range(1, CATALOG_DL_ATTEMPTS + 1):
                     if self._check_cancel():
                         return
@@ -1126,25 +1221,54 @@ try {
                         logging.debug(f"[CATALOG_INSTALL] Letöltés ({attempt}/{CATALOG_DL_ATTEMPTS}): {url[:80]}...")
                         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
                         with urllib.request.urlopen(req, context=ssl_ctx, timeout=120) as resp, open(cab_path, 'wb') as f:
+                            expected_len = resp.headers.get('Content-Length')
                             shutil.copyfileobj(resp, f)
-                        logging.debug(f"[CATALOG_INSTALL] Letöltve: {cab_path} ({os.path.getsize(cab_path)} byte, "
+                        got_len = os.path.getsize(cab_path)
+                        if expected_len and expected_len.isdigit() and got_len != int(expected_len):
+                            raise IOError(f"csonka letöltés: {got_len}/{expected_len} byte jött le")
+                        logging.debug(f"[CATALOG_INSTALL] Letöltve: {cab_path} ({got_len} byte, "
                                       f"{attempt}. próbálkozásra)")
-                        dl_ok = True
+                        if file_ext == '.msu':
+                            pkg_ok = True   # az .msu-t a wusa/dism ellenőrzi, expand-kör nincs
+                            break
+                        # Kicsomagolás + INF-jelenlét még a próbálkozás-körön BELÜL: egy
+                        # sérült cab tünete pont ez a kettő, és mindkettőre a friss
+                        # újraletöltés a gyógyszer, nem a végleges hiba.
+                        if os.path.isdir(ext_path):
+                            shutil.rmtree(ext_path, ignore_errors=True)   # előző kör maradéka
+                        os.makedirs(ext_path, exist_ok=True)
+                        exp_res = self._run(['expand', cab_path, '-F:*', ext_path])
+                        if not exp_res or exp_res.returncode != 0:
+                            rc = exp_res.returncode if exp_res else '?'
+                            raise IOError(f"az expand nem tudta kicsomagolni (kód={rc}) - valószínűleg sérült cab")
+                        for inner_cab in glob.glob(os.path.join(ext_path, '*.cab')):
+                            inner_ext = inner_cab + '_ext'
+                            os.makedirs(inner_ext, exist_ok=True)
+                            self._run(['expand', inner_cab, '-F:*', inner_ext])
+                        has_inf = False
+                        for _r, _d, files in os.walk(ext_path):
+                            if any(fn.lower().endswith('.inf') for fn in files):
+                                has_inf = True
+                                break
+                        if not has_inf:
+                            raise IOError("a kicsomagolt csomagban nincs .inf - sérült vagy nem driver-csomag")
+                        pkg_ok = True
                         break
                     except Exception as e:
                         last_err = e
-                        logging.warning(f"[CATALOG_INSTALL] Letöltési hiba ({name}, {attempt}/{CATALOG_DL_ATTEMPTS}): {e}")
+                        logging.warning(f"[CATALOG_INSTALL] Letöltési/kicsomagolási hiba ({name}, {attempt}/{CATALOG_DL_ATTEMPTS}): {e}")
                         try:
                             if os.path.exists(cab_path):
                                 os.remove(cab_path)
                         except Exception as ce:
                             logging.debug(f"[CATALOG_INSTALL] A félbemaradt fájl törlése sikertelen ({cab_path}): {ce}")
+                        shutil.rmtree(ext_path, ignore_errors=True)
                         if attempt < CATALOG_DL_ATTEMPTS:
                             self.emit('task_progress', {'task': task_id, 'log': f'  ↻ {name} letöltése megszakadt ({e}) - újrapróbálás ({attempt + 1}/{CATALOG_DL_ATTEMPTS})...'})
                             time.sleep(3)
-                if not dl_ok:
-                    logging.error(f"[CATALOG_INSTALL] Letöltés VÉGLEG sikertelen {CATALOG_DL_ATTEMPTS} próbálkozás után ({name}): {last_err}")
-                    self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name} letöltési hiba {CATALOG_DL_ATTEMPTS} próbálkozás után: {last_err}'})
+                if not pkg_ok:
+                    logging.error(f"[CATALOG_INSTALL] Letöltés/kicsomagolás VÉGLEG sikertelen {CATALOG_DL_ATTEMPTS} próbálkozás után ({name}): {last_err}")
+                    self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name} letöltési/kicsomagolási hiba {CATALOG_DL_ATTEMPTS} próbálkozás után: {last_err}'})
                     with counter_lock:
                         fail += 1
                     return
@@ -1167,27 +1291,6 @@ try {
                     self.emit('task_progress', {'task': task_id, 'log': f'  {"✅" if ok else "❌"} {name} (.msu, kód={rc})'})
                     return
 
-                os.makedirs(ext_path, exist_ok=True)
-                self._run(['expand', cab_path, '-F:*', ext_path])
-                for inner_cab in glob.glob(os.path.join(ext_path, '*.cab')):
-                    inner_ext = inner_cab + '_ext'
-                    os.makedirs(inner_ext, exist_ok=True)
-                    self._run(['expand', inner_cab, '-F:*', inner_ext])
-
-                # Ha a kicsomagolt fában sehol nincs .inf, felesleges a pnputil/dism kör -
-                # értelmes hibaüzenettel bukjon (pl. sérült/üres cab).
-                has_inf = False
-                for _r, _d, files in os.walk(ext_path):
-                    if any(fn.lower().endswith('.inf') for fn in files):
-                        has_inf = True
-                        break
-                if not has_inf:
-                    logging.error(f"[CATALOG_INSTALL] Nincs .inf a kicsomagolt csomagban: {name}")
-                    self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name} - a letöltött csomagban nincs telepíthető INF (sérült vagy nem driver-csomag)'})
-                    with counter_lock:
-                        fail += 1
-                    return
-
                 # ALKALMAZHATÓSÁG-ELLENŐRZÉS a telepítés ELŐTT (lásd wu_core.inf_package_applies):
                 # a katalógus a törzs-HWID-re más gépgyártóra szabott változatot is adhat,
                 # ami feltelepül, de sosem köt rá az eszközre. Ilyet meg se próbálunk.
@@ -1198,6 +1301,7 @@ try {
                         self.emit('task_progress', {'task': task_id, 'log': f'  ↷ {name}: a katalógus csomagja más gépre/alaplapra készült (az INF nem ismeri ezt az eszközt) - kihagyva.'})
                         with counter_lock:
                             skipped += 1
+                            drv['no_bind_reason'] = 'nem alkalmazható (más gépre szabott INF)'
                             no_bind.append(drv)
                         return
 
@@ -1205,9 +1309,13 @@ try {
                 is_offline = bool(self.target_os_path)
                 if is_offline:
                     cmd = ['dism', f'/Image:{self.target_os_path}', '/Add-Driver', f'/Driver:{ext_path}', '/Recurse']
+                    res = self._run(cmd)
                 else:
                     cmd = ['pnputil', '/add-driver', f"{ext_path}\\*.inf", '/subdirs', '/install']
-                res = self._run(cmd)
+                    # 259 = a csomag már fent van / nincs rá kötő eszköz (lentebb no-op),
+                    # 3010 = siker, de reboot kell - mindkettő VÁRT kimenet, WARNING nélkül
+                    # (terepi log, 2026-07-28: 4 hamis WARNING egy hibátlan futásban).
+                    res = self._run(cmd, ok_codes=(0, 259, 3010))
                 # pnputil kimenet: "Added driver packages:  N". Ha N==0, semmi nem települt
                 # (a csomag már a store-ban van / up-to-date, kód 259) - ezt TILOS sikernek
                 # számolni: az AutoFix katalógus-záróköre soha be nem bind-elő eszközön
@@ -1298,11 +1406,14 @@ try {
                         cur_inf = (cur.get('inf') or '').strip().lower()
                         if cur_inf and cur_inf == drv.get('installed_inf'):
                             stuck.append(drv)
+                        else:
+                            bound_ok.append(drv)
                     for drv in stuck:
                         logging.warning(f"[CATALOG_INSTALL] A csomag felment, de az eszköz NEM vette át: "
                                         f"{drv.get('name')} - marad {drv.get('installed_inf')} "
                                         f"({drv.get('wu_title')})")
                         self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {drv.get("name")}: a csomag feltelepült, de az eszköz TOVÁBBRA IS a régi driverén fut ({drv.get("installed_inf")}) - a Windows nem ezt választotta.'})
+                        drv['no_bind_reason'] = 'felment, de az eszköz nem vette át'
                         no_bind.append(drv)
                     if stuck:
                         success -= len(stuck)
@@ -1314,6 +1425,15 @@ try {
                     if rolled_back:
                         success -= rolled_back
                         fail += rolled_back
+
+            # TARTÓS NO-BIND EMLÉKEZET (catalog_no_bind.json): az autofix_stats.json-beli
+            # lánc-szintű lista a lánc végén törlődik, ezért a kézi szken minden AutoFix
+            # után újra ELŐRE BEJELÖLVE ajánlotta fel ugyanazokat a bizonyítottan nem-kötő
+            # csomagokat (terepi log 2026-07-28: 5 katalógus-találatból 4 ilyen volt, és a
+            # felhasználó jogosan hitte, hogy az AutoFix hagyott ki drivereket). Élő
+            # rendszeren frissítjük; offline képnél kötés-ellenőrzés sincs, nincs adat.
+            if not self.target_os_path and (no_bind or bound_ok):
+                self._no_bind_record(no_bind, bound_ok)
 
         finally:
             logging.debug(f"[CATALOG_INSTALL] Temp dir törlése: {temp_dir}")

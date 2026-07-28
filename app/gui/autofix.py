@@ -18,7 +18,6 @@ from app import backup_core
 from app import colorprofile_core
 from app import drivers_core
 from app import dupdrivers_core
-from app import nicpack_core
 from app import wusettings_core
 from app.ghost_core import build_ghost_ps
 from app.ghost_core import parse_ghost_line
@@ -1583,26 +1582,11 @@ class GuiAutofixMixin:
                         else:
                             self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ Nincs mentett hálózati driver.'})
                         if not net_ok:
-                            # UTOLSÓ ESÉLY: a NIC mentőcsomag (nicpack_core) HELYI forrásból
-                            # (exe mellett / app-adatmappa) - letöltésre net nélkül úgysincs
-                            # mód. Ugyanaz a csomag, amit a "LAN Mentőcsomag" gomb használ.
-                            try:
-                                if nicpack_core._find_nicpack_zip():
-                                    self.emit('task_progress', {'task': 'autofix', 'log': '🛟 NIC mentőcsomag (nicpack.zip) megtalálva helyben - telepítés...'})
-                                    nicpack_core._install_nicpack(
-                                        self._run,
-                                        lambda t: self.emit('task_progress', {'task': 'autofix', 'log': t}))
-                                    time.sleep(15)
-                                    net_ok = self._check_internet()
-                                    if net_ok:
-                                        self.emit('task_progress', {'task': 'autofix', 'log': '✅ Hálózat helyreállítva a NIC mentőcsomagból!\n'})
-                                else:
-                                    self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ nicpack.zip sincs az exe mellett / a DriverVarazslo mappában - ezt sem tudjuk bevetni.'})
-                            except Exception as e:
-                                logging.warning(f"[AUTOFIX] NIC mentőcsomag telepítési hiba: {e}")
-                                self.emit('task_progress', {'task': 'autofix', 'log': f'⚠️ NIC mentőcsomag telepítése sikertelen: {e}'})
-                        if not net_ok:
-                            self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ A hálózat továbbra sem él - a WU keresés így valószínűleg üres lesz. Ellenőrizd a kábelt/Wi-Fi-t!\n'})
+                            # A nicpack.zip-es "utolsó esély" ág 2026-07-28-án, kifejezett
+                            # felhasználói döntésre TÖRÖLVE (a szervizben USB-RJ45 átalakítóval
+                            # oldják meg, aminek beépített drivere van) - az üzenet ezért ezt
+                            # tanácsolja.
+                            self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ A hálózat továbbra sem él - a WU keresés így valószínűleg üres lesz. Ellenőrizd a kábelt/Wi-Fi-t, vagy dugj a gépbe USB-RJ45 átalakítót (annak beépített drivere van)!\n'})
 
                 # 4. Átmenetileg engedélyezzük a WU-t és unpause a driverkereséshez
                 self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update ideiglenes felébresztése a szükséges driverek lekéréséhez...', 'indeterminate': True})

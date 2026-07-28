@@ -25,6 +25,13 @@ ENV/
 *.log
 *debug.log
 
+# KIVÉVE: a tesztgépekről behozott field logok - ezek szándékosan a repo részei
+# (a *.log szabály miatt kell a kivétel, enélkül a debug_logok mappa üresnek
+# számít és a git fel sem viszi - így tűnt el egyszer az egész mappa)
+!debug_logok/
+!debug_logok/*.log
+!debug_logok/.gitkeep
+
 # Stressz-teszt eszközcsomag - futásidőben töltődik le %TEMP%-be, sosem
 # tartozik a repohoz, de ha valaki véletlenül idemásolja, ne kerüljön fel.
 stresstools.zip

@@ -30,7 +30,6 @@ from app.gui.blockscript import GuiBlockScriptMixin
 from app.gui.nvidia import GuiNvidiaMixin
 from app.gui.vendorgpu import GuiVendorGpuMixin
 from app.gui.oemdrivers import GuiOemDriversMixin
-from app.gui.nicpack import GuiNicPackMixin
 from app.gui.benchmark import GuiBenchmarkMixin
 
 
@@ -41,7 +40,7 @@ class DriverToolApi(GuiBaseMixin, GuiUpdaterMixin, GuiStressMixin,
                     GuiWuMixin, GuiAutofixMixin, GuiBackupMixin, GuiBitlockerMixin,
                     GuiReportMixin, GuiStorePrintMixin, GuiBlockScriptMixin,
                     GuiNvidiaMixin, GuiVendorGpuMixin, GuiOemDriversMixin,
-                    GuiNicPackMixin, GuiBenchmarkMixin):
+                    GuiBenchmarkMixin):
     """A GUI backend - a pywebview js_api-ja. Minden feature a saját mixin-fájljában."""
     pass
 

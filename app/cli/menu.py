@@ -83,8 +83,7 @@ def run_cli_mode():
     3. Driver(ek) törlése
     4. Hardver újraszkennelés
     5. Szellemeszközök (ghost device) törlése
-    6. 🛟 LAN driver mentőcsomag telepítése (nicpack.zip)
-    7. 🧹 Driver-duplikátumok takarítása (DriverStore)
+    6. 🧹 Driver-duplikátumok takarítása (DriverStore)
 
     0. Vissza a főmenübe
 """)
@@ -131,9 +130,6 @@ def run_cli_mode():
                 api.delete_ghost_devices()
                 input("\nNyomj ENTER-t a folytatáshoz...")
             elif choice == '6':
-                api.install_nic_pack()
-                input("\nNyomj ENTER-t a folytatáshoz...")
-            elif choice == '7':
                 api.clean_duplicate_drivers()
                 input("\nNyomj ENTER-t a folytatáshoz...")
 

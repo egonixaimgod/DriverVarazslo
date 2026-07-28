@@ -249,7 +249,8 @@ def _app_data_dir():
 def download_with_cert_fallback(run_fn, url, dest, *, timeout=60, ps_timeout=120,
                                 log_tag='DOWNLOAD', error_msg=None, progress_cb=None):
     """HTTPS letöltés a friss-Windows tanúsítvány-fallbackkel - KÖZÖS példány (korábban
-    4 másolatban élt: block.bat, nicpack.zip, BootFixer.cmd, stresstools.zip).
+    4 másolatban élt: block.bat, BootFixer.cmd, stresstools.zip + a 2026-07-28-án
+    kivett nicpack.zip).
 
     Vadonatúj Windows-telepítésen a gyökértanúsítvány-tár még hiányos: a Windows a
     gyökereket igény szerint tölti le, de ezt csak a schannel-alapú kliensek (böngésző,

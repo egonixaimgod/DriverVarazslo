@@ -17,7 +17,6 @@ from app.cli.ghost import CliGhostMixin
 from app.cli.tempclean import CliTempCleanMixin
 from app.cli.blockscript import CliBlockScriptMixin
 from app.cli.autofix import CliAutofixMixin
-from app.cli.nicpack import CliNicPackMixin
 from app.cli.bitlocker import CliBitlockerMixin
 from app.cli.report import CliReportMixin
 from app.cli.updater import CliUpdaterMixin
@@ -25,7 +24,7 @@ from app.cli.updater import CliUpdaterMixin
 
 class CliApi(CliBaseMixin, CliDriversMixin, CliDupDriversMixin, CliBackupMixin,
              CliBcdMixin, CliWuMixin, CliGhostMixin, CliTempCleanMixin,
-             CliBlockScriptMixin, CliAutofixMixin, CliNicPackMixin,
+             CliBlockScriptMixin, CliAutofixMixin,
              CliBitlockerMixin, CliReportMixin, CliUpdaterMixin):
     """CLI verzió API - ugyanazokat a funkciókat hívja mint a GUI, de konzolra ír."""
     pass

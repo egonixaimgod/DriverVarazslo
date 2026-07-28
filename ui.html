@@ -592,7 +592,6 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
               <span class="hero-chip">🌐 WU + Catalog keresés</span>
               <span class="hero-chip">⚠️ Hibás eszközök kiemelve</span>
               <span class="hero-chip">🎮 NVIDIA/AMD/Intel gyári driver</span>
-              <span class="hero-chip">🛟 LAN mentőcsomag</span>
             </div>
           </div>
         </div>
@@ -603,7 +602,6 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
             <button class="btn btn-success" onclick="installSelectedHw()" id="btn-install-hw" disabled>🚀 Kijelöltek Telepítése</button>
             <button class="btn btn-sm" onclick="selectAllHw()" id="btn-sel-all-hw" disabled>☑ Összes</button>
             <button class="btn btn-sm" onclick="deselectAllHw()" id="btn-desel-all-hw" disabled>☐ Törlés</button>
-            <button class="btn btn-sm" onclick="installNicPack()" id="btn-nicpack" title="LAN/Wi-Fi vész-driverek telepítése a nicpack.zip-ből - akkor kell, ha a gépnek nincs hálózati drivere, ezért internetje sincs. A csomagot az exe mellett vagy a C:\DriverVarazslo mappában keresi, végszükségben letölti.">🛟 LAN Mentőcsomag</button>
           </div>
           <div style="margin:-4px 0 10px">
             <label style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);cursor:pointer"
@@ -1655,11 +1653,14 @@ function onHwScanResult(data) {
   document.getElementById('hw-status').textContent = '✅ ' + hwPool.length + ' letölthető + ' + hwInstalled.length + ' telepített driver' + (data.time ? ' (' + data.time + ')' : '');
   if (data.sys_info) document.getElementById('sys-info').textContent = data.sys_info;
   // Select all available by default - KIVÉVE (a) a downgrade-jelölteket (a WU a
-  // telepítettnél régebbi drivert ajánl) és (b) a KOCKÁZATOS, tárolóvezérlő/lemez
-  // találatokat: mindkettő ott van a listán láthatóan, de alapból nincs kipipálva,
-  // mert a telepítésük tudatos emberi döntést kíván (lásd wu_core.RISKY_CLASS_WARNING).
+  // telepítettnél régebbi drivert ajánl), (b) a KOCKÁZATOS, tárolóvezérlő/lemez
+  // találatokat (telepítésük tudatos emberi döntést kíván, lásd
+  // wu_core.RISKY_CLASS_WARNING), és (c) a korábbi futásban bizonyítottan NEM KÖTŐ
+  // csomagokat (prev_no_bind - más gépre szabott változat, újratelepíthető, de
+  // várhatóan most sem venné át az eszköz). Mindhárom látható a listán, csak nincs
+  // előre kipipálva.
   hwSelectedIndices.clear();
-  hwPool.forEach((d, i) => { if (!d.downgrade && !d.risky) hwSelectedIndices.add(i); });
+  hwPool.forEach((d, i) => { if (!d.downgrade && !d.risky && !d.prev_no_bind) hwSelectedIndices.add(i); });
   renderHwTree();
   updateHwButtons();
   setTimeout(() => { document.getElementById('hw-progress').style.display = 'none'; }, 2000);
@@ -1694,6 +1695,7 @@ function renderHwTree() {
           + (it.downgrade ? ' <span style="color:#ffb454;font-size:11px;font-weight:700" title="A felajánlott driver RÉGEBBI a jelenleg telepítettnél - telepítése visszabutítás lenne, ezért alapból nincs kijelölve">⚠️ régebbi, mint a telepített!</span>' : '')
           + (it.generic_replace ? ' <span style="color:#5fb2ff;font-size:11px;font-weight:700" title="Ezen az eszközön most a Windows beépített, generikus drivere fut. A chip gyártójának saját drivere elérhető a Microsoft Update Catalogban - jellemzően többet tud (hang-DSP, energiakezelés, offload). Ha a csere után az eszköz hibás lenne, a program automatikusan visszaáll a Windows driverére.">🏭 most Windows alapdriver → gyári elérhető</span>' : '')
           + (it.risky ? ' <span style="color:#ff5f6d;font-size:11px;font-weight:800" title="'+esc(it.risk_reason||'')+'">'+esc(it.risk_label||'⛔ KOCKÁZATOS - telepítése tudatos döntést kíván!')+'</span>' : '')
+          + (it.prev_no_bind ? ' <span style="color:#b9a7e8;font-size:11px;font-weight:700" title="Egy korábbi futásban ez a csomag már feltelepült vagy kipróbáltuk, de az eszköz nem vette át'+(it.prev_no_bind_reason?' ('+esc(it.prev_no_bind_reason)+')':'')+' - jellemzően más gépgyártóra szabott változat. Bejelölhető és újrapróbálható, de várhatóan most sem ezt választaná a Windows. GPU-nál a lenti NVIDIA/AMD/Intel gyártói kártya, alaplapi eszköznél az alaplapgyártó oldala a jobb forrás.">↷ korábban nem vette át az eszköz</span>' : '')
           + '</span>'
           + '<span class="hwid">'+esc(it.hwid||'')+'</span></div>'
         ).join('') + '</div>';
@@ -1892,10 +1894,6 @@ function renderOemCard(data) {
     + '<button class="btn" onclick="openVendorPage(\''+esc(data.url)+'\')">🌐 '+esc(data.vendor)+' driver-oldal</button>'
     + '</div>';
   card.style.display = 'block';
-}
-async function installNicPack() {
-  try { await api().install_nic_pack(); }
-  catch (e) { toast('LAN mentőcsomag hiba: ' + e, 'error'); }
 }
 function updateHwButtons() {
   const hasPool = hwPool.length > 0;
