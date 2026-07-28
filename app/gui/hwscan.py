@@ -1123,6 +1123,54 @@ try {
         except Exception as e:
             logging.warning(f"[CATALOG] A tartós no-bind lista frissítése nem sikerült: {e}")
 
+    def _cleanup_unused_staged_infs(self, pnp_out, name, task_id):
+        """Több-INF-es katalógus-csomag FEL NEM HASZNÁLT INF-jeinek kivezetése a DriverStore-ból.
+
+        Miért: a `pnputil /add-driver <mappa>\\*.inf /subdirs /install` a csomag MINDEN
+        INF-jét stage-eli, akkor is, ha az eszközhöz csak egy (vagy nulla) illik. Terepen
+        (2026-07-28, dev gép): a Razer katalógus-cab a teljes Razer termékpaletta INF-jeit
+        hordozza (rz0001dev...rz0f2cdev, egerek/billentyűzetek/headsetek külön INF-fel),
+        és egyetlen AutoFix-futás után a gép 19 third-party csomagja 219-re hízott
+        (mérve: 201 rz*-INF a DriverStore-ban, egyik sincs eszközhöz kötve). Funkcionálisan
+        ártalmatlan, de a DriverStore-t szemeteli és a driverlistát használhatatlanná teszi.
+
+        Döntési szabály: a pnputil kimenete blokkonként elárulja az egyes INF-ek sorsát -
+        amelyik "installed on device" / "up-to-date on device" sort kapott, azt jelen lévő
+        eszköz használja, MARAD; a csak stage-elt többi megy. Csak több-INF-es csomagnál
+        fut (az egy-INF-es nem-kötő esetet a bind-check kezeli no-bindként), és
+        reboot-igényes telepítésnél egyáltalán nem (a kötés a következő bootnál dől el,
+        most nem ítélkezünk - ugyanaz az elv, mint a bind-checknél). A törlés sima
+        `pnputil /delete-driver` (se /uninstall, se /force): ha bármi mégis használja,
+        a pnputil elutasítja és a csomag marad - ezt a kimenetel-logika elviseli."""
+        try:
+            blocks = re.split(r'(?=Adding driver package)', pnp_out or '')
+            entries = []
+            for b in blocks:
+                m = re.search(r'Adding driver package\s*:?\s*(\S+)', b)
+                p = re.search(r'Published Name\s*:\s*(oem\d+\.inf)', b, re.IGNORECASE)
+                if not (m and p):
+                    continue
+                used = bool(re.search(r'installed on device|up-to-date on device', b, re.IGNORECASE))
+                entries.append((m.group(1), p.group(1).lower(), used))
+            if len(entries) <= 1:
+                return
+            unused = [(inf, pub) for inf, pub, used in entries if not used]
+            if not unused:
+                return
+            logging.info(f"[CATALOG_INSTALL] {name}: a csomag {len(entries)} INF-jéből {len(unused)} egyetlen "
+                         f"jelen lévő eszközön sem használt - kivezetés a DriverStore-ból: "
+                         f"{[inf for inf, _pub in unused]}")
+            self.emit('task_progress', {'task': task_id, 'log': f'  🧹 {name}: a csomag {len(unused)} fel nem használt INF-jének kivezetése a DriverStore-ból...'})
+            refused = 0
+            for inf, pub in unused:
+                dres = self._run(['pnputil', '/delete-driver', pub], ok_codes=(0, 3010))
+                if not dres or dres.returncode not in (0, 3010):
+                    refused += 1
+                    logging.info(f"[CATALOG_INSTALL] Kivezetés elutasítva (marad): {pub} ({inf}), rc={getattr(dres, 'returncode', '?')}")
+            logging.info(f"[CATALOG_INSTALL] {name}: kivezetve {len(unused) - refused}/{len(unused)} fel nem használt INF.")
+        except Exception as e:
+            logging.warning(f"[CATALOG_INSTALL] A fel nem használt INF-ek kivezetése nem sikerült ({name}): {e}")
+
     def _install_catalog_sync(self, selected_pool, task_id='wu_install'):
         """A kijelölt katalógusos (url-es) elemek telepítése: cab letöltés -> expand ->
         pnputil /add-driver /install (offline cél-OS-nél dism /Add-Driver); .msu csomagnál
@@ -1363,6 +1411,15 @@ try {
                     with counter_lock:
                         fail += 1
                     self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name} hiba: {res.stdout[:100]}'})
+
+                # Több-INF-es csomag fel nem használt INF-jeinek kivezetése (Razer-eset,
+                # lásd _cleanup_unused_staged_infs) - reboot-igényes telepítésnél nem,
+                # ott a kötés a következő bootnál dől el.
+                if not is_offline:
+                    pkg_reboot = (res.returncode == 3010
+                                  or 'reboot is needed' in (res.stdout or '').lower())
+                    if not pkg_reboot:
+                        self._cleanup_unused_staged_infs(res.stdout or '', name, task_id)
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
                 futures = [executor.submit(process_catalog_driver, i, drv) for i, drv in enumerate(selected_pool)]
