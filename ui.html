@@ -273,6 +273,11 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .bench-spec-item b{color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Automata benchmark futtató panel: 4 lépéses folyamat-sáv + eredmény-kártya */
 .bench-auto-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+/* "Mivel fut a mérés" sáv - a Python get_benchmark_settings-éből, hogy a kiírt és a
+   ténylegesen futtatott beállítás soha ne csúszhasson szét */
+.bench-settings{margin-top:12px;padding:10px 14px;border-radius:var(--r-sm);background:rgba(255,200,90,0.07);border:1px solid rgba(255,200,90,0.22);font-size:11.5px;color:var(--text2);line-height:1.7;display:flex;flex-wrap:wrap;gap:6px 18px}
+.bench-settings b{color:#ffd97a;font-weight:800}
+.bench-settings code{background:rgba(0,0,0,0.3);padding:1px 6px;border-radius:5px;color:var(--text3);font-size:10.5px}
 .ba-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:10px;margin-top:14px}
 .ba-step{position:relative;padding:14px 14px 12px;border-radius:var(--r-sm);background:rgba(255,255,255,0.03);border:1px solid var(--glass-border);transition:all var(--t);overflow:hidden}
 .ba-step .ba-ico{font-size:22px;margin-bottom:8px}
@@ -873,8 +878,8 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
             <div class="bench-hero-title">🏆 Benchmark &amp; Ranglista</div>
             <div class="bench-hero-sub">Egy kattintás — a többit a program végzi: lefuttatja a <b>Cinebench R20</b> multi-core CPU-tesztet, utána a <b>FurMark</b> GPU-benchmarkot, a pontszámokat <b>automatikusan kiolvassa</b>, a végén pedig már csak a gép nevét kell beírnod — az eredmény a hardver-adatokkal együtt azonnal felkerül a közös felhő-ranglistára. Közben nyugodtan otthagyhatod a gépet.</div>
             <div class="bench-hero-chips">
-              <span class="bench-chip">🧠 Cinebench R20 · CPU</span>
-              <span class="bench-chip">🎮 FurMark · GPU</span>
+              <span class="bench-chip" id="bench-chip-cb">🧠 Cinebench R20</span>
+              <span class="bench-chip" id="bench-chip-fm">🎮 FurMark</span>
               <span class="bench-chip">⚡ 1 kattintás — automata</span>
               <span class="bench-chip">☁️ Közös felhő-ranglista</span>
             </div>
@@ -897,6 +902,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
             <button class="btn btn-sm btn-danger" onclick="cancelBenchmarkRun()">⏹ Megszakítás</button>
           </div>
           <div class="bench-specs" id="bench-specs">Hardver felismerése...</div>
+          <div class="bench-settings" id="bench-settings" title="A benchmark pontosan ezekkel a beállításokkal fut">⚙️ Beállítások betöltése...</div>
           <div class="ba-steps">
             <div class="ba-step" id="ba-step-close">
               <div class="ba-badge">⏳</div><div class="ba-ico">🧹</div>
@@ -926,8 +932,8 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
           </div>
           <div class="bench-result" id="bench-result">
             <div class="br-tiles">
-              <div class="br-tile cb"><div class="bt-ico">🧠</div><div><div class="bt-label">Cinebench R20 · multi-core</div><div class="bt-val" id="br-val-cb">—</div></div></div>
-              <div class="br-tile fm"><div class="bt-ico">🎮</div><div><div class="bt-label">FurMark · 1080p</div><div class="bt-val" id="br-val-fm">—</div></div></div>
+              <div class="br-tile cb"><div class="bt-ico">🧠</div><div><div class="bt-label" id="br-lbl-cb">Cinebench R20</div><div class="bt-val" id="br-val-cb">—</div></div></div>
+              <div class="br-tile fm"><div class="bt-ico">🎮</div><div><div class="bt-label" id="br-lbl-fm">FurMark</div><div class="bt-val" id="br-val-fm">—</div></div></div>
             </div>
             <div class="toolbar" style="margin:0">
               <button class="btn btn-primary" onclick="promptAndUploadBenchResult()" id="btn-bench-upload">🏆 Feltöltés a ranglistára</button>
@@ -949,6 +955,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
               <button class="lb-refresh" onclick="fetchLeaderboard()" title="Ranglista frissítése a felhőből">🔄 Frissítés</button>
             </div>
           </div>
+          <div id="bench-lb-note" class="lb-status" style="font-size:11.5px;opacity:0.85"></div>
           <div id="bench-lb-status" class="lb-status">☁️ Ranglista betöltése...</div>
           <div class="lb-list" id="bench-lb-list" style="display:none"></div>
         </div>
@@ -979,7 +986,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
                   <span class="tool-cat gpu">GPU teszt</span>
                 </div>
               </div>
-              <div class="tool-desc">Videokártya benchmark/terhelés — az automata mérés is ezt futtatja (10 mp, 1080p).</div>
+              <div class="tool-desc">Videokártya benchmark/terhelés — az automata mérés is ezt futtatja (a beállításokat lásd fent).</div>
               <div class="tool-actions">
                 <button class="btn btn-sm" onclick="launchBenchTool('furmark')" title="FurMark indítása portable módban (kézi beállítás)">▶ Indítás</button>
               </div>
@@ -2347,12 +2354,40 @@ function updateSortButtons() {
   if (fm) { fm.classList.toggle('active', benchSort.key === 'furmark'); fm.textContent = '🎮 FurMark' + (benchSort.key === 'furmark' ? arrow : ''); }
 }
 
+let benchSettings = null;   // mivel fut a mérés (a Pythonból, EGY forrásból)
+
 function loadBenchmarkView() {
   if (!window.pywebview) return;
   // Hardver-felismerés + ranglista lekérés (mindkettő eseménnyel tér vissza).
   // A felhő-végpont fixen a programba van drótozva (benchmark_defs.py) - nincs mit beállítani.
   api().load_machine_specs().catch(e => console.error(e));
+  api().get_benchmark_settings().then(renderBenchSettings).catch(e => console.error(e));
   fetchLeaderboard();
+}
+
+// A beállításokat MINDIG a Python adja (benchmark_defs.py), sehol nem írjuk be kézzel a
+// felületre - így a kijelzett és a ténylegesen futtatott beállítás nem csúszhat szét.
+function renderBenchSettings(s) {
+  if (!s) return;
+  benchSettings = s;
+  const cbChip = document.getElementById('bench-chip-cb');
+  const fmChip = document.getElementById('bench-chip-fm');
+  if (cbChip) cbChip.textContent = '🧠 Cinebench R20 · ' + s.cinebench;
+  if (fmChip) fmChip.textContent = '🎮 FurMark · ' + s.furmark_short + ' · ' + s.furmark_seconds + ' mp';
+  const box = document.getElementById('bench-settings');
+  if (box) {
+    box.innerHTML = '<span>⚙️ <b>Cinebench R20:</b> ' + esc(s.cinebench) + '</span>' +
+                    '<span>🎮 <b>FurMark:</b> ' + esc(s.furmark) + '</span>' +
+                    '<span><code>' + esc(s.furmark_cmd) + '</code></span>';
+    box.title = 'A FurMark pontosan így indul:\n' + s.furmark_cmd;
+  }
+  const cbLbl = document.getElementById('br-lbl-cb');
+  const fmLbl = document.getElementById('br-lbl-fm');
+  if (cbLbl) cbLbl.textContent = 'Cinebench R20 · ' + s.cinebench;
+  if (fmLbl) fmLbl.textContent = 'FurMark · ' + s.furmark_short;
+  const note = document.getElementById('bench-lb-note');
+  if (note) note.textContent = 'ℹ️ A pontszámok mérése: Cinebench R20 — ' + s.cinebench +
+                               ' · FurMark — ' + s.furmark + '.';
 }
 
 function renderMachineSpecs(d) {
@@ -2444,6 +2479,12 @@ function onBenchmarkAutoResult(d) {
   const fmEl = document.getElementById('br-val-fm');
   if (cbEl) cbEl.textContent = (parseFloat(d.cinebench) || 0).toLocaleString('hu-HU');
   if (fmEl) fmEl.innerHTML = esc(String(d.furmark)) + '<span class="bt-unit">FPS</span>';
+  // A ténylegesen futott beállítást írjuk ki (a felbontás a FurMark score-fájljából jön:
+  // ha a Windows levágta az ablakot, itt az látszik, nem a kért méret).
+  const cbLbl = document.getElementById('br-lbl-cb');
+  const fmLbl = document.getElementById('br-lbl-fm');
+  if (cbLbl && d.cinebench_settings) cbLbl.textContent = 'Cinebench R20 · ' + d.cinebench_settings;
+  if (fmLbl && d.furmark_settings) fmLbl.textContent = 'FurMark · ' + d.furmark_settings;
   const res = document.getElementById('bench-result');
   if (res) res.classList.add('show');
   if (d.suggested_name) { benchSpecs = benchSpecs || {}; if (!benchSpecs.machine_name) benchSpecs.machine_name = d.suggested_name; }
@@ -2566,7 +2607,7 @@ function renderLeaderboard(d) {
       </div>
       <div class="lb-scores">
         <div class="lb-score cb">
-          <div class="lbs-label">🧠 Cinebench</div>
+          <div class="lbs-label">🧠 Cinebench multi</div>
           <div class="lbs-val">${cbv === null ? '—' : cbv.toLocaleString('hu-HU')}</div>
           <div class="lbs-bar"><i style="width:${cbPct}%"></i></div>
         </div>

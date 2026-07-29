@@ -30,11 +30,18 @@ BENCH_TOOLS = {
 # Automata (1 kattintásos) benchmark-futtatás konstansai (run_benchmark_suite)
 # ============================================================================
 
-# Cinebench R20/R23 parancssori kapcsolók: a multi-core CPU-teszt lefut, a pontszám a
-# stdout-ra kerül ("CB <pontszám>" sor), majd a program MAGÁTÓL kilép - nincs GUI.
+# Cinebench R20/R23 parancssori kapcsolók: a MULTI-THREAD (minden processzormagot és
+# szálat terhelő) CPU-teszt fut le - ez a "CPU (Multi Core)" pontszám, a Cinebench
+# alapértelmezett fő mérése. (Az egyszálas mérés a g_CinebenchCpu1Test=true lenne - azt
+# szándékosan NEM futtatjuk: a ranglista a gép össz-teljesítményét hasonlítja.)
+# A pontszám a stdout-ra kerül ("CB <pontszám>" sor), majd a program MAGÁTÓL kilép.
 # A g_acceptDisclaimer az R23-nál kötelező az EULA-ablak kihagyásához, az R20 pedig
 # szó nélkül elfogadja (ismeretlen kapcsolót a Cinebench nem kifogásol).
 CINEBENCH_CLI_ARGS = ['g_CinebenchCpuXTest=true', 'g_acceptDisclaimer=true']
+
+# A felületen megjelenő beállítás-leírás (EGY forrásból, hogy a kijelzett és a ténylegesen
+# futtatott beállítás soha ne csúszhasson szét).
+CINEBENCH_SETTINGS_LABEL = 'CPU Multi-Thread (minden mag és szál)'
 
 # A Cinebench multi-core teszt felső időkorlátja másodpercben. Erős gépen 1-3 perc a
 # lefutás, de egy régi 2-magos irodai gépen 15+ perc is lehet - a plafon szándékosan
@@ -44,26 +51,46 @@ CINEBENCH_TIMEOUT_S = 2400
 
 # FurMark 1.x parancssori benchmark: /nogui (nincs beállító ablak), /benchmark +
 # /max_time (ennyi ms után vége), /log_score (az eredmény a FurMark mappájába írt
-# furmark-scores.txt-be kerül - EZT parseoljuk, nem a képernyőt). A felbontás FIX,
+# furmark-scores.txt-be kerül - EZT parseoljuk, nem a képernyőt). A beállítások FIXEK,
 # hogy a ranglista FPS-értékei összehasonlíthatóak legyenek gépek között.
 #
-# A felbontás 1280x720, NEM 1920x1080 (terepen mérve, 2026-07-29): a FurMark ABLAKOS
-# módban fut (/nogui), és az ablakot a Windows a munkaterülethez vágja - egy 1080p
-# monitoron a kért 1920x1080-ból [Resolution=1898x1024] lett. Az igazi baj nem a 22
-# képpont, hanem hogy a csonkítás MÉRETE monitorfüggő: egy 1366x768-as laptopon
-# ~1350x690 lenne, azaz feleannyi képpont -> irreálisan magas FPS és értelmetlen
-# ranglista. Az 1280x720 (+ ablakkeret ~1296x760) gyakorlatilag minden shopban látott
-# kijelző munkaterületébe befér, így minden gép UGYANANNYI képpontot renderel. A
-# ténylegesen renderelt felbontást a score-fájlból kiolvassuk és logoljuk, tehát ha
-# egy gépen mégis csonkul, az a logból kiderül (nem néma torzítás).
-# Teljes képernyős mód szándékosan NINCS: egy nem támogatott felbontású panelen a
-# módváltás elbukhat, és akkor NINCS eredmény - a kisebb ablak rosszabb esetben is ad.
-FURMARK_BENCH_TIME_MS = 10000       # explicit felhasználói kérés: ~5-10 mp futás
-FURMARK_BENCH_WIDTH = 1280
-FURMARK_BENCH_HEIGHT = 720
+# A BEÁLLÍTÁSOK A SZERVIZ RÉGI, KÉZI FURMARK-SCRIPTJÉT KÖVETIK (explicit felhasználói
+# döntés, 2026-07-29): a kollégák évek óta 1024-es ablakban, animált háttérrel futtatják
+# a kártyákat, és FEJBŐL ISMERIK a szokásos FPS-tartományokat - a benchmarknak ehhez a
+# megszokáshoz kell igazodnia, nem fordítva. Ezért: 1024x768, 0x MSAA, /enable_dyn_bkg=1
+# + /bkg_img_id=2 (a régi script animált háttere). Amiben SZÁNDÉKOSAN eltérünk:
+#   - a magasság 768, nem a script 728-a (kifejezett felhasználói döntés) - kb. 5%-kal
+#     több képpont, tehát a mi FPS-ünk kicsivel a megszokott alatt lesz;
+#   - a futásidő 10 mp (a régi script végtelen): elég az FPS kiolvasásához, viszont a
+#     kártya még HIDEG, teljes boost órajelen - egy percekig sütött kártyánál mért
+#     értékhez képest ez magasabb szám. A ranglistát ez nem zavarja (minden gépen
+#     ugyanaz a beállítás), a régi script-tapasztalattal viszont csak nagyságrendileg
+#     vethető össze.
+#
+# Ablakos mód, teljes képernyő SZÁNDÉKOSAN nincs: egy nem támogatott felbontású panelen
+# a módváltás elbukhat, és akkor NINCS eredmény - egy kisebb ablak rosszabb esetben is
+# ad számot. Figyelendő viszont (terepen mérve 2026-07-29): a Windows a munkaterülethez
+# VÁGJA az ablakot - a kért 1920x1080-ból [Resolution=1898x1024] lett egy 1080p
+# monitoron. Az 1024x768 egy 1366x768-as laptopon szintén csonkulna (~1024x690), ezért a
+# ténylegesen renderelt felbontást a score-fájlból kiolvassuk, és eltérésnél WARNING
+# kerül a logba - a torzítás soha nem néma.
+FURMARK_BENCH_TIME_MS = 10000       # explicit felhasználói kérés: 10 mp elég az FPS-hez
+FURMARK_BENCH_WIDTH = 1024
+FURMARK_BENCH_HEIGHT = 768
+FURMARK_MSAA = 0
+# A régi szerviz-script animált háttere (a bkg_img_id=2 a FurMark 1.19+ alapértelmezett
+# képe). Kis plusz terhelés, de a megszokott FPS-ekhez ez is hozzátartozik.
+FURMARK_DYN_BKG_ARGS = ['/enable_dyn_bkg=1', '/bkg_img_id=2']
 FURMARK_CLI_ARGS = ['/nogui', '/benchmark', f'/max_time={FURMARK_BENCH_TIME_MS}',
                     f'/width={FURMARK_BENCH_WIDTH}', f'/height={FURMARK_BENCH_HEIGHT}',
-                    '/msaa=0', '/log_score', '/disable_catalyst_warning', '/nomenubar']
+                    f'/msaa={FURMARK_MSAA}'] + FURMARK_DYN_BKG_ARGS + [
+                    '/log_score', '/disable_catalyst_warning', '/nomenubar']
+
+# A felületen megjelenő beállítás-leírás. EGY forrásból megy a UI-ba
+# (get_benchmark_settings), hogy a kiírt és a ténylegesen futtatott beállítás soha ne
+# csúszhasson szét - a szerviznek pontosan tudnia kell, mivel készült a szám.
+FURMARK_SETTINGS_LABEL = (f'{FURMARK_BENCH_WIDTH}×{FURMARK_BENCH_HEIGHT} · {FURMARK_MSAA}× MSAA · '
+                          f'{FURMARK_BENCH_TIME_MS // 1000} mp · animált háttér · ablakos')
 
 # A FurMark folyamat kilépésére/pontszám-fájljára várt TÖBBLET-idő a max_time felett,
 # másodpercben (induló ablak + shader-fordítás + a score-fájl kiírása). Ha letelik és a

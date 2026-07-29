@@ -27,6 +27,9 @@ from app.benchmark_defs import FURMARK_BENCH_TIME_MS
 from app.benchmark_defs import FURMARK_BENCH_WIDTH
 from app.benchmark_defs import FURMARK_BENCH_HEIGHT
 from app.benchmark_defs import FURMARK_EXIT_GRACE_S
+from app.benchmark_defs import FURMARK_MSAA
+from app.benchmark_defs import CINEBENCH_SETTINGS_LABEL
+from app.benchmark_defs import FURMARK_SETTINGS_LABEL
 from app.benchmark_defs import CLOSE_APPS_PROTECTED
 from app.benchmark_defs import CLOSE_APPS_WAIT_S
 from app.benchmark_core import build_close_apps_ps
@@ -55,6 +58,20 @@ class GuiBenchmarkMixin:
     """Benchmark nézet: automata benchmark-futtatás pontszám-kiolvasással, benchmark-programok
     egyenkénti portable indítása, hardver-felismerés, felhő-ranglista. A DriverToolApi része
     (összerakás: app/gui/api.py)."""
+
+    def get_benchmark_settings(self):
+        """A benchmark BEÁLLÍTÁSAI a nézet számára (szinkron hívás, a nézet betöltésekor).
+        A felület ebből írja ki, hogy pontosan mivel fut a mérés - EGY forrásból
+        (benchmark_defs.py), hogy a kijelzett és a ténylegesen futtatott beállítás soha ne
+        csúszhasson szét. A 'furmark_cmd' a valódi parancssor, hogy a szerviz szemmel is
+        ellenőrizhesse (a felületen tooltipként jelenik meg)."""
+        return {
+            'cinebench': CINEBENCH_SETTINGS_LABEL,
+            'furmark': FURMARK_SETTINGS_LABEL,
+            'furmark_short': f'{FURMARK_BENCH_WIDTH}×{FURMARK_BENCH_HEIGHT} · {FURMARK_MSAA}× MSAA',
+            'furmark_seconds': FURMARK_BENCH_TIME_MS // 1000,
+            'furmark_cmd': 'FurMark.exe ' + ' '.join(build_furmark_cmd('')[1:]),
+        }
 
     def load_machine_specs(self):
         """A gép hardver-adatainak (CPU/alaplap/RAM/GPU) felismerése háttérszálon, majd
@@ -237,7 +254,8 @@ class GuiBenchmarkMixin:
         """A FurMark parancssori benchmark futtatása fix ideig + az FPS kiolvasása a
         /log_score által írt score-fájlból. Egyes FurMark-verziók a benchmark után
         eredmény-ablakot hagynak fenn - a türelmi idő után a folyamatot kilőjük, a
-        score-fájl ilyenkor már kint van. Visszaad: FPS (int) vagy None."""
+        score-fájl ilyenkor már kint van. Visszaad: (FPS, ténylegesen renderelt felbontás)
+        vagy (None, None), ha nincs értelmezhető eredmény."""
         exe_dir = os.path.dirname(exe_path)
         # time.time() itt SZÁNDÉKOS: fájl-mtime-mal (falióra-bélyeggel) hasonlítjuk össze,
         # nem időtartamot mérünk. 5 mp ráhagyás az óra/fájlrendszer felbontására.
@@ -257,16 +275,16 @@ class GuiBenchmarkMixin:
                          "eredmény-ablak maradhat fenn) - a score-fájlt így is megnézzük.")
         score_file = find_furmark_score_file(exe_dir, min_mtime=start_stamp)
         if not score_file:
-            return None
+            return None, None
         try:
             with open(score_file, 'r', encoding='utf-8', errors='replace') as fh:
                 text = fh.read()
         except OSError as e:
             logging.error(f"[BENCHMARK] FurMark score-fájl olvasási hiba ({score_file}): {e}")
-            return None
+            return None, None
         res = parse_furmark_scores(text)
         if not res:
-            return None
+            return None, None
         # A ténylegesen renderelt felbontás naplózása: /nogui-val a FurMark ABLAKOS módban
         # fut, és a Windows a munkaterülethez vághatja az ablakot - ha ez megtörténik, a
         # gép FPS-e nem hasonlítható össze a többiével, és ezt csak innen lehet észrevenni.
@@ -283,7 +301,7 @@ class GuiBenchmarkMixin:
         if res.get('score') is not None and proc.returncode == res['score']:
             logging.info(f"[BENCHMARK] Kereszt-ellenőrzés OK: a kilépési kód ({proc.returncode}) "
                          f"megegyezik a score-fájl képkockaszámával.")
-        return res.get('fps')
+        return res.get('fps'), (actual.replace('x', '×') if actual else None)
 
     def run_benchmark_suite(self, close_apps=False):
         """A "Benchmark futtatása" gomb: TELJESEN AUTOMATA, 1 kattintásos futtatás
@@ -351,23 +369,27 @@ class GuiBenchmarkMixin:
                 power_locked = True
                 progress('prep', 'done', 'Programok készen, energiagazdálkodás zárolva.')
 
-                # --- 1) Cinebench multi-core ---
-                progress('cinebench', 'run', 'Multi-core CPU-teszt fut (több perc is lehet - a gép közben terhelés alatt van)...')
+                # --- 1) Cinebench multi-thread ---
+                progress('cinebench', 'run', f'{CINEBENCH_SETTINGS_LABEL} — fut '
+                                             f'(több perc is lehet, a gép közben teljes terhelésen)...')
                 cb_score = self._run_cinebench_capture(cb_exe)
                 if self._bench_cancel:
                     raise _BenchCancelled()
                 if cb_score is None:
                     raise _BenchAbort('A Cinebench nem adott ki pontszámot (részletek a debug logban).')
-                progress('cinebench', 'done', f'{cb_score:g} pont')
+                progress('cinebench', 'done', f'{cb_score:g} pont · {CINEBENCH_SETTINGS_LABEL}')
 
                 # --- 2) FurMark GPU ---
-                progress('furmark', 'run', f'GPU-benchmark fut ({FURMARK_BENCH_TIME_MS // 1000} mp, 1920×1080)...')
-                fm_fps = self._run_furmark_capture(fm_exe)
+                progress('furmark', 'run', f'{FURMARK_SETTINGS_LABEL} — fut...')
+                fm_fps, fm_res = self._run_furmark_capture(fm_exe)
                 if self._bench_cancel:
                     raise _BenchCancelled()
                 if fm_fps is None:
                     raise _BenchAbort('A FurMark nem írt ki FPS-eredményt (részletek a debug logban).')
-                progress('furmark', 'done', f'{fm_fps} FPS')
+                # A ténylegesen renderelt felbontást mutatjuk (nem a kértet): ha a Windows
+                # levágta az ablakot, a szerviz LÁSSA, hogy nem a szabvány beállítás futott.
+                shown_res = fm_res or f'{FURMARK_BENCH_WIDTH}×{FURMARK_BENCH_HEIGHT}'
+                progress('furmark', 'done', f'{fm_fps} FPS · {shown_res} · {FURMARK_MSAA}× MSAA')
 
                 # --- 3) Eredmény a nézetnek: már csak a gép nevét kell beírni ---
                 elapsed = time.monotonic() - t0
@@ -376,6 +398,9 @@ class GuiBenchmarkMixin:
                 progress('result', 'run', 'Már csak a gép nevét kell beírni!')
                 self.emit('benchmark_auto_result', {
                     'ok': True, 'cinebench': cb_score, 'furmark': fm_fps,
+                    'cinebench_settings': CINEBENCH_SETTINGS_LABEL,
+                    'furmark_settings': f'{shown_res} · {FURMARK_MSAA}× MSAA · '
+                                        f'{FURMARK_BENCH_TIME_MS // 1000} mp · animált háttér',
                     'suggested_name': specs.get('machine_name', '')})
                 self.emit('toast', {'message': '🏁 Benchmark kész! Írd be a gép nevét, és megy fel a ranglistára.', 'type': 'success'})
             except _BenchCancelled:
