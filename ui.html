@@ -273,8 +273,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .bench-spec-item b{color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Automata benchmark futtató panel: 4 lépéses folyamat-sáv + eredmény-kártya */
 .bench-auto-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-.ba-steps{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
-@media(max-width:900px){.ba-steps{grid-template-columns:repeat(2,1fr)}}
+.ba-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:10px;margin-top:14px}
 .ba-step{position:relative;padding:14px 14px 12px;border-radius:var(--r-sm);background:rgba(255,255,255,0.03);border:1px solid var(--glass-border);transition:all var(--t);overflow:hidden}
 .ba-step .ba-ico{font-size:22px;margin-bottom:8px}
 .ba-step .ba-name{font-size:12.5px;font-weight:800;margin-bottom:4px}
@@ -899,6 +898,11 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
           </div>
           <div class="bench-specs" id="bench-specs">Hardver felismerése...</div>
           <div class="ba-steps">
+            <div class="ba-step" id="ba-step-close">
+              <div class="ba-badge">⏳</div><div class="ba-ico">🧹</div>
+              <div class="ba-name">Programok bezárása</div>
+              <div class="ba-text" id="ba-text-close">Várakozás...</div>
+            </div>
             <div class="ba-step" id="ba-step-prep">
               <div class="ba-badge">⏳</div><div class="ba-ico">📦</div>
               <div class="ba-name">Előkészítés</div>
@@ -2375,7 +2379,7 @@ function benchSetStep(step, status, text) {
 }
 
 function resetBenchAutoPanel() {
-  ['prep', 'cinebench', 'furmark', 'result'].forEach(s => {
+  ['close', 'prep', 'cinebench', 'furmark', 'result'].forEach(s => {
     const el = document.getElementById('ba-step-' + s);
     if (el) el.classList.remove('run', 'done', 'err');
     const badge = el ? el.querySelector('.ba-badge') : null;
@@ -2392,11 +2396,20 @@ function restoreBenchRunBtn() {
   if (btn) { btn.disabled = false; btn.textContent = '🏁 Benchmark futtatása'; }
 }
 
-function startBenchmarkRun() {
+async function startBenchmarkRun() {
   // TELJESEN automata: Cinebench multi-core -> pontszám kiolvasva -> FurMark 10 mp ->
   // FPS kiolvasva -> a végén csak a gép nevét kell beírni. Állapot: benchmark_progress
   // események a lépés-sávra, eredmény: benchmark_auto_result.
   if (!window.pywebview) return;
+  // Indítás előtti kérdés: bezárjuk-e a futó programokat? A háttérben futó böngésző/
+  // Steam/Discord elveszi a CPU-t és a GPU-t, ettől a mérés alacsonyabb és ingadozó.
+  // A bezárás udvarias (mint az ablak X gombja) - mentetlen munka nem vész el.
+  const closeApps = await showConfirm3('Bezárjuk a futó programokat?',
+    'A legpontosabb eredményhez érdemes minden más programot bezárni — a háttérben futó böngésző, Steam, Discord vagy frissítő elveszi a processzort és a videokártyát a méréstől.\n\n' +
+    'Az "Igen" udvariasan bezárja a futó programokat (ugyanaz, mintha az ablakuk X gombjára kattintanál): ha valamiben mentetlen munka van, az rákérdez és nyitva marad — semmi nem vész el. A Windows, az Intéző és ez a program természetesen nyitva marad.',
+    '✅ Igen, zárja be', '➡️ Nem, indulhat így', 'Mégse', 'btn');
+  if (closeApps === null) return;  // Mégse: nem indul semmi
+
   lastBenchResult = null;
   resetBenchAutoPanel();
   const panel = document.getElementById('bench-auto-panel');
@@ -2404,7 +2417,7 @@ function startBenchmarkRun() {
   panel.scrollIntoView({behavior: 'smooth', block: 'start'});
   const btn = document.getElementById('btn-bench-run');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Benchmark fut...'; }
-  api().run_benchmark_suite().catch(e => { toast('Indítási hiba: ' + e, 'error'); restoreBenchRunBtn(); });
+  api().run_benchmark_suite(closeApps).catch(e => { toast('Indítási hiba: ' + e, 'error'); restoreBenchRunBtn(); });
 }
 
 async function cancelBenchmarkRun() {

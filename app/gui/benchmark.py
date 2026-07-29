@@ -24,7 +24,13 @@ from app import common
 from app.benchmark_defs import BENCH_TOOLS
 from app.benchmark_defs import CINEBENCH_TIMEOUT_S
 from app.benchmark_defs import FURMARK_BENCH_TIME_MS
+from app.benchmark_defs import FURMARK_BENCH_WIDTH
+from app.benchmark_defs import FURMARK_BENCH_HEIGHT
 from app.benchmark_defs import FURMARK_EXIT_GRACE_S
+from app.benchmark_defs import CLOSE_APPS_PROTECTED
+from app.benchmark_defs import CLOSE_APPS_WAIT_S
+from app.benchmark_core import build_close_apps_ps
+from app.benchmark_core import parse_close_apps_output
 from app.benchmark_core import find_bench_tool_exes
 from app.benchmark_core import gather_machine_specs
 from app.benchmark_core import build_cinebench_cmd
@@ -146,6 +152,34 @@ class GuiBenchmarkMixin:
         self._bench_cancel = True
         self.emit('toast', {'message': '⏹ Benchmark megszakítása...', 'type': 'info'})
 
+    def _close_running_apps_sync(self):
+        """A futó felhasználói programok UDVARIAS bezárása a mérés előtt (a benchmark
+        indításakor feltett kérdésre adott igenlő válasz után). WM_CLOSE-t küld, nem öl -
+        a mentetlen munkájú programok rákérdeznek és nyitva maradnak, azokat jelentjük.
+        Minden érintett folyamatot NÉV SZERINT logolunk (destruktív-jellegű lépés).
+        Visszaad: (bezárt darabszám, nyitva maradt nevek listája)."""
+        skip_ids = [os.getpid()]
+        script = build_close_apps_ps(CLOSE_APPS_PROTECTED, skip_ids, CLOSE_APPS_WAIT_S)
+        logging.warning(f"[BENCHMARK] Futó programok bezárása (WM_CLOSE, védett lista: "
+                        f"{len(CLOSE_APPS_PROTECTED)} név, kihagyott PID-ek: {skip_ids})...")
+        res = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+                        timeout=CLOSE_APPS_WAIT_S + 60)
+        if not res or res.returncode != 0:
+            logging.warning(f"[BENCHMARK] A programbezáró szkript nem futott le rendben "
+                            f"(returncode={getattr(res, 'returncode', None)}) - a mérés így is folytatódik.")
+            return 0, []
+        parsed = parse_close_apps_output(res.stdout or '')
+        for name, title in parsed['attempted']:
+            logging.warning(f"[BENCHMARK] Bezárás kérve: {name} - '{title}'")
+        if parsed['closed']:
+            logging.info(f"[BENCHMARK] Bezárt programok ({len(parsed['closed'])}): {parsed['closed']}")
+        if parsed['stayed']:
+            logging.warning(f"[BENCHMARK] NYITVA maradt (valószínűleg mentetlen munka miatt rákérdezett): "
+                            f"{parsed['stayed']}")
+        if not parsed['ok']:
+            logging.warning("[BENCHMARK] A programbezáró szkript nem írt DONE sort - a lista hiányos lehet.")
+        return len(parsed['closed']), parsed['stayed']
+
     def _bench_kill_pid(self, pid, label):
         """Egy benchmark-folyamat (és gyerekfolyamatai) kilövése taskkill-lel. A 128-as kód
         (nincs ilyen folyamat - pl. magától már kilépett) várt kimenet, nem hiba."""
@@ -231,11 +265,31 @@ class GuiBenchmarkMixin:
             logging.error(f"[BENCHMARK] FurMark score-fájl olvasási hiba ({score_file}): {e}")
             return None
         res = parse_furmark_scores(text)
-        return res.get('fps') if res else None
+        if not res:
+            return None
+        # A ténylegesen renderelt felbontás naplózása: /nogui-val a FurMark ABLAKOS módban
+        # fut, és a Windows a munkaterülethez vághatja az ablakot - ha ez megtörténik, a
+        # gép FPS-e nem hasonlítható össze a többiével, és ezt csak innen lehet észrevenni.
+        expected = f"{FURMARK_BENCH_WIDTH}x{FURMARK_BENCH_HEIGHT}"
+        actual = res.get('resolution')
+        if actual and actual != expected:
+            logging.warning(f"[BENCHMARK] A FurMark NEM a kért felbontáson futott "
+                            f"(kért: {expected}, tényleges: {actual}, mód: {res.get('mode')}) - "
+                            f"a Windows a munkaterülethez vágta az ablakot, az FPS emiatt nem "
+                            f"teljesen összemérhető más gépekével.")
+        # Kereszt-ellenőrzés: a FurMark a képkockaszámot adja vissza kilépési kódként is
+        # (terepen mérve: returncode=618 mellett [FRAMES=618]) - ha a kettő egyezik, a
+        # kiolvasott eredmény bizonyítottan a MOSTANI futásé.
+        if res.get('score') is not None and proc.returncode == res['score']:
+            logging.info(f"[BENCHMARK] Kereszt-ellenőrzés OK: a kilépési kód ({proc.returncode}) "
+                         f"megegyezik a score-fájl képkockaszámával.")
+        return res.get('fps')
 
-    def run_benchmark_suite(self):
+    def run_benchmark_suite(self, close_apps=False):
         """A "Benchmark futtatása" gomb: TELJESEN AUTOMATA, 1 kattintásos futtatás
         (explicit felhasználói kérés, 2026-07-29 - az AutoFix mintájára):
+        0) ha `close_apps` (a nézet indításkor rákérdez): a futó felhasználói programok
+           udvarias bezárása, hogy tiszta gépen mérjünk,
         1) programcsomag biztosítása (letöltés, ha kell) + hardver-felismerés,
         2) Cinebench multi-core teszt parancssorból, a pontszám kiolvasása a kimenetéből
            (a folyamat a teszt végén magától kilép - nem kell kézzel bezárni),
@@ -246,7 +300,7 @@ class GuiBenchmarkMixin:
         A folyamat állapotát a 'benchmark_progress' események viszik a nézet lépés-sávjára;
         a futás a cancel_benchmark_run-nal szakítható meg. Az egyenkénti indító kártyák
         (launch_bench_tool) ettől függetlenül automatizálás NÉLKÜL működnek."""
-        logging.info("[API] run_benchmark_suite()")
+        logging.info(f"[API] run_benchmark_suite(close_apps={close_apps})")
         if getattr(self, '_bench_auto_running', False):
             self.emit('toast', {'message': '⏳ A benchmark már fut - várd meg a végét (vagy szakítsd meg)!', 'type': 'warning'})
             return
@@ -260,7 +314,23 @@ class GuiBenchmarkMixin:
             power_locked = False
             t0 = time.monotonic()
             try:
-                # --- 0) Előkészítés: programcsomag + hardver-adatok ---
+                # --- 0/a) Futó programok bezárása (ha a felhasználó kérte) ---
+                if close_apps:
+                    progress('close', 'run', 'Futó programok bezárása...')
+                    closed_n, stayed = self._close_running_apps_sync()
+                    if stayed:
+                        progress('close', 'done', f'{closed_n} bezárva · {len(stayed)} nyitva maradt '
+                                                  f'({", ".join(stayed[:3])}{"…" if len(stayed) > 3 else ""})')
+                        self.emit('toast', {'message': f'ℹ️ {len(stayed)} program nyitva maradt (valószínűleg mentetlen munka miatt rákérdezett): '
+                                                       f'{", ".join(stayed[:4])}', 'type': 'info'})
+                    else:
+                        progress('close', 'done', f'{closed_n} program bezárva.')
+                else:
+                    progress('close', 'done', 'Kihagyva (a gép így is mérhető).')
+                if self._bench_cancel:
+                    raise _BenchCancelled()
+
+                # --- 0/b) Előkészítés: programcsomag + hardver-adatok ---
                 progress('prep', 'run', 'Programcsomag ellenőrzése (első alkalommal letöltés)...')
                 cb_exe = self._ensure_bench_exe('cinebench')
                 if not cb_exe:

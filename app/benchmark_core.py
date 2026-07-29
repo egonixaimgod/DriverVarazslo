@@ -118,15 +118,46 @@ def find_furmark_score_file(exe_dir, min_mtime=None):
 
 def parse_furmark_scores(text):
     """A FurMark score-fájl (append-napló) UTOLSÓ bejegyzéséből az FPS (és a pontszám)
-    kiolvasása. A fájlformátum verziófüggő, ezért többféle mintát próbálunk, mindig az
-    utolsó találatot véve. Visszaad: {'fps': int|None, 'score': int|None} vagy None, ha
-    semmi értelmezhető nincs a szövegben."""
+    kiolvasása. A fájlformátum ERŐSEN verziófüggő, ezért több mintát próbálunk, mindig az
+    utolsó találatot véve. Visszaad: {'fps', 'score', 'resolution', 'mode'} vagy None, ha
+    semmi értelmezhető nincs a szövegben.
+
+    Formátumok (a sorrend prioritás):
+      1. FurMark 1.39.x (TEREPEN MÉRT, 2026-07-29 - ez NEM ír sem 'FPS', sem 'points' szót,
+         emiatt bukott el az első kiadás és jelent meg 'a FurMark nem indult el'-ként):
+           AMD Radeon RX 6500 XT - [FRAMES=618] - [TIME_MS=10000] - [Resolution=1898x1024]
+           - [MSAA=0X] - [Mode=Windowed] - GPU Temp Max=... - FurMark 1.39.3.0 - [Date=...]
+         Innen az FPS SZÁMÍTOTT érték: FRAMES / (TIME_MS / 1000).
+      2. Klasszikus 1.x: "... 3162 points (FPS: 52) ..." vagy "... 3162 points (52 FPS, ...)".
+      3. Külön mezők: "FPS: 52" / "52 FPS" és "Score: 3162".
+    """
     if not text:
         logging.warning("[BENCHMARK] FurMark: üres score-fájl tartalom.")
         return None
     fps = None
     score = None
-    # 1) A klasszikus 1.x sorok - a FurMark verziónként KÉTFÉLE sorrendet is írt:
+    resolution = None
+    mode = None
+
+    res_m = _re.findall(r'\[\s*Resolution\s*=\s*([0-9]+x[0-9]+)', text, _re.IGNORECASE)
+    if res_m:
+        resolution = res_m[-1]
+    mode_m = _re.findall(r'\[\s*Mode\s*=\s*([A-Za-z]+)', text, _re.IGNORECASE)
+    if mode_m:
+        mode = mode_m[-1]
+
+    # 1) FurMark 1.39.x: [FRAMES=..] + [TIME_MS=..] -> az FPS-t nekünk kell kiszámolni.
+    fr = _re.findall(r'\[\s*FRAMES\s*=\s*(\d+)\s*\]', text, _re.IGNORECASE)
+    tm = _re.findall(r'\[\s*TIME_MS\s*=\s*(\d+)\s*\]', text, _re.IGNORECASE)
+    if fr and tm and int(tm[-1]) > 0:
+        frames, time_ms = int(fr[-1]), int(tm[-1])
+        score = frames                      # a FurMark "pontszáma" maga a képkockaszám
+        fps = round(frames * 1000.0 / time_ms, 1)
+        logging.info(f"[BENCHMARK] FurMark (1.39-es formátum): FRAMES={frames}, TIME_MS={time_ms} "
+                     f"-> FPS={fps}, felbontás={resolution}, mód={mode}")
+        return {'fps': fps, 'score': score, 'resolution': resolution, 'mode': mode}
+
+    # 2) A klasszikus 1.x sorok - a FurMark verziónként KÉTFÉLE sorrendet is írt:
     #    "... 3162 points (FPS: 52) ..."  ÉS  "... 3162 points (52 FPS, 60000 ms) ..."
     combo = _re.findall(r'(\d+)\s*points?\s*\(\s*FPS\s*[:=]?\s*(\d+)', text, _re.IGNORECASE)
     if combo:
@@ -136,7 +167,7 @@ def parse_furmark_scores(text):
         if combo2:
             score, fps = int(combo2[-1][0]), int(combo2[-1][1])
     if fps is None:
-        # 2) Külön mezők (más verziók): "FPS: 52" vagy "52 FPS", "Score: 3162"
+        # 3) Külön mezők (más verziók): "FPS: 52" vagy "52 FPS", "Score: 3162"
         fps_m = _re.findall(r'\bFPS\s*[:=]\s*(\d+)', text, _re.IGNORECASE)
         if not fps_m:
             fps_m = _re.findall(r'\b(\d+)\s*FPS\b', text, _re.IGNORECASE)
@@ -148,11 +179,85 @@ def parse_furmark_scores(text):
             score = int(score_m[-1])
     if fps is None and score is None:
         tail = text.strip()[-400:]
-        logging.warning(f"[BENCHMARK] FurMark: sem FPS, sem Score nem olvasható ki. "
+        logging.warning(f"[BENCHMARK] FurMark: sem FPS, sem Score, sem FRAMES/TIME_MS nem olvasható ki. "
                         f"A fájl vége: {tail!r}")
         return None
-    logging.info(f"[BENCHMARK] FurMark eredmény kiolvasva: FPS={fps}, Score={score}")
-    return {'fps': fps, 'score': score}
+    logging.info(f"[BENCHMARK] FurMark eredmény kiolvasva: FPS={fps}, Score={score}, "
+                 f"felbontás={resolution}, mód={mode}")
+    return {'fps': fps, 'score': score, 'resolution': resolution, 'mode': mode}
+
+
+# ============================================================================
+# "Minden program bezárása a mérés előtt" (a benchmark indítása előtt megkérdezve)
+# ============================================================================
+def build_close_apps_ps(protected, skip_ids, wait_s):
+    """A látható főablakkal rendelkező felhasználói programokat UDVARIASAN bezáró
+    PowerShell-szkript. `protected`: kisbetűs folyamatnevek, amelyekhez nem nyúlunk;
+    `skip_ids`: további kihagyandó PID-ek (a saját folyamatunk és gyerekei); `wait_s`:
+    ennyit várunk a WM_CLOSE után, mielőtt megnézzük, mi maradt nyitva.
+
+    A szkript CloseMainWindow()-t hív (WM_CLOSE), NEM Stop-Process-t: ez ugyanaz, mintha
+    a felhasználó az ablak X gombjára kattintana, tehát egy mentetlen dokumentum esetén a
+    program rákérdez és NYITVA marad - a munka nem vész el.
+
+    A szűrő feltétele NEM csak `MainWindowHandle -ne 0`, hanem NEM ÜRES `MainWindowTitle`
+    is (élő száraz próbán mérve, 2026-07-29): a puszta ablak-leíróra szűrve a lista a
+    dev gépen tartalmazta az **svchost.exe**-t (van ablak-leírója, de nincs címe) - egy
+    Windows szolgáltatás-gazdának küldött WM_CLOSE szolgáltatást állíthat le. Valódi,
+    felhasználói programnak MINDIG van ablakcíme, tehát a cím megléte a helyes szűrő.
+
+    Kimenet (soronként):
+      TRY:<név>|<ablakcím>   - próbáltuk bezárni
+      CLOSED:<név>           - a várakozás után már nem fut
+      STAYED:<név>           - még mindig fut (mentetlen munka / rákérdezett)
+      DONE                   - a szkript végigfutott
+    """
+    prot = ','.join("'" + str(p).replace("'", "''").lower() + "'" for p in protected) or "''"
+    skips = ','.join(str(int(i)) for i in skip_ids) or '0'
+    return f"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$ErrorActionPreference = 'SilentlyContinue'
+$protect = @({prot})
+$skipIds = @({skips})
+$targets = @(Get-Process | Where-Object {{
+    $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -and $_.Id -ne $PID -and
+    ($skipIds -notcontains $_.Id) -and
+    ($protect -notcontains $_.ProcessName.ToLower())
+}})
+foreach ($p in $targets) {{
+    $null = $p.CloseMainWindow()
+    Write-Output ("TRY:" + $p.ProcessName + "|" + $p.MainWindowTitle)
+}}
+if ($targets.Count -gt 0) {{ Start-Sleep -Seconds {int(wait_s)} }}
+foreach ($p in $targets) {{
+    $q = Get-Process -Id $p.Id
+    if ($q) {{ Write-Output ("STAYED:" + $p.ProcessName) }}
+    else {{ Write-Output ("CLOSED:" + $p.ProcessName) }}
+}}
+Write-Output "DONE"
+"""
+
+
+def parse_close_apps_output(text):
+    """A build_close_apps_ps kimenetének feldolgozása. Visszaad:
+    {'attempted': [(név, ablakcím)], 'closed': [név], 'stayed': [név], 'ok': bool}
+    Az 'ok' azt jelzi, hogy a szkript végigfutott (DONE sor) - enélkül a lista hiányos
+    lehet, és a hívó ezt jelzi is a felhasználónak."""
+    attempted, closed, stayed = [], [], []
+    done = False
+    for line in (text or '').splitlines():
+        line = line.strip()
+        if line.startswith('TRY:'):
+            body = line[4:]
+            name, _, title = body.partition('|')
+            attempted.append((name, title))
+        elif line.startswith('CLOSED:'):
+            closed.append(line[7:])
+        elif line.startswith('STAYED:'):
+            stayed.append(line[7:])
+        elif line == 'DONE':
+            done = True
+    return {'attempted': attempted, 'closed': closed, 'stayed': stayed, 'ok': done}
 
 
 def get_machine_id():
