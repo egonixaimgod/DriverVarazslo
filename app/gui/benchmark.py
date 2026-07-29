@@ -1,15 +1,20 @@
-"""DriverVarázsló GUI - Benchmark: a két benchmark program (Cinebench R20, Unigine Heaven)
-portable indítása a közös stresstools.zip-ből, a gép hardver-adatainak felismerése, és a
-felhő-ranglista le-/feltöltése.
+"""DriverVarázsló GUI - Benchmark: 1 kattintásos, AUTOMATA benchmark-futtatás (Cinebench R20
+multi-core -> FurMark GPU) a közös stresstools.zip-ből, automatikus pontszám-kiolvasással,
+a gép hardver-adatainak felismerésével és a felhő-ranglista le-/feltöltésével.
 
-A pontszám bevitele SZÁNDÉKOSAN kézi (a felhasználó a lefuttatott benchmark eredmény-
-képernyőjéről írja be a felületre): a Cinebench/Heaven pontszámának automatikus, megbízható
-kiolvasása a programok GUI-jából/renderelt overlay-éből törékeny lenne - a hardver-adatok
-viszont automatikusan kitöltődnek, és a feltöltés egy gombbal megy. (Későbbi bővítés lehet
-a Cinebench parancssori pontszám-kiolvasása, ha a terep megköveteli.)"""
+A pontszám-bevitel 2026-07-29-től AUTOMATIKUS (explicit felhasználói döntés, a korábbi kézi
+beírást leváltva): a Cinebench parancssori módban fut (g_CinebenchCpuXTest=true), a pontszámot
+a stdout-jából olvassuk ki ("CB <pont>" sor), majd magától kilép; a FurMark /nogui /benchmark
+/log_score módban fut fix ideig, az FPS-t a score-fájljából olvassuk ki. A felhasználótól
+EGYETLEN dolgot kérünk, a futás legvégén: a gép ranglista-nevét - beírás után az eredmény
+magától feltöltődik. A Heaven (kézi) indítása megmaradt az egyenkénti indító kártyán, de a
+ranglista GPU-oszlopa a FurMark FPS lett (a felhő-sorban 'furmark' mező; kompatibilitásból
+a régi 'heaven' oszlopba is ugyanez kerül, így a meglévő Google-táblázat séma változatlanul
+működik)."""
 
 # === AUTO-IMPORTS ===
 import os
+import time
 import subprocess
 import threading
 import logging
@@ -17,16 +22,33 @@ import tempfile
 from datetime import datetime
 from app import common
 from app.benchmark_defs import BENCH_TOOLS
+from app.benchmark_defs import CINEBENCH_TIMEOUT_S
+from app.benchmark_defs import FURMARK_BENCH_TIME_MS
+from app.benchmark_defs import FURMARK_EXIT_GRACE_S
 from app.benchmark_core import find_bench_tool_exes
 from app.benchmark_core import gather_machine_specs
+from app.benchmark_core import build_cinebench_cmd
+from app.benchmark_core import parse_cinebench_output
+from app.benchmark_core import build_furmark_cmd
+from app.benchmark_core import find_furmark_score_file
+from app.benchmark_core import parse_furmark_scores
 from app.benchmark_core import fetch_leaderboard as core_fetch_leaderboard
 from app.benchmark_core import upload_result as core_upload_result
 # === /AUTO-IMPORTS ===
 
 
+class _BenchCancelled(Exception):
+    """A felhasználó megszakította az automata benchmark-futtatást (cancel_benchmark_run)."""
+
+
+class _BenchAbort(Exception):
+    """Az automata futtatás egy lépése nem adott eredményt - a hibaüzenet a felhasználónak szól."""
+
+
 class GuiBenchmarkMixin:
-    """Benchmark nézet: benchmark-programok portable indítása, hardver-felismerés,
-    felhő-ranglista. A DriverToolApi része (összerakás: app/gui/api.py)."""
+    """Benchmark nézet: automata benchmark-futtatás pontszám-kiolvasással, benchmark-programok
+    egyenkénti portable indítása, hardver-felismerés, felhő-ranglista. A DriverToolApi része
+    (összerakás: app/gui/api.py)."""
 
     def load_machine_specs(self):
         """A gép hardver-adatainak (CPU/alaplap/RAM/GPU) felismerése háttérszálon, majd
@@ -85,10 +107,10 @@ class GuiBenchmarkMixin:
         return exe_path
 
     def launch_bench_tool(self, name):
-        """Egy benchmark program (cinebench/heaven) EGYENKÉNTI, portable indítása a
+        """Egy benchmark program (cinebench/heaven/furmark) EGYENKÉNTI, portable indítása a
         stresstools.zip-ből. SZÁNDÉKOSAN semmilyen automatizálás: a program csak elindul,
         a felhasználó maga állít be és futtat mindent (a lenti "egyenkénti indítás"
-        kártyák hívják). Az automatizált, szekvenciális futtatás a run_benchmark_suite."""
+        kártyák hívják). Az automatizált, pontszám-kiolvasós futtatás a run_benchmark_suite."""
         logging.info(f"[API] launch_bench_tool({name})")
         info = BENCH_TOOLS.get(name)
         if not info:
@@ -114,61 +136,210 @@ class GuiBenchmarkMixin:
 
         threading.Thread(target=worker, daemon=True, name="bench-tool").start()
 
+    # ------------------------------------------------------------------
+    # Automata (1 kattintásos) benchmark-futtatás
+    # ------------------------------------------------------------------
+    def cancel_benchmark_run(self):
+        """Az automata benchmark-futtatás megszakítása: a jelzőt beállítjuk, a futó
+        benchmark-folyamatot a várakozó ciklus (_bench_wait_process) löki ki."""
+        logging.warning("[BENCHMARK] A felhasználó megszakította az automata benchmark-futtatást.")
+        self._bench_cancel = True
+        self.emit('toast', {'message': '⏹ Benchmark megszakítása...', 'type': 'info'})
+
+    def _bench_kill_pid(self, pid, label):
+        """Egy benchmark-folyamat (és gyerekfolyamatai) kilövése taskkill-lel. A 128-as kód
+        (nincs ilyen folyamat - pl. magától már kilépett) várt kimenet, nem hiba."""
+        logging.warning(f"[BENCHMARK] {label} folyamat kilövése (pid={pid})...")
+        self._run(['taskkill', '/F', '/T', '/PID', str(pid)], ok_codes=(0, 128))
+
+    def _bench_wait_process(self, proc, timeout_s, label):
+        """Egy elindított benchmark-folyamat megvárása megszakítás-figyeléssel: 1 mp-enként
+        ellenőrzi a kilépést, a cancel-jelzőt és az időkorlátot (monotonic órával). SZÁNDÉKOSAN
+        nem logol iterációnként (forró ciklus). Kimenet: 'exit' (magától kilépett) vagy
+        'timeout' (az időkorlát után kilőttük); megszakításkor _BenchCancelled-et dob (a
+        folyamatot előbb kilőve)."""
+        start = time.monotonic()
+        logging.info(f"[BENCHMARK] Várakozás a(z) {label} folyamatra (pid={proc.pid}, plafon={timeout_s:.0f} mp)...")
+        while True:
+            if proc.poll() is not None:
+                logging.info(f"[BENCHMARK] {label} kilépett (returncode={proc.returncode}, "
+                             f"{time.monotonic() - start:.1f} mp).")
+                return 'exit'
+            if self._bench_cancel:
+                self._bench_kill_pid(proc.pid, label)
+                raise _BenchCancelled()
+            if time.monotonic() - start > timeout_s:
+                logging.warning(f"[BENCHMARK] {label} nem lépett ki {timeout_s:.0f} mp alatt - kilövés.")
+                self._bench_kill_pid(proc.pid, label)
+                return 'timeout'
+            time.sleep(1)
+
+    def _run_cinebench_capture(self, exe_path):
+        """A Cinebench multi-core teszt parancssori futtatása + a pontszám kiolvasása.
+        A stdout fájlba megy (PIPE-nál a megtelő puffer beragaszthatná a folyamatot), a
+        CLI-mód ablak nélkül fut és a teszt végén magától kilép. Visszaad: pontszám (float)
+        vagy None."""
+        cmd = build_cinebench_cmd(exe_path)
+        out_path = os.path.join(tempfile.gettempdir(), 'dv_cinebench_out.txt')
+        logging.info(f"[BENCHMARK] [CMD] Popen futtatása: {subprocess.list2cmdline(cmd)} (stdout -> {out_path})")
+        with open(out_path, 'wb') as out_fh:
+            proc = subprocess.Popen(cmd, stdout=out_fh, stderr=subprocess.STDOUT,
+                                    stdin=subprocess.DEVNULL, cwd=os.path.dirname(exe_path),
+                                    creationflags=subprocess.CREATE_NO_WINDOW)
+            self._stress_pids['cinebench'] = proc.pid  # stop_stress_tests biztonsági hálója
+            try:
+                self._bench_wait_process(proc, CINEBENCH_TIMEOUT_S, 'Cinebench')
+            finally:
+                self._stress_pids.pop('cinebench', None)
+        try:
+            with open(out_path, 'r', encoding='utf-8', errors='replace') as fh:
+                text = fh.read()
+        except OSError as e:
+            logging.error(f"[BENCHMARK] Cinebench kimeneti fájl olvasási hiba: {e}")
+            return None
+        return parse_cinebench_output(text)
+
+    def _run_furmark_capture(self, exe_path):
+        """A FurMark parancssori benchmark futtatása fix ideig + az FPS kiolvasása a
+        /log_score által írt score-fájlból. Egyes FurMark-verziók a benchmark után
+        eredmény-ablakot hagynak fenn - a türelmi idő után a folyamatot kilőjük, a
+        score-fájl ilyenkor már kint van. Visszaad: FPS (int) vagy None."""
+        exe_dir = os.path.dirname(exe_path)
+        # time.time() itt SZÁNDÉKOS: fájl-mtime-mal (falióra-bélyeggel) hasonlítjuk össze,
+        # nem időtartamot mérünk. 5 mp ráhagyás az óra/fájlrendszer felbontására.
+        start_stamp = time.time() - 5
+        cmd = build_furmark_cmd(exe_path)
+        logging.info(f"[BENCHMARK] [CMD] Popen futtatása: {subprocess.list2cmdline(cmd)}")
+        proc = subprocess.Popen(cmd, cwd=exe_dir, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self._stress_pids['furmark'] = proc.pid  # stop_stress_tests biztonsági hálója
+        try:
+            outcome = self._bench_wait_process(
+                proc, FURMARK_BENCH_TIME_MS / 1000 + FURMARK_EXIT_GRACE_S, 'FurMark')
+        finally:
+            self._stress_pids.pop('furmark', None)
+        if outcome == 'timeout':
+            logging.info("[BENCHMARK] FurMark kilőve a türelmi idő után (ismert viselkedés: "
+                         "eredmény-ablak maradhat fenn) - a score-fájlt így is megnézzük.")
+        score_file = find_furmark_score_file(exe_dir, min_mtime=start_stamp)
+        if not score_file:
+            return None
+        try:
+            with open(score_file, 'r', encoding='utf-8', errors='replace') as fh:
+                text = fh.read()
+        except OSError as e:
+            logging.error(f"[BENCHMARK] FurMark score-fájl olvasási hiba ({score_file}): {e}")
+            return None
+        res = parse_furmark_scores(text)
+        return res.get('fps') if res else None
+
     def run_benchmark_suite(self):
-        """A "Benchmark futtatása" gomb AUTOMATIZÁLT, szekvenciális futtatása:
-        1) elindítja a Cinebench R20-at a több-magos (multi-core) CPU-teszttel automatikusan
-           (parancssori kapcsoló: g_CinebenchCpuXTest=true),
-        2) MEGVÁRJA, amíg a felhasználó KÉZZEL bezárja a Cinebench-et (a folyamat kilépését),
-        3) majd MAGÁTÓL elindítja a Unigine Heaven-t.
-        A pontszámokat a felhasználó a lefuttatott tesztek eredmény-képernyőjéről írja be
-        (a pontszám megbízható automatikus kiolvasása a program tesztelése nélkül kockázatos
-        lenne). Az egyenkénti indító kártyák (launch_bench_tool) ettől függetlenül
-        automatizálás NÉLKÜL, csak elindítják a programot."""
+        """A "Benchmark futtatása" gomb: TELJESEN AUTOMATA, 1 kattintásos futtatás
+        (explicit felhasználói kérés, 2026-07-29 - az AutoFix mintájára):
+        1) programcsomag biztosítása (letöltés, ha kell) + hardver-felismerés,
+        2) Cinebench multi-core teszt parancssorból, a pontszám kiolvasása a kimenetéből
+           (a folyamat a teszt végén magától kilép - nem kell kézzel bezárni),
+        3) FurMark GPU-benchmark fix ideig (/nogui /benchmark /log_score), az FPS
+           kiolvasása a score-fájlból,
+        4) az eredmény a 'benchmark_auto_result' eseménnyel a nézetbe kerül, ami EGYETLEN
+           dolgot kér: a gép ranglista-nevét - beírás után upload_benchmark_result tölt fel.
+        A folyamat állapotát a 'benchmark_progress' események viszik a nézet lépés-sávjára;
+        a futás a cancel_benchmark_run-nal szakítható meg. Az egyenkénti indító kártyák
+        (launch_bench_tool) ettől függetlenül automatizálás NÉLKÜL működnek."""
         logging.info("[API] run_benchmark_suite()")
+        if getattr(self, '_bench_auto_running', False):
+            self.emit('toast', {'message': '⏳ A benchmark már fut - várd meg a végét (vagy szakítsd meg)!', 'type': 'warning'})
+            return
+        self._bench_auto_running = True
+        self._bench_cancel = False
+
+        def progress(step, status, text=''):
+            self.emit('benchmark_progress', {'step': step, 'status': status, 'text': text})
 
         def worker():
+            power_locked = False
+            t0 = time.monotonic()
             try:
-                # 1) Cinebench multi-core teszttel
+                # --- 0) Előkészítés: programcsomag + hardver-adatok ---
+                progress('prep', 'run', 'Programcsomag ellenőrzése (első alkalommal letöltés)...')
                 cb_exe = self._ensure_bench_exe('cinebench')
                 if not cb_exe:
-                    return
-                try:
-                    proc = subprocess.Popen([cb_exe, 'g_CinebenchCpuXTest=true'],
-                                            creationflags=subprocess.CREATE_NEW_CONSOLE,
-                                            cwd=os.path.dirname(cb_exe))
-                    self._stress_pids['cinebench'] = proc.pid
-                    logging.info(f"[BENCHMARK] Cinebench (multi-core) elindítva, pid={proc.pid}")
-                except Exception as e:
-                    logging.error(f"[BENCHMARK] Cinebench indítási hiba: {e}")
-                    self.emit('toast', {'message': f'❌ Hiba a Cinebench indításakor: {e}', 'type': 'error'})
-                    return
-                self.emit('toast', {'message': '🧠 Cinebench elindult (multi-core teszt fut). Ha kész, ZÁRD BE — utána magától indul a Heaven.', 'type': 'info'})
+                    raise _BenchAbort('A Cinebench nem található a programcsomagban.')
+                fm_exe = self._ensure_bench_exe('furmark')
+                if not fm_exe:
+                    raise _BenchAbort('A FurMark nem található a programcsomagban.')
+                if self._bench_cancel:
+                    raise _BenchCancelled()
+                specs = getattr(self, '_bench_specs', None)
+                if not specs:
+                    specs = gather_machine_specs(self._run)
+                    self._bench_specs = specs
+                    self.emit('machine_specs', specs)
+                # Alvó mód/képernyő-kikapcsolás tiltása a futás idejére (a Cinebench alatt
+                # percekig nincs felhasználói input - egy alvó gép a teszt közepén megállna).
+                self._lock_power_for_stress()
+                power_locked = True
+                progress('prep', 'done', 'Programok készen, energiagazdálkodás zárolva.')
 
-                # 2) Megvárjuk, amíg a felhasználó bezárja a Cinebench-et
-                try:
-                    proc.wait()
-                except Exception as e:
-                    logging.debug(f"[BENCHMARK] Cinebench proc.wait hiba: {e}")
-                self._stress_pids.pop('cinebench', None)
-                logging.info("[BENCHMARK] Cinebench bezárva - Heaven indul.")
+                # --- 1) Cinebench multi-core ---
+                progress('cinebench', 'run', 'Multi-core CPU-teszt fut (több perc is lehet - a gép közben terhelés alatt van)...')
+                cb_score = self._run_cinebench_capture(cb_exe)
+                if self._bench_cancel:
+                    raise _BenchCancelled()
+                if cb_score is None:
+                    raise _BenchAbort('A Cinebench nem adott ki pontszámot (részletek a debug logban).')
+                progress('cinebench', 'done', f'{cb_score:g} pont')
 
-                # 3) Heaven automatikus indítása
-                hv_exe = self._ensure_bench_exe('heaven')
-                if not hv_exe:
-                    return
-                pid = self._launch_stress_exe(hv_exe, 'Unigine Heaven')
-                if pid:
-                    if pid > 0:
-                        self._stress_pids['heaven'] = pid
-                    self.emit('toast', {'message': '🎮 Cinebench kész — Heaven elindult! Futtasd le (1080p), majd írd be a két pontszámot és töltsd fel.', 'type': 'success'})
-                else:
-                    self.emit('toast', {'message': '❌ Hiba a Heaven indításakor!', 'type': 'error'})
+                # --- 2) FurMark GPU ---
+                progress('furmark', 'run', f'GPU-benchmark fut ({FURMARK_BENCH_TIME_MS // 1000} mp, 1920×1080)...')
+                fm_fps = self._run_furmark_capture(fm_exe)
+                if self._bench_cancel:
+                    raise _BenchCancelled()
+                if fm_fps is None:
+                    raise _BenchAbort('A FurMark nem írt ki FPS-eredményt (részletek a debug logban).')
+                progress('furmark', 'done', f'{fm_fps} FPS')
+
+                # --- 3) Eredmény a nézetnek: már csak a gép nevét kell beírni ---
+                elapsed = time.monotonic() - t0
+                logging.info(f"[BENCHMARK] Automata futtatás kész ({elapsed:.0f} mp): "
+                             f"Cinebench={cb_score}, FurMark={fm_fps} FPS")
+                progress('result', 'run', 'Már csak a gép nevét kell beírni!')
+                self.emit('benchmark_auto_result', {
+                    'ok': True, 'cinebench': cb_score, 'furmark': fm_fps,
+                    'suggested_name': specs.get('machine_name', '')})
+                self.emit('toast', {'message': '🏁 Benchmark kész! Írd be a gép nevét, és megy fel a ranglistára.', 'type': 'success'})
+            except _BenchCancelled:
+                logging.warning("[BENCHMARK] Automata futtatás MEGSZAKÍTVA a felhasználó által.")
+                progress('result', 'error', 'A futtatás megszakítva.')
+                self.emit('benchmark_auto_result', {'ok': False, 'cancelled': True})
+                self.emit('toast', {'message': '⏹ Benchmark megszakítva.', 'type': 'info'})
+            except _BenchAbort as e:
+                logging.error(f"[BENCHMARK] Automata futtatás sikertelen: {e}")
+                progress('result', 'error', str(e))
+                self.emit('benchmark_auto_result', {'ok': False, 'error': str(e)})
+                self.emit('toast', {'message': f'❌ {e}', 'type': 'error'})
             except Exception as e:
-                logging.error(f"[BENCHMARK] run_benchmark_suite hiba: {e}")
+                logging.error(f"[BENCHMARK] run_benchmark_suite váratlan hiba: {e}", exc_info=True)
+                progress('result', 'error', f'Váratlan hiba: {e}')
+                self.emit('benchmark_auto_result', {'ok': False, 'error': str(e)})
                 self.emit('toast', {'message': f'❌ Hiba a benchmark futtatásakor: {e}', 'type': 'error'})
+            finally:
+                if power_locked:
+                    # A stressz-tesztek mentés/visszaállítás párját használjuk: ha közben
+                    # NEM fut másik stressz-teszt, az eredeti energia-beállítások azonnal
+                    # visszaállnak (a mentett kulcs törlődik, mint app-induláskor).
+                    if not self._stress_pids:
+                        self._restore_power_after_stress()
+                    else:
+                        logging.info("[BENCHMARK] Energia-visszaállítás kihagyva: más stressz-program fut "
+                                     "(a stop_stress_tests / következő indulás állítja vissza).")
+                self._bench_auto_running = False
 
         threading.Thread(target=worker, daemon=True, name="bench-suite").start()
 
+    # ------------------------------------------------------------------
+    # Felhő-ranglista
+    # ------------------------------------------------------------------
     def fetch_leaderboard(self):
         """A felhő-ranglista lekérése háttérszálon, majd a 'leaderboard_data' eseménnyel
         a nézetbe küldve (a hálózati hívás lassú lehet, ezért nem szinkron visszatérés)."""
@@ -177,12 +348,14 @@ class GuiBenchmarkMixin:
             self.emit('leaderboard_data', data)
         threading.Thread(target=worker, daemon=True, name="bench-lb").start()
 
-    def upload_benchmark_result(self, cinebench_score, heaven_score, name=None):
+    def upload_benchmark_result(self, cinebench_score, furmark_fps, name=None):
         """A gép benchmark-eredményének feltöltése a felhő-ranglistára: a (cache-elt vagy
-        frissen felismert) hardver-adatokhoz csatolja a felhasználó által beírt pontszámokat,
+        frissen felismert) hardver-adatokhoz csatolja az automata futtatás pontszámait,
         POST-tal feltölti (upsert a machine_id-re), majd frissíti a ranglistát a nézetben.
         A `name` a felhasználó által megadott gépnév (a ranglistán ez jelenik meg); ha üres,
-        a felismert 'proci / RAM / videokártya' összetett név a tartalék."""
+        a felismert 'proci / RAM / videokártya' összetett név a tartalék. A GPU-eredmény a
+        'furmark' mezőbe kerül, és KOMPATIBILITÁSBÓL a régi 'heaven' oszlopba is ugyanez
+        íródik - így a meglévő felhő-táblázat sémáját nem kell átalakítani."""
         def worker():
             try:
                 specs = getattr(self, '_bench_specs', None) or gather_machine_specs(self._run)
@@ -196,19 +369,22 @@ class GuiBenchmarkMixin:
                     'ram': specs.get('ram', ''),
                     'gpu': specs.get('gpu', ''),
                     'cinebench': cinebench_score if cinebench_score is not None else '',
-                    'heaven': heaven_score if heaven_score is not None else '',
+                    'furmark': furmark_fps if furmark_fps is not None else '',
+                    'heaven': furmark_fps if furmark_fps is not None else '',
                     'ts': datetime.now().strftime('%Y-%m-%d %H:%M'),
                     'build': common.BUILD_NUMBER,
                 }
+                logging.info(f"[BENCHMARK] Feltöltés a ranglistára: name={display_name!r}, "
+                             f"cinebench={cinebench_score}, furmark={furmark_fps}")
                 core_upload_result(self._run, entry)
                 self.emit('toast', {'message': '🏆 Eredmény sikeresen feltöltve a ranglistára!', 'type': 'success'})
-                # Siker: a nézet bezárja a futtató panelt + üríti a mezőket + visszaállítja a gombot.
+                # Siker: a nézet bezárja a futtató panelt + visszaállítja a gombot.
                 self.emit('benchmark_upload_result', {'ok': True})
                 # A frissített ranglista automatikus visszaküldése a nézetbe.
                 self.emit('leaderboard_data', core_fetch_leaderboard(self._run))
             except Exception as e:
                 logging.error(f"[BENCHMARK] Feltöltés hiba: {e}")
                 self.emit('toast', {'message': f'❌ Feltöltési hiba: {e}', 'type': 'error'})
-                # Hiba: a gomb visszaáll, a panel NYITVA marad (a beírt pontok megmaradnak).
+                # Hiba: a gomb visszaáll, az eredmény-kártya NYITVA marad (a pontok megmaradnak).
                 self.emit('benchmark_upload_result', {'ok': False})
         threading.Thread(target=worker, daemon=True, name="bench-upload").start()

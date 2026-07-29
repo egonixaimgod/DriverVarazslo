@@ -45,6 +45,116 @@ def find_bench_tool_exes(stress_dir, keys):
     return {key: (candidates[key][min(candidates[key])] if candidates[key] else None) for key in keys}
 
 
+# ============================================================================
+# Automata benchmark-futtatás: parancs-építők + pontszám-parserek (tiszta függvények,
+# a gui/benchmark.py run_benchmark_suite-je hívja őket; offline is tesztelhetők)
+# ============================================================================
+def build_cinebench_cmd(exe_path):
+    """A Cinebench parancssori multi-core futtatásának teljes parancsa. A CLI-módban a
+    Cinebench NEM nyit ablakot: a stdout-ra írja a folyamatot és a végén a "CB <pont>"
+    sort, majd kilép - a hívó a stdout-ot fájlba irányítja és a parse_cinebench_output-tal
+    olvassa ki a pontszámot."""
+    from app.benchmark_defs import CINEBENCH_CLI_ARGS
+    return [exe_path] + list(CINEBENCH_CLI_ARGS)
+
+
+def parse_cinebench_output(text):
+    """A Cinebench CLI stdout-jából a multi-core pontszám kiolvasása. A kimenet végén
+    (R20/R23 azonos) egy "CB <float>" sor áll - az UTOLSÓ ilyet vesszük (a futás közben
+    részpontszám is előfordulhat). None, ha nincs értelmezhető pontszám - a hívó ebből
+    tudja, hogy a futás nem adott eredményt."""
+    if not text:
+        logging.warning("[BENCHMARK] Cinebench: üres kimenet - nincs pontszám.")
+        return None
+    matches = _re.findall(r'\bCB\s+([0-9]+(?:[.,][0-9]+)?)', text)
+    if not matches:
+        tail = text.strip()[-400:]
+        logging.warning(f"[BENCHMARK] Cinebench: nem található 'CB <pont>' sor a kimenetben. "
+                        f"A kimenet vége: {tail!r}")
+        return None
+    score = float(matches[-1].replace(',', '.'))
+    logging.info(f"[BENCHMARK] Cinebench pontszám kiolvasva: {score} "
+                 f"({len(matches)} 'CB' sorból az utolsó)")
+    return score
+
+
+def build_furmark_cmd(exe_path):
+    """A FurMark 1.x parancssori benchmark-futtatás teljes parancsa (/nogui /benchmark
+    /max_time /log_score ... - a beállítások a benchmark_defs.py-ban)."""
+    from app.benchmark_defs import FURMARK_CLI_ARGS
+    return [exe_path] + list(FURMARK_CLI_ARGS)
+
+
+def find_furmark_score_file(exe_dir, min_mtime=None):
+    """A FurMark pontszám-fájljának megkeresése az exe mappájában. A /log_score a
+    FurMark-Scores.txt-be ír (append), de a fájlnév verziónként változhatott, ezért
+    minden '*score*.txt'-t megnézünk és a legfrissebbet vesszük. Ha min_mtime meg van
+    adva, csak az ANNÁL újabban módosított fájl számít - így egy korábbi futás ott
+    maradt fájlja nem olvasható be friss eredményként."""
+    best, best_mtime = None, -1
+    try:
+        for fn in os.listdir(exe_dir):
+            if fn.lower().endswith('.txt') and 'score' in fn.lower():
+                path = os.path.join(exe_dir, fn)
+                try:
+                    mtime = os.path.getmtime(path)
+                except OSError:
+                    continue
+                if mtime > best_mtime:
+                    best, best_mtime = path, mtime
+    except OSError as e:
+        logging.warning(f"[BENCHMARK] FurMark score-fájl keresési hiba ({exe_dir}): {e}")
+        return None
+    if best is None:
+        logging.warning(f"[BENCHMARK] Nincs '*score*.txt' a FurMark mappájában: {exe_dir}")
+        return None
+    if min_mtime is not None and best_mtime < min_mtime:
+        logging.warning(f"[BENCHMARK] A FurMark score-fájl ({best}) RÉGEBBI a mostani futásnál "
+                        f"(mtime={best_mtime:.0f} < indítás={min_mtime:.0f}) - a mostani futás nem írt eredményt.")
+        return None
+    logging.info(f"[BENCHMARK] FurMark score-fájl: {best}")
+    return best
+
+
+def parse_furmark_scores(text):
+    """A FurMark score-fájl (append-napló) UTOLSÓ bejegyzéséből az FPS (és a pontszám)
+    kiolvasása. A fájlformátum verziófüggő, ezért többféle mintát próbálunk, mindig az
+    utolsó találatot véve. Visszaad: {'fps': int|None, 'score': int|None} vagy None, ha
+    semmi értelmezhető nincs a szövegben."""
+    if not text:
+        logging.warning("[BENCHMARK] FurMark: üres score-fájl tartalom.")
+        return None
+    fps = None
+    score = None
+    # 1) A klasszikus 1.x sorok - a FurMark verziónként KÉTFÉLE sorrendet is írt:
+    #    "... 3162 points (FPS: 52) ..."  ÉS  "... 3162 points (52 FPS, 60000 ms) ..."
+    combo = _re.findall(r'(\d+)\s*points?\s*\(\s*FPS\s*[:=]?\s*(\d+)', text, _re.IGNORECASE)
+    if combo:
+        score, fps = int(combo[-1][0]), int(combo[-1][1])
+    else:
+        combo2 = _re.findall(r'(\d+)\s*points?\s*\(\s*(\d+)\s*FPS', text, _re.IGNORECASE)
+        if combo2:
+            score, fps = int(combo2[-1][0]), int(combo2[-1][1])
+    if fps is None:
+        # 2) Külön mezők (más verziók): "FPS: 52" vagy "52 FPS", "Score: 3162"
+        fps_m = _re.findall(r'\bFPS\s*[:=]\s*(\d+)', text, _re.IGNORECASE)
+        if not fps_m:
+            fps_m = _re.findall(r'\b(\d+)\s*FPS\b', text, _re.IGNORECASE)
+        if fps_m:
+            fps = int(fps_m[-1])
+    if score is None:
+        score_m = _re.findall(r'\bScore\s*[:=]\s*(\d+)', text, _re.IGNORECASE)
+        if score_m:
+            score = int(score_m[-1])
+    if fps is None and score is None:
+        tail = text.strip()[-400:]
+        logging.warning(f"[BENCHMARK] FurMark: sem FPS, sem Score nem olvasható ki. "
+                        f"A fájl vége: {tail!r}")
+        return None
+    logging.info(f"[BENCHMARK] FurMark eredmény kiolvasva: FPS={fps}, Score={score}")
+    return {'fps': fps, 'score': score}
+
+
 def get_machine_id():
     """Stabil gép-azonosító a ranglista deduplikálásához: ugyanarról a gépről újra
     feltöltve a felhő a machine_id alapján a MEGLÉVŐ sort frissíti (nem duplikál). A
