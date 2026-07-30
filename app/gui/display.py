@@ -178,30 +178,37 @@ class GuiDisplayMixin:
 
         threading.Thread(target=worker, daemon=True, name="display-repair").start()
 
-    def enable_calibration_management(self):
-        """A "Windows-kijelzőkalibráció használata" kapcsoló VISSZAkapcsolása.
+    def set_calibration_management(self, enabled):
+        """A "Windows-kijelzőkalibráció használata" kapcsoló át-/visszakapcsolása.
 
-        Miért van rá külön gomb: a PROGRAM SAJÁT Build 235-ös kiadásának AutoFixe
-        kikapcsolta ezt az értéket (a 238-as javította, azóta 1-re állítja) - egy 235-tel
-        megfixált gépen viszont a 0 magától SOSEM áll vissza, és amíg 0, semmilyen
-        társított ICC-profil gamma-görbéje nem töltődik be. Terepen ez egy TN Dellen
-        kiégett fehérként és eltűnő világosszürkékként jelentkezett.
-        Az 1 a Windows alapértelmezése: nem tölt be semmit, csak MEGENGEDI a betöltést."""
-        logging.info("[API] enable_calibration_management()")
+        Mindkét irány legitim (explicit user decision, 2026-07-31), ezért kapcsoló és nem
+        csak javítás-gomb:
+          - KI: szélesgamutos OLED-en, ahol a natív, telített kép a cél, és a felhasználó
+            biztosra akar menni, hogy semmi ne tudjon a háttérben gamma-görbét betölteni;
+          - BE: minden más gépen - és kötelezően ott, ahol egy korábbi kiadásunk
+            (Build 235-237) AutoFixe kikapcsolta, mert a 0 magától soha nem áll vissza.
+        A magyarázatot a display_core.set_calibration_management docstringje viszi."""
+        logging.info(f"[API] set_calibration_management(enabled={enabled})")
 
         def worker():
             try:
-                ok, prev = display_core.enable_calibration_management()
-                if ok:
-                    self.emit('toast', {'message': f'✅ Kijelzőkalibráció-kezelés visszakapcsolva '
-                                                   f'(előző érték: {prev if prev is not None else "nincs beállítva"}). '
-                                                   f'A profilok gamma-görbéje újra betöltődhet.', 'type': 'success'})
+                ok, prev = display_core.set_calibration_management(bool(enabled))
+                prev_txt = prev if prev is not None else 'nincs beállítva'
+                if ok and enabled:
+                    self.emit('toast', {'message': f'✅ Kalibráció-kezelés BEkapcsolva (előző: {prev_txt}). '
+                                                   f'A társított profilok gamma-görbéje újra betöltődhet.',
+                                        'type': 'success'})
+                elif ok:
+                    self.emit('toast', {'message': f'✅ Kalibráció-kezelés KIkapcsolva (előző: {prev_txt}). '
+                                                   f'Mostantól semmilyen profil gamma-görbéje nem tölt be - '
+                                                   f'a panel natívan megy. Teljes hatáshoz újraindítás.',
+                                        'type': 'success'})
                 else:
-                    self.emit('toast', {'message': '❌ Nem sikerült visszakapcsolni (részletek a debug logban).',
+                    self.emit('toast', {'message': '❌ Nem sikerült átállítani (részletek a debug logban).',
                                         'type': 'error'})
                 self.emit('display_info', self._collect_display_state())
             except Exception as e:
-                logging.error(f"[DISPLAY] enable_calibration_management hiba: {e}", exc_info=True)
+                logging.error(f"[DISPLAY] set_calibration_management hiba: {e}", exc_info=True)
                 self.emit('toast', {'message': f'❌ Hiba: {e}', 'type': 'error'})
 
         threading.Thread(target=worker, daemon=True, name="display-calib").start()

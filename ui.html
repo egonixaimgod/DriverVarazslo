@@ -1085,6 +1085,13 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
           <div class="disp-actions">
             <button class="btn btn-sm btn-danger" onclick="resetDisplayColors()">🎨 Színprofilok gyári visszaállítása</button>
           </div>
+          <div class="panel-title" style="margin-top:20px">🔐 Profil-betöltés engedélyezése</div>
+          <div class="disp-sub">Ez a Windows „kijelzőkalibráció használata” kapcsolója. <b>Bekapcsolva</b> a társított profilok gamma-görbéje betöltődhet (ez az alapértelmezés). <b>Kikapcsolva</b> semmilyen profil gamma-görbéje nem tölt be — a panel natívan, korrekció nélkül megy. Szélesgamutos OLED-en ez a telített, „nyitott” kép; gyengébb panelen viszont pont ettől ég ki a fehér, ezért ott hagyd bekapcsolva.</div>
+          <div class="disp-actions">
+            <button class="btn btn-sm" onclick="setCalibrationManagement(true)" id="btn-calib-on">💡 Engedélyezés (alapértelmezett)</button>
+            <button class="btn btn-sm btn-danger" onclick="setCalibrationManagement(false)" id="btn-calib-off">🔒 Letiltás (natív kép rögzítése)</button>
+          </div>
+          <div class="disp-sub" id="disp-calib-state" style="margin-top:8px"></div>
         </div>
       </div>
 
@@ -1565,7 +1572,7 @@ function renderDisplayInfo(d) {
       'nem lesz hatása, és a panel korrekció nélkül marad (tipikus tünet: kiégett fehér, eltűnő ' +
       'világosszürke árnyalatok). <b>Ezt a program Build 235-ös kiadásának 1 kattintásos fixe kapcsolta ki</b> ' +
       '— a 238-as óta javítva, de egy régebbi fix után magától soha nem áll vissza.' +
-      '<div style="margin-top:10px"><button class="btn btn-sm" onclick="enableCalibrationManagement()">' +
+      '<div style="margin-top:10px"><button class="btn btn-sm" onclick="setCalibrationManagement(true)">' +
       '💡 Kalibráció-kezelés visszakapcsolása</button></div></div>';
   }
   (d.errors || []).forEach(function (e) { diag += '<div class="disp-alert bad">❌ ' + dispEsc(e) + '</div>'; });
@@ -1604,7 +1611,17 @@ function renderDisplayInfo(d) {
         (h.bits ? ' · ' + h.bits + ' bit' : '') + (h.encoding ? ' · ' + dispEsc(h.encoding) : ''));
       if (h.wcg_supported) R('Széles gamut (WCG)', h.wcg_enabled ? 'bekapcsolva' : 'elérhető, kikapcsolva');
       if (m.sdr_white_nits !== null && m.sdr_white_nits !== undefined) {
-        R('SDR-tartalom fényereje', m.sdr_white_nits + ' nit');
+        /* Ez a DisplayConfig SDR-fehérszintje, NEM a panel fényereje. SDR módban a Windows
+           mindig a szabványos 80 nites sRGB referencia-fehéret adja vissza (fix érték, nem
+           mérés) — ezt korábban "SDR-tartalom fényereje: 80 nit"-ként írtuk ki, amit jogosan
+           lehetett a monitor maximumának olvasni. HDR-ben viszont ez a Beállítások
+           "SDR-tartalom fényereje" csúszkájának valódi értéke. A panel tényleges fényereje
+           a lenti nit-csempéken van, az EDID-ből. */
+        if (h.enabled) {
+          R('SDR-tartalom fényereje (HDR-ben)', m.sdr_white_nits + ' nit');
+        } else {
+          R('SDR referencia-fehér', m.sdr_white_nits + ' nit <span class="disp-badge off">szabvány</span>');
+        }
       }
       if (ch && ch.gamma) R('EDID névleges gamma', ch.gamma);
       if (ch) {
@@ -1631,7 +1648,7 @@ function renderDisplayInfo(d) {
           '<div class="disp-nit"><div class="n">' +
           (lum.min_nits !== null && lum.min_nits !== undefined ? lum.min_nits : '—') +
           '</div><div class="l">fekete szint</div></div></div>' +
-          '<div class="disp-sub" style="margin:7px 0 0">A monitor saját EDID-adatlapjából — ezt ígéri a gyártó, nem mért érték.</div>';
+          '<div class="disp-sub" style="margin:7px 0 0"><b>Ez a panel tényleges fényereje</b> (a monitor saját EDID-adatlapjából — a gyártó ígérete, nem mért érték). A csúcs kis felületen érvényes, a teljes képmezős érték a nagy fehér felületeké.</div>';
       } else if (h.supported) {
         nits = '<div class="disp-sub" style="margin-top:10px">A monitor nem közöl HDR-luminancia adatot az EDID-ben.</div>';
       }
@@ -1642,6 +1659,21 @@ function renderDisplayInfo(d) {
         '<div class="disp-rows">' + rows + '</div>' + nits +
         (hdrBtn ? '<div class="disp-actions">' + hdrBtn + '</div>' : '') + '</div>';
     }).join('');
+  }
+
+  /* --- profil-betöltés kapcsoló aktuális állapota --- */
+  const cs = document.getElementById('disp-calib-state');
+  if (cs) {
+    const on = d.calibration === 1 || d.calibration === null;
+    cs.innerHTML = 'Jelenleg: ' + (d.calibration === 0
+      ? '<span class="disp-badge no">LETILTVA</span> — semmilyen profil gamma-görbéje nem tölt be.'
+      : (d.calibration === 1
+        ? '<span class="disp-badge on">ENGEDÉLYEZVE</span> — a társított profilok gamma-görbéje betöltődhet.'
+        : '<span class="disp-badge off">nincs beállítva</span> — a Windows alapértelmezése (engedélyezett).'));
+    const bOn = document.getElementById('btn-calib-on');
+    const bOff = document.getElementById('btn-calib-off');
+    if (bOn) bOn.disabled = (d.calibration === 1);
+    if (bOff) bOff.disabled = (d.calibration === 0);
   }
 
   /* --- profilok --- */
@@ -1692,10 +1724,12 @@ function repairColorRegistration() {
     .then(function (ok) { if (ok) api().repair_color_registration(); });
 }
 
-function enableCalibrationManagement() {
-  showConfirm('💡 Kalibráció-kezelés visszakapcsolása',
-    'A Windows újra betöltheti a színprofilokhoz tartozó gamma-görbét. Ez a Windows alapértelmezett állapota — önmagában semmilyen kalibrációt nem állít be, csak megengedi a betöltést. Folytatod?')
-    .then(function (ok) { if (ok) api().enable_calibration_management(); });
+function setCalibrationManagement(on) {
+  const title = on ? '💡 Profil-betöltés ENGEDÉLYEZÉSE' : '🔒 Profil-betöltés LETILTÁSA';
+  const msg = on
+    ? 'A Windows újra betöltheti a társított színprofilok gamma-görbéjét (VCGT). Ez a Windows alapértelmezett állapota — önmagában semmilyen kalibrációt nem állít be, csak megengedi a betöltést. Folytatod?'
+    : 'Mostantól SEMMILYEN színprofil gamma-görbéje nem fog betöltődni ezen a gépen, akkor sem, ha valaki profilt társít. A panel a saját, natív képét adja — szélesgamutos monitoron ez a telített, "nyitott" kép. Bármikor visszakapcsolható. Folytatod?';
+  showConfirm(title, msg).then(function (ok) { if (ok) api().set_calibration_management(on); });
 }
 
 function resetDisplayColors() {

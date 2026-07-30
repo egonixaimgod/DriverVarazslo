@@ -15,7 +15,6 @@ from app.common import _app_data_dir
 from app.common import _app_exe_path
 from app.common import _ps_quote
 from app import backup_core
-from app import colorprofile_core
 from app import drivers_core
 from app import dupdrivers_core
 from app import wusettings_core
@@ -1410,11 +1409,13 @@ class GuiAutofixMixin:
 
                     self._disable_sleep_sync()
                     
-                    self.emit('task_progress', {'task': 'autofix', 'log': 'WU szüneteltetése 1 hétre...'})
-                    # Fix (nem hosszabbító) 7 napos szünet a közös builderből.
+                    self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update szüneteltetése (~10 év)...'})
+                    # Fix (nem hosszabbító) szünet a közös builderből, AUTOFIX_WU_PAUSE_DAYS
+                    # hosszan (~10 év) - explicit user decision, lásd a konstans indoklását.
                     self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-                               wusettings_core.build_wu_pause_ps(7, additive=False)])
-                    self.emit('task_progress', {'task': 'autofix', 'log': '✅ WU szüneteltetve 1 hétre.\n'})
+                               wusettings_core.build_wu_pause_ps(
+                                   wusettings_core.AUTOFIX_WU_PAUSE_DAYS, additive=False)])
+                    self.emit('task_progress', {'task': 'autofix', 'log': '✅ Windows Update szüneteltetve (~10 év - a Beállításokban egy kattintással folytatható).\n'})
 
                     self.emit('task_progress', {'task': 'autofix', 'log': '🔄 A számítógép újraindul, majd a folyamat a rendszer előkészítésével folytatódik!'})
 
@@ -1473,15 +1474,17 @@ class GuiAutofixMixin:
                     self._delete_ghost_devices_sync(skip_classes=skip_cls)
                     if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
 
-                    # SZÍNPROFILOK GYÁRI ALAPÁLLAPOTBA (explicit user decision, 2026-07-27).
-                    # Itt a helye: a driver-törlés ELŐTT, de a szellemeszközök után - a
-                    # hozzárendelések a monitor-eszközökre mutatnak, és a közvetlenül
-                    # ezutáni újraindítás tölti újra a gamma-rámpát. Sosem állítja meg a
-                    # láncot (a core mindent elnyel).
-                    colorprofile_core.reset_color_profiles(
-                        self._run,
-                        lambda m: self.emit('task_progress', {'task': 'autofix', 'log': m}))
-                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
+                    # AZ AUTOFIX SEMMILYEN MÓDON NEM NYÚL A SZÍNPROFILOKHOZ (explicit user
+                    # decision, 2026-07-31). Itt korábban lefutott a színprofil-visszaállítás;
+                    # kivéve, mert (a) a színkezelésnek azóta van saját nézete (Kijelző &
+                    # Színkezelés), ahol a szerelő LÁTJA, mit csinál, és külön kérésre indítja,
+                    # (b) a driver-rendberakás és a színkezelés két különböző dolog: egy néma,
+                    # a fix mellékhatásaként lefutó színprofil-törlés a felhasználó számára
+                    # kideríthetetlen képváltozást okoz. Terepi bizonyíték mindkét irányból:
+                    # egy szélesgamutos OLED-en a hozzárendelés eltűnése látványos javulás volt,
+                    # ugyanaz a lépés egy TN Dellen viszont használhatatlanul kiégett fehéret
+                    # hagyott. Ezt a döntést a felhasználónak kell meghoznia, nem a láncnak.
+                    # NE tedd vissza ide, és ne hívd innen a színprofil-visszaállító magot.
 
                     # A visszatérési értéket NEM dobjuk el: a 'wedged' azt jelenti, hogy a
                     # maradék csomagokat a következő láb söpri be (_finish_pending_deletes).
@@ -1501,11 +1504,13 @@ class GuiAutofixMixin:
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Beragadt frissítések és WU gyorsítótár (SoftwareDistribution) ürítése...'})
                     wusettings_core._clear_software_distribution(self._run)
 
-                    self.emit('task_progress', {'task': 'autofix', 'log': 'WU szüneteltetése 1 hétre...'})
-                    # Fix (nem hosszabbító) 7 napos szünet a közös builderből.
+                    self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update szüneteltetése (~10 év)...'})
+                    # Fix (nem hosszabbító) szünet a közös builderből, AUTOFIX_WU_PAUSE_DAYS
+                    # hosszan (~10 év) - explicit user decision, lásd a konstans indoklását.
                     self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-                               wusettings_core.build_wu_pause_ps(7, additive=False)])
-                    self.emit('task_progress', {'task': 'autofix', 'log': '✅ WU gyorsítótár ürítve és szüneteltetve 1 hétre.\n'})
+                               wusettings_core.build_wu_pause_ps(
+                                   wusettings_core.AUTOFIX_WU_PAUSE_DAYS, additive=False)])
+                    self.emit('task_progress', {'task': 'autofix', 'log': '✅ WU gyorsítótár ürítve, a Windows Update szüneteltetve (~10 év).\n'})
                     
                     self.emit('task_progress', {'task': 'autofix', 'log': '🔄 A számítógép újraindul, majd a folyamat automatikusan a TELEPÍTÉSSEL folytatódik!'})
 

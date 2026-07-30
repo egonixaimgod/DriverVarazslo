@@ -621,24 +621,41 @@ def calibration_management():
     return found
 
 
-def enable_calibration_management():
-    """A kijelzőkalibráció-kezelés VISSZAkapcsolása (érték = 1).
+def set_calibration_management(enabled):
+    """A "Windows-kijelzőkalibráció használata" kapcsoló ÁTÁLLÍTÁSA (1 = be, 0 = ki).
 
-    Csak akkor van rá szükség, ha valami kikapcsolta - tipikusan a saját Build 235-ös
-    kiadásunk AutoFixe. Az 1 a Windows alapértelmezése: NEM tölt be magától semmilyen
-    kalibrációt, csak megengedi, hogy egy társított profil gamma-görbéje betöltődjön.
-    Vagyis a visszakapcsolás nem állít be semmit, csak visszaadja a lehetőséget.
-    Visszaad: (sikerult, elozo_ertek)."""
+    MIT CSINÁL EZ VALÓJÁBAN - a két irány NEM szimmetrikus a hatását tekintve:
+      - 1 (be): a Windows alapértelmezése. Önmagában SEMMILYEN kalibrációt nem állít be,
+        csak MEGENGEDI, hogy egy társított profil gamma-görbéje (VCGT) betöltődjön. Ha
+        nincs társított profil, semmi nem változik a képen.
+      - 0 (ki): a betöltés letiltása. Ettől kezdve a gépen BÁRMILYEN profilt lehet
+        társítani, a gamma akkor sem tölt be - a panel korrekció nélkül, natívan megy.
+
+    MINDKÉT IRÁNYNAK VAN LEGITIM HASZNÁLATA (explicit user decision, 2026-07-31), ezért van
+    rá kapcsoló és nem csak "javítás" gomb:
+      - KI: szélesgamutos OLED-en, ahol a felhasználó szándékosan a natív, telített képet
+        akarja, és biztosra akar menni, hogy semmi (frissítés, gyártói eszköz, egy másik
+        program) ne tudjon a háttérben gamma-görbét betölteni;
+      - BE: minden más gépen, különösen ha egy korábbi kiadásunk (Build 235-237) AutoFixe
+        kikapcsolta - ott a 0 magától soha nem áll vissza, és a panel korrekció nélkül marad
+        (terepen: TN Dell, kiégett fehér, eltűnő világosszürkék).
+
+    A művelet destruktív-jellegű (tartós rendszerbeállítás), ezért az ÁTÁLLÍTÁS ELŐTT
+    naplózzuk az előző értéket. Visszaad: (sikerult, elozo_ertek)."""
+    want = 1 if enabled else 0
     prev = calibration_management()
-    logging.warning(f"[DISPLAY] CalibrationManagementEnabled beállítása 1-re "
-                    f"(előző érték: {prev if prev is not None else 'nincs beállítva'})...")
+    logging.warning(f"[DISPLAY] CalibrationManagementEnabled beállítása {want}-re "
+                    f"(előző érték: {prev if prev is not None else 'nincs beállítva'}) - "
+                    f"HKLM-{_ICM_CALIB}")
     try:
         k = winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, _ICM_CALIB, 0, winreg.KEY_SET_VALUE)
-        winreg.SetValueEx(k, 'CalibrationManagementEnabled', 0, winreg.REG_DWORD, 1)
+        winreg.SetValueEx(k, 'CalibrationManagementEnabled', 0, winreg.REG_DWORD, want)
     except OSError as e:
-        logging.error(f"[DISPLAY] A kalibrációkezelés visszakapcsolása nem sikerült: {e}")
+        logging.error(f"[DISPLAY] A kalibrációkezelés átállítása nem sikerült: {e}")
         return False, prev
-    logging.info("[DISPLAY] A Windows kijelzőkalibráció-kezelése visszakapcsolva.")
+    logging.info(f"[DISPLAY] A Windows kijelzőkalibráció-kezelése "
+                 f"{'BEkapcsolva' if want else 'KIkapcsolva'} "
+                 f"(a hatáshoz ki-be jelentkezés vagy újraindítás kellhet).")
     return True, prev
 
 

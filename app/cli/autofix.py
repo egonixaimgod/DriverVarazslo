@@ -5,7 +5,6 @@ import socket
 import subprocess
 import time
 import logging
-from app import colorprofile_core
 from app import dupdrivers_core
 from app.wu_core import AUTOFIX_PRINTER_SKIP_CLASSES
 from app.wu_core import WU_MAX_CONSECUTIVE_FAILURES
@@ -97,11 +96,10 @@ manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkenne
         print("=" * 50)
         self.delete_ghost_devices()
 
-        # FÁZIS 3/b: Színprofilok gyári alapállapotba (közös mag, mint a GUI AutoFixben).
-        print("\n" + "=" * 50)
-        print("  FÁZIS 3/b: Színprofilok visszaállítása gyárira")
-        print("=" * 50)
-        colorprofile_core.reset_color_profiles(self._run, print)
+        # FÁZIS 3/b (SZÍNPROFILOK) KIVÉVE, explicit user decision, 2026-07-31: az AutoFix
+        # semmilyen módon nem nyúl a színprofilokhoz. Az indoklás a GUI AutoFix ugyanezen
+        # pontján áll részletesen; a színkezelés a GUI "Kijelző & Színkezelés" nézetéből
+        # indítható, külön, kézzel. NE hozd vissza ezt a fázist.
 
         # FÁZIS 4: Third-party driverek törlése
         print("\n" + "=" * 50)

@@ -41,6 +41,18 @@ Stop-Service UsoSvc -Force -ErrorAction SilentlyContinue
 """
 
 
+# Az AUTOFIX ZÁRÓ szüneteltetésének hossza NAPBAN (explicit user decision, 2026-07-31).
+# A szerviz a gépeket úgy adja át az ügyfélnek, hogy a Windows Update alapból NE induljon
+# el magától: a fix épp most rakott fel egy konzisztens driver-készletet, és a legrosszabb,
+# ami történhet, hogy a WU pár nap múlva magától felülírja. A korábbi 7 nap ehhez kevés volt.
+# 3650 nap = kb. 10 év, azaz gyakorlatilag "amíg valaki kézzel vissza nem kapcsolja".
+# FONTOS, és ezért nem "letiltás": ez SZÜNETELTETÉS, amit a felhasználó bármikor felold a
+# Beállítások > Windows Update oldalon a "Frissítések folytatása" gombbal - egy kattintás,
+# nem kell hozzá szerviz. A biztonsági frissítések tehát nincsenek véglegesen elvágva, csak
+# nem indulnak el maguktól.
+AUTOFIX_WU_PAUSE_DAYS = 3650
+
+
 def build_wu_pause_ps(days, additive=True):
     """A WU szüneteltetést beállító PowerShell script.
 
@@ -156,12 +168,15 @@ def set_wu_driver_policy(run, disabled):
              '/v', 'ExcludeWUDriversInQualityUpdate', '/f'], ok_codes=(0, 1))
 
 
-def set_wu_pause(run, pause=True):
-    """Egyszerű pause be/ki a driver-policy értékekkel együtt (az AutoFix Leg A
-    használja): pause=True fix 7 napos szünet mostantól + driver-tiltás; pause=False
-    a szünet feloldása + driver-engedélyezés + wuauserv restart."""
+def set_wu_pause(run, pause=True, days=AUTOFIX_WU_PAUSE_DAYS):
+    """Egyszerű pause be/ki a driver-policy értékekkel együtt (az AutoFix használja):
+    pause=True fix (nem hosszabbító) szünet mostantól + driver-tiltás; pause=False a
+    szünet feloldása + driver-engedélyezés + wuauserv restart.
+
+    A `days` alapértéke AUTOFIX_WU_PAUSE_DAYS (~10 év) - lásd a konstans indoklását."""
     if pause:
-        run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", build_wu_pause_ps(7, additive=False)])
+        run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+             build_wu_pause_ps(days, additive=False)])
         set_wu_driver_policy(run, disabled=True)
     else:
         run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WU_PAUSE_REMOVE_PS + """
