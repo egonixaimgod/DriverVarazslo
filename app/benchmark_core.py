@@ -16,6 +16,8 @@ import os
 import json
 import logging
 import fnmatch
+import hashlib
+import unicodedata
 import winreg
 from app.common import _ps_quote
 from app.benchmark_defs import BENCH_TOOLS
@@ -261,10 +263,11 @@ def parse_close_apps_output(text):
 
 
 def get_machine_id():
-    """Stabil gép-azonosító a ranglista deduplikálásához: ugyanarról a gépről újra
-    feltöltve a felhő a machine_id alapján a MEGLÉVŐ sort frissíti (nem duplikál). A
-    Windows MachineGuid-ját használjuk (a registry 64 bites nézetéből, hogy 32 bites
-    Pythonból is a valódi értéket kapjuk); ha nem olvasható, a gépnévre esünk vissza."""
+    """Stabil HARDVER-azonosító: a Windows MachineGuid-ja (a registry 64 bites nézetéből,
+    hogy 32 bites Pythonból is a valódi értéket kapjuk); ha nem olvasható, a gépnévre esünk
+    vissza. FIGYELEM: ez már NEM önmagában a ranglista-sor kulcsa - a felhőbe küldött
+    machine_id a machine_row_id() által képzett (gép + ranglista-név) összetett kulcs, lásd
+    ott, hogy miért."""
     try:
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography",
                             0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as key:
@@ -274,6 +277,48 @@ def get_machine_id():
     except Exception as e:
         logging.debug(f"[BENCHMARK] MachineGuid olvasási hiba (gépnévre esünk vissza): {e}")
     return os.environ.get('COMPUTERNAME', 'PC')
+
+
+# A sor-azonosítóban a névből képzett, olvasható rész hossz-korlátja (a felhő-táblázatban
+# ez csak azonosító, nem megjelenített szöveg - a megjelenő név a machine_name mező).
+_ROW_ID_NAME_MAX = 40
+
+
+def machine_row_id(machine_guid, display_name):
+    """A ranglista-SOR azonosítója: a gép hardver-azonosítója ÉS a beírt ranglista-név
+    együtt. A felhő-oldal erre a mezőre (machine_id) upsertel, tehát EZ dönti el, mi
+    számít "ugyanannak a bejegyzésnek".
+
+    Miért nem a puszta MachineGuid (TEREPEN BEJÖTT HIBA, 2026-07-30): ugyanazon a gépen két
+    futás KÉT KÜLÖNBÖZŐ névvel a régi sort NÉMÁN felülírta, holott a szerviz szándéka az
+    volt, hogy mindkettő fent legyen (előtte/utána mérés, két konfiguráció) - és a
+    felülírt pontszám a felhőben visszaszerezhetetlen. Az összetett kulccsal: UGYANAZ a
+    név -> a saját sorát frissíti (egy elrontott mérés javítható marad), MÁS név -> új sor.
+    Ráadásul KLÓNOZOTT Windowsokon (a szerviz szokása) több fizikai gép ugyanazt a
+    MachineGuid-ot hordozza, tehát a puszta GUID ott is némán egymásra írta volna
+    különböző gépek eredményeit.
+
+    A kulcs formája: "<guid>|<olvasható-név-szelet>-<6 hexa a névből>". Az olvasható rész
+    azért van, mert a táblázatot ember is olvassa; a hexa-lezárás azért, mert a szeletelés
+    és az ékezet-lebontás után két KÜLÖNBÖZŐ név is azonos szeletet adhatna (pl. "Gép 1" és
+    "gep-1"), az pedig újra néma felülírás lenne. A név előbb normalizálódik (kisbetűs,
+    összevont szóközök), így egy elütés nélküli újrafutás - más kis/nagybetűvel vagy
+    záró szóközzel - ugyanazt a kulcsot adja, tehát tényleg frissít."""
+    guid = str(machine_guid or '').strip() or os.environ.get('COMPUTERNAME', 'PC')
+    norm = _re.sub(r'\s+', ' ', str(display_name or '').strip()).lower()
+    if not norm:
+        logging.info(f"[BENCHMARK] Ranglista-sor azonosító: {guid!r} (nincs megadott név, "
+                     "csak a gép-azonosító a kulcs)")
+        return guid
+    # Ékezet-lebontás (ő/ű is: NFKD -> alap betű + kombináló jel), majd a jelek eldobása.
+    ascii_name = ''.join(c for c in unicodedata.normalize('NFKD', norm)
+                         if not unicodedata.combining(c))
+    slug = _re.sub(r'[^0-9a-z]+', '-', ascii_name).strip('-')[:_ROW_ID_NAME_MAX].strip('-')
+    digest = hashlib.sha1(norm.encode('utf-8')).hexdigest()[:6]
+    row_id = f"{guid}|{slug}-{digest}" if slug else f"{guid}|{digest}"
+    logging.info(f"[BENCHMARK] Ranglista-sor azonosító: {row_id!r} "
+                 f"(gép={guid!r}, név={display_name!r} -> normalizált={norm!r})")
+    return row_id
 
 
 # OEM-alapértékek, amiket nem érdemes megjeleníteni (a report_core-ban is szűrt lista).

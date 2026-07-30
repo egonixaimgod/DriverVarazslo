@@ -36,6 +36,7 @@ from app.benchmark_core import build_close_apps_ps
 from app.benchmark_core import parse_close_apps_output
 from app.benchmark_core import find_bench_tool_exes
 from app.benchmark_core import gather_machine_specs
+from app.benchmark_core import machine_row_id
 from app.benchmark_core import build_cinebench_cmd
 from app.benchmark_core import parse_cinebench_output
 from app.benchmark_core import build_furmark_cmd
@@ -443,6 +444,46 @@ class GuiBenchmarkMixin:
             self.emit('leaderboard_data', data)
         threading.Thread(target=worker, daemon=True, name="bench-lb").start()
 
+    def _bench_existing_row(self, row_id, hw_id):
+        """Megnézi - LEGJOBB SZÁNDÉK szerint, hibára némán -, hogy a most induló feltöltés
+        MEGLÉVŐ sort frissít-e vagy ÚJat hoz létre, és ezt naplózza. Ez a mező, amit a
+        felhő upsertel, tehát pontosan itt dőlt el a terepen bejött néma felülírás - a
+        naplóban ezután látszik, melyik eset történt, milyen pontszámokat írunk át.
+        Visszaad: a meglévő sor dict-je, vagy None. A feltöltést semmilyen hibája nem
+        akadályozhatja meg (ezért fog el mindent)."""
+        try:
+            data = core_fetch_leaderboard(self._run)
+            entries = data.get('entries') or []
+            found = None
+            for row in entries:
+                if str(row.get('machine_id') or '') == row_id:
+                    found = row
+                    break
+            if found is not None:
+                logging.info(f"[BENCHMARK] A feltöltés MEGLÉVŐ sort ír át: "
+                             f"név={found.get('machine_name')!r}, cinebench={found.get('cinebench')!r}, "
+                             f"furmark={(found.get('furmark') or found.get('heaven'))!r}, "
+                             f"ts={found.get('ts')!r} (azonosító={row_id!r})")
+            else:
+                logging.info(f"[BENCHMARK] A feltöltés ÚJ sort hoz létre (azonosító={row_id!r}); "
+                             f"a ranglistán most {len(entries)} sor van, egyiket sem írjuk felül.")
+            # Régi, CSAK GUID-alapú sor ugyanerről a gépről: a kulcs-formátum váltása előtt
+            # feltöltött bejegyzés. Nem bántjuk (nem tudjuk, melyik névhez tartozott), de
+            # naplózzuk, mert a táblázatban ez marad ott duplikátumnak.
+            if hw_id:
+                for row in entries:
+                    if str(row.get('machine_id') or '') == str(hw_id):
+                        logging.warning(f"[BENCHMARK] A ranglistán van egy RÉGI, csak gép-azonosítós sor "
+                                        f"ugyanerről a gépről (név={row.get('machine_name')!r}, "
+                                        f"ts={row.get('ts')!r}) - ezt már nem írjuk át, a táblázatban "
+                                        "kézzel törölhető, ha nem kell.")
+                        break
+            return found
+        except Exception as e:
+            logging.warning(f"[BENCHMARK] A meglévő ranglista-sor ellenőrzése nem sikerült ({e}) - "
+                            "a feltöltés ettől függetlenül megy tovább.")
+            return None
+
     def upload_benchmark_result(self, cinebench_score, furmark_fps, name=None):
         """A gép benchmark-eredményének feltöltése a felhő-ranglistára: a (cache-elt vagy
         frissen felismert) hardver-adatokhoz csatolja az automata futtatás pontszámait,
@@ -456,8 +497,17 @@ class GuiBenchmarkMixin:
                 specs = getattr(self, '_bench_specs', None) or gather_machine_specs(self._run)
                 self._bench_specs = specs
                 display_name = (name or '').strip() or specs.get('machine_name', 'PC')
+                # A felhő a machine_id-re upsertel, ezért a KULCS a gép + a beírt név együtt
+                # (machine_row_id): más névvel ugyanarról a gépről ÚJ sor lesz, nem felülírás
+                # (2026-07-30, terepen bejött adatvesztés). A puszta hardver-azonosítót külön
+                # mezőben (hw_id) is elküldjük - ha a táblázatban nincs ilyen oszlop, a
+                # felhő-oldal egyszerűen eldobja (mint a 'furmark' mezőt is).
+                hw_id = specs.get('machine_id', '')
+                row_id = machine_row_id(hw_id, display_name)
+                existing = self._bench_existing_row(row_id, hw_id)
                 entry = {
-                    'machine_id': specs.get('machine_id', ''),
+                    'machine_id': row_id,
+                    'hw_id': hw_id,
                     'machine_name': display_name,
                     'cpu': specs.get('cpu', ''),
                     'motherboard': specs.get('motherboard', ''),
@@ -470,13 +520,27 @@ class GuiBenchmarkMixin:
                     'build': common.BUILD_NUMBER,
                 }
                 logging.info(f"[BENCHMARK] Feltöltés a ranglistára: name={display_name!r}, "
-                             f"cinebench={cinebench_score}, furmark={furmark_fps}")
+                             f"cinebench={cinebench_score}, furmark={furmark_fps}, "
+                             f"azonosító={row_id!r} ({'meglévő sor frissítése' if existing else 'új sor'})")
                 core_upload_result(self._run, entry)
-                self.emit('toast', {'message': '🏆 Eredmény sikeresen feltöltve a ranglistára!', 'type': 'success'})
+                # A visszajelzés megmondja, FRISSÍTÉS volt-e vagy új sor: így a szerviz azonnal
+                # látja, ha egy korábbi mérését írta át (ugyanazzal a névtel), nem utólag.
+                if existing:
+                    msg = (f"🔄 A(z) „{display_name}” nevű meglévő eredmény FRISSÍTVE a ranglistán "
+                           "(ugyanaz a gép + ugyanaz a név).")
+                else:
+                    msg = '🏆 Eredmény sikeresen feltöltve a ranglistára (új sor)!'
+                self.emit('toast', {'message': msg, 'type': 'success'})
                 # Siker: a nézet bezárja a futtató panelt + visszaállítja a gombot.
                 self.emit('benchmark_upload_result', {'ok': True})
-                # A frissített ranglista automatikus visszaküldése a nézetbe.
-                self.emit('leaderboard_data', core_fetch_leaderboard(self._run))
+                # A frissített ranglista automatikus visszaküldése a nézetbe. KÜLÖN try:
+                # a feltöltés ekkor MÁR SIKERÜLT, egy elbukó újraolvasás nem jelenthető
+                # "Feltöltési hiba"-ként (a szerviz újratöltene egy már feltöltött mérést).
+                try:
+                    self.emit('leaderboard_data', core_fetch_leaderboard(self._run))
+                except Exception as e:
+                    logging.warning(f"[BENCHMARK] A feltöltés SIKERÜLT, de a ranglista újraolvasása "
+                                    f"nem ({e}) - a nézet a 🔄 gombbal frissíthető.")
             except Exception as e:
                 logging.error(f"[BENCHMARK] Feltöltés hiba: {e}")
                 self.emit('toast', {'message': f'❌ Feltöltési hiba: {e}', 'type': 'error'})
