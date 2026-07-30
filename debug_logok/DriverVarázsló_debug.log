@@ -1,62 +1,50 @@
-﻿2026-07-30 22:36:50 [INFO] [MainThread] ==================================================
-2026-07-30 22:36:50 [INFO] [MainThread] DriverVarázsló ELINDITVA (Build 241)
-2026-07-30 22:36:50 [INFO] [MainThread] Parancssor: ['C:\\Users\\egonix\\Desktop\\DriverVarazslo.exe']
-2026-07-30 22:36:50 [INFO] [MainThread] Futtatasi konyvtar: C:\Users\egonix\Desktop
-2026-07-30 22:36:50 [INFO] [MainThread] Admin jog: True
-2026-07-30 22:36:50 [INFO] [MainThread] ==================================================
-2026-07-30 22:36:50 [INFO] [MainThread] [INIT] WebView2 Runtime OK: v150.0.4078.105
-2026-07-30 22:36:50 [INFO] [MainThread] [INIT] DriverToolApi inicializálás...
-2026-07-30 22:36:50 [INFO] [MainThread] [INIT] sys_drive=C:\
-2026-07-30 22:36:50 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress()
-2026-07-30 22:36:50 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress -> None (0.00s)
-2026-07-30 22:36:50 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy()
-2026-07-30 22:36:50 [DEBUG] [MainThread] [CALL] DriverToolApi._autofix_stats_path()
-2026-07-30 22:36:50 [DEBUG] [MainThread] [CALL] DriverToolApi._autofix_stats_path -> 'C:\\DriverVarazslo\\autofix_stats.json' (0.00s)
-2026-07-30 22:36:50 [DEBUG] [MainThread] [AUTOFIX-CLEANUP] Nincs félbehagyott lánc-állapotfájl - nincs mit takarítani.
-2026-07-30 22:36:50 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy -> None (0.00s)
-2026-07-30 22:36:50 [INFO] [MainThread] [INIT] DriverToolApi kész.
-2026-07-30 22:36:50 [INFO] [MainThread] [MAIN] webview.start() hívása...
-2026-07-30 22:36:50 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window(<webview.window.Window object at 0x0000013A002C67B0>)
-2026-07-30 22:36:50 [INFO] [Thread-3 (on_start)] [WINDOW] WebView ablak beállítása...
-2026-07-30 22:36:51 [INFO] [Thread-8 (_call)] [CALL] DriverToolApi.get_init_data()
-2026-07-30 22:36:51 [INFO] [Thread-8 (_call)] [API] get_init_data() hívás - build=241, target=None
-2026-07-30 22:36:51 [INFO] [Thread-8 (_call)] [CALL] DriverToolApi.get_init_data -> {'build': 241, 'sys_drive': 'C:\\', 'target_os': None, 'resume_mode': False, 'resume_step1': False, 'app_data_dir': 'C:\\DriverVarazslo'} (0.00s)
-2026-07-30 22:36:51 [INFO] [Thread-3 (on_start)] [WINDOW] WebView2 DOM kész (1 próba után, 0.1s)
-2026-07-30 22:36:51 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window -> None (0.67s)
-2026-07-30 22:36:51 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.load_drivers(False)
-2026-07-30 22:36:51 [INFO] [Thread-10 (_call)] [API] load_drivers(all_drivers=False)
-2026-07-30 22:36:51 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.get_service_tools_status()
-2026-07-30 22:36:51 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._load_tool_install_records()
-2026-07-30 22:36:51 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._tool_install_record_path()
-2026-07-30 22:36:51 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.load_drivers -> None (0.00s)
-2026-07-30 22:36:51 [DEBUG] [drivers-load] [EMIT:drivers_loading] data=None
-2026-07-30 22:36:51 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._tool_install_record_path -> 'C:\\DriverVarazslo\\installed_tools.json' (0.00s)
-2026-07-30 22:36:51 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.check_for_updates()
-2026-07-30 22:36:51 [INFO] [Thread-12 (_call)] [UPDATE] check_for_updates()
-2026-07-30 22:36:51 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._load_tool_install_records -> {} (0.00s)
-2026-07-30 22:36:51 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.get_service_tools_status -> {'furmark': {'installed': False, 'path': None}, 'prime95': {'installed': False, 'path': None}, 'linpack': {'installed': False, 'path': None}, 'hwinfo': {'installed': False, 'path': None}, 'hdsentinel': {'installed': False, 'path': None}, 'cpuz': {'installed': False, 'path': None}, 'gpuz': {'installe...[+126 kar.] (0.00s)
-2026-07-30 22:36:51 [INFO] [drivers-load] [DRIVERS] Third-party driverek lekérdezés
-2026-07-30 22:36:51 [DEBUG] [drivers-load] [CALL] DriverToolApi._get_third_party_drivers()
-2026-07-30 22:36:51 [DEBUG] [drivers-load] [DRIVERS] dism /English /Online /Get-Drivers futtatása...
-2026-07-30 22:36:51 [DEBUG] [drivers-load] [CMD] Futtatás: dism /English /Online /Get-Drivers
-2026-07-30 22:36:51 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (1/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785443811
-2026-07-30 22:36:51 [INFO] [Thread-1 (webview_watchdog)] [WATCHDOG] WebView2 sikeresen elindult
-2026-07-30 22:36:51 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 241
-2026-07-30 22:36:51 [INFO] [Thread-12 (_call)] [UPDATE] Új verzió elérhető: 246 (Jelenlegi: 241)
-2026-07-30 22:36:51 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.check_for_updates -> {'has_update': True, 'new_version': 246} (0.28s)
-2026-07-30 22:36:53 [DEBUG] [Thread-15 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#mc-yes "Igen"
-2026-07-30 22:36:53 [INFO] [Thread-16 (_call)] [CALL] DriverToolApi.perform_update()
-2026-07-30 22:36:53 [INFO] [Thread-16 (_call)] [UPDATE] perform_update indítása...
-2026-07-30 22:36:53 [DEBUG] [Thread-16 (_call)] [CALL] DriverToolApi._safe_thread('update', <function GuiUpdaterMixin.perform_update.<locals>.worker at 0x0000013A1ACA0930>)
-2026-07-30 22:36:53 [INFO] [task-update] [THREAD:update] Háttérszál indul...
-2026-07-30 22:36:53 [DEBUG] [task-update] [EMIT:task_start] data={"task": "update", "title": "Program Frissítése"}
-2026-07-30 22:36:53 [DEBUG] [Thread-16 (_call)] [CALL] DriverToolApi._safe_thread -> None (0.00s)
-2026-07-30 22:36:53 [INFO] [Thread-16 (_call)] [CALL] DriverToolApi.perform_update -> None (0.00s)
-2026-07-30 22:36:53 [INFO] [task-update] [UPDATE] EXE letöltése innen: https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/dist/DriverVarazslo.exe?t=1785443813
-2026-07-30 22:36:53 [INFO] [task-update] [UPDATE] Cél fájl: C:\Users\egonix\AppData\Local\Temp\DriverVarazslo_Update_1785443813.exe
-2026-07-30 22:36:53 [INFO] [task-update] [EMIT:task_progress] Új verzió letöltése GitHubról...
-2026-07-30 22:36:54 [DEBUG] [drivers-load] [CMD] OK (2.4s)
-2026-07-30 22:36:54 [DEBUG] [drivers-load] [CMD] stdout: Deployment Image Servicing and Management tool
+﻿2026-07-30 23:17:22 [INFO] [MainThread] ==================================================
+2026-07-30 23:17:22 [INFO] [MainThread] DriverVarázsló ELINDITVA (Build 246)
+2026-07-30 23:17:22 [INFO] [MainThread] Parancssor: ['C:\\Users\\egonix\\Desktop\\DriverVarazslo.exe']
+2026-07-30 23:17:22 [INFO] [MainThread] Futtatasi konyvtar: C:\Users\egonix\Desktop
+2026-07-30 23:17:22 [INFO] [MainThread] Admin jog: True
+2026-07-30 23:17:22 [INFO] [MainThread] ==================================================
+2026-07-30 23:17:22 [INFO] [MainThread] [INIT] WebView2 Runtime OK: v150.0.4078.105
+2026-07-30 23:17:22 [INFO] [MainThread] [INIT] DriverToolApi inicializálás...
+2026-07-30 23:17:22 [INFO] [MainThread] [INIT] sys_drive=C:\
+2026-07-30 23:17:22 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress()
+2026-07-30 23:17:22 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress -> None (0.00s)
+2026-07-30 23:17:22 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy()
+2026-07-30 23:17:22 [DEBUG] [MainThread] [CALL] DriverToolApi._autofix_stats_path()
+2026-07-30 23:17:22 [DEBUG] [MainThread] [CALL] DriverToolApi._autofix_stats_path -> 'C:\\DriverVarazslo\\autofix_stats.json' (0.00s)
+2026-07-30 23:17:22 [DEBUG] [MainThread] [AUTOFIX-CLEANUP] Nincs félbehagyott lánc-állapotfájl - nincs mit takarítani.
+2026-07-30 23:17:22 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy -> None (0.00s)
+2026-07-30 23:17:22 [INFO] [MainThread] [INIT] DriverToolApi kész.
+2026-07-30 23:17:22 [INFO] [MainThread] [MAIN] webview.start() hívása...
+2026-07-30 23:17:22 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window(<webview.window.Window object at 0x000001F5E9538980>)
+2026-07-30 23:17:22 [INFO] [Thread-3 (on_start)] [WINDOW] WebView ablak beállítása...
+2026-07-30 23:17:23 [INFO] [Thread-8 (_call)] [CALL] DriverToolApi.get_init_data()
+2026-07-30 23:17:23 [INFO] [Thread-3 (on_start)] [WINDOW] WebView2 DOM kész (1 próba után, 0.1s)
+2026-07-30 23:17:23 [INFO] [Thread-8 (_call)] [API] get_init_data() hívás - build=246, target=None
+2026-07-30 23:17:23 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window -> None (0.53s)
+2026-07-30 23:17:23 [INFO] [Thread-8 (_call)] [CALL] DriverToolApi.get_init_data -> {'build': 246, 'sys_drive': 'C:\\', 'target_os': None, 'resume_mode': False, 'resume_step1': False, 'app_data_dir': 'C:\\DriverVarazslo'} (0.00s)
+2026-07-30 23:17:23 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.load_drivers(False)
+2026-07-30 23:17:23 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.get_service_tools_status()
+2026-07-30 23:17:23 [INFO] [Thread-10 (_call)] [API] load_drivers(all_drivers=False)
+2026-07-30 23:17:23 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.check_for_updates()
+2026-07-30 23:17:23 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._load_tool_install_records()
+2026-07-30 23:17:23 [DEBUG] [drivers-load] [EMIT:drivers_loading] data=None
+2026-07-30 23:17:23 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.load_drivers -> None (0.00s)
+2026-07-30 23:17:23 [INFO] [Thread-12 (_call)] [UPDATE] check_for_updates()
+2026-07-30 23:17:23 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._tool_install_record_path()
+2026-07-30 23:17:23 [INFO] [drivers-load] [DRIVERS] Third-party driverek lekérdezés
+2026-07-30 23:17:23 [DEBUG] [drivers-load] [CALL] DriverToolApi._get_third_party_drivers()
+2026-07-30 23:17:23 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._tool_install_record_path -> 'C:\\DriverVarazslo\\installed_tools.json' (0.00s)
+2026-07-30 23:17:23 [DEBUG] [drivers-load] [DRIVERS] dism /English /Online /Get-Drivers futtatása...
+2026-07-30 23:17:23 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._load_tool_install_records -> {} (0.00s)
+2026-07-30 23:17:23 [DEBUG] [drivers-load] [CMD] Futtatás: dism /English /Online /Get-Drivers
+2026-07-30 23:17:23 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.get_service_tools_status -> {'furmark': {'installed': False, 'path': None}, 'prime95': {'installed': False, 'path': None}, 'linpack': {'installed': False, 'path': None}, 'hwinfo': {'installed': False, 'path': None}, 'hdsentinel': {'installed': False, 'path': None}, 'cpuz': {'installed': False, 'path': None}, 'gpuz': {'installe...[+126 kar.] (0.00s)
+2026-07-30 23:17:23 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (1/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446243
+2026-07-30 23:17:23 [INFO] [Thread-1 (webview_watchdog)] [WATCHDOG] WebView2 sikeresen elindult
+2026-07-30 23:17:23 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:17:23 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:17:25 [DEBUG] [drivers-load] [CMD] OK (2.3s)
+2026-07-30 23:17:25 [DEBUG] [drivers-load] [CMD] stdout: Deployment Image Servicing and Management tool
 Version: 10.0.26100.5074
 
 Image Version: 10.0.26200.8457
@@ -218,62 +206,113 @@ Date : 1/6/2021
 Version : 1.16.4.26
 
 The operation completed successfully.
-2026-07-30 22:36:54 [DEBUG] [drivers-load] [CALL] DriverToolApi._get_third_party_drivers -> [{'version': '10.0.26100.4484', 'published': 'oem0.inf', 'original': 'prnms009.inf', 'class': 'Printer', 'provider': 'Microsoft', 'date': '2006-06-21'}, {'published': 'oem1.inf', 'original': 'xvdd.inf', 'class': 'SCSIAdapter', 'provider': 'Xbox', 'date': '2026-06-05', 'version': '10.0.22027.2'}, {'p...[+2685 kar.] (2.43s)
-2026-07-30 22:36:54 [INFO] [drivers-load] [DRIVERS] Betöltve: 19 driver (2.4s)
-2026-07-30 22:36:54 [DEBUG] [drivers-load] [EMIT:drivers_loaded] data={"drivers": [{"version": "10.0.26100.4484", "published": "oem0.inf", "original": "prnms009.inf", "class": "Printer", "provider": "Microsoft", "date": "2006-06-21"}, {"published": "oem1.inf", "original
-2026-07-30 22:36:54 [INFO] [task-update] [UPDATE] EXE letöltve. Fájlméret: 16105846 byte.
-2026-07-30 22:36:54 [INFO] [task-update] [EMIT:task_progress] ✅ Letöltés kész! A program frissítése és újraindítása következik...
-2026-07-30 22:36:54 [INFO] [task-update] [UPDATE] Jelenlegi futtatható fájl: C:\Users\egonix\Desktop\DriverVarazslo.exe
-2026-07-30 22:36:54 [INFO] [task-update] [UPDATE] Asztali elérési út: C:\Users\egonix\Desktop\DriverVarazslo.exe
-2026-07-30 22:36:54 [INFO] [task-update] [UPDATE] .bat fájl írása: C:\Users\egonix\AppData\Local\Temp\dv_update_1785443814.bat
-2026-07-30 22:36:56 [INFO] [task-update] [UPDATE] .bat fájl elindítása és program bezárása...
-2026-07-30 22:36:59 [INFO] [MainThread] ==================================================
-2026-07-30 22:36:59 [INFO] [MainThread] DriverVarázsló ELINDITVA (Build 246)
-2026-07-30 22:36:59 [INFO] [MainThread] Parancssor: ['C:\\Users\\egonix\\Desktop\\DriverVarazslo.exe']
-2026-07-30 22:36:59 [INFO] [MainThread] Futtatasi konyvtar: C:\Users\egonix\Desktop
-2026-07-30 22:36:59 [INFO] [MainThread] Admin jog: True
-2026-07-30 22:36:59 [INFO] [MainThread] ==================================================
-2026-07-30 22:36:59 [INFO] [MainThread] [INIT] WebView2 Runtime OK: v150.0.4078.105
-2026-07-30 22:36:59 [INFO] [MainThread] [INIT] DriverToolApi inicializálás...
-2026-07-30 22:36:59 [INFO] [MainThread] [INIT] sys_drive=C:\
-2026-07-30 22:36:59 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress()
-2026-07-30 22:36:59 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress -> None (0.00s)
-2026-07-30 22:36:59 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy()
-2026-07-30 22:36:59 [DEBUG] [MainThread] [CALL] DriverToolApi._autofix_stats_path()
-2026-07-30 22:36:59 [DEBUG] [MainThread] [CALL] DriverToolApi._autofix_stats_path -> 'C:\\DriverVarazslo\\autofix_stats.json' (0.00s)
-2026-07-30 22:36:59 [DEBUG] [MainThread] [AUTOFIX-CLEANUP] Nincs félbehagyott lánc-állapotfájl - nincs mit takarítani.
-2026-07-30 22:36:59 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy -> None (0.00s)
-2026-07-30 22:36:59 [INFO] [MainThread] [INIT] DriverToolApi kész.
-2026-07-30 22:36:59 [INFO] [MainThread] [MAIN] webview.start() hívása...
-2026-07-30 22:36:59 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window(<webview.window.Window object at 0x0000019554A27D40>)
-2026-07-30 22:36:59 [INFO] [Thread-3 (on_start)] [WINDOW] WebView ablak beállítása...
-2026-07-30 22:37:00 [INFO] [Thread-8 (_call)] [CALL] DriverToolApi.get_init_data()
-2026-07-30 22:37:00 [INFO] [Thread-8 (_call)] [API] get_init_data() hívás - build=246, target=None
-2026-07-30 22:37:00 [INFO] [Thread-3 (on_start)] [WINDOW] WebView2 DOM kész (1 próba után, 0.1s)
-2026-07-30 22:37:00 [INFO] [Thread-8 (_call)] [CALL] DriverToolApi.get_init_data -> {'build': 246, 'sys_drive': 'C:\\', 'target_os': None, 'resume_mode': False, 'resume_step1': False, 'app_data_dir': 'C:\\DriverVarazslo'} (0.00s)
-2026-07-30 22:37:00 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window -> None (0.50s)
-2026-07-30 22:37:00 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.load_drivers(False)
-2026-07-30 22:37:00 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.get_service_tools_status()
-2026-07-30 22:37:00 [INFO] [Thread-10 (_call)] [API] load_drivers(all_drivers=False)
-2026-07-30 22:37:00 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.check_for_updates()
-2026-07-30 22:37:00 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._load_tool_install_records()
-2026-07-30 22:37:00 [DEBUG] [drivers-load] [EMIT:drivers_loading] data=None
-2026-07-30 22:37:00 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.load_drivers -> None (0.00s)
-2026-07-30 22:37:00 [INFO] [Thread-12 (_call)] [UPDATE] check_for_updates()
-2026-07-30 22:37:00 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._tool_install_record_path()
-2026-07-30 22:37:00 [INFO] [drivers-load] [DRIVERS] Third-party driverek lekérdezés
-2026-07-30 22:37:00 [DEBUG] [drivers-load] [CALL] DriverToolApi._get_third_party_drivers()
-2026-07-30 22:37:00 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._tool_install_record_path -> 'C:\\DriverVarazslo\\installed_tools.json' (0.00s)
-2026-07-30 22:37:00 [DEBUG] [drivers-load] [DRIVERS] dism /English /Online /Get-Drivers futtatása...
-2026-07-30 22:37:00 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._load_tool_install_records -> {} (0.00s)
-2026-07-30 22:37:00 [DEBUG] [drivers-load] [CMD] Futtatás: dism /English /Online /Get-Drivers
-2026-07-30 22:37:00 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.get_service_tools_status -> {'furmark': {'installed': False, 'path': None}, 'prime95': {'installed': False, 'path': None}, 'linpack': {'installed': False, 'path': None}, 'hwinfo': {'installed': False, 'path': None}, 'hdsentinel': {'installed': False, 'path': None}, 'cpuz': {'installed': False, 'path': None}, 'gpuz': {'installe...[+126 kar.] (0.00s)
-2026-07-30 22:37:00 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (1/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785443820
-2026-07-30 22:37:00 [INFO] [Thread-1 (webview_watchdog)] [WATCHDOG] WebView2 sikeresen elindult
-2026-07-30 22:37:00 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
-2026-07-30 22:37:00 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
-2026-07-30 22:37:02 [DEBUG] [drivers-load] [CMD] OK (2.1s)
-2026-07-30 22:37:02 [DEBUG] [drivers-load] [CMD] stdout: Deployment Image Servicing and Management tool
+2026-07-30 23:17:25 [DEBUG] [drivers-load] [CALL] DriverToolApi._get_third_party_drivers -> [{'version': '10.0.26100.4484', 'published': 'oem0.inf', 'original': 'prnms009.inf', 'class': 'Printer', 'provider': 'Microsoft', 'date': '2006-06-21'}, {'published': 'oem1.inf', 'original': 'xvdd.inf', 'class': 'SCSIAdapter', 'provider': 'Xbox', 'date': '2026-06-05', 'version': '10.0.22027.2'}, {'p...[+2685 kar.] (2.28s)
+2026-07-30 23:17:25 [INFO] [drivers-load] [DRIVERS] Betöltve: 19 driver (2.3s)
+2026-07-30 23:17:25 [DEBUG] [drivers-load] [EMIT:drivers_loaded] data={"drivers": [{"version": "10.0.26100.4484", "published": "oem0.inf", "original": "prnms009.inf", "class": "Printer", "provider": "Microsoft", "date": "2006-06-21"}, {"published": "oem1.inf", "original
+2026-07-30 23:17:26 [DEBUG] [Thread-15 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button[view=tempclean] "🧹 Temp Fájlok Törlése"
+2026-07-30 23:17:26 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (2/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446246
+2026-07-30 23:17:26 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:17:26 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:17:28 [DEBUG] [Thread-16 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#btn-tempclean "🧹 Kiválasztott Kategóriák Törlése"
+2026-07-30 23:17:29 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (3/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446249
+2026-07-30 23:17:29 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:17:29 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:17:29 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.check_for_updates -> {'has_update': False} (6.25s)
+2026-07-30 23:17:29 [DEBUG] [Thread-17 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#mc-yes "Igen"
+2026-07-30 23:17:29 [INFO] [Thread-18 (_call)] [CALL] DriverToolApi.clean_temp_files({'user_temp': True, 'windows_temp': True, 'wu_cache': True, 'thumbnail_cache': False, 'recycle_bin': False, 'delivery_opt': False, 'wer': False, 'shader_cache': False, 'cbs_logs': False, 'crash_dumps'...[+54 kar.])
+2026-07-30 23:17:29 [INFO] [Thread-18 (_call)] [API] clean_temp_files(options={'user_temp': True, 'windows_temp': True, 'wu_cache': True, 'thumbnail_cache': False, 'recycle_bin': False, 'delivery_opt': False, 'wer': False, 'shader_cache': False, 'cbs_logs': False, 'crash_dumps': False, 'inet_cache': False, 'color_profiles': False})
+2026-07-30 23:17:29 [DEBUG] [Thread-18 (_call)] [CALL] DriverToolApi._safe_thread('tempclean', <function GuiTempCleanMixin.clean_temp_files.<locals>.worker at 0x000001F5EA379E40>)
+2026-07-30 23:17:29 [INFO] [task-tempclean] [THREAD:tempclean] Háttérszál indul...
+2026-07-30 23:17:29 [DEBUG] [Thread-18 (_call)] [CALL] DriverToolApi._safe_thread -> None (0.00s)
+2026-07-30 23:17:29 [DEBUG] [task-tempclean] [EMIT:task_start] data={"task": "tempclean", "title": "Temp Fájlok Törlése"}
+2026-07-30 23:17:29 [INFO] [Thread-18 (_call)] [CALL] DriverToolApi.clean_temp_files -> None (0.00s)
+2026-07-30 23:17:29 [INFO] [task-tempclean] [EMIT:task_progress] ⏸️ Szolgáltatások leállítása a cache törléséhez (bits, wuauserv)...
+2026-07-30 23:17:29 [DEBUG] [task-tempclean] [CMD] Futtatás: powershell -NoProfile -Command Stop-Service bits,wuauserv -Force -ErrorAction SilentlyContinue
+2026-07-30 23:17:30 [DEBUG] [task-tempclean] [CMD] OK (0.1s)
+2026-07-30 23:17:30 [INFO] [task-tempclean] [EMIT:task_progress] 👤 Felhasználói TEMP mappa (%TEMP%) törlése (C:\Users\egonix\AppData\Local\Temp)...
+2026-07-30 23:17:30 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\037ec18e-68cd-404c-af58-30fd0852a426.tmp): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\037ec18e-68cd-404c-af58-30fd0852a426.tmp'
+2026-07-30 23:17:30 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\12302a58-3c5e-4e0a-ae08-b7105f3949f7.tmp): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\12302a58-3c5e-4e0a-ae08-b7105f3949f7.tmp'
+2026-07-30 23:17:30 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\26904e67-f02f-4c2a-b307-8f06e84cb046.tmp): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\26904e67-f02f-4c2a-b307-8f06e84cb046.tmp'
+2026-07-30 23:17:30 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\27b0944e-c118-4767-89db-f39a0b76f261.tmp): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\27b0944e-c118-4767-89db-f39a0b76f261.tmp'
+2026-07-30 23:17:30 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\2c5d32cd-7abc-4b54-9f62-ce552a984856.tmp): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\2c5d32cd-7abc-4b54-9f62-ce552a984856.tmp'
+2026-07-30 23:17:30 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\31d6fbaa-b51c-4591-a6f6-9b48eb1204eb.tmp): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\31d6fbaa-b51c-4591-a6f6-9b48eb1204eb.tmp'
+2026-07-30 23:17:30 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\331b7cc6-888c-40ec-bc3d-d6d2939f2920.tmp): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\331b7cc6-888c-40ec-bc3d-d6d2939f2920.tmp'
+2026-07-30 23:17:30 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\4898ce53-7aac-4cf5-984f-ae420188308e.tmp): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\4898ce53-7aac-4cf5-984f-ae420188308e.tmp'
+2026-07-30 23:17:30 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\58c42b7e-69dd-46e2-8ab7-ea68ce9c6352.tmp): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\58c42b7e-69dd-46e2-8ab7-ea68ce9c6352.tmp'
+2026-07-30 23:17:30 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\f7f97a9e-04eb-4787-8d53-9a4da03e57c4.tmp): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\f7f97a9e-04eb-4787-8d53-9a4da03e57c4.tmp'
+2026-07-30 23:17:30 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\is-5H8V2.tmp): [WinError 5] Access is denied: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\is-5H8V2.tmp\\CodeSetup-stable-e4c7e7b1d6d060162f4aa7f8225271b67ce1df75.tmp'
+2026-07-30 23:17:31 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\Setup Log 2026-07-30 #001.txt): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\Setup Log 2026-07-30 #001.txt'
+2026-07-30 23:17:31 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\tmpb8zqjx5t): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\tmpb8zqjx5t\\EBWebView\\Default\\BrowsingTopicsSiteData'
+2026-07-30 23:17:32 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\vscode-stable-user-x64): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\vscode-stable-user-x64\\CodeSetup-stable-e4c7e7b1d6d060162f4aa7f8225271b67ce1df75.exe'
+2026-07-30 23:17:32 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Users\egonix\AppData\Local\Temp\_MEI111522): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\egonix\\AppData\\Local\\Temp\\_MEI111522\\base_library.zip'
+2026-07-30 23:17:32 [INFO] [task-tempclean] [EMIT:task_progress] ✅ 473 elem törölve, 15 zárolt/hozzáférhetetlen elem kihagyva (2.0 GB felszabadítva).
+2026-07-30 23:17:32 [INFO] [task-tempclean] [EMIT:task_progress] 🖥️ Rendszer TEMP mappa (Windows\Temp) törlése (C:\Windows\Temp)...
+2026-07-30 23:17:32 [DEBUG] [task-tempclean] [TEMPCLEAN] Nem törölhető (C:\Windows\Temp\DESKTOP-2H0RE2E-20260730-2232.log): [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Windows\\Temp\\DESKTOP-2H0RE2E-20260730-2232.log'
+2026-07-30 23:17:32 [INFO] [task-tempclean] [EMIT:task_progress] ✅ 311 elem törölve, 1 zárolt/hozzáférhetetlen elem kihagyva (252.0 MB felszabadítva).
+2026-07-30 23:17:32 [INFO] [task-tempclean] [EMIT:task_progress] 🔄 Windows Update letöltési gyorsítótár törlése (C:\Windows\SoftwareDistribution\Download)...
+2026-07-30 23:17:32 [INFO] [task-tempclean] [EMIT:task_progress] ✅ 1 elem törölve, 0 zárolt/hozzáférhetetlen elem kihagyva (0 B felszabadítva).
+2026-07-30 23:17:32 [INFO] [task-tempclean] [EMIT:task_progress] ▶️ Szolgáltatások újraindítása...
+2026-07-30 23:17:32 [DEBUG] [task-tempclean] [CMD] Futtatás: powershell -NoProfile -Command Start-Service bits,wuauserv -ErrorAction SilentlyContinue
+2026-07-30 23:17:37 [DEBUG] [task-tempclean] [CMD] OK (4.7s)
+2026-07-30 23:17:37 [DEBUG] [task-tempclean] [CMD] stdout: WARNING: Waiting for service 'Background Intelligent Transfer Service (bits)' to start...
+WARNING: Waiting for service 'Background Intelligent Transfer Service (bits)' to start...
+2026-07-30 23:17:37 [INFO] [task-tempclean] [EMIT:task_progress] ✅ Kész! Összesen 785 elem törölve, 16 kihagyva (zárolt/hozzáférhetetlen fájlok - ez normális, ha épp használatban vannak).
+2026-07-30 23:17:37 [INFO] [task-tempclean] [EMIT:task_complete] 🧹 Felszabadított hely: 2.2 GB
+2026-07-30 23:17:37 [INFO] [task-tempclean] [THREAD:tempclean] Befejezve (7.3s)
+2026-07-30 23:17:38 [DEBUG] [Thread-23 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#mp-close-btn "✓ OK"
+2026-07-30 23:17:55 [INFO] [MainThread] ==================================================
+2026-07-30 23:17:55 [INFO] [MainThread] DriverVarázsló ELINDITVA (Build 246)
+2026-07-30 23:17:55 [INFO] [MainThread] Parancssor: ['C:\\Users\\egonix\\Desktop\\DriverVarazslo.exe']
+2026-07-30 23:17:55 [INFO] [MainThread] Futtatasi konyvtar: C:\Users\egonix\Desktop
+2026-07-30 23:17:55 [INFO] [MainThread] Admin jog: True
+2026-07-30 23:17:55 [INFO] [MainThread] ==================================================
+2026-07-30 23:17:55 [INFO] [MainThread] [INIT] WebView2 Runtime OK: v150.0.4078.105
+2026-07-30 23:17:55 [INFO] [MainThread] [INIT] DriverToolApi inicializálás...
+2026-07-30 23:17:55 [INFO] [MainThread] [INIT] sys_drive=C:\
+2026-07-30 23:17:55 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress()
+2026-07-30 23:17:55 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress -> None (0.00s)
+2026-07-30 23:17:55 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy()
+2026-07-30 23:17:55 [DEBUG] [MainThread] [CALL] DriverToolApi._autofix_stats_path()
+2026-07-30 23:17:55 [DEBUG] [MainThread] [CALL] DriverToolApi._autofix_stats_path -> 'C:\\DriverVarazslo\\autofix_stats.json' (0.02s)
+2026-07-30 23:17:55 [DEBUG] [MainThread] [AUTOFIX-CLEANUP] Nincs félbehagyott lánc-állapotfájl - nincs mit takarítani.
+2026-07-30 23:17:55 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy -> None (0.02s)
+2026-07-30 23:17:55 [INFO] [MainThread] [INIT] DriverToolApi kész.
+2026-07-30 23:17:55 [INFO] [MainThread] [MAIN] webview.start() hívása...
+2026-07-30 23:17:55 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window(<webview.window.Window object at 0x0000016627F97E00>)
+2026-07-30 23:17:55 [INFO] [Thread-3 (on_start)] [WINDOW] WebView ablak beállítása...
+2026-07-30 23:17:55 [INFO] [Thread-8 (_call)] [CALL] DriverToolApi.get_init_data()
+2026-07-30 23:17:55 [INFO] [Thread-8 (_call)] [API] get_init_data() hívás - build=246, target=None
+2026-07-30 23:17:55 [INFO] [Thread-3 (on_start)] [WINDOW] WebView2 DOM kész (1 próba után, 0.1s)
+2026-07-30 23:17:55 [INFO] [Thread-8 (_call)] [CALL] DriverToolApi.get_init_data -> {'build': 246, 'sys_drive': 'C:\\', 'target_os': None, 'resume_mode': False, 'resume_step1': False, 'app_data_dir': 'C:\\DriverVarazslo'} (0.00s)
+2026-07-30 23:17:55 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window -> None (0.50s)
+2026-07-30 23:17:55 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.load_drivers(False)
+2026-07-30 23:17:55 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.get_service_tools_status()
+2026-07-30 23:17:55 [INFO] [Thread-10 (_call)] [API] load_drivers(all_drivers=False)
+2026-07-30 23:17:55 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.check_for_updates()
+2026-07-30 23:17:55 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._load_tool_install_records()
+2026-07-30 23:17:55 [DEBUG] [drivers-load] [EMIT:drivers_loading] data=None
+2026-07-30 23:17:55 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.load_drivers -> None (0.00s)
+2026-07-30 23:17:55 [INFO] [Thread-12 (_call)] [UPDATE] check_for_updates()
+2026-07-30 23:17:55 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._tool_install_record_path()
+2026-07-30 23:17:55 [INFO] [drivers-load] [DRIVERS] Third-party driverek lekérdezés
+2026-07-30 23:17:55 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._tool_install_record_path -> 'C:\\DriverVarazslo\\installed_tools.json' (0.00s)
+2026-07-30 23:17:55 [DEBUG] [drivers-load] [CALL] DriverToolApi._get_third_party_drivers()
+2026-07-30 23:17:55 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._load_tool_install_records -> {} (0.00s)
+2026-07-30 23:17:55 [DEBUG] [drivers-load] [DRIVERS] dism /English /Online /Get-Drivers futtatása...
+2026-07-30 23:17:55 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.get_service_tools_status -> {'furmark': {'installed': False, 'path': None}, 'prime95': {'installed': False, 'path': None}, 'linpack': {'installed': False, 'path': None}, 'hwinfo': {'installed': False, 'path': None}, 'hdsentinel': {'installed': False, 'path': None}, 'cpuz': {'installed': False, 'path': None}, 'gpuz': {'installe...[+126 kar.] (0.00s)
+2026-07-30 23:17:55 [DEBUG] [drivers-load] [CMD] Futtatás: dism /English /Online /Get-Drivers
+2026-07-30 23:17:55 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (1/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446275
+2026-07-30 23:17:55 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:17:55 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:17:56 [INFO] [Thread-1 (webview_watchdog)] [WATCHDOG] WebView2 sikeresen elindult
+2026-07-30 23:17:57 [DEBUG] [Thread-15 (_call)] [JS_UI] [UI-AKCIO] Kattintás: div "🧙‍♂️ DRIVERVARÁZSLÓ 🖥️ Tiszta rendszer"
+2026-07-30 23:17:57 [INFO] [Thread-16 (_call)] [CALL] DriverToolApi.check_for_updates()
+2026-07-30 23:17:57 [INFO] [Thread-16 (_call)] [UPDATE] check_for_updates()
+2026-07-30 23:17:57 [INFO] [Thread-16 (_call)] [UPDATE] Update ellenőrzése erről a címről (1/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446277
+2026-07-30 23:17:58 [INFO] [Thread-16 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:17:58 [INFO] [Thread-16 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:17:58 [DEBUG] [drivers-load] [CMD] OK (2.2s)
+2026-07-30 23:17:58 [DEBUG] [drivers-load] [CMD] stdout: Deployment Image Servicing and Management tool
 Version: 10.0.26100.5074
 
 Image Version: 10.0.26200.8457
@@ -435,763 +474,626 @@ Date : 1/6/2021
 Version : 1.16.4.26
 
 The operation completed successfully.
-2026-07-30 22:37:02 [DEBUG] [drivers-load] [CALL] DriverToolApi._get_third_party_drivers -> [{'version': '10.0.26100.4484', 'published': 'oem0.inf', 'original': 'prnms009.inf', 'class': 'Printer', 'provider': 'Microsoft', 'date': '2006-06-21'}, {'published': 'oem1.inf', 'original': 'xvdd.inf', 'class': 'SCSIAdapter', 'provider': 'Xbox', 'date': '2026-06-05', 'version': '10.0.22027.2'}, {'p...[+2685 kar.] (2.09s)
-2026-07-30 22:37:02 [INFO] [drivers-load] [DRIVERS] Betöltve: 19 driver (2.1s)
-2026-07-30 22:37:02 [DEBUG] [drivers-load] [EMIT:drivers_loaded] data={"drivers": [{"version": "10.0.26100.4484", "published": "oem0.inf", "original": "prnms009.inf", "class": "Printer", "provider": "Microsoft", "date": "2006-06-21"}, {"published": "oem1.inf", "original
-2026-07-30 22:37:03 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (2/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785443823
-2026-07-30 22:37:03 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
-2026-07-30 22:37:03 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
-2026-07-30 22:37:04 [DEBUG] [Thread-15 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button[view=benchmark] "🏆 Benchmark"
-2026-07-30 22:37:04 [INFO] [Thread-16 (_call)] [CALL] DriverToolApi.load_machine_specs()
-2026-07-30 22:37:04 [INFO] [Thread-17 (_call)] [CALL] DriverToolApi.get_benchmark_settings()
-2026-07-30 22:37:04 [INFO] [Thread-18 (_call)] [CALL] DriverToolApi.fetch_leaderboard()
-2026-07-30 22:37:04 [DEBUG] [bench-specs] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+2026-07-30 23:17:58 [DEBUG] [drivers-load] [CALL] DriverToolApi._get_third_party_drivers -> [{'version': '10.0.26100.4484', 'published': 'oem0.inf', 'original': 'prnms009.inf', 'class': 'Printer', 'provider': 'Microsoft', 'date': '2006-06-21'}, {'published': 'oem1.inf', 'original': 'xvdd.inf', 'class': 'SCSIAdapter', 'provider': 'Xbox', 'date': '2026-06-05', 'version': '10.0.22027.2'}, {'p...[+2685 kar.] (2.19s)
+2026-07-30 23:17:58 [INFO] [drivers-load] [DRIVERS] Betöltve: 19 driver (2.2s)
+2026-07-30 23:17:58 [DEBUG] [drivers-load] [EMIT:drivers_loaded] data={"drivers": [{"version": "10.0.26100.4484", "published": "oem0.inf", "original": "prnms009.inf", "class": "Printer", "provider": "Microsoft", "date": "2006-06-21"}, {"published": "oem1.inf", "original
+2026-07-30 23:17:58 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (2/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446278
+2026-07-30 23:17:59 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:17:59 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:18:01 [INFO] [Thread-16 (_call)] [UPDATE] Update ellenőrzése erről a címről (2/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446281
+2026-07-30 23:18:01 [INFO] [Thread-16 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:18:01 [INFO] [Thread-16 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:18:02 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (3/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446282
+2026-07-30 23:18:02 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:18:02 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:18:02 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.check_for_updates -> {'has_update': False} (6.16s)
+2026-07-30 23:18:04 [INFO] [Thread-16 (_call)] [UPDATE] Update ellenőrzése erről a címről (3/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446284
+2026-07-30 23:18:04 [INFO] [Thread-16 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:18:04 [INFO] [Thread-16 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:18:04 [INFO] [Thread-16 (_call)] [CALL] DriverToolApi.check_for_updates -> {'has_update': False} (6.12s)
+2026-07-30 23:21:04 [DEBUG] [Thread-17 (_call)] [JS_UI] [UI-AKCIO] Kattintás: div "🧙‍♂️ DRIVERVARÁZSLÓ 🖥️ Tiszta rendszer"
+2026-07-30 23:21:04 [INFO] [Thread-18 (_call)] [CALL] DriverToolApi.check_for_updates()
+2026-07-30 23:21:04 [INFO] [Thread-18 (_call)] [UPDATE] check_for_updates()
+2026-07-30 23:21:04 [INFO] [Thread-18 (_call)] [UPDATE] Update ellenőrzése erről a címről (1/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446464
+2026-07-30 23:21:04 [INFO] [Thread-18 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:21:04 [INFO] [Thread-18 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:21:07 [INFO] [Thread-18 (_call)] [UPDATE] Update ellenőrzése erről a címről (2/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446467
+2026-07-30 23:21:07 [INFO] [Thread-18 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:21:07 [INFO] [Thread-18 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:21:09 [DEBUG] [Thread-19 (_call)] [JS_UI] [UI-AKCIO] Kattintás: div "🧙‍♂️ DRIVERVARÁZSLÓ 🖥️ Tiszta rendszer"
+2026-07-30 23:21:09 [DEBUG] [Thread-20 (_call)] [JS_UI] [UI-AKCIO] Kattintás: div "🧙‍♂️ DRIVERVARÁZSLÓ 🖥️ Tiszta rendszer"
+2026-07-30 23:21:10 [INFO] [Thread-18 (_call)] [UPDATE] Update ellenőrzése erről a címről (3/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446470
+2026-07-30 23:21:10 [INFO] [Thread-18 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:21:10 [INFO] [Thread-18 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:21:10 [INFO] [Thread-18 (_call)] [CALL] DriverToolApi.check_for_updates -> {'has_update': False} (6.16s)
+2026-07-30 23:21:18 [INFO] [MainThread] ==================================================
+2026-07-30 23:21:18 [INFO] [MainThread] DriverVarázsló ELINDITVA (Build 246)
+2026-07-30 23:21:18 [INFO] [MainThread] Parancssor: ['C:\\Users\\egonix\\Desktop\\DriverVarazslo.exe']
+2026-07-30 23:21:18 [INFO] [MainThread] Futtatasi konyvtar: C:\Users\egonix\Desktop
+2026-07-30 23:21:18 [INFO] [MainThread] Admin jog: True
+2026-07-30 23:21:18 [INFO] [MainThread] ==================================================
+2026-07-30 23:21:18 [INFO] [MainThread] [INIT] WebView2 Runtime OK: v150.0.4078.105
+2026-07-30 23:21:18 [INFO] [MainThread] [INIT] DriverToolApi inicializálás...
+2026-07-30 23:21:18 [INFO] [MainThread] [INIT] sys_drive=C:\
+2026-07-30 23:21:18 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress()
+2026-07-30 23:21:18 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress -> None (0.00s)
+2026-07-30 23:21:18 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy()
+2026-07-30 23:21:18 [DEBUG] [MainThread] [CALL] DriverToolApi._autofix_stats_path()
+2026-07-30 23:21:18 [DEBUG] [MainThread] [CALL] DriverToolApi._autofix_stats_path -> 'C:\\DriverVarazslo\\autofix_stats.json' (0.00s)
+2026-07-30 23:21:18 [DEBUG] [MainThread] [AUTOFIX-CLEANUP] Nincs félbehagyott lánc-állapotfájl - nincs mit takarítani.
+2026-07-30 23:21:18 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy -> None (0.00s)
+2026-07-30 23:21:18 [INFO] [MainThread] [INIT] DriverToolApi kész.
+2026-07-30 23:21:18 [INFO] [MainThread] [MAIN] webview.start() hívása...
+2026-07-30 23:21:18 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window(<webview.window.Window object at 0x00000281F5A788F0>)
+2026-07-30 23:21:18 [INFO] [Thread-3 (on_start)] [WINDOW] WebView ablak beállítása...
+2026-07-30 23:21:19 [INFO] [Thread-8 (_call)] [CALL] DriverToolApi.get_init_data()
+2026-07-30 23:21:19 [INFO] [Thread-8 (_call)] [API] get_init_data() hívás - build=246, target=None
+2026-07-30 23:21:19 [INFO] [Thread-3 (on_start)] [WINDOW] WebView2 DOM kész (1 próba után, 0.1s)
+2026-07-30 23:21:19 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window -> None (0.50s)
+2026-07-30 23:21:19 [INFO] [Thread-8 (_call)] [CALL] DriverToolApi.get_init_data -> {'build': 246, 'sys_drive': 'C:\\', 'target_os': None, 'resume_mode': False, 'resume_step1': False, 'app_data_dir': 'C:\\DriverVarazslo'} (0.00s)
+2026-07-30 23:21:19 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.load_drivers(False)
+2026-07-30 23:21:19 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.get_service_tools_status()
+2026-07-30 23:21:19 [INFO] [Thread-10 (_call)] [API] load_drivers(all_drivers=False)
+2026-07-30 23:21:19 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.check_for_updates()
+2026-07-30 23:21:19 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._load_tool_install_records()
+2026-07-30 23:21:19 [DEBUG] [drivers-load] [EMIT:drivers_loading] data=None
+2026-07-30 23:21:19 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.load_drivers -> None (0.00s)
+2026-07-30 23:21:19 [INFO] [Thread-12 (_call)] [UPDATE] check_for_updates()
+2026-07-30 23:21:19 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._tool_install_record_path()
+2026-07-30 23:21:19 [INFO] [drivers-load] [DRIVERS] Third-party driverek lekérdezés
+2026-07-30 23:21:19 [DEBUG] [drivers-load] [CALL] DriverToolApi._get_third_party_drivers()
+2026-07-30 23:21:19 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._tool_install_record_path -> 'C:\\DriverVarazslo\\installed_tools.json' (0.00s)
+2026-07-30 23:21:19 [DEBUG] [drivers-load] [DRIVERS] dism /English /Online /Get-Drivers futtatása...
+2026-07-30 23:21:19 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._load_tool_install_records -> {} (0.00s)
+2026-07-30 23:21:19 [DEBUG] [drivers-load] [CMD] Futtatás: dism /English /Online /Get-Drivers
+2026-07-30 23:21:19 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.get_service_tools_status -> {'furmark': {'installed': False, 'path': None}, 'prime95': {'installed': False, 'path': None}, 'linpack': {'installed': False, 'path': None}, 'hwinfo': {'installed': False, 'path': None}, 'hdsentinel': {'installed': False, 'path': None}, 'cpuz': {'installed': False, 'path': None}, 'gpuz': {'installe...[+126 kar.] (0.00s)
+2026-07-30 23:21:19 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (1/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446479
+2026-07-30 23:21:19 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:21:19 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:21:19 [INFO] [Thread-1 (webview_watchdog)] [WATCHDOG] WebView2 sikeresen elindult
+2026-07-30 23:21:21 [DEBUG] [drivers-load] [CMD] OK (2.1s)
+2026-07-30 23:21:21 [DEBUG] [drivers-load] [CMD] stdout: Deployment Image Servicing and Management tool
+Version: 10.0.26100.5074
+
+Image Version: 10.0.26200.8457
+
+Obtaining list of 3rd party drivers from the driver store...
+
+Driver packages listing:
+
+Published Name : oem0.inf
+Original File Name : prnms009.inf
+Inbox : No
+Class Name : Printer
+Provider Name : Microsoft
+Date : 6/21/2006
+Version : 10.0.26100.4484
+
+Published Name : oem1.inf
+Original File Name : xvdd.inf
+Inbox : No
+Class Name : SCSIAdapter
+Provider Name : Xbox
+Date : 6/5/2026
+Version : 10.0.22027.2
+
+Published Name : oem10.inf
+Original File Name : rtkfilter.inf
+Inbox : No
+Class Name : Bluetooth
+Provider Name : Realtek Semiconductor Corp.
+Date : 9/29/2021
+Version : 1.9.1038.3001
+
+Published Name : oem11.inf
+Original File Name : rz00b9dev.inf
+Inbox : No
+Class Name : HIDClass
+Provider Name : Razer Inc
+Date : 1/2/2017
+Version : 6.2.9200.16547
+
+Published Name : oem111.inf
+Original File Name : rt640x64.inf
+Inbox : No
+Class Name : Net
+Provider Name : Realtek
+Date : 10/3/2025
+Version : 10.79.50.1003
+
+Published Name : oem12.inf
+Original File Name : nv_dispig.inf
+Inbox : No
+Class Name : Display
+Provider Name : NVIDIA
+Date : 1/20/2026
+Version : 32.0.15.9186
+
+Published Name : oem13.inf
+Original File Name : nvhda.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : NVIDIA Corporation
+Date : 1/20/2026
+Version : 1.4.5.7
+
+Published Name : oem14.inf
+Original File Name : nvpcf.inf
+Inbox : No
+Class Name : SoftwareDevice
+Provider Name : NVIDIA
+Date : 1/20/2026
+Version : 32.0.15.9071
+
+Published Name : oem15.inf
+Original File Name : nvppc.inf
+Inbox : No
+Class Name : USB
+Provider Name : NVIDIA
+Date : 1/20/2026
+Version : 1.52.831.832
+
+Published Name : oem16.inf
+Original File Name : voiceclarityep_audio_component.inf
+Inbox : No
+Class Name : AudioProcessingObject
+Provider Name : Microsoft Corporation
+Date : 6/16/2026
+Version : 1.0.4.7057
+
+Published Name : oem19.inf
+Original File Name : amdinterface.inf
+Inbox : No
+Class Name : System
+Provider Name : Advanced Micro Devices, Inc
+Date : 12/4/2025
+Version : 2.0.0.26
+
+Published Name : oem2.inf
+Original File Name : gameflt.inf
+Inbox : No
+Class Name : HSM
+Provider Name : Xbox
+Date : 5/1/2026
+Version : 10.0.22019.2
+
+Published Name : oem20.inf
+Original File Name : amdpcidev.inf
+Inbox : No
+Class Name : System
+Provider Name : Advanced Micro Devices
+Date : 9/9/2025
+Version : 1.0.0.90
+
+Published Name : oem22.inf
+Original File Name : amdpsp.inf
+Inbox : No
+Class Name : SecurityDevices
+Provider Name : Advanced Micro Devices Inc.
+Date : 3/16/2026
+Version : 5.44.0.0
+
+Published Name : oem3.inf
+Original File Name : smbusamd.inf
+Inbox : No
+Class Name : System
+Provider Name : Advanced Micro Devices, Inc
+Date : 8/30/2017
+Version : 5.12.0.38
+
+Published Name : oem4.inf
+Original File Name : amdgpio3.inf
+Inbox : No
+Class Name : System
+Provider Name : Advanced Micro Devices, Inc.
+Date : 8/29/2017
+Version : 2.0.1.0
+
+Published Name : oem5.inf
+Original File Name : prnms006.inf
+Inbox : No
+Class Name : Printer
+Provider Name : Microsoft
+Date : 11/29/2016
+Version : 16.0.7629.4000
+
+Published Name : oem6.inf
+Original File Name : amdgpio2.inf
+Inbox : No
+Class Name : System
+Provider Name : Advanced Micro Devices, Inc
+Date : 9/29/2019
+Version : 2.2.0.121
+
+Published Name : oem7.inf
+Original File Name : ksusbaud.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : Creative Technology Ltd.
+Date : 1/6/2021
+Version : 1.16.4.26
+
+The operation completed successfully.
+2026-07-30 23:21:21 [DEBUG] [drivers-load] [CALL] DriverToolApi._get_third_party_drivers -> [{'version': '10.0.26100.4484', 'published': 'oem0.inf', 'original': 'prnms009.inf', 'class': 'Printer', 'provider': 'Microsoft', 'date': '2006-06-21'}, {'published': 'oem1.inf', 'original': 'xvdd.inf', 'class': 'SCSIAdapter', 'provider': 'Xbox', 'date': '2026-06-05', 'version': '10.0.22027.2'}, {'p...[+2685 kar.] (2.11s)
+2026-07-30 23:21:21 [INFO] [drivers-load] [DRIVERS] Betöltve: 19 driver (2.1s)
+2026-07-30 23:21:21 [DEBUG] [drivers-load] [EMIT:drivers_loaded] data={"drivers": [{"version": "10.0.26100.4484", "published": "oem0.inf", "original": "prnms009.inf", "class": "Printer", "provider": "Microsoft", "date": "2006-06-21"}, {"published": "oem1.inf", "original
+2026-07-30 23:21:22 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (2/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446482
+2026-07-30 23:21:22 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:21:22 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:21:25 [DEBUG] [Thread-15 (_call)] [JS_UI] [UI-AKCIO] Kattintás: div "🧙‍♂️ DRIVERVARÁZSLÓ 🖥️ Tiszta rendszer"
+2026-07-30 23:21:25 [INFO] [Thread-16 (_call)] [CALL] DriverToolApi.check_for_updates()
+2026-07-30 23:21:25 [INFO] [Thread-16 (_call)] [UPDATE] check_for_updates()
+2026-07-30 23:21:25 [INFO] [Thread-16 (_call)] [UPDATE] Update ellenőrzése erről a címről (1/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446485
+2026-07-30 23:21:25 [INFO] [Thread-16 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:21:25 [INFO] [Thread-16 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:21:25 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (3/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446485
+2026-07-30 23:21:25 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:21:25 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:21:25 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.check_for_updates -> {'has_update': False} (6.11s)
+2026-07-30 23:21:28 [INFO] [Thread-16 (_call)] [UPDATE] Update ellenőrzése erről a címről (2/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446488
+2026-07-30 23:21:28 [INFO] [Thread-16 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:21:28 [INFO] [Thread-16 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:21:31 [INFO] [Thread-16 (_call)] [UPDATE] Update ellenőrzése erről a címről (3/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446491
+2026-07-30 23:21:31 [INFO] [Thread-16 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:21:31 [INFO] [Thread-16 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:21:31 [INFO] [Thread-16 (_call)] [CALL] DriverToolApi.check_for_updates -> {'has_update': False} (6.11s)
+2026-07-30 23:21:41 [DEBUG] [Thread-17 (_call)] [JS_UI] [UI-AKCIO] Kattintás: div "🧙‍♂️ DRIVERVARÁZSLÓ 🖥️ Tiszta rendszer"
+2026-07-30 23:21:41 [INFO] [Thread-18 (_call)] [CALL] DriverToolApi.check_for_updates()
+2026-07-30 23:21:41 [INFO] [Thread-18 (_call)] [UPDATE] check_for_updates()
+2026-07-30 23:21:41 [INFO] [Thread-18 (_call)] [UPDATE] Update ellenőrzése erről a címről (1/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446501
+2026-07-30 23:21:41 [INFO] [Thread-18 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:21:41 [INFO] [Thread-18 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:21:42 [DEBUG] [Thread-19 (_call)] [JS_UI] [UI-AKCIO] Kattintás: div "🧙‍♂️ DRIVERVARÁZSLÓ 🖥️ Tiszta rendszer"
+2026-07-30 23:21:43 [DEBUG] [Thread-20 (_call)] [JS_UI] [UI-AKCIO] Kattintás: div "🧙‍♂️ DRIVERVARÁZSLÓ 🖥️ Tiszta rendszer"
+2026-07-30 23:21:43 [DEBUG] [Thread-21 (_call)] [JS_UI] [UI-AKCIO] Kattintás: div "🧙‍♂️ DRIVERVARÁZSLÓ 🖥️ Tiszta rendszer"
+2026-07-30 23:21:44 [INFO] [Thread-18 (_call)] [UPDATE] Update ellenőrzése erről a címről (2/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446504
+2026-07-30 23:21:44 [INFO] [Thread-18 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:21:44 [INFO] [Thread-18 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:21:47 [INFO] [Thread-18 (_call)] [UPDATE] Update ellenőrzése erről a címről (3/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446507
+2026-07-30 23:21:47 [INFO] [Thread-18 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
+2026-07-30 23:21:47 [INFO] [Thread-18 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:21:47 [INFO] [Thread-18 (_call)] [CALL] DriverToolApi.check_for_updates -> {'has_update': False} (6.17s)
+2026-07-30 23:21:53 [INFO] [MainThread] ==================================================
+2026-07-30 23:21:53 [INFO] [MainThread] DriverVarázsló ELINDITVA (Build 247)
+2026-07-30 23:21:53 [INFO] [MainThread] Parancssor: ['C:\\Users\\egonix\\Desktop\\DriverVarazslo\\dist\\DriverVarazslo.exe']
+2026-07-30 23:21:53 [INFO] [MainThread] Futtatasi konyvtar: C:\Users\egonix\Desktop\DriverVarazslo\dist
+2026-07-30 23:21:53 [INFO] [MainThread] Admin jog: True
+2026-07-30 23:21:53 [INFO] [MainThread] ==================================================
+2026-07-30 23:21:53 [INFO] [MainThread] [INIT] WebView2 Runtime OK: v150.0.4078.105
+2026-07-30 23:21:53 [INFO] [MainThread] [INIT] DriverToolApi inicializálás...
+2026-07-30 23:21:53 [INFO] [MainThread] [INIT] sys_drive=C:\
+2026-07-30 23:21:53 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress()
+2026-07-30 23:21:53 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress -> None (0.00s)
+2026-07-30 23:21:53 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy()
+2026-07-30 23:21:53 [DEBUG] [MainThread] [CALL] DriverToolApi._autofix_stats_path()
+2026-07-30 23:21:53 [DEBUG] [MainThread] [CALL] DriverToolApi._autofix_stats_path -> 'C:\\DriverVarazslo\\autofix_stats.json' (0.00s)
+2026-07-30 23:21:53 [DEBUG] [MainThread] [AUTOFIX-CLEANUP] Nincs félbehagyott lánc-állapotfájl - nincs mit takarítani.
+2026-07-30 23:21:53 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy -> None (0.00s)
+2026-07-30 23:21:53 [INFO] [MainThread] [INIT] DriverToolApi kész.
+2026-07-30 23:21:53 [INFO] [MainThread] [MAIN] webview.start() hívása...
+2026-07-30 23:21:54 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window(<webview.window.Window object at 0x00000230361B6CF0>)
+2026-07-30 23:21:54 [INFO] [Thread-3 (on_start)] [WINDOW] WebView ablak beállítása...
+2026-07-30 23:21:54 [INFO] [Thread-8 (_call)] [CALL] DriverToolApi.get_init_data()
+2026-07-30 23:21:54 [INFO] [Thread-8 (_call)] [API] get_init_data() hívás - build=247, target=None
+2026-07-30 23:21:54 [INFO] [Thread-8 (_call)] [CALL] DriverToolApi.get_init_data -> {'build': 247, 'sys_drive': 'C:\\', 'target_os': None, 'resume_mode': False, 'resume_step1': False, 'app_data_dir': 'C:\\DriverVarazslo'} (0.00s)
+2026-07-30 23:21:54 [INFO] [Thread-3 (on_start)] [WINDOW] WebView2 DOM kész (1 próba után, 0.1s)
+2026-07-30 23:21:54 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window -> None (0.51s)
+2026-07-30 23:21:54 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.load_drivers(False)
+2026-07-30 23:21:54 [INFO] [Thread-10 (_call)] [API] load_drivers(all_drivers=False)
+2026-07-30 23:21:54 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.get_service_tools_status()
+2026-07-30 23:21:54 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._load_tool_install_records()
+2026-07-30 23:21:54 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._tool_install_record_path()
+2026-07-30 23:21:54 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.load_drivers -> None (0.00s)
+2026-07-30 23:21:54 [DEBUG] [drivers-load] [EMIT:drivers_loading] data=None
+2026-07-30 23:21:54 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.check_for_updates()
+2026-07-30 23:21:54 [INFO] [Thread-12 (_call)] [UPDATE] check_for_updates()
+2026-07-30 23:21:54 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._tool_install_record_path -> 'C:\\DriverVarazslo\\installed_tools.json' (0.00s)
+2026-07-30 23:21:54 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._load_tool_install_records -> {} (0.00s)
+2026-07-30 23:21:54 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.get_service_tools_status -> {'furmark': {'installed': False, 'path': None}, 'prime95': {'installed': False, 'path': None}, 'linpack': {'installed': False, 'path': None}, 'hwinfo': {'installed': False, 'path': None}, 'hdsentinel': {'installed': False, 'path': None}, 'cpuz': {'installed': False, 'path': None}, 'gpuz': {'installe...[+126 kar.] (0.00s)
+2026-07-30 23:21:54 [INFO] [drivers-load] [DRIVERS] Third-party driverek lekérdezés
+2026-07-30 23:21:54 [DEBUG] [drivers-load] [CALL] DriverToolApi._get_third_party_drivers()
+2026-07-30 23:21:54 [DEBUG] [drivers-load] [DRIVERS] dism /English /Online /Get-Drivers futtatása...
+2026-07-30 23:21:54 [DEBUG] [drivers-load] [CMD] Futtatás: dism /English /Online /Get-Drivers
+2026-07-30 23:21:54 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (1/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446514
+2026-07-30 23:21:54 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 247
+2026-07-30 23:21:54 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:21:54 [INFO] [Thread-1 (webview_watchdog)] [WATCHDOG] WebView2 sikeresen elindult
+2026-07-30 23:21:56 [DEBUG] [drivers-load] [CMD] OK (2.1s)
+2026-07-30 23:21:56 [DEBUG] [drivers-load] [CMD] stdout: Deployment Image Servicing and Management tool
+Version: 10.0.26100.5074
+
+Image Version: 10.0.26200.8457
+
+Obtaining list of 3rd party drivers from the driver store...
+
+Driver packages listing:
+
+Published Name : oem0.inf
+Original File Name : prnms009.inf
+Inbox : No
+Class Name : Printer
+Provider Name : Microsoft
+Date : 6/21/2006
+Version : 10.0.26100.4484
+
+Published Name : oem1.inf
+Original File Name : xvdd.inf
+Inbox : No
+Class Name : SCSIAdapter
+Provider Name : Xbox
+Date : 6/5/2026
+Version : 10.0.22027.2
+
+Published Name : oem10.inf
+Original File Name : rtkfilter.inf
+Inbox : No
+Class Name : Bluetooth
+Provider Name : Realtek Semiconductor Corp.
+Date : 9/29/2021
+Version : 1.9.1038.3001
+
+Published Name : oem11.inf
+Original File Name : rz00b9dev.inf
+Inbox : No
+Class Name : HIDClass
+Provider Name : Razer Inc
+Date : 1/2/2017
+Version : 6.2.9200.16547
+
+Published Name : oem111.inf
+Original File Name : rt640x64.inf
+Inbox : No
+Class Name : Net
+Provider Name : Realtek
+Date : 10/3/2025
+Version : 10.79.50.1003
+
+Published Name : oem12.inf
+Original File Name : nv_dispig.inf
+Inbox : No
+Class Name : Display
+Provider Name : NVIDIA
+Date : 1/20/2026
+Version : 32.0.15.9186
+
+Published Name : oem13.inf
+Original File Name : nvhda.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : NVIDIA Corporation
+Date : 1/20/2026
+Version : 1.4.5.7
+
+Published Name : oem14.inf
+Original File Name : nvpcf.inf
+Inbox : No
+Class Name : SoftwareDevice
+Provider Name : NVIDIA
+Date : 1/20/2026
+Version : 32.0.15.9071
+
+Published Name : oem15.inf
+Original File Name : nvppc.inf
+Inbox : No
+Class Name : USB
+Provider Name : NVIDIA
+Date : 1/20/2026
+Version : 1.52.831.832
+
+Published Name : oem16.inf
+Original File Name : voiceclarityep_audio_component.inf
+Inbox : No
+Class Name : AudioProcessingObject
+Provider Name : Microsoft Corporation
+Date : 6/16/2026
+Version : 1.0.4.7057
+
+Published Name : oem19.inf
+Original File Name : amdinterface.inf
+Inbox : No
+Class Name : System
+Provider Name : Advanced Micro Devices, Inc
+Date : 12/4/2025
+Version : 2.0.0.26
+
+Published Name : oem2.inf
+Original File Name : gameflt.inf
+Inbox : No
+Class Name : HSM
+Provider Name : Xbox
+Date : 5/1/2026
+Version : 10.0.22019.2
+
+Published Name : oem20.inf
+Original File Name : amdpcidev.inf
+Inbox : No
+Class Name : System
+Provider Name : Advanced Micro Devices
+Date : 9/9/2025
+Version : 1.0.0.90
+
+Published Name : oem22.inf
+Original File Name : amdpsp.inf
+Inbox : No
+Class Name : SecurityDevices
+Provider Name : Advanced Micro Devices Inc.
+Date : 3/16/2026
+Version : 5.44.0.0
+
+Published Name : oem3.inf
+Original File Name : smbusamd.inf
+Inbox : No
+Class Name : System
+Provider Name : Advanced Micro Devices, Inc
+Date : 8/30/2017
+Version : 5.12.0.38
+
+Published Name : oem4.inf
+Original File Name : amdgpio3.inf
+Inbox : No
+Class Name : System
+Provider Name : Advanced Micro Devices, Inc.
+Date : 8/29/2017
+Version : 2.0.1.0
+
+Published Name : oem5.inf
+Original File Name : prnms006.inf
+Inbox : No
+Class Name : Printer
+Provider Name : Microsoft
+Date : 11/29/2016
+Version : 16.0.7629.4000
+
+Published Name : oem6.inf
+Original File Name : amdgpio2.inf
+Inbox : No
+Class Name : System
+Provider Name : Advanced Micro Devices, Inc
+Date : 9/29/2019
+Version : 2.2.0.121
+
+Published Name : oem7.inf
+Original File Name : ksusbaud.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : Creative Technology Ltd.
+Date : 1/6/2021
+Version : 1.16.4.26
+
+The operation completed successfully.
+2026-07-30 23:21:56 [DEBUG] [drivers-load] [CALL] DriverToolApi._get_third_party_drivers -> [{'version': '10.0.26100.4484', 'published': 'oem0.inf', 'original': 'prnms009.inf', 'class': 'Printer', 'provider': 'Microsoft', 'date': '2006-06-21'}, {'published': 'oem1.inf', 'original': 'xvdd.inf', 'class': 'SCSIAdapter', 'provider': 'Xbox', 'date': '2026-06-05', 'version': '10.0.22027.2'}, {'p...[+2685 kar.] (2.12s)
+2026-07-30 23:21:56 [INFO] [drivers-load] [DRIVERS] Betöltve: 19 driver (2.1s)
+2026-07-30 23:21:56 [DEBUG] [drivers-load] [EMIT:drivers_loaded] data={"drivers": [{"version": "10.0.26100.4484", "published": "oem0.inf", "original": "prnms009.inf", "class": "Printer", "provider": "Microsoft", "date": "2006-06-21"}, {"published": "oem1.inf", "original
+2026-07-30 23:21:57 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (2/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446517
+2026-07-30 23:21:57 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 247
+2026-07-30 23:21:57 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:21:58 [DEBUG] [Thread-15 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button[view=benchmark] "🏆 Benchmark"
+2026-07-30 23:21:58 [INFO] [Thread-16 (_call)] [CALL] DriverToolApi.load_machine_specs()
+2026-07-30 23:21:58 [DEBUG] [bench-specs] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $d = @{}
 try { $d.CPU = (Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name) } catch {}
 try {
     $bb = Get-CimInstance Win32_BaseBoard | Select-Object -First 1
-2026-07-30 22:37:04 [INFO] [Thread-16 (_call)] [CALL] DriverToolApi.load_machine_specs -> None (0.00s)
-2026-07-30 22:37:04 [INFO] [Thread-17 (_call)] [CALL] DriverToolApi.get_benchmark_settings -> {'cinebench': 'CPU Multi-Thread (minden mag és szál)', 'furmark': '1024×768 · 0× MSAA · 10 mp · animált háttér · ablakos', 'furmark_short': '1024×768 · 0× MSAA', 'furmark_seconds': 10, 'furmark_cmd': 'FurMark.exe /nogui /benchmark /max_time=10000 /width=1024 /height=768 /msaa=0 /enable_dyn_bkg=1 /bk...[+60 kar.] (0.00s)
-2026-07-30 22:37:04 [INFO] [Thread-18 (_call)] [CALL] DriverToolApi.fetch_leaderboard -> None (0.00s)
-2026-07-30 22:37:05 [DEBUG] [Thread-21 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#btn-bench-run "🏁 Benchmark futtatása"
-2026-07-30 22:37:06 [DEBUG] [bench-specs] [CMD] OK (1.6s)
-2026-07-30 22:37:06 [DEBUG] [bench-specs] [CMD] stdout: {"RAMGB":64,"RAMTYPE":26,"CPU":"AMD Ryzen 5 5600 6-Core Processor              ","RAMCOUNT":4,"BOARDMAN":"ASRock","RAMSPEED":3600,"GPU":"NVIDIA GeForce RTX 3060","BOARDPROD":"B450M Pro4"}
-2026-07-30 22:37:06 [DEBUG] [bench-specs] [EMIT:machine_specs] data={"cpu": "AMD Ryzen 5 5600 6-Core", "motherboard": "ASRock B450M Pro4", "ram": "64 GB 3600 MHz (4 modul)", "gpu": "RTX 3060", "machine_id": "0ed7be43-b614-4973-b6d8-5fb5a02e494a", "machine_name": "AMD 
-2026-07-30 22:37:06 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (3/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785443826
-2026-07-30 22:37:06 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
-2026-07-30 22:37:06 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
-2026-07-30 22:37:06 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.check_for_updates -> {'has_update': False} (6.31s)
-2026-07-30 22:37:07 [DEBUG] [Thread-22 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#mc-yes "✅ Igen, zárja be"
-2026-07-30 22:37:07 [INFO] [Thread-23 (_call)] [CALL] DriverToolApi.run_benchmark_suite(True)
-2026-07-30 22:37:07 [INFO] [Thread-23 (_call)] [API] run_benchmark_suite(close_apps=True)
-2026-07-30 22:37:07 [INFO] [bench-suite] [EMIT:benchmark_progress] run
-2026-07-30 22:37:07 [INFO] [Thread-23 (_call)] [CALL] DriverToolApi.run_benchmark_suite -> None (0.00s)
-2026-07-30 22:37:07 [DEBUG] [bench-lb] [EMIT:leaderboard_data] data={"configured": true, "entries": [{"machine_id": "6982af08-4780-47e8-a5c5-7eda095ebbf0", "machine_name": "tetomives regi", "cpu": "AMD Ryzen 5 3600 6-Core", "motherboard": "ASRock B450M-HDV R4.0", "ram
-2026-07-30 22:37:07 [DEBUG] [bench-suite] [CALL] DriverToolApi._close_running_apps_sync()
-2026-07-30 22:37:07 [WARNING] [bench-suite] [BENCHMARK] Futó programok bezárása (WM_CLOSE, védett lista: 39 név, kihagyott PID-ek: [2320])...
-2026-07-30 22:37:07 [DEBUG] [bench-suite] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+2026-07-30 23:21:58 [INFO] [Thread-17 (_call)] [CALL] DriverToolApi.get_benchmark_settings()
+2026-07-30 23:21:58 [INFO] [Thread-17 (_call)] [CALL] DriverToolApi.get_benchmark_settings -> {'cinebench': 'CPU Multi-Thread (minden mag és szál)', 'furmark': '1024×768 · 0× MSAA · 10 mp · animált háttér · ablakos', 'furmark_short': '1024×768 · 0× MSAA', 'furmark_seconds': 10, 'furmark_cmd': 'FurMark.exe /nogui /benchmark /max_time=10000 /width=1024 /height=768 /msaa=0 /enable_dyn_bkg=1 /bk...[+60 kar.] (0.00s)
+2026-07-30 23:21:58 [INFO] [Thread-16 (_call)] [CALL] DriverToolApi.load_machine_specs -> None (0.00s)
+2026-07-30 23:21:58 [INFO] [Thread-18 (_call)] [CALL] DriverToolApi.fetch_leaderboard()
+2026-07-30 23:21:58 [INFO] [Thread-18 (_call)] [CALL] DriverToolApi.fetch_leaderboard -> None (0.00s)
+2026-07-30 23:21:59 [DEBUG] [bench-specs] [CMD] OK (1.4s)
+2026-07-30 23:21:59 [DEBUG] [bench-specs] [CMD] stdout: {"RAMGB":64,"RAMTYPE":26,"CPU":"AMD Ryzen 5 5600 6-Core Processor              ","RAMCOUNT":4,"BOARDMAN":"ASRock","RAMSPEED":3600,"GPU":"NVIDIA GeForce RTX 3060","BOARDPROD":"B450M Pro4"}
+2026-07-30 23:21:59 [DEBUG] [bench-specs] [EMIT:machine_specs] data={"cpu": "AMD Ryzen 5 5600 6-Core", "motherboard": "ASRock B450M Pro4", "ram": "64 GB 3600 MHz (4 modul)", "gpu": "RTX 3060", "machine_id": "0ed7be43-b614-4973-b6d8-5fb5a02e494a", "machine_name": "AMD 
+2026-07-30 23:22:00 [INFO] [Thread-12 (_call)] [UPDATE] Update ellenőrzése erről a címről (3/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785446520
+2026-07-30 23:22:00 [INFO] [Thread-12 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 247
+2026-07-30 23:22:00 [INFO] [Thread-12 (_call)] [UPDATE] Nincs újabb verzió.
+2026-07-30 23:22:00 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.check_for_updates -> {'has_update': False} (6.16s)
+2026-07-30 23:22:01 [DEBUG] [bench-lb] [EMIT:leaderboard_data] data={"configured": true, "entries": [{"machine_id": "6982af08-4780-47e8-a5c5-7eda095ebbf0", "machine_name": "tetomives regi", "cpu": "AMD Ryzen 5 3600 6-Core", "motherboard": "ASRock B450M-HDV R4.0", "ram
+2026-07-30 23:22:01 [DEBUG] [Thread-21 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#btn-bench-run "🏁 Benchmark futtatása"
+2026-07-30 23:22:02 [DEBUG] [Thread-22 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#mc-yes "✅ Igen, zárja be"
+2026-07-30 23:22:02 [INFO] [Thread-23 (_call)] [CALL] DriverToolApi.run_benchmark_suite(True)
+2026-07-30 23:22:02 [INFO] [Thread-23 (_call)] [API] run_benchmark_suite(close_apps=True)
+2026-07-30 23:22:02 [INFO] [bench-suite] [EMIT:benchmark_progress] run
+2026-07-30 23:22:02 [INFO] [Thread-23 (_call)] [CALL] DriverToolApi.run_benchmark_suite -> None (0.00s)
+2026-07-30 23:22:02 [DEBUG] [bench-suite] [CALL] DriverToolApi._close_running_apps_sync()
+2026-07-30 23:22:02 [WARNING] [bench-suite] [BENCHMARK] Futó programok bezárása (WM_CLOSE, védett lista: 39 név, kihagyott PID-ek: [14408])...
+2026-07-30 23:22:02 [DEBUG] [bench-suite] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = 'SilentlyContinue'
 $protect = @('drivervarazslo','msedgewebview2','python','pythonw','explorer','dwm','sihost','ctfmon','searchhost','searchui','searchapp','start
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CMD] OK (4.2s)
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CMD] stdout: TRY:brave|(686) YouTube - Brave
-TRY:Spotify|Spotify Premium
-CLOSED:brave
-CLOSED:Spotify
-DONE
-2026-07-30 22:37:11 [WARNING] [bench-suite] [BENCHMARK] Bezárás kérve: brave - '(686) YouTube - Brave'
-2026-07-30 22:37:11 [WARNING] [bench-suite] [BENCHMARK] Bezárás kérve: Spotify - 'Spotify Premium'
-2026-07-30 22:37:11 [INFO] [bench-suite] [BENCHMARK] Bezárt programok (2): ['brave', 'Spotify']
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._close_running_apps_sync -> (2, []) (4.22s)
-2026-07-30 22:37:11 [INFO] [bench-suite] [EMIT:benchmark_progress] done
-2026-07-30 22:37:11 [INFO] [bench-suite] [EMIT:benchmark_progress] run
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe('cinebench')
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter('Cinebench R20')
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter -> <function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001956D84AF20> (0.00s)
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools(progress=<function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001956D84AF20>)
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_sumatra_exe('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_sumatra_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\SumatraPDF\\SumatraPDF.exe' (0.02s)
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_hp_driver_inf('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_hp_driver_inf -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\HPDriver\\hpc1320u.inf' (0.00s)
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_stress_tool_exes('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress', ['nvinspector'])
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_stress_tool_exes -> {'nvinspector': 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\nvidiaProfileInspector\\nvidiaProfileInspector.exe'} (0.00s)
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid -> True (0.02s)
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress' (0.02s)
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": false}
-2026-07-30 22:37:11 [WARNING] [bench-suite] [BENCHMARK] Cinebench R20 nincs a kicsomagolt csomagban - friss letöltés kényszerítése...
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter('Cinebench R20')
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter -> <function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001956D84B100> (0.00s)
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools(progress=<function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001956D84B100>)
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid -> False (0.00s)
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:37:11 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid -> False (0.00s)
-2026-07-30 22:37:11 [INFO] [bench-suite] [STRESSTOOLS] Letöltés innen: https://github.com/egonixaimgod/DriverVarazslo/releases/download/stresstools.zip/stresstools.zip
-2026-07-30 22:37:12 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 0, "label": "🌐 Cinebench R20: csomag letöltése — 0 / 621 MB"}
-2026-07-30 22:37:12 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 3, "label": "🌐 Cinebench R20: csomag letöltése — 20 / 621 MB"}
-2026-07-30 22:37:13 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 6, "label": "🌐 Cinebench R20: csomag letöltése — 40 / 621 MB"}
-2026-07-30 22:37:13 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 8, "label": "🌐 Cinebench R20: csomag letöltése — 55 / 621 MB"}
-2026-07-30 22:37:13 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 11, "label": "🌐 Cinebench R20: csomag letöltése — 72 / 621 MB"}
-2026-07-30 22:37:14 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 14, "label": "🌐 Cinebench R20: csomag letöltése — 90 / 621 MB"}
-2026-07-30 22:37:14 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 16, "label": "🌐 Cinebench R20: csomag letöltése — 100 / 621 MB"}
-2026-07-30 22:37:15 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 19, "label": "🌐 Cinebench R20: csomag letöltése — 120 / 621 MB"}
-2026-07-30 22:37:15 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 22, "label": "🌐 Cinebench R20: csomag letöltése — 140 / 621 MB"}
-2026-07-30 22:37:15 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 25, "label": "🌐 Cinebench R20: csomag letöltése — 160 / 621 MB"}
-2026-07-30 22:37:16 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 28, "label": "🌐 Cinebench R20: csomag letöltése — 177 / 621 MB"}
-2026-07-30 22:37:16 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 30, "label": "🌐 Cinebench R20: csomag letöltése — 190 / 621 MB"}
-2026-07-30 22:37:16 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 33, "label": "🌐 Cinebench R20: csomag letöltése — 210 / 621 MB"}
-2026-07-30 22:37:17 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 37, "label": "🌐 Cinebench R20: csomag letöltése — 230 / 621 MB"}
-2026-07-30 22:37:17 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 40, "label": "🌐 Cinebench R20: csomag letöltése — 250 / 621 MB"}
-2026-07-30 22:37:17 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 43, "label": "🌐 Cinebench R20: csomag letöltése — 270 / 621 MB"}
-2026-07-30 22:37:18 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 46, "label": "🌐 Cinebench R20: csomag letöltése — 290 / 621 MB"}
-2026-07-30 22:37:18 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 49, "label": "🌐 Cinebench R20: csomag letöltése — 310 / 621 MB"}
-2026-07-30 22:37:18 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 53, "label": "🌐 Cinebench R20: csomag letöltése — 330 / 621 MB"}
-2026-07-30 22:37:19 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 56, "label": "🌐 Cinebench R20: csomag letöltése — 350 / 621 MB"}
-2026-07-30 22:37:19 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 59, "label": "🌐 Cinebench R20: csomag letöltése — 370 / 621 MB"}
-2026-07-30 22:37:19 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 61, "label": "🌐 Cinebench R20: csomag letöltése — 380 / 621 MB"}
-2026-07-30 22:37:20 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 62, "label": "🌐 Cinebench R20: csomag letöltése — 390 / 621 MB"}
-2026-07-30 22:37:20 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 65, "label": "🌐 Cinebench R20: csomag letöltése — 409 / 621 MB"}
-2026-07-30 22:37:20 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 67, "label": "🌐 Cinebench R20: csomag letöltése — 420 / 621 MB"}
-2026-07-30 22:37:21 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 70, "label": "🌐 Cinebench R20: csomag letöltése — 436 / 621 MB"}
-2026-07-30 22:37:21 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 72, "label": "🌐 Cinebench R20: csomag letöltése — 450 / 621 MB"}
-2026-07-30 22:37:21 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 75, "label": "🌐 Cinebench R20: csomag letöltése — 468 / 621 MB"}
-2026-07-30 22:37:22 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 78, "label": "🌐 Cinebench R20: csomag letöltése — 486 / 621 MB"}
-2026-07-30 22:37:22 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 81, "label": "🌐 Cinebench R20: csomag letöltése — 503 / 621 MB"}
-2026-07-30 22:37:22 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 83, "label": "🌐 Cinebench R20: csomag letöltése — 521 / 621 MB"}
-2026-07-30 22:37:23 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 86, "label": "🌐 Cinebench R20: csomag letöltése — 540 / 621 MB"}
-2026-07-30 22:37:23 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 89, "label": "🌐 Cinebench R20: csomag letöltése — 558 / 621 MB"}
-2026-07-30 22:37:23 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 91, "label": "🌐 Cinebench R20: csomag letöltése — 570 / 621 MB"}
-2026-07-30 22:37:24 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 94, "label": "🌐 Cinebench R20: csomag letöltése — 584 / 621 MB"}
-2026-07-30 22:37:24 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 97, "label": "🌐 Cinebench R20: csomag letöltése — 602 / 621 MB"}
-2026-07-30 22:37:24 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 99, "label": "🌐 Cinebench R20: csomag letöltése — 620 / 621 MB"}
-2026-07-30 22:37:24 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 100, "label": "🌐 Cinebench R20: csomag letöltése — 621 / 621 MB"}
-2026-07-30 22:37:24 [INFO] [bench-suite] [STRESSTOOLS] Letöltve: C:\Users\egonix\AppData\Local\Temp\stresstools.zip
-2026-07-30 22:37:25 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 1, "label": "📦 Cinebench R20: kicsomagolás — 61/3580 fájl"}
-2026-07-30 22:37:25 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 6, "label": "📦 Cinebench R20: kicsomagolás — 234/3580 fájl"}
-2026-07-30 22:37:25 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 8, "label": "📦 Cinebench R20: kicsomagolás — 291/3580 fájl"}
-2026-07-30 22:37:26 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 9, "label": "📦 Cinebench R20: kicsomagolás — 336/3580 fájl"}
-2026-07-30 22:37:26 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 10, "label": "📦 Cinebench R20: kicsomagolás — 364/3580 fájl"}
-2026-07-30 22:37:26 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 11, "label": "📦 Cinebench R20: kicsomagolás — 401/3580 fájl"}
-2026-07-30 22:37:26 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 30, "label": "📦 Cinebench R20: kicsomagolás — 1087/3580 fájl"}
-2026-07-30 22:37:27 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 41, "label": "📦 Cinebench R20: kicsomagolás — 1481/3580 fájl"}
-2026-07-30 22:37:27 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 44, "label": "📦 Cinebench R20: kicsomagolás — 1588/3580 fájl"}
-2026-07-30 22:37:28 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 66, "label": "📦 Cinebench R20: kicsomagolás — 2385/3580 fájl"}
-2026-07-30 22:37:28 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 90, "label": "📦 Cinebench R20: kicsomagolás — 3236/3580 fájl"}
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 98, "label": "📦 Cinebench R20: kicsomagolás — 3533/3580 fájl"}
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 100, "label": "📦 Cinebench R20: kicsomagolás — 3580/3580 fájl"}
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress' (17.39s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": false}
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\CinebenchR20\\Cinebench.exe' (17.44s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe('furmark')
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter('FurMark')
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter -> <function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001956D7FFE20> (0.00s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools(progress=<function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001956D7FFE20>)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_sumatra_exe('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_sumatra_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\SumatraPDF\\SumatraPDF.exe' (0.02s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_hp_driver_inf('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_hp_driver_inf -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\HPDriver\\hpc1320u.inf' (0.03s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_stress_tool_exes('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress', ['nvinspector'])
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_stress_tool_exes -> {'nvinspector': 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\nvidiaProfileInspector\\nvidiaProfileInspector.exe'} (0.02s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid -> True (0.06s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress' (0.06s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": false}
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\FurMark\\FurMark.exe' (0.08s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._lock_power_for_stress()
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting('SUB_VIDEO', 'VIDEOIDLE')
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] stdout: Power Scheme GUID: 6a93ec26-284d-4943-9fc4-c9616def55c6  (Revision - Ultra Performance)
-  Subgroup GUID: 7516b95f-f776-4464-8c53-06167f40cc99  (Display)
-    GUID Alias: SUB_VIDEO
-    Power Setting GUID: 3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e  (Turn off display after)
-      GUID Alias: VIDEOIDLE
-      Minimum Possible Setting: 0x00000000
-      Maximum Possible Setting: 0xffffffff
-      Possible Settings increment: 0x00000001
-      Possible Settings units: Seconds
-    Current AC Power Setting Index: 0x00000000
-    Current DC Power Setting Index: 0xffffffff
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting -> (0, 4294967295) (0.03s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting('SUB_SLEEP', 'STANDBYIDLE')
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] stdout: Power Scheme GUID: 6a93ec26-284d-4943-9fc4-c9616def55c6  (Revision - Ultra Performance)
-  Subgroup GUID: 238c9fa8-0aad-41ed-83f4-97be242c8f20  (Sleep)
-    GUID Alias: SUB_SLEEP
-    Power Setting GUID: 29f6c1db-86da-48c5-9fdb-f2b67b1f44da  (Sleep after)
-      GUID Alias: STANDBYIDLE
-      Minimum Possible Setting: 0x00000000
-      Maximum Possible Setting: 0xffffffff
-      Possible Settings increment: 0x00000001
-      Possible Settings units: Seconds
-    Current AC Power Setting Index: 0x00000000
-    Current DC Power Setting Index: 0xffffffff
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting -> (0, 4294967295) (0.01s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting('SUB_SLEEP', 'HIBERNATEIDLE')
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /query SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] stdout: Power Scheme GUID: 6a93ec26-284d-4943-9fc4-c9616def55c6  (Revision - Ultra Performance)
-  Subgroup GUID: 238c9fa8-0aad-41ed-83f4-97be242c8f20  (Sleep)
-    GUID Alias: SUB_SLEEP
-    Power Setting GUID: 9d7815a6-7ee4-497e-8888-515a05f02364  (Hibernate after)
-      GUID Alias: HIBERNATEIDLE
-      Minimum Possible Setting: 0x00000000
-      Maximum Possible Setting: 0xffffffff
-      Possible Settings increment: 0x00000001
-      Possible Settings units: Seconds
-    Current AC Power Setting Index: 0x00000000
-    Current DC Power Setting Index: 0xffffffff
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting -> (0, 4294967295) (0.02s)
-2026-07-30 22:37:29 [INFO] [bench-suite] [STRESS_POWER] Eredeti energiagazdálkodási beállítások elmentve.
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_VIDEO', 'VIDEOIDLE', 0, 0)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 0
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 0
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.02s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'STANDBYIDLE', 0, 0)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.03s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'HIBERNATEIDLE', 0, 0)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 0
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 0
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.02s)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setactive SCHEME_CURRENT
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CMD] OK (0.1s)
-2026-07-30 22:37:29 [INFO] [bench-suite] [STRESS_POWER] Képernyő-kikapcsolás és alvó mód letiltva a stressz teszt idejére.
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._lock_power_for_stress -> None (0.25s)
-2026-07-30 22:37:29 [INFO] [bench-suite] [EMIT:benchmark_progress] done
-2026-07-30 22:37:29 [INFO] [bench-suite] [EMIT:benchmark_progress] run
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_cinebench_capture('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\CinebenchR20\\Cinebench.exe')
-2026-07-30 22:37:29 [INFO] [bench-suite] [BENCHMARK] [CMD] Popen futtatása: C:\Users\egonix\AppData\Local\Temp\DriverVarázsló_Stress\stresstools\CinebenchR20\Cinebench.exe g_CinebenchCpuXTest=true g_acceptDisclaimer=true (stdout -> C:\Users\egonix\AppData\Local\Temp\dv_cinebench_out.txt)
-2026-07-30 22:37:29 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process(<Popen: returncode: None args: ['C:\\Users\\egonix\\AppData\\Local\\Temp\\Dr...>, 2400, 'Cinebench')
-2026-07-30 22:37:29 [INFO] [bench-suite] [BENCHMARK] Várakozás a(z) Cinebench folyamatra (pid=13872, plafon=2400 mp)...
-2026-07-30 22:38:50 [INFO] [bench-suite] [BENCHMARK] Cinebench kilépett (returncode=0, 81.0 mp).
-2026-07-30 22:38:50 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process -> 'exit' (81.05s)
-2026-07-30 22:38:50 [INFO] [bench-suite] [BENCHMARK] Cinebench pontszám kiolvasva: 4036.1 (1 'CB' sorból az utolsó)
-2026-07-30 22:38:50 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_cinebench_capture -> 4036.1 (81.05s)
-2026-07-30 22:38:50 [INFO] [bench-suite] [EMIT:benchmark_progress] done
-2026-07-30 22:38:50 [INFO] [bench-suite] [EMIT:benchmark_progress] run
-2026-07-30 22:38:50 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_furmark_capture('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\FurMark\\FurMark.exe')
-2026-07-30 22:38:50 [INFO] [bench-suite] [BENCHMARK] [CMD] Popen futtatása: C:\Users\egonix\AppData\Local\Temp\DriverVarázsló_Stress\stresstools\FurMark\FurMark.exe /nogui /benchmark /max_time=10000 /width=1024 /height=768 /msaa=0 /enable_dyn_bkg=1 /bkg_img_id=2 /log_score /disable_catalyst_warning /nomenubar
-2026-07-30 22:38:50 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process(<Popen: returncode: None args: ['C:\\Users\\egonix\\AppData\\Local\\Temp\\Dr...>, 100.0, 'FurMark')
-2026-07-30 22:38:50 [INFO] [bench-suite] [BENCHMARK] Várakozás a(z) FurMark folyamatra (pid=7880, plafon=100 mp)...
-2026-07-30 22:39:03 [INFO] [bench-suite] [BENCHMARK] FurMark kilépett (returncode=1331, 13.0 mp).
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process -> 'exit' (13.00s)
-2026-07-30 22:39:03 [INFO] [bench-suite] [BENCHMARK] FurMark score-fájl: C:\Users\egonix\AppData\Local\Temp\DriverVarázsló_Stress\stresstools\FurMark\furmark-scores.txt
-2026-07-30 22:39:03 [INFO] [bench-suite] [BENCHMARK] FurMark (1.39-es formátum): FRAMES=1331, TIME_MS=10000 -> FPS=133.1, felbontás=1002x712, mód=Windowed
-2026-07-30 22:39:03 [WARNING] [bench-suite] [BENCHMARK] A FurMark NEM a kért felbontáson futott (kért: 1024x768, tényleges: 1002x712, mód: Windowed) - a Windows a munkaterülethez vágta az ablakot, az FPS emiatt nem teljesen összemérhető más gépekével.
-2026-07-30 22:39:03 [INFO] [bench-suite] [BENCHMARK] Kereszt-ellenőrzés OK: a kilépési kód (1331) megegyezik a score-fájl képkockaszámával.
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_furmark_capture -> (133.1, '1002×712') (13.02s)
-2026-07-30 22:39:03 [INFO] [bench-suite] [EMIT:benchmark_progress] done
-2026-07-30 22:39:03 [INFO] [bench-suite] [BENCHMARK] Automata futtatás kész (116 mp): Cinebench=4036.1, FurMark=133.1 FPS
-2026-07-30 22:39:03 [INFO] [bench-suite] [EMIT:benchmark_progress] run
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [EMIT:benchmark_auto_result] data={"ok": true, "cinebench": 4036.1, "furmark": 133.1, "cinebench_settings": "CPU Multi-Thread (minden mag és szál)", "furmark_settings": "1002×712 · 0× MSAA · 10 mp · animált háttér", "suggested_name": 
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [EMIT:toast] data={"message": "🏁 Benchmark kész! Írd be a gép nevét, és megy fel a ranglistára.", "type": "success"}
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CALL] DriverToolApi._restore_power_after_stress()
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_VIDEO', 'VIDEOIDLE', 0, 4294967295)
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 0
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 4294967295
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.03s)
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'STANDBYIDLE', 0, 4294967295)
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 4294967295
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.01s)
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'HIBERNATEIDLE', 0, 4294967295)
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 0
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 4294967295
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.03s)
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setactive SCHEME_CURRENT
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CMD] OK (0.1s)
-2026-07-30 22:39:03 [INFO] [bench-suite] [STRESS_POWER] Eredeti energiagazdálkodási beállítások visszaállítva.
-2026-07-30 22:39:03 [DEBUG] [bench-suite] [CALL] DriverToolApi._restore_power_after_stress -> None (0.20s)
-2026-07-30 22:39:26 [DEBUG] [Thread-60 (_call)] [JS_UI] [UI-AKCIO] Mezőváltozás: textarea#mc-note-input "otthoni"
-2026-07-30 22:39:26 [DEBUG] [Thread-61 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#mc-yes "🏆 Feltöltés"
-2026-07-30 22:39:26 [INFO] [Thread-62 (_call)] [CALL] DriverToolApi.upload_benchmark_result(4036.1, 133.1, 'otthoni')
-2026-07-30 22:39:26 [INFO] [bench-upload] [BENCHMARK] Ranglista-sor azonosító: '0ed7be43-b614-4973-b6d8-5fb5a02e494a|otthoni-342e27' (gép='0ed7be43-b614-4973-b6d8-5fb5a02e494a', név='otthoni' -> normalizált='otthoni')
-2026-07-30 22:39:26 [INFO] [Thread-62 (_call)] [CALL] DriverToolApi.upload_benchmark_result -> None (0.00s)
-2026-07-30 22:39:26 [DEBUG] [bench-upload] [CALL] DriverToolApi._bench_existing_row('0ed7be43-b614-4973-b6d8-5fb5a02e494a|otthoni-342e27', '0ed7be43-b614-4973-b6d8-5fb5a02e494a')
-2026-07-30 22:39:28 [INFO] [bench-upload] [BENCHMARK] A feltöltés ÚJ sort hoz létre (azonosító='0ed7be43-b614-4973-b6d8-5fb5a02e494a|otthoni-342e27'); a ranglistán most 3 sor van, egyiket sem írjuk felül.
-2026-07-30 22:39:28 [DEBUG] [bench-upload] [CALL] DriverToolApi._bench_existing_row -> None (2.36s)
-2026-07-30 22:39:28 [INFO] [bench-upload] [BENCHMARK] Feltöltés a ranglistára: name='otthoni', cinebench=4036.1, furmark=133.1, azonosító='0ed7be43-b614-4973-b6d8-5fb5a02e494a|otthoni-342e27' (új sor)
-2026-07-30 22:39:32 [DEBUG] [bench-upload] [EMIT:toast] data={"message": "🏆 Eredmény sikeresen feltöltve a ranglistára (új sor)!", "type": "success"}
-2026-07-30 22:39:32 [DEBUG] [bench-upload] [EMIT:benchmark_upload_result] data={"ok": true}
-2026-07-30 22:39:34 [DEBUG] [bench-upload] [EMIT:leaderboard_data] data={"configured": true, "entries": [{"machine_id": "6982af08-4780-47e8-a5c5-7eda095ebbf0", "machine_name": "tetomives regi", "cpu": "AMD Ryzen 5 3600 6-Core", "motherboard": "ASRock B450M-HDV R4.0", "ram
-2026-07-30 22:43:27 [DEBUG] [Thread-63 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button "▶ Indítás"
-2026-07-30 22:43:27 [INFO] [Thread-64 (_call)] [CALL] DriverToolApi.launch_bench_tool('furmark')
-2026-07-30 22:43:27 [INFO] [Thread-64 (_call)] [API] launch_bench_tool(furmark)
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._ensure_bench_exe('furmark')
-2026-07-30 22:43:27 [INFO] [Thread-64 (_call)] [CALL] DriverToolApi.launch_bench_tool -> None (0.00s)
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._stress_dl_progress_emitter('FurMark')
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._stress_dl_progress_emitter -> <function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001956D890CC0> (0.00s)
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._download_stresstools(progress=<function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001956D890CC0>)
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._stresstools_cache_valid('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._find_sumatra_exe('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._find_sumatra_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\SumatraPDF\\SumatraPDF.exe' (0.03s)
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._find_hp_driver_inf('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._find_hp_driver_inf -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\HPDriver\\hpc1320u.inf' (0.02s)
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._find_stress_tool_exes('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress', ['nvinspector'])
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._find_stress_tool_exes -> {'nvinspector': 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\nvidiaProfileInspector\\nvidiaProfileInspector.exe'} (0.02s)
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._stresstools_cache_valid -> True (0.06s)
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._download_stresstools -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress' (0.06s)
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [EMIT:stress_dl_progress] data={"active": false}
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._ensure_bench_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\FurMark\\FurMark.exe' (0.09s)
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._launch_stress_exe('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\FurMark\\FurMark.exe', 'FurMark')
-2026-07-30 22:43:27 [INFO] [bench-tool] [STRESSTOOLS] Elindítva: FurMark (C:\Users\egonix\AppData\Local\Temp\DriverVarázsló_Stress\stresstools\FurMark\FurMark.exe), pid=11164
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [CALL] DriverToolApi._launch_stress_exe -> 11164 (0.00s)
-2026-07-30 22:43:27 [DEBUG] [bench-tool] [EMIT:toast] data={"message": "✅ FurMark elindítva!", "type": "success"}
-2026-07-30 22:44:14 [DEBUG] [Thread-65 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#btn-bench-run "🏁 Benchmark futtatása"
-2026-07-30 22:44:15 [DEBUG] [Thread-66 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#mc-yes "✅ Igen, zárja be"
-2026-07-30 22:44:15 [INFO] [Thread-67 (_call)] [CALL] DriverToolApi.run_benchmark_suite(True)
-2026-07-30 22:44:15 [INFO] [Thread-67 (_call)] [API] run_benchmark_suite(close_apps=True)
-2026-07-30 22:44:15 [INFO] [bench-suite] [EMIT:benchmark_progress] run
-2026-07-30 22:44:15 [INFO] [Thread-67 (_call)] [CALL] DriverToolApi.run_benchmark_suite -> None (0.00s)
-2026-07-30 22:44:15 [DEBUG] [bench-suite] [CALL] DriverToolApi._close_running_apps_sync()
-2026-07-30 22:44:15 [WARNING] [bench-suite] [BENCHMARK] Futó programok bezárása (WM_CLOSE, védett lista: 39 név, kihagyott PID-ek: [2320])...
-2026-07-30 22:44:15 [DEBUG] [bench-suite] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$ErrorActionPreference = 'SilentlyContinue'
-$protect = @('drivervarazslo','msedgewebview2','python','pythonw','explorer','dwm','sihost','ctfmon','searchhost','searchui','searchapp','start
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] OK (4.2s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] stdout: TRY:brave|(686) YouTube - Brave
+2026-07-30 23:22:06 [DEBUG] [bench-suite] [CMD] OK (4.2s)
+2026-07-30 23:22:06 [DEBUG] [bench-suite] [CMD] stdout: TRY:brave|GitHub - egonixaimgod/DriverVarazslo: baszottyo Â· GitHub - Brave
 TRY:claude|Claude
+TRY:Code|DriverVarazslo - Visual Studio Code
 CLOSED:brave
 STAYED:claude
+CLOSED:Code
 DONE
-2026-07-30 22:44:20 [WARNING] [bench-suite] [BENCHMARK] Bezárás kérve: brave - '(686) YouTube - Brave'
-2026-07-30 22:44:20 [WARNING] [bench-suite] [BENCHMARK] Bezárás kérve: claude - 'Claude'
-2026-07-30 22:44:20 [INFO] [bench-suite] [BENCHMARK] Bezárt programok (1): ['brave']
-2026-07-30 22:44:20 [WARNING] [bench-suite] [BENCHMARK] NYITVA maradt (valószínűleg mentetlen munka miatt rákérdezett): ['claude']
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._close_running_apps_sync -> (1, ['claude']) (4.23s)
-2026-07-30 22:44:20 [INFO] [bench-suite] [EMIT:benchmark_progress] done
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [EMIT:toast] data={"message": "ℹ️ 1 program nyitva maradt (valószínűleg mentetlen munka miatt rákérdezett): claude", "type": "info"}
-2026-07-30 22:44:20 [INFO] [bench-suite] [EMIT:benchmark_progress] run
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe('cinebench')
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter('Cinebench R20')
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter -> <function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001956D892660> (0.00s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools(progress=<function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001956D892660>)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_sumatra_exe('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_sumatra_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\SumatraPDF\\SumatraPDF.exe' (0.03s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_hp_driver_inf('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_hp_driver_inf -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\HPDriver\\hpc1320u.inf' (0.02s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_stress_tool_exes('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress', ['nvinspector'])
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_stress_tool_exes -> {'nvinspector': 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\nvidiaProfileInspector\\nvidiaProfileInspector.exe'} (0.03s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid -> True (0.08s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress' (0.08s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": false}
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\CinebenchR20\\Cinebench.exe' (0.09s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe('furmark')
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter('FurMark')
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter -> <function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001956D891440> (0.00s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools(progress=<function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001956D891440>)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_sumatra_exe('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_sumatra_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\SumatraPDF\\SumatraPDF.exe' (0.03s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_hp_driver_inf('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_hp_driver_inf -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\HPDriver\\hpc1320u.inf' (0.02s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_stress_tool_exes('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress', ['nvinspector'])
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_stress_tool_exes -> {'nvinspector': 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\nvidiaProfileInspector\\nvidiaProfileInspector.exe'} (0.02s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid -> True (0.06s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress' (0.06s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": false}
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\FurMark\\FurMark.exe' (0.09s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._lock_power_for_stress()
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting('SUB_VIDEO', 'VIDEOIDLE')
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] stdout: Power Scheme GUID: 6a93ec26-284d-4943-9fc4-c9616def55c6  (Revision - Ultra Performance)
-  Subgroup GUID: 7516b95f-f776-4464-8c53-06167f40cc99  (Display)
-    GUID Alias: SUB_VIDEO
-    Power Setting GUID: 3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e  (Turn off display after)
-      GUID Alias: VIDEOIDLE
-      Minimum Possible Setting: 0x00000000
-      Maximum Possible Setting: 0xffffffff
-      Possible Settings increment: 0x00000001
-      Possible Settings units: Seconds
-    Current AC Power Setting Index: 0x00000000
-    Current DC Power Setting Index: 0xffffffff
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting -> (0, 4294967295) (0.01s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting('SUB_SLEEP', 'STANDBYIDLE')
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] stdout: Power Scheme GUID: 6a93ec26-284d-4943-9fc4-c9616def55c6  (Revision - Ultra Performance)
-  Subgroup GUID: 238c9fa8-0aad-41ed-83f4-97be242c8f20  (Sleep)
-    GUID Alias: SUB_SLEEP
-    Power Setting GUID: 29f6c1db-86da-48c5-9fdb-f2b67b1f44da  (Sleep after)
-      GUID Alias: STANDBYIDLE
-      Minimum Possible Setting: 0x00000000
-      Maximum Possible Setting: 0xffffffff
-      Possible Settings increment: 0x00000001
-      Possible Settings units: Seconds
-    Current AC Power Setting Index: 0x00000000
-    Current DC Power Setting Index: 0xffffffff
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting -> (0, 4294967295) (0.02s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting('SUB_SLEEP', 'HIBERNATEIDLE')
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /query SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] stdout: Power Scheme GUID: 6a93ec26-284d-4943-9fc4-c9616def55c6  (Revision - Ultra Performance)
-  Subgroup GUID: 238c9fa8-0aad-41ed-83f4-97be242c8f20  (Sleep)
-    GUID Alias: SUB_SLEEP
-    Power Setting GUID: 9d7815a6-7ee4-497e-8888-515a05f02364  (Hibernate after)
-      GUID Alias: HIBERNATEIDLE
-      Minimum Possible Setting: 0x00000000
-      Maximum Possible Setting: 0xffffffff
-      Possible Settings increment: 0x00000001
-      Possible Settings units: Seconds
-    Current AC Power Setting Index: 0x00000000
-    Current DC Power Setting Index: 0xffffffff
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting -> (0, 4294967295) (0.02s)
-2026-07-30 22:44:20 [INFO] [bench-suite] [STRESS_POWER] Eredeti energiagazdálkodási beállítások elmentve.
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_VIDEO', 'VIDEOIDLE', 0, 0)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 0
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 0
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.03s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'STANDBYIDLE', 0, 0)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.02s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'HIBERNATEIDLE', 0, 0)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 0
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 0
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.03s)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setactive SCHEME_CURRENT
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CMD] OK (0.1s)
-2026-07-30 22:44:20 [INFO] [bench-suite] [STRESS_POWER] Képernyő-kikapcsolás és alvó mód letiltva a stressz teszt idejére.
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._lock_power_for_stress -> None (0.25s)
-2026-07-30 22:44:20 [INFO] [bench-suite] [EMIT:benchmark_progress] done
-2026-07-30 22:44:20 [INFO] [bench-suite] [EMIT:benchmark_progress] run
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_cinebench_capture('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\CinebenchR20\\Cinebench.exe')
-2026-07-30 22:44:20 [INFO] [bench-suite] [BENCHMARK] [CMD] Popen futtatása: C:\Users\egonix\AppData\Local\Temp\DriverVarázsló_Stress\stresstools\CinebenchR20\Cinebench.exe g_CinebenchCpuXTest=true g_acceptDisclaimer=true (stdout -> C:\Users\egonix\AppData\Local\Temp\dv_cinebench_out.txt)
-2026-07-30 22:44:20 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process(<Popen: returncode: None args: ['C:\\Users\\egonix\\AppData\\Local\\Temp\\Dr...>, 2400, 'Cinebench')
-2026-07-30 22:44:20 [INFO] [bench-suite] [BENCHMARK] Várakozás a(z) Cinebench folyamatra (pid=7984, plafon=2400 mp)...
-2026-07-30 22:44:31 [INFO] [bench-suite] [BENCHMARK] Cinebench kilépett (returncode=0, 11.0 mp).
-2026-07-30 22:44:31 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process -> 'exit' (11.00s)
-2026-07-30 22:44:31 [WARNING] [bench-suite] [BENCHMARK] Cinebench: nem található 'CB <pont>' sor a kimenetben. A kimenet vége: '64 with module(s) net.maxon.c4d.xtensions\nCINEBENCH started\nOpenGL root context initialized\n    Vendor        : NVIDIA Corporation (NVIDIA)\n    Renderer      : NVIDIA GeForce RTX 3060/PCIe/SSE2\n    OpenGL version: 4.6.0 NVIDIA 591.86\n    Driver version: 591.86\nCINEBENCH AUTORUN\nPlease wait until all tests are done!\n\nRunning Multiple CPU Render Test...\nMinimum test duration: 0 seconds.\nRendering...'
-2026-07-30 22:44:31 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_cinebench_capture -> None (11.00s)
-2026-07-30 22:44:31 [ERROR] [bench-suite] [BENCHMARK] Automata futtatás sikertelen: A Cinebench nem adott ki pontszámot (részletek a debug logban).
-2026-07-30 22:44:31 [INFO] [bench-suite] [EMIT:benchmark_progress] error
-2026-07-30 22:44:31 [INFO] [bench-suite] [EMIT:benchmark_auto_result] A Cinebench nem adott ki pontszámot (részletek a debug logban).
-2026-07-30 22:44:31 [DEBUG] [bench-suite] [EMIT:toast] data={"message": "❌ A Cinebench nem adott ki pontszámot (részletek a debug logban).", "type": "error"}
-2026-07-30 22:44:31 [INFO] [bench-suite] [BENCHMARK] Energia-visszaállítás kihagyva: más stressz-program fut (a stop_stress_tests / következő indulás állítja vissza).
-2026-07-30 22:44:36 [DEBUG] [Thread-90 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button "⏹ Megszakítás"
-2026-07-30 22:44:36 [INFO] [Thread-91 (_call)] [CALL] DriverToolApi.cancel_benchmark_run()
-2026-07-30 22:44:36 [WARNING] [Thread-91 (_call)] [BENCHMARK] A felhasználó megszakította az automata benchmark-futtatást.
-2026-07-30 22:44:36 [DEBUG] [Thread-91 (_call)] [EMIT:toast] data={"message": "⏹ Benchmark megszakítása...", "type": "info"}
-2026-07-30 22:44:36 [INFO] [Thread-91 (_call)] [CALL] DriverToolApi.cancel_benchmark_run -> None (0.00s)
-2026-07-30 22:44:53 [DEBUG] [Thread-92 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button "⏹ Megszakítás"
-2026-07-30 22:44:53 [INFO] [Thread-93 (_call)] [CALL] DriverToolApi.cancel_benchmark_run()
-2026-07-30 22:44:53 [WARNING] [Thread-93 (_call)] [BENCHMARK] A felhasználó megszakította az automata benchmark-futtatást.
-2026-07-30 22:44:53 [DEBUG] [Thread-93 (_call)] [EMIT:toast] data={"message": "⏹ Benchmark megszakítása...", "type": "info"}
-2026-07-30 22:44:53 [INFO] [Thread-93 (_call)] [CALL] DriverToolApi.cancel_benchmark_run -> None (0.00s)
-2026-07-30 22:45:04 [INFO] [MainThread] ==================================================
-2026-07-30 22:45:04 [INFO] [MainThread] DriverVarázsló ELINDITVA (Build 246)
-2026-07-30 22:45:04 [INFO] [MainThread] Parancssor: ['C:\\Users\\egonix\\Desktop\\DriverVarazslo.exe']
-2026-07-30 22:45:04 [INFO] [MainThread] Futtatasi konyvtar: C:\Users\egonix\Desktop
-2026-07-30 22:45:04 [INFO] [MainThread] Admin jog: True
-2026-07-30 22:45:04 [INFO] [MainThread] ==================================================
-2026-07-30 22:45:04 [INFO] [MainThread] [INIT] WebView2 Runtime OK: v150.0.4078.105
-2026-07-30 22:45:04 [INFO] [MainThread] [INIT] DriverToolApi inicializálás...
-2026-07-30 22:45:04 [INFO] [MainThread] [INIT] sys_drive=C:\
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress()
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CALL] DriverToolApi._set_power_setting('SUB_VIDEO', 'VIDEOIDLE', 0, 4294967295)
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 0
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CMD] OK (0.0s)
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 4294967295
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CMD] OK (0.0s)
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CALL] DriverToolApi._set_power_setting -> None (0.02s)
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'STANDBYIDLE', 0, 4294967295)
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CMD] OK (0.0s)
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 4294967295
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CMD] OK (0.0s)
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CALL] DriverToolApi._set_power_setting -> None (0.03s)
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'HIBERNATEIDLE', 0, 4294967295)
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 0
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CMD] OK (0.0s)
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 4294967295
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CMD] OK (0.0s)
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CALL] DriverToolApi._set_power_setting -> None (0.02s)
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CMD] Futtatás: powercfg /setactive SCHEME_CURRENT
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CMD] OK (0.1s)
-2026-07-30 22:45:04 [INFO] [MainThread] [STRESS_POWER] Eredeti energiagazdálkodási beállítások visszaállítva.
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress -> None (0.19s)
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy()
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CALL] DriverToolApi._autofix_stats_path()
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CALL] DriverToolApi._autofix_stats_path -> 'C:\\DriverVarazslo\\autofix_stats.json' (0.00s)
-2026-07-30 22:45:04 [DEBUG] [MainThread] [AUTOFIX-CLEANUP] Nincs félbehagyott lánc-állapotfájl - nincs mit takarítani.
-2026-07-30 22:45:04 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy -> None (0.00s)
-2026-07-30 22:45:04 [INFO] [MainThread] [INIT] DriverToolApi kész.
-2026-07-30 22:45:04 [INFO] [MainThread] [MAIN] webview.start() hívása...
-2026-07-30 22:45:04 [INFO] [Thread-17 (on_start)] [CALL] DriverToolApi.set_window(<webview.window.Window object at 0x000001CCD30EB170>)
-2026-07-30 22:45:04 [INFO] [Thread-17 (on_start)] [WINDOW] WebView ablak beállítása...
-2026-07-30 22:45:05 [INFO] [Thread-22 (_call)] [CALL] DriverToolApi.get_init_data()
-2026-07-30 22:45:05 [INFO] [Thread-17 (on_start)] [WINDOW] WebView2 DOM kész (1 próba után, 0.1s)
-2026-07-30 22:45:05 [INFO] [Thread-22 (_call)] [API] get_init_data() hívás - build=246, target=None
-2026-07-30 22:45:05 [INFO] [Thread-17 (on_start)] [CALL] DriverToolApi.set_window -> None (0.50s)
-2026-07-30 22:45:05 [INFO] [Thread-22 (_call)] [CALL] DriverToolApi.get_init_data -> {'build': 246, 'sys_drive': 'C:\\', 'target_os': None, 'resume_mode': False, 'resume_step1': False, 'app_data_dir': 'C:\\DriverVarazslo'} (0.00s)
-2026-07-30 22:45:05 [INFO] [Thread-24 (_call)] [CALL] DriverToolApi.load_drivers(False)
-2026-07-30 22:45:05 [INFO] [Thread-25 (_call)] [CALL] DriverToolApi.get_service_tools_status()
-2026-07-30 22:45:05 [INFO] [Thread-24 (_call)] [API] load_drivers(all_drivers=False)
-2026-07-30 22:45:05 [INFO] [Thread-26 (_call)] [CALL] DriverToolApi.check_for_updates()
-2026-07-30 22:45:05 [DEBUG] [Thread-25 (_call)] [CALL] DriverToolApi._load_tool_install_records()
-2026-07-30 22:45:05 [DEBUG] [drivers-load] [EMIT:drivers_loading] data=None
-2026-07-30 22:45:05 [INFO] [Thread-24 (_call)] [CALL] DriverToolApi.load_drivers -> None (0.00s)
-2026-07-30 22:45:05 [INFO] [Thread-26 (_call)] [UPDATE] check_for_updates()
-2026-07-30 22:45:05 [DEBUG] [Thread-25 (_call)] [CALL] DriverToolApi._tool_install_record_path()
-2026-07-30 22:45:05 [INFO] [drivers-load] [DRIVERS] Third-party driverek lekérdezés
-2026-07-30 22:45:05 [DEBUG] [drivers-load] [CALL] DriverToolApi._get_third_party_drivers()
-2026-07-30 22:45:05 [DEBUG] [Thread-25 (_call)] [CALL] DriverToolApi._tool_install_record_path -> 'C:\\DriverVarazslo\\installed_tools.json' (0.00s)
-2026-07-30 22:45:05 [DEBUG] [drivers-load] [DRIVERS] dism /English /Online /Get-Drivers futtatása...
-2026-07-30 22:45:05 [DEBUG] [Thread-25 (_call)] [CALL] DriverToolApi._load_tool_install_records -> {} (0.02s)
-2026-07-30 22:45:05 [DEBUG] [drivers-load] [CMD] Futtatás: dism /English /Online /Get-Drivers
-2026-07-30 22:45:05 [INFO] [Thread-25 (_call)] [CALL] DriverToolApi.get_service_tools_status -> {'furmark': {'installed': False, 'path': None}, 'prime95': {'installed': False, 'path': None}, 'linpack': {'installed': False, 'path': None}, 'hwinfo': {'installed': False, 'path': None}, 'hdsentinel': {'installed': False, 'path': None}, 'cpuz': {'installed': False, 'path': None}, 'gpuz': {'installe...[+126 kar.] (0.02s)
-2026-07-30 22:45:05 [INFO] [Thread-26 (_call)] [UPDATE] Update ellenőrzése erről a címről (1/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785444305
-2026-07-30 22:45:05 [INFO] [Thread-15 (webview_watchdog)] [WATCHDOG] WebView2 sikeresen elindult
-2026-07-30 22:45:05 [INFO] [Thread-26 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
-2026-07-30 22:45:05 [INFO] [Thread-26 (_call)] [UPDATE] Nincs újabb verzió.
-2026-07-30 22:45:07 [DEBUG] [drivers-load] [CMD] OK (2.2s)
-2026-07-30 22:45:07 [DEBUG] [drivers-load] [CMD] stdout: Deployment Image Servicing and Management tool
-Version: 10.0.26100.5074
-
-Image Version: 10.0.26200.8457
-
-Obtaining list of 3rd party drivers from the driver store...
-
-Driver packages listing:
-
-Published Name : oem0.inf
-Original File Name : prnms009.inf
-Inbox : No
-Class Name : Printer
-Provider Name : Microsoft
-Date : 6/21/2006
-Version : 10.0.26100.4484
-
-Published Name : oem1.inf
-Original File Name : xvdd.inf
-Inbox : No
-Class Name : SCSIAdapter
-Provider Name : Xbox
-Date : 6/5/2026
-Version : 10.0.22027.2
-
-Published Name : oem10.inf
-Original File Name : rtkfilter.inf
-Inbox : No
-Class Name : Bluetooth
-Provider Name : Realtek Semiconductor Corp.
-Date : 9/29/2021
-Version : 1.9.1038.3001
-
-Published Name : oem11.inf
-Original File Name : rz00b9dev.inf
-Inbox : No
-Class Name : HIDClass
-Provider Name : Razer Inc
-Date : 1/2/2017
-Version : 6.2.9200.16547
-
-Published Name : oem111.inf
-Original File Name : rt640x64.inf
-Inbox : No
-Class Name : Net
-Provider Name : Realtek
-Date : 10/3/2025
-Version : 10.79.50.1003
-
-Published Name : oem12.inf
-Original File Name : nv_dispig.inf
-Inbox : No
-Class Name : Display
-Provider Name : NVIDIA
-Date : 1/20/2026
-Version : 32.0.15.9186
-
-Published Name : oem13.inf
-Original File Name : nvhda.inf
-Inbox : No
-Class Name : MEDIA
-Provider Name : NVIDIA Corporation
-Date : 1/20/2026
-Version : 1.4.5.7
-
-Published Name : oem14.inf
-Original File Name : nvpcf.inf
-Inbox : No
-Class Name : SoftwareDevice
-Provider Name : NVIDIA
-Date : 1/20/2026
-Version : 32.0.15.9071
-
-Published Name : oem15.inf
-Original File Name : nvppc.inf
-Inbox : No
-Class Name : USB
-Provider Name : NVIDIA
-Date : 1/20/2026
-Version : 1.52.831.832
-
-Published Name : oem16.inf
-Original File Name : voiceclarityep_audio_component.inf
-Inbox : No
-Class Name : AudioProcessingObject
-Provider Name : Microsoft Corporation
-Date : 6/16/2026
-Version : 1.0.4.7057
-
-Published Name : oem19.inf
-Original File Name : amdinterface.inf
-Inbox : No
-Class Name : System
-Provider Name : Advanced Micro Devices, Inc
-Date : 12/4/2025
-Version : 2.0.0.26
-
-Published Name : oem2.inf
-Original File Name : gameflt.inf
-Inbox : No
-Class Name : HSM
-Provider Name : Xbox
-Date : 5/1/2026
-Version : 10.0.22019.2
-
-Published Name : oem20.inf
-Original File Name : amdpcidev.inf
-Inbox : No
-Class Name : System
-Provider Name : Advanced Micro Devices
-Date : 9/9/2025
-Version : 1.0.0.90
-
-Published Name : oem22.inf
-Original File Name : amdpsp.inf
-Inbox : No
-Class Name : SecurityDevices
-Provider Name : Advanced Micro Devices Inc.
-Date : 3/16/2026
-Version : 5.44.0.0
-
-Published Name : oem3.inf
-Original File Name : smbusamd.inf
-Inbox : No
-Class Name : System
-Provider Name : Advanced Micro Devices, Inc
-Date : 8/30/2017
-Version : 5.12.0.38
-
-Published Name : oem4.inf
-Original File Name : amdgpio3.inf
-Inbox : No
-Class Name : System
-Provider Name : Advanced Micro Devices, Inc.
-Date : 8/29/2017
-Version : 2.0.1.0
-
-Published Name : oem5.inf
-Original File Name : prnms006.inf
-Inbox : No
-Class Name : Printer
-Provider Name : Microsoft
-Date : 11/29/2016
-Version : 16.0.7629.4000
-
-Published Name : oem6.inf
-Original File Name : amdgpio2.inf
-Inbox : No
-Class Name : System
-Provider Name : Advanced Micro Devices, Inc
-Date : 9/29/2019
-Version : 2.2.0.121
-
-Published Name : oem7.inf
-Original File Name : ksusbaud.inf
-Inbox : No
-Class Name : MEDIA
-Provider Name : Creative Technology Ltd.
-Date : 1/6/2021
-Version : 1.16.4.26
-
-The operation completed successfully.
-2026-07-30 22:45:07 [DEBUG] [drivers-load] [CALL] DriverToolApi._get_third_party_drivers -> [{'version': '10.0.26100.4484', 'published': 'oem0.inf', 'original': 'prnms009.inf', 'class': 'Printer', 'provider': 'Microsoft', 'date': '2006-06-21'}, {'published': 'oem1.inf', 'original': 'xvdd.inf', 'class': 'SCSIAdapter', 'provider': 'Xbox', 'date': '2026-06-05', 'version': '10.0.22027.2'}, {'p...[+2685 kar.] (2.16s)
-2026-07-30 22:45:07 [INFO] [drivers-load] [DRIVERS] Betöltve: 19 driver (2.2s)
-2026-07-30 22:45:07 [DEBUG] [drivers-load] [EMIT:drivers_loaded] data={"drivers": [{"version": "10.0.26100.4484", "published": "oem0.inf", "original": "prnms009.inf", "class": "Printer", "provider": "Microsoft", "date": "2006-06-21"}, {"published": "oem1.inf", "original
-2026-07-30 22:45:08 [INFO] [Thread-26 (_call)] [UPDATE] Update ellenőrzése erről a címről (2/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785444308
-2026-07-30 22:45:08 [INFO] [Thread-26 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
-2026-07-30 22:45:08 [INFO] [Thread-26 (_call)] [UPDATE] Nincs újabb verzió.
-2026-07-30 22:45:09 [DEBUG] [Thread-29 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button[view=benchmark] "🏆 Benchmark"
-2026-07-30 22:45:09 [INFO] [Thread-30 (_call)] [CALL] DriverToolApi.load_machine_specs()
-2026-07-30 22:45:09 [INFO] [Thread-31 (_call)] [CALL] DriverToolApi.get_benchmark_settings()
-2026-07-30 22:45:09 [INFO] [Thread-32 (_call)] [CALL] DriverToolApi.fetch_leaderboard()
-2026-07-30 22:45:09 [DEBUG] [bench-specs] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$d = @{}
-try { $d.CPU = (Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name) } catch {}
-try {
-    $bb = Get-CimInstance Win32_BaseBoard | Select-Object -First 1
-2026-07-30 22:45:09 [INFO] [Thread-30 (_call)] [CALL] DriverToolApi.load_machine_specs -> None (0.00s)
-2026-07-30 22:45:09 [INFO] [Thread-31 (_call)] [CALL] DriverToolApi.get_benchmark_settings -> {'cinebench': 'CPU Multi-Thread (minden mag és szál)', 'furmark': '1024×768 · 0× MSAA · 10 mp · animált háttér · ablakos', 'furmark_short': '1024×768 · 0× MSAA', 'furmark_seconds': 10, 'furmark_cmd': 'FurMark.exe /nogui /benchmark /max_time=10000 /width=1024 /height=768 /msaa=0 /enable_dyn_bkg=1 /bk...[+60 kar.] (0.00s)
-2026-07-30 22:45:09 [INFO] [Thread-32 (_call)] [CALL] DriverToolApi.fetch_leaderboard -> None (0.00s)
-2026-07-30 22:45:11 [DEBUG] [bench-specs] [CMD] OK (1.4s)
-2026-07-30 22:45:11 [DEBUG] [bench-specs] [CMD] stdout: {"RAMGB":64,"RAMTYPE":26,"CPU":"AMD Ryzen 5 5600 6-Core Processor              ","RAMCOUNT":4,"BOARDMAN":"ASRock","RAMSPEED":3600,"GPU":"NVIDIA GeForce RTX 3060","BOARDPROD":"B450M Pro4"}
-2026-07-30 22:45:11 [DEBUG] [bench-specs] [EMIT:machine_specs] data={"cpu": "AMD Ryzen 5 5600 6-Core", "motherboard": "ASRock B450M Pro4", "ram": "64 GB 3600 MHz (4 modul)", "gpu": "RTX 3060", "machine_id": "0ed7be43-b614-4973-b6d8-5fb5a02e494a", "machine_name": "AMD 
-2026-07-30 22:45:11 [INFO] [Thread-26 (_call)] [UPDATE] Update ellenőrzése erről a címről (3/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785444311
-2026-07-30 22:45:11 [INFO] [Thread-26 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
-2026-07-30 22:45:11 [INFO] [Thread-26 (_call)] [UPDATE] Nincs újabb verzió.
-2026-07-30 22:45:11 [INFO] [Thread-26 (_call)] [CALL] DriverToolApi.check_for_updates -> {'has_update': False} (6.28s)
-2026-07-30 22:45:13 [DEBUG] [bench-lb] [EMIT:leaderboard_data] data={"configured": true, "entries": [{"machine_id": "6982af08-4780-47e8-a5c5-7eda095ebbf0", "machine_name": "tetomives regi", "cpu": "AMD Ryzen 5 3600 6-Core", "motherboard": "ASRock B450M-HDV R4.0", "ram
-2026-07-30 22:45:15 [DEBUG] [Thread-35 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#btn-bench-run "🏁 Benchmark futtatása"
-2026-07-30 22:45:16 [DEBUG] [Thread-36 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#mc-yes "✅ Igen, zárja be"
-2026-07-30 22:45:16 [INFO] [Thread-37 (_call)] [CALL] DriverToolApi.run_benchmark_suite(True)
-2026-07-30 22:45:16 [INFO] [Thread-37 (_call)] [API] run_benchmark_suite(close_apps=True)
-2026-07-30 22:45:16 [INFO] [bench-suite] [EMIT:benchmark_progress] run
-2026-07-30 22:45:16 [INFO] [Thread-37 (_call)] [CALL] DriverToolApi.run_benchmark_suite -> None (0.00s)
-2026-07-30 22:45:16 [DEBUG] [bench-suite] [CALL] DriverToolApi._close_running_apps_sync()
-2026-07-30 22:45:16 [WARNING] [bench-suite] [BENCHMARK] Futó programok bezárása (WM_CLOSE, védett lista: 39 név, kihagyott PID-ek: [10528])...
-2026-07-30 22:45:16 [DEBUG] [bench-suite] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+2026-07-30 23:22:06 [WARNING] [bench-suite] [BENCHMARK] Bezárás kérve: brave - 'GitHub - egonixaimgod/DriverVarazslo: baszottyo Â· GitHub - Brave'
+2026-07-30 23:22:06 [WARNING] [bench-suite] [BENCHMARK] Bezárás kérve: claude - 'Claude'
+2026-07-30 23:22:06 [WARNING] [bench-suite] [BENCHMARK] Bezárás kérve: Code - 'DriverVarazslo - Visual Studio Code'
+2026-07-30 23:22:06 [INFO] [bench-suite] [BENCHMARK] Bezárt programok (2): ['brave', 'Code']
+2026-07-30 23:22:06 [WARNING] [bench-suite] [BENCHMARK] NYITVA maradt (valószínűleg mentetlen munka miatt rákérdezett): ['claude']
+2026-07-30 23:22:06 [DEBUG] [bench-suite] [CALL] DriverToolApi._close_running_apps_sync -> (2, ['claude']) (4.21s)
+2026-07-30 23:22:06 [INFO] [bench-suite] [EMIT:benchmark_progress] done
+2026-07-30 23:22:06 [DEBUG] [bench-suite] [EMIT:toast] data={"message": "ℹ️ 1 program nyitva maradt (valószínűleg mentetlen munka miatt rákérdezett): claude", "type": "info"}
+2026-07-30 23:22:06 [DEBUG] [bench-suite] [CALL] DriverToolApi._kill_running_bench_tools()
+2026-07-30 23:22:06 [DEBUG] [bench-suite] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = 'SilentlyContinue'
-$protect = @('drivervarazslo','msedgewebview2','python','pythonw','explorer','dwm','sihost','ctfmon','searchhost','searchui','searchapp','start
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] OK (0.2s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] stdout: DONE
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._close_running_apps_sync -> (0, []) (0.19s)
-2026-07-30 22:45:17 [INFO] [bench-suite] [EMIT:benchmark_progress] done
-2026-07-30 22:45:17 [INFO] [bench-suite] [EMIT:benchmark_progress] run
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe('cinebench')
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter('Cinebench R20')
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter -> <function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001CCED4A7060> (0.00s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools(progress=<function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001CCED4A7060>)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_sumatra_exe('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_sumatra_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\SumatraPDF\\SumatraPDF.exe' (0.03s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_hp_driver_inf('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_hp_driver_inf -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\HPDriver\\hpc1320u.inf' (0.02s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_stress_tool_exes('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress', ['nvinspector'])
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_stress_tool_exes -> {'nvinspector': 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\nvidiaProfileInspector\\nvidiaProfileInspector.exe'} (0.03s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid -> True (0.08s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress' (0.08s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": false}
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\CinebenchR20\\Cinebench.exe' (0.11s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe('furmark')
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter('FurMark')
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter -> <function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001CCED4A7240> (0.00s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools(progress=<function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000001CCED4A7240>)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_sumatra_exe('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_sumatra_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\SumatraPDF\\SumatraPDF.exe' (0.02s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_hp_driver_inf('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_hp_driver_inf -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\HPDriver\\hpc1320u.inf' (0.02s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_stress_tool_exes('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress', ['nvinspector'])
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_stress_tool_exes -> {'nvinspector': 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\nvidiaProfileInspector\\nvidiaProfileInspector.exe'} (0.03s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid -> True (0.06s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress' (0.06s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": false}
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\FurMark\\FurMark.exe' (0.08s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._lock_power_for_stress()
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting('SUB_VIDEO', 'VIDEOIDLE')
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] stdout: Power Scheme GUID: 6a93ec26-284d-4943-9fc4-c9616def55c6  (Revision - Ultra Performance)
+$pats = @('furmark','prime95','linpack','linpack*','hwinfo64','hwinfo32','hwmonitor*','hdsentinel*','cpuz*','gpu-z*','zentimings','nvidiaprofil
+2026-07-30 23:22:07 [DEBUG] [bench-suite] [CMD] OK (0.2s)
+2026-07-30 23:22:07 [DEBUG] [bench-suite] [CMD] stdout: DONE
+2026-07-30 23:22:07 [INFO] [bench-suite] [BENCHMARK] Nem fut stressz-/benchmark program - tiszta gépen mérünk.
+2026-07-30 23:22:07 [DEBUG] [bench-suite] [CALL] DriverToolApi._kill_running_bench_tools -> [] (0.18s)
+2026-07-30 23:22:07 [INFO] [bench-suite] [EMIT:benchmark_progress] run
+2026-07-30 23:22:07 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe('cinebench')
+2026-07-30 23:22:07 [DEBUG] [bench-suite] [EMIT:toast] data={"message": "⏳ Cinebench R20: első indítás, a programcsomag letöltése következik...", "type": "info"}
+2026-07-30 23:22:07 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter('Cinebench R20')
+2026-07-30 23:22:07 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter -> <function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000002304F23C040> (0.00s)
+2026-07-30 23:22:07 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools(progress=<function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000002304F23C040>)
+2026-07-30 23:22:07 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
+2026-07-30 23:22:07 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid -> False (0.00s)
+2026-07-30 23:22:07 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
+2026-07-30 23:22:07 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid -> False (0.00s)
+2026-07-30 23:22:07 [INFO] [bench-suite] [STRESSTOOLS] Letöltés innen: https://github.com/egonixaimgod/DriverVarazslo/releases/download/stresstools.zip/stresstools.zip
+2026-07-30 23:22:07 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 0, "label": "🌐 Cinebench R20: csomag letöltése — 0 / 621 MB"}
+2026-07-30 23:22:07 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 4, "label": "🌐 Cinebench R20: csomag letöltése — 30 / 621 MB"}
+2026-07-30 23:22:08 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 10, "label": "🌐 Cinebench R20: csomag letöltése — 62 / 621 MB"}
+2026-07-30 23:22:08 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 15, "label": "🌐 Cinebench R20: csomag letöltése — 96 / 621 MB"}
+2026-07-30 23:22:08 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 20, "label": "🌐 Cinebench R20: csomag letöltése — 129 / 621 MB"}
+2026-07-30 23:22:08 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 26, "label": "🌐 Cinebench R20: csomag letöltése — 163 / 621 MB"}
+2026-07-30 23:22:09 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 31, "label": "🌐 Cinebench R20: csomag letöltése — 197 / 621 MB"}
+2026-07-30 23:22:09 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 37, "label": "🌐 Cinebench R20: csomag letöltése — 231 / 621 MB"}
+2026-07-30 23:22:09 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 42, "label": "🌐 Cinebench R20: csomag letöltése — 261 / 621 MB"}
+2026-07-30 23:22:10 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 46, "label": "🌐 Cinebench R20: csomag letöltése — 288 / 621 MB"}
+2026-07-30 23:22:10 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 50, "label": "🌐 Cinebench R20: csomag letöltése — 316 / 621 MB"}
+2026-07-30 23:22:10 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 55, "label": "🌐 Cinebench R20: csomag letöltése — 344 / 621 MB"}
+2026-07-30 23:22:11 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 60, "label": "🌐 Cinebench R20: csomag letöltése — 374 / 621 MB"}
+2026-07-30 23:22:11 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 61, "label": "🌐 Cinebench R20: csomag letöltése — 381 / 621 MB"}
+2026-07-30 23:22:11 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 65, "label": "🌐 Cinebench R20: csomag letöltése — 408 / 621 MB"}
+2026-07-30 23:22:12 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 70, "label": "🌐 Cinebench R20: csomag letöltése — 440 / 621 MB"}
+2026-07-30 23:22:12 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 75, "label": "🌐 Cinebench R20: csomag letöltése — 472 / 621 MB"}
+2026-07-30 23:22:12 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 81, "label": "🌐 Cinebench R20: csomag letöltése — 504 / 621 MB"}
+2026-07-30 23:22:12 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 86, "label": "🌐 Cinebench R20: csomag letöltése — 537 / 621 MB"}
+2026-07-30 23:22:13 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 87, "label": "🌐 Cinebench R20: csomag letöltése — 542 / 621 MB"}
+2026-07-30 23:22:13 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 92, "label": "🌐 Cinebench R20: csomag letöltése — 576 / 621 MB"}
+2026-07-30 23:22:13 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 98, "label": "🌐 Cinebench R20: csomag letöltése — 609 / 621 MB"}
+2026-07-30 23:22:13 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 100, "label": "🌐 Cinebench R20: csomag letöltése — 621 / 621 MB"}
+2026-07-30 23:22:13 [INFO] [bench-suite] [STRESSTOOLS] Letöltve: C:\Users\egonix\AppData\Local\Temp\stresstools.zip
+2026-07-30 23:22:14 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 4, "label": "📦 Cinebench R20: kicsomagolás — 158/3580 fájl"}
+2026-07-30 23:22:14 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 7, "label": "📦 Cinebench R20: kicsomagolás — 264/3580 fájl"}
+2026-07-30 23:22:14 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 9, "label": "📦 Cinebench R20: kicsomagolás — 345/3580 fájl"}
+2026-07-30 23:22:15 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 10, "label": "📦 Cinebench R20: kicsomagolás — 380/3580 fájl"}
+2026-07-30 23:22:15 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 29, "label": "📦 Cinebench R20: kicsomagolás — 1071/3580 fájl"}
+2026-07-30 23:22:15 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 41, "label": "📦 Cinebench R20: kicsomagolás — 1481/3580 fájl"}
+2026-07-30 23:22:16 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 47, "label": "📦 Cinebench R20: kicsomagolás — 1704/3580 fájl"}
+2026-07-30 23:22:16 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 72, "label": "📦 Cinebench R20: kicsomagolás — 2582/3580 fájl"}
+2026-07-30 23:22:16 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 97, "label": "📦 Cinebench R20: kicsomagolás — 3479/3580 fájl"}
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 98, "label": "📦 Cinebench R20: kicsomagolás — 3533/3580 fájl"}
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": true, "percent": 100, "label": "📦 Cinebench R20: kicsomagolás — 3580/3580 fájl"}
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress' (10.25s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": false}
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\CinebenchR20\\Cinebench.exe' (10.29s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe('furmark')
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter('FurMark')
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._stress_dl_progress_emitter -> <function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000002304F264930> (0.00s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools(progress=<function GuiStressMixin._stress_dl_progress_emitter.<locals>.cb at 0x000002304F264930>)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_sumatra_exe('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_sumatra_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\SumatraPDF\\SumatraPDF.exe' (0.02s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_hp_driver_inf('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress')
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_hp_driver_inf -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\HPDriver\\hpc1320u.inf' (0.02s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_stress_tool_exes('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress', ['nvinspector'])
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._find_stress_tool_exes -> {'nvinspector': 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\nvidiaProfileInspector\\nvidiaProfileInspector.exe'} (0.02s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._stresstools_cache_valid -> True (0.06s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._download_stresstools -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress' (0.06s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [EMIT:stress_dl_progress] data={"active": false}
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._ensure_bench_exe -> 'C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\FurMark\\FurMark.exe' (0.09s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._lock_power_for_stress()
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting('SUB_VIDEO', 'VIDEOIDLE')
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] stdout: Power Scheme GUID: 6a93ec26-284d-4943-9fc4-c9616def55c6  (Revision - Ultra Performance)
   Subgroup GUID: 7516b95f-f776-4464-8c53-06167f40cc99  (Display)
     GUID Alias: SUB_VIDEO
     Power Setting GUID: 3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e  (Turn off display after)
@@ -1202,11 +1104,11 @@ $protect = @('drivervarazslo','msedgewebview2','python','pythonw','explorer','dw
       Possible Settings units: Seconds
     Current AC Power Setting Index: 0x00000000
     Current DC Power Setting Index: 0xffffffff
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting -> (0, 4294967295) (0.02s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting('SUB_SLEEP', 'STANDBYIDLE')
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] stdout: Power Scheme GUID: 6a93ec26-284d-4943-9fc4-c9616def55c6  (Revision - Ultra Performance)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting -> (0, 4294967295) (0.02s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting('SUB_SLEEP', 'STANDBYIDLE')
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] stdout: Power Scheme GUID: 6a93ec26-284d-4943-9fc4-c9616def55c6  (Revision - Ultra Performance)
   Subgroup GUID: 238c9fa8-0aad-41ed-83f4-97be242c8f20  (Sleep)
     GUID Alias: SUB_SLEEP
     Power Setting GUID: 29f6c1db-86da-48c5-9fdb-f2b67b1f44da  (Sleep after)
@@ -1217,11 +1119,11 @@ $protect = @('drivervarazslo','msedgewebview2','python','pythonw','explorer','dw
       Possible Settings units: Seconds
     Current AC Power Setting Index: 0x00000000
     Current DC Power Setting Index: 0xffffffff
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting -> (0, 4294967295) (0.02s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting('SUB_SLEEP', 'HIBERNATEIDLE')
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /query SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] stdout: Power Scheme GUID: 6a93ec26-284d-4943-9fc4-c9616def55c6  (Revision - Ultra Performance)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting -> (0, 4294967295) (0.01s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting('SUB_SLEEP', 'HIBERNATEIDLE')
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /query SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] stdout: Power Scheme GUID: 6a93ec26-284d-4943-9fc4-c9616def55c6  (Revision - Ultra Performance)
   Subgroup GUID: 238c9fa8-0aad-41ed-83f4-97be242c8f20  (Sleep)
     GUID Alias: SUB_SLEEP
     Power Setting GUID: 9d7815a6-7ee4-497e-8888-515a05f02364  (Hibernate after)
@@ -1232,131 +1134,120 @@ $protect = @('drivervarazslo','msedgewebview2','python','pythonw','explorer','dw
       Possible Settings units: Seconds
     Current AC Power Setting Index: 0x00000000
     Current DC Power Setting Index: 0xffffffff
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting -> (0, 4294967295) (0.01s)
-2026-07-30 22:45:17 [INFO] [bench-suite] [STRESS_POWER] Eredeti energiagazdálkodási beállítások elmentve.
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_VIDEO', 'VIDEOIDLE', 0, 0)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 0
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 0
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.03s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'STANDBYIDLE', 0, 0)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.03s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'HIBERNATEIDLE', 0, 0)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 0
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 0
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.03s)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setactive SCHEME_CURRENT
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CMD] OK (0.1s)
-2026-07-30 22:45:17 [INFO] [bench-suite] [STRESS_POWER] Képernyő-kikapcsolás és alvó mód letiltva a stressz teszt idejére.
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._lock_power_for_stress -> None (0.25s)
-2026-07-30 22:45:17 [INFO] [bench-suite] [EMIT:benchmark_progress] done
-2026-07-30 22:45:17 [INFO] [bench-suite] [EMIT:benchmark_progress] run
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_cinebench_capture('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\CinebenchR20\\Cinebench.exe')
-2026-07-30 22:45:17 [INFO] [bench-suite] [BENCHMARK] [CMD] Popen futtatása: C:\Users\egonix\AppData\Local\Temp\DriverVarázsló_Stress\stresstools\CinebenchR20\Cinebench.exe g_CinebenchCpuXTest=true g_acceptDisclaimer=true (stdout -> C:\Users\egonix\AppData\Local\Temp\dv_cinebench_out.txt)
-2026-07-30 22:45:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process(<Popen: returncode: None args: ['C:\\Users\\egonix\\AppData\\Local\\Temp\\Dr...>, 2400, 'Cinebench')
-2026-07-30 22:45:17 [INFO] [bench-suite] [BENCHMARK] Várakozás a(z) Cinebench folyamatra (pid=6276, plafon=2400 mp)...
-2026-07-30 22:46:35 [INFO] [bench-suite] [BENCHMARK] Cinebench kilépett (returncode=0, 78.0 mp).
-2026-07-30 22:46:35 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process -> 'exit' (78.03s)
-2026-07-30 22:46:35 [INFO] [bench-suite] [BENCHMARK] Cinebench pontszám kiolvasva: 4172.86 (1 'CB' sorból az utolsó)
-2026-07-30 22:46:35 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_cinebench_capture -> 4172.86 (78.05s)
-2026-07-30 22:46:35 [INFO] [bench-suite] [EMIT:benchmark_progress] done
-2026-07-30 22:46:35 [INFO] [bench-suite] [EMIT:benchmark_progress] run
-2026-07-30 22:46:35 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_furmark_capture('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\FurMark\\FurMark.exe')
-2026-07-30 22:46:35 [INFO] [bench-suite] [BENCHMARK] [CMD] Popen futtatása: C:\Users\egonix\AppData\Local\Temp\DriverVarázsló_Stress\stresstools\FurMark\FurMark.exe /nogui /benchmark /max_time=10000 /width=1024 /height=768 /msaa=0 /enable_dyn_bkg=1 /bkg_img_id=2 /log_score /disable_catalyst_warning /nomenubar
-2026-07-30 22:46:35 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process(<Popen: returncode: None args: ['C:\\Users\\egonix\\AppData\\Local\\Temp\\Dr...>, 100.0, 'FurMark')
-2026-07-30 22:46:35 [INFO] [bench-suite] [BENCHMARK] Várakozás a(z) FurMark folyamatra (pid=7416, plafon=100 mp)...
-2026-07-30 22:46:48 [INFO] [bench-suite] [BENCHMARK] FurMark kilépett (returncode=1812, 13.0 mp).
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process -> 'exit' (13.02s)
-2026-07-30 22:46:48 [INFO] [bench-suite] [BENCHMARK] FurMark score-fájl: C:\Users\egonix\AppData\Local\Temp\DriverVarázsló_Stress\stresstools\FurMark\furmark-scores.txt
-2026-07-30 22:46:48 [INFO] [bench-suite] [BENCHMARK] FurMark (1.39-es formátum): FRAMES=1812, TIME_MS=10000 -> FPS=181.2, felbontás=1002x712, mód=Windowed
-2026-07-30 22:46:48 [WARNING] [bench-suite] [BENCHMARK] A FurMark NEM a kért felbontáson futott (kért: 1024x768, tényleges: 1002x712, mód: Windowed) - a Windows a munkaterülethez vágta az ablakot, az FPS emiatt nem teljesen összemérhető más gépekével.
-2026-07-30 22:46:48 [INFO] [bench-suite] [BENCHMARK] Kereszt-ellenőrzés OK: a kilépési kód (1812) megegyezik a score-fájl képkockaszámával.
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_furmark_capture -> (181.2, '1002×712') (13.02s)
-2026-07-30 22:46:48 [INFO] [bench-suite] [EMIT:benchmark_progress] done
-2026-07-30 22:46:48 [INFO] [bench-suite] [BENCHMARK] Automata futtatás kész (92 mp): Cinebench=4172.86, FurMark=181.2 FPS
-2026-07-30 22:46:48 [INFO] [bench-suite] [EMIT:benchmark_progress] run
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [EMIT:benchmark_auto_result] data={"ok": true, "cinebench": 4172.86, "furmark": 181.2, "cinebench_settings": "CPU Multi-Thread (minden mag és szál)", "furmark_settings": "1002×712 · 0× MSAA · 10 mp · animált háttér", "suggested_name":
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [EMIT:toast] data={"message": "🏁 Benchmark kész! Írd be a gép nevét, és megy fel a ranglistára.", "type": "success"}
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._restore_power_after_stress()
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_VIDEO', 'VIDEOIDLE', 0, 4294967295)
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 0
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 4294967295
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.02s)
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'STANDBYIDLE', 0, 4294967295)
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 4294967295
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.03s)
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'HIBERNATEIDLE', 0, 4294967295)
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 0
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 4294967295
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CMD] OK (0.0s)
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.02s)
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setactive SCHEME_CURRENT
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CMD] OK (0.1s)
-2026-07-30 22:46:48 [INFO] [bench-suite] [STRESS_POWER] Eredeti energiagazdálkodási beállítások visszaállítva.
-2026-07-30 22:46:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._restore_power_after_stress -> None (0.19s)
-2026-07-30 22:46:54 [DEBUG] [Thread-74 (_call)] [JS_UI] [UI-AKCIO] Mezőváltozás: textarea#mc-note-input "otthoni"
-2026-07-30 22:46:54 [DEBUG] [Thread-75 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#mc-yes "🏆 Feltöltés"
-2026-07-30 22:46:54 [INFO] [Thread-76 (_call)] [CALL] DriverToolApi.upload_benchmark_result(4172.86, 181.2, 'otthoni')
-2026-07-30 22:46:54 [INFO] [bench-upload] [BENCHMARK] Ranglista-sor azonosító: '0ed7be43-b614-4973-b6d8-5fb5a02e494a|otthoni-342e27' (gép='0ed7be43-b614-4973-b6d8-5fb5a02e494a', név='otthoni' -> normalizált='otthoni')
-2026-07-30 22:46:54 [INFO] [Thread-76 (_call)] [CALL] DriverToolApi.upload_benchmark_result -> None (0.00s)
-2026-07-30 22:46:54 [DEBUG] [bench-upload] [CALL] DriverToolApi._bench_existing_row('0ed7be43-b614-4973-b6d8-5fb5a02e494a|otthoni-342e27', '0ed7be43-b614-4973-b6d8-5fb5a02e494a')
-2026-07-30 22:46:57 [INFO] [bench-upload] [BENCHMARK] A feltöltés MEGLÉVŐ sort ír át: név='otthoni', cinebench=4036.1, furmark=133.1, ts='2026-07-30T20:39:00.000Z' (azonosító='0ed7be43-b614-4973-b6d8-5fb5a02e494a|otthoni-342e27')
-2026-07-30 22:46:57 [DEBUG] [bench-upload] [CALL] DriverToolApi._bench_existing_row -> {'machine_id': '0ed7be43-b614-4973-b6d8-5fb5a02e494a|otthoni-342e27', 'machine_name': 'otthoni', 'cpu': 'AMD Ryzen 5 5600 6-Core', 'motherboard': 'ASRock B450M Pro4', 'ram': '64 GB 3600 MHz (4 modul)', 'gpu': 'RTX 3060', 'cinebench': 4036.1, 'heaven': 133.1, 'ts': '2026-07-30T20:39:00.000Z', 'build'...[+6 kar.] (3.33s)
-2026-07-30 22:46:57 [INFO] [bench-upload] [BENCHMARK] Feltöltés a ranglistára: name='otthoni', cinebench=4172.86, furmark=181.2, azonosító='0ed7be43-b614-4973-b6d8-5fb5a02e494a|otthoni-342e27' (meglévő sor frissítése)
-2026-07-30 22:47:01 [DEBUG] [bench-upload] [EMIT:toast] data={"message": "🔄 A(z) „otthoni” nevű meglévő eredmény FRISSÍTVE a ranglistán (ugyanaz a gép + ugyanaz a név).", "type": "success"}
-2026-07-30 22:47:01 [DEBUG] [bench-upload] [EMIT:benchmark_upload_result] data={"ok": true}
-2026-07-30 22:47:03 [DEBUG] [bench-upload] [EMIT:leaderboard_data] data={"configured": true, "entries": [{"machine_id": "6982af08-4780-47e8-a5c5-7eda095ebbf0", "machine_name": "tetomives regi", "cpu": "AMD Ryzen 5 3600 6-Core", "motherboard": "ASRock B450M-HDV R4.0", "ram
-2026-07-30 22:49:16 [DEBUG] [Thread-77 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button[view=hw] "🖥️ Driver Keresés és Telepítés"
-2026-07-30 22:49:20 [DEBUG] [Thread-78 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button[view=autofix] "🚀 1 Kattintásos Driver Fix"
-2026-07-30 22:49:21 [DEBUG] [Thread-79 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#btn-autofix "🚀 FIX INDÍTÁSA"
-2026-07-30 22:49:22 [DEBUG] [Thread-80 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#mc-cancel "Mégse"
-2026-07-30 22:49:24 [DEBUG] [Thread-81 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button[view=stress] "🔥 Stress Teszt & Szervíz Programok"
-2026-07-30 22:49:24 [INFO] [Thread-82 (_call)] [CALL] DriverToolApi.get_service_tools_status()
-2026-07-30 22:49:24 [DEBUG] [Thread-82 (_call)] [CALL] DriverToolApi._load_tool_install_records()
-2026-07-30 22:49:24 [DEBUG] [Thread-82 (_call)] [CALL] DriverToolApi._tool_install_record_path()
-2026-07-30 22:49:24 [DEBUG] [Thread-82 (_call)] [CALL] DriverToolApi._tool_install_record_path -> 'C:\\DriverVarazslo\\installed_tools.json' (0.00s)
-2026-07-30 22:49:24 [DEBUG] [Thread-82 (_call)] [CALL] DriverToolApi._load_tool_install_records -> {} (0.00s)
-2026-07-30 22:49:24 [INFO] [Thread-82 (_call)] [CALL] DriverToolApi.get_service_tools_status -> {'furmark': {'installed': False, 'path': None}, 'prime95': {'installed': False, 'path': None}, 'linpack': {'installed': False, 'path': None}, 'hwinfo': {'installed': False, 'path': None}, 'hdsentinel': {'installed': False, 'path': None}, 'cpuz': {'installed': False, 'path': None}, 'gpuz': {'installe...[+126 kar.] (0.00s)
-2026-07-30 22:49:27 [DEBUG] [Thread-83 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button[view=benchmark] "🏆 Benchmark"
-2026-07-30 22:49:27 [INFO] [Thread-84 (_call)] [CALL] DriverToolApi.load_machine_specs()
-2026-07-30 22:49:27 [INFO] [Thread-85 (_call)] [CALL] DriverToolApi.get_benchmark_settings()
-2026-07-30 22:49:27 [DEBUG] [bench-specs] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$d = @{}
-try { $d.CPU = (Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name) } catch {}
-try {
-    $bb = Get-CimInstance Win32_BaseBoard | Select-Object -First 1
-2026-07-30 22:49:27 [INFO] [Thread-86 (_call)] [CALL] DriverToolApi.fetch_leaderboard()
-2026-07-30 22:49:27 [INFO] [Thread-84 (_call)] [CALL] DriverToolApi.load_machine_specs -> None (0.00s)
-2026-07-30 22:49:27 [INFO] [Thread-85 (_call)] [CALL] DriverToolApi.get_benchmark_settings -> {'cinebench': 'CPU Multi-Thread (minden mag és szál)', 'furmark': '1024×768 · 0× MSAA · 10 mp · animált háttér · ablakos', 'furmark_short': '1024×768 · 0× MSAA', 'furmark_seconds': 10, 'furmark_cmd': 'FurMark.exe /nogui /benchmark /max_time=10000 /width=1024 /height=768 /msaa=0 /enable_dyn_bkg=1 /bk...[+60 kar.] (0.00s)
-2026-07-30 22:49:27 [INFO] [Thread-86 (_call)] [CALL] DriverToolApi.fetch_leaderboard -> None (0.00s)
-2026-07-30 22:49:29 [DEBUG] [bench-specs] [CMD] OK (1.4s)
-2026-07-30 22:49:29 [DEBUG] [bench-specs] [CMD] stdout: {"RAMGB":64,"RAMTYPE":26,"CPU":"AMD Ryzen 5 5600 6-Core Processor              ","RAMCOUNT":4,"BOARDMAN":"ASRock","RAMSPEED":3600,"GPU":"NVIDIA GeForce RTX 3060","BOARDPROD":"B450M Pro4"}
-2026-07-30 22:49:29 [DEBUG] [bench-specs] [EMIT:machine_specs] data={"cpu": "AMD Ryzen 5 5600 6-Core", "motherboard": "ASRock B450M Pro4", "ram": "64 GB 3600 MHz (4 modul)", "gpu": "RTX 3060", "machine_id": "0ed7be43-b614-4973-b6d8-5fb5a02e494a", "machine_name": "AMD 
-2026-07-30 22:49:31 [DEBUG] [bench-lb] [EMIT:leaderboard_data] data={"configured": true, "entries": [{"machine_id": "6982af08-4780-47e8-a5c5-7eda095ebbf0", "machine_name": "tetomives regi", "cpu": "AMD Ryzen 5 3600 6-Core", "motherboard": "ASRock B450M-HDV R4.0", "ram
-2026-07-30 22:49:45 [DEBUG] [Thread-89 (_call)] [JS_UI] [UI-AKCIO] Kattintás: div "🧙‍♂️ DRIVERVARÁZSLÓ 🖥️ Tiszta rendszer"
-2026-07-30 22:49:45 [INFO] [Thread-90 (_call)] [CALL] DriverToolApi.check_for_updates()
-2026-07-30 22:49:45 [INFO] [Thread-90 (_call)] [UPDATE] check_for_updates()
-2026-07-30 22:49:45 [INFO] [Thread-90 (_call)] [UPDATE] Update ellenőrzése erről a címről (1/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785444585
-2026-07-30 22:49:45 [INFO] [Thread-90 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
-2026-07-30 22:49:45 [INFO] [Thread-90 (_call)] [UPDATE] Nincs újabb verzió.
-2026-07-30 22:49:48 [INFO] [Thread-90 (_call)] [UPDATE] Update ellenőrzése erről a címről (2/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785444588
-2026-07-30 22:49:48 [INFO] [Thread-90 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
-2026-07-30 22:49:48 [INFO] [Thread-90 (_call)] [UPDATE] Nincs újabb verzió.
-2026-07-30 22:49:51 [INFO] [Thread-90 (_call)] [UPDATE] Update ellenőrzése erről a címről (3/3. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1785444591
-2026-07-30 22:49:51 [INFO] [Thread-90 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 246, Helyi: 246
-2026-07-30 22:49:51 [INFO] [Thread-90 (_call)] [UPDATE] Nincs újabb verzió.
-2026-07-30 22:49:51 [INFO] [Thread-90 (_call)] [CALL] DriverToolApi.check_for_updates -> {'has_update': False} (6.31s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._query_power_setting -> (0, 4294967295) (0.01s)
+2026-07-30 23:22:17 [INFO] [bench-suite] [STRESS_POWER] Eredeti energiagazdálkodási beállítások elmentve.
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_VIDEO', 'VIDEOIDLE', 0, 0)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 0
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 0
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.02s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'STANDBYIDLE', 0, 0)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.02s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'HIBERNATEIDLE', 0, 0)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 0
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 0
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.02s)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setactive SCHEME_CURRENT
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CMD] OK (0.1s)
+2026-07-30 23:22:17 [INFO] [bench-suite] [STRESS_POWER] Képernyő-kikapcsolás és alvó mód letiltva a stressz teszt idejére.
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._lock_power_for_stress -> None (0.24s)
+2026-07-30 23:22:17 [INFO] [bench-suite] [EMIT:benchmark_progress] done
+2026-07-30 23:22:17 [INFO] [bench-suite] [EMIT:benchmark_progress] run
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_cinebench_capture('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\CinebenchR20\\Cinebench.exe')
+2026-07-30 23:22:17 [INFO] [bench-suite] [BENCHMARK] [CMD] Popen futtatása: C:\Users\egonix\AppData\Local\Temp\DriverVarázsló_Stress\stresstools\CinebenchR20\Cinebench.exe g_CinebenchCpuXTest=true g_acceptDisclaimer=true (stdout -> C:\Users\egonix\AppData\Local\Temp\dv_cinebench_out.txt)
+2026-07-30 23:22:17 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process(<Popen: returncode: None args: ['C:\\Users\\egonix\\AppData\\Local\\Temp\\Dr...>, 2400, 'Cinebench')
+2026-07-30 23:22:17 [INFO] [bench-suite] [BENCHMARK] Várakozás a(z) Cinebench folyamatra (pid=12768, plafon=2400 mp)...
+2026-07-30 23:23:35 [INFO] [bench-suite] [BENCHMARK] Cinebench kilépett (returncode=0, 78.0 mp).
+2026-07-30 23:23:35 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process -> 'exit' (78.04s)
+2026-07-30 23:23:35 [INFO] [bench-suite] [BENCHMARK] Cinebench pontszám kiolvasva: 4140.49 (1 'CB' sorból az utolsó)
+2026-07-30 23:23:35 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_cinebench_capture -> 4140.49 (78.05s)
+2026-07-30 23:23:35 [INFO] [bench-suite] [EMIT:benchmark_progress] done
+2026-07-30 23:23:35 [INFO] [bench-suite] [EMIT:benchmark_progress] run
+2026-07-30 23:23:35 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_furmark_capture('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\FurMark\\FurMark.exe', progress=<function GuiBenchmarkMixin.run_benchmark_suite.<locals>.worker.<locals>.fm_progress at 0x000002304F266400>)
+2026-07-30 23:23:35 [DEBUG] [bench-suite] [CALL] DriverToolApi._furmark_delta_load()
+2026-07-30 23:23:35 [DEBUG] [bench-suite] [CALL] DriverToolApi._furmark_delta_path()
+2026-07-30 23:23:35 [DEBUG] [bench-suite] [CALL] DriverToolApi._furmark_delta_path -> 'C:\\DriverVarazslo\\furmark_frame_delta.json' (0.00s)
+2026-07-30 23:23:35 [DEBUG] [bench-suite] [BENCHMARK] furmark_frame_delta.json nem olvasható: [Errno 2] No such file or directory: 'C:\\DriverVarazslo\\furmark_frame_delta.json'
+2026-07-30 23:23:35 [DEBUG] [bench-suite] [CALL] DriverToolApi._furmark_delta_load -> None (0.00s)
+2026-07-30 23:23:35 [INFO] [bench-suite] [BENCHMARK] FurMark mérés indul: 2 futás, a jobbik FPS számít (névleges felbontás 1024x768, munkaterület: 2560x1368 px).
+2026-07-30 23:23:35 [INFO] [bench-suite] [EMIT:benchmark_progress] run
+2026-07-30 23:23:35 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_furmark_once('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\FurMark\\FurMark.exe', 1024, 768)
+2026-07-30 23:23:35 [INFO] [bench-suite] [BENCHMARK] [CMD] Popen futtatása: C:\Users\egonix\AppData\Local\Temp\DriverVarázsló_Stress\stresstools\FurMark\FurMark.exe /nogui /benchmark /max_time=10000 /width=1024 /height=768 /msaa=0 /enable_dyn_bkg=1 /bkg_img_id=2 /log_score /disable_catalyst_warning /nomenubar
+2026-07-30 23:23:35 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process(<Popen: returncode: None args: ['C:\\Users\\egonix\\AppData\\Local\\Temp\\Dr...>, 100.0, 'FurMark')
+2026-07-30 23:23:35 [INFO] [bench-suite] [BENCHMARK] Várakozás a(z) FurMark folyamatra (pid=15176, plafon=100 mp)...
+2026-07-30 23:23:48 [INFO] [bench-suite] [BENCHMARK] FurMark kilépett (returncode=1824, 13.0 mp).
+2026-07-30 23:23:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process -> 'exit' (13.01s)
+2026-07-30 23:23:48 [INFO] [bench-suite] [BENCHMARK] FurMark score-fájl: C:\Users\egonix\AppData\Local\Temp\DriverVarázsló_Stress\stresstools\FurMark\furmark-scores.txt
+2026-07-30 23:23:48 [INFO] [bench-suite] [BENCHMARK] FurMark (1.39-es formátum): FRAMES=1824, TIME_MS=10000 -> FPS=182.4, felbontás=1002x712, mód=Windowed
+2026-07-30 23:23:48 [INFO] [bench-suite] [BENCHMARK] Kereszt-ellenőrzés OK: a kilépési kód (1824) megegyezik a score-fájl képkockaszámával.
+2026-07-30 23:23:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_furmark_once -> {'fps': 182.4, 'score': 1824, 'resolution': '1002x712', 'mode': 'Windowed', 'req_w': 1024, 'req_h': 768} (13.02s)
+2026-07-30 23:23:48 [INFO] [bench-suite] [BENCHMARK] FurMark 1/2. futás: 182.4 FPS (1824 képkocka), kért ablak 1024x768, renderelt 1002x712.
+2026-07-30 23:23:48 [INFO] [bench-suite] [BENCHMARK] FurMark ablakkeret kiszámolva ebből a futásból: kért 1024x768, renderelt 1002x712 -> keret 22x56 képpont. A következő futás ekkora ráhagyással indul.
+2026-07-30 23:23:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._furmark_delta_save(22, 56)
+2026-07-30 23:23:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._furmark_delta_path()
+2026-07-30 23:23:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._furmark_delta_path -> 'C:\\DriverVarazslo\\furmark_frame_delta.json' (0.00s)
+2026-07-30 23:23:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._furmark_delta_path()
+2026-07-30 23:23:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._furmark_delta_path -> 'C:\\DriverVarazslo\\furmark_frame_delta.json' (0.00s)
+2026-07-30 23:23:48 [INFO] [bench-suite] [BENCHMARK] FurMark ablakkeret megtanulva és elmentve: 22x56 képpont (C:\DriverVarazslo\furmark_frame_delta.json).
+2026-07-30 23:23:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._furmark_delta_save -> None (0.00s)
+2026-07-30 23:23:48 [INFO] [bench-suite] [EMIT:benchmark_progress] run
+2026-07-30 23:23:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_furmark_once('C:\\Users\\egonix\\AppData\\Local\\Temp\\DriverVarázsló_Stress\\stresstools\\FurMark\\FurMark.exe', 1046, 824)
+2026-07-30 23:23:48 [INFO] [bench-suite] [BENCHMARK] [CMD] Popen futtatása: C:\Users\egonix\AppData\Local\Temp\DriverVarázsló_Stress\stresstools\FurMark\FurMark.exe /nogui /benchmark /max_time=10000 /width=1046 /height=824 /msaa=0 /enable_dyn_bkg=1 /bkg_img_id=2 /log_score /disable_catalyst_warning /nomenubar
+2026-07-30 23:23:48 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process(<Popen: returncode: None args: ['C:\\Users\\egonix\\AppData\\Local\\Temp\\Dr...>, 100.0, 'FurMark')
+2026-07-30 23:23:48 [INFO] [bench-suite] [BENCHMARK] Várakozás a(z) FurMark folyamatra (pid=5972, plafon=100 mp)...
+2026-07-30 23:24:01 [INFO] [bench-suite] [BENCHMARK] FurMark kilépett (returncode=1713, 13.0 mp).
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CALL] DriverToolApi._bench_wait_process -> 'exit' (13.00s)
+2026-07-30 23:24:01 [INFO] [bench-suite] [BENCHMARK] FurMark score-fájl: C:\Users\egonix\AppData\Local\Temp\DriverVarázsló_Stress\stresstools\FurMark\furmark-scores.txt
+2026-07-30 23:24:01 [INFO] [bench-suite] [BENCHMARK] FurMark (1.39-es formátum): FRAMES=1713, TIME_MS=10000 -> FPS=171.3, felbontás=1024x768, mód=Windowed
+2026-07-30 23:24:01 [INFO] [bench-suite] [BENCHMARK] Kereszt-ellenőrzés OK: a kilépési kód (1713) megegyezik a score-fájl képkockaszámával.
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_furmark_once -> {'fps': 171.3, 'score': 1713, 'resolution': '1024x768', 'mode': 'Windowed', 'req_w': 1046, 'req_h': 824} (13.01s)
+2026-07-30 23:24:01 [INFO] [bench-suite] [BENCHMARK] FurMark 2/2. futás: 171.3 FPS (1713 képkocka), kért ablak 1046x824, renderelt 1024x768 - NÉVLEGES felbontás.
+2026-07-30 23:24:01 [INFO] [bench-suite] [BENCHMARK] FurMark döntés: 2 futásból [182.4 FPS @ 1002x712, 171.3 FPS @ 1024x768] -> a legjobb NÉVLEGES felbontású számít: 171.3 FPS @ 1024x768.
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CALL] DriverToolApi._run_furmark_capture -> (171.3, '1024×768') (26.03s)
+2026-07-30 23:24:01 [INFO] [bench-suite] [EMIT:benchmark_progress] done
+2026-07-30 23:24:01 [INFO] [bench-suite] [BENCHMARK] Automata futtatás kész (119 mp): Cinebench=4140.49, FurMark=171.3 FPS
+2026-07-30 23:24:01 [INFO] [bench-suite] [EMIT:benchmark_progress] run
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [EMIT:benchmark_auto_result] data={"ok": true, "cinebench": 4140.49, "furmark": 171.3, "cinebench_settings": "CPU Multi-Thread (minden mag és szál)", "furmark_settings": "1024×768 · 0× MSAA · 10 mp · animált háttér", "suggested_name":
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [EMIT:toast] data={"message": "🏁 Benchmark kész! Írd be a gép nevét, és megy fel a ranglistára.", "type": "success"}
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CALL] DriverToolApi._restore_power_after_stress()
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_VIDEO', 'VIDEOIDLE', 0, 4294967295)
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 0
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 4294967295
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.03s)
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'STANDBYIDLE', 0, 4294967295)
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 4294967295
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.02s)
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting('SUB_SLEEP', 'HIBERNATEIDLE', 0, 4294967295)
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 0
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 4294967295
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CMD] OK (0.0s)
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CALL] DriverToolApi._set_power_setting -> None (0.02s)
+2026-07-30 23:24:01 [DEBUG] [bench-suite] [CMD] Futtatás: powercfg /setactive SCHEME_CURRENT
+2026-07-30 23:24:02 [DEBUG] [bench-suite] [CMD] OK (0.1s)
+2026-07-30 23:24:02 [INFO] [bench-suite] [STRESS_POWER] Eredeti energiagazdálkodási beállítások visszaállítva.
+2026-07-30 23:24:02 [DEBUG] [bench-suite] [CALL] DriverToolApi._restore_power_after_stress -> None (0.20s)
+2026-07-30 23:24:07 [DEBUG] [Thread-62 (_call)] [JS_UI] [UI-AKCIO] Mezőváltozás: textarea#mc-note-input "otthoni"
+2026-07-30 23:24:07 [DEBUG] [Thread-63 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#mc-yes "🏆 Feltöltés"
+2026-07-30 23:24:07 [INFO] [Thread-64 (_call)] [CALL] DriverToolApi.upload_benchmark_result(4140.49, 171.3, 'otthoni')
+2026-07-30 23:24:07 [INFO] [bench-upload] [BENCHMARK] Ranglista-sor azonosító: '0ed7be43-b614-4973-b6d8-5fb5a02e494a|otthoni-342e27' (gép='0ed7be43-b614-4973-b6d8-5fb5a02e494a', név='otthoni' -> normalizált='otthoni')
+2026-07-30 23:24:07 [DEBUG] [bench-upload] [CALL] DriverToolApi._bench_existing_row('0ed7be43-b614-4973-b6d8-5fb5a02e494a|otthoni-342e27', '0ed7be43-b614-4973-b6d8-5fb5a02e494a')
+2026-07-30 23:24:07 [INFO] [Thread-64 (_call)] [CALL] DriverToolApi.upload_benchmark_result -> None (0.00s)
+2026-07-30 23:24:10 [INFO] [bench-upload] [BENCHMARK] A feltöltés MEGLÉVŐ sort ír át: név='otthoni', cinebench=4172.86, furmark=181.2, ts='2026-07-30T20:46:00.000Z' (azonosító='0ed7be43-b614-4973-b6d8-5fb5a02e494a|otthoni-342e27')
+2026-07-30 23:24:10 [DEBUG] [bench-upload] [CALL] DriverToolApi._bench_existing_row -> {'machine_id': '0ed7be43-b614-4973-b6d8-5fb5a02e494a|otthoni-342e27', 'machine_name': 'otthoni', 'cpu': 'AMD Ryzen 5 5600 6-Core', 'motherboard': 'ASRock B450M Pro4', 'ram': '64 GB 3600 MHz (4 modul)', 'gpu': 'RTX 3060', 'cinebench': 4172.86, 'heaven': 181.2, 'ts': '2026-07-30T20:46:00.000Z', 'build...[+7 kar.] (2.70s)
+2026-07-30 23:24:10 [INFO] [bench-upload] [BENCHMARK] Feltöltés a ranglistára: name='otthoni', cinebench=4140.49, furmark=171.3, azonosító='0ed7be43-b614-4973-b6d8-5fb5a02e494a|otthoni-342e27' (meglévő sor frissítése)
+2026-07-30 23:24:13 [DEBUG] [bench-upload] [EMIT:toast] data={"message": "🔄 A(z) „otthoni” nevű meglévő eredmény FRISSÍTVE a ranglistán (ugyanaz a gép + ugyanaz a név).", "type": "success"}
+2026-07-30 23:24:13 [DEBUG] [bench-upload] [EMIT:benchmark_upload_result] data={"ok": true}
+2026-07-30 23:24:16 [DEBUG] [bench-upload] [EMIT:leaderboard_data] data={"configured": true, "entries": [{"machine_id": "6982af08-4780-47e8-a5c5-7eda095ebbf0", "machine_name": "tetomives regi", "cpu": "AMD Ryzen 5 3600 6-Core", "motherboard": "ASRock B450M-HDV R4.0", "ram

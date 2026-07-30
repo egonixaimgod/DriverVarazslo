@@ -32,6 +32,7 @@ from app.benchmark_defs import FURMARK_BENCH_HEIGHT
 from app.benchmark_defs import FURMARK_EXIT_GRACE_S
 from app.benchmark_defs import FURMARK_MSAA
 from app.benchmark_defs import FURMARK_BENCH_RUNS
+from app.benchmark_defs import FURMARK_BENCH_MAX_EXTRA_RUNS
 from app.benchmark_defs import FURMARK_FRAME_DELTA_FILE
 from app.benchmark_defs import FURMARK_FRAME_DELTA_MAX_X
 from app.benchmark_defs import FURMARK_FRAME_DELTA_MAX_Y
@@ -348,8 +349,10 @@ class GuiBenchmarkMixin:
         """A FurMark GPU-mérés: FURMARK_BENCH_RUNS teljes hosszú futás, és a MAGASABB FPS
         számít (lásd a benchmark_defs.py indoklását - terepen mérve az ELSŐ futás ~28%-kal
         alacsonyabb lett a hideg cache/shader-fordítás/Defender miatt, míg a bemelegedett
-        gép szórása 1.1%). Az első futás egyben az ablakkeret megtanulására is szolgál, hogy
-        a további futások pontosan a névleges felbontáson rendereljenek.
+        gép szórása 1.1%). Csak az AZONOS, névleges felbontáson készült eredmények
+        versenyeznek egymással - a gép legelső mérésénél az első futás még a névleges
+        ablakméretet kéri (abból tanuljuk az ablakkeretet), tehát kisebb felbontáson készül és
+        nem indulhat; ilyenkor egy PÓT-FUTÁS pótolja a hiányzó összehasonlítást.
         Visszaad: (FPS, ténylegesen renderelt felbontás szövegként) vagy (None, None)."""
         nominal = (FURMARK_BENCH_WIDTH, FURMARK_BENCH_HEIGHT)
         nominal_str = f'{nominal[0]}x{nominal[1]}'
@@ -360,9 +363,26 @@ class GuiBenchmarkMixin:
                      f"számít (névleges felbontás {nominal_str}, munkaterület: {wa_txt}).")
         results = []
         give_up_compensation = False
-        for run_no in range(1, FURMARK_BENCH_RUNS + 1):
+        run_no = 0
+        while True:
+            run_no += 1
+            if run_no > FURMARK_BENCH_RUNS:
+                # PÓT-FUTÁS: a tervezett futások lementek, de nincs elég ÖSSZEMÉRHETŐ (névleges
+                # felbontású) eredmény - tipikusan a gép legelső mérésénél, ahol az első futás
+                # még a keret megtanulására ment el (lásd FURMARK_BENCH_MAX_EXTRA_RUNS).
+                exact_n = sum(1 for r in results if r.get('exact'))
+                if exact_n >= FURMARK_BENCH_RUNS or give_up_compensation:
+                    break
+                if run_no > FURMARK_BENCH_RUNS + FURMARK_BENCH_MAX_EXTRA_RUNS:
+                    logging.warning(f"[BENCHMARK] Csak {exact_n} névleges felbontású FurMark eredmény "
+                                    f"van {run_no - 1} futásból, és a pót-futások elfogytak - a meglévő "
+                                    f"eredményekkel dolgozunk.")
+                    break
+                logging.info(f"[BENCHMARK] PÓT-FUTÁS indul ({run_no}.): eddig csak {exact_n} eredmény "
+                             f"készült a névleges {nominal_str} felbontáson (a többi a keret "
+                             f"megtanulására ment el), így nincs mit összehasonlítani.")
             if progress:
-                progress(run_no)
+                progress(run_no, max(FURMARK_BENCH_RUNS, run_no))
             w, h, compensated = plan_furmark_size(
                 nominal[0], nominal[1], None if give_up_compensation else delta, work_area)
             res = self._run_furmark_once(exe_path, w, h)
@@ -373,7 +393,8 @@ class GuiBenchmarkMixin:
             actual = res.get('resolution')
             res['exact'] = (actual == nominal_str)
             results.append(res)
-            logging.info(f"[BENCHMARK] FurMark {run_no}/{FURMARK_BENCH_RUNS}. futás: {res.get('fps')} FPS "
+            logging.info(f"[BENCHMARK] FurMark {run_no}/{max(FURMARK_BENCH_RUNS, run_no)}. futás: "
+                         f"{res.get('fps')} FPS "
                          f"({res.get('score')} képkocka), kért ablak {w}x{h}, renderelt {actual}"
                          f"{' - NÉVLEGES felbontás' if res['exact'] else ''}.")
             if res['exact']:
@@ -557,8 +578,8 @@ class GuiBenchmarkMixin:
                 # --- 2) FurMark GPU (két futás, a jobbik számít) ---
                 progress('furmark', 'run', f'{FURMARK_SETTINGS_LABEL} — fut...')
 
-                def fm_progress(run_no):
-                    progress('furmark', 'run', f'{FURMARK_SETTINGS_LABEL} — {run_no}/{FURMARK_BENCH_RUNS}. '
+                def fm_progress(run_no, run_total):
+                    progress('furmark', 'run', f'{FURMARK_SETTINGS_LABEL} — {run_no}/{run_total}. '
                                                f'mérés fut (a jobbik eredmény számít)...')
 
                 fm_fps, fm_res = self._run_furmark_capture(fm_exe, progress=fm_progress)

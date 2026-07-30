@@ -112,6 +112,17 @@ FURMARK_SETTINGS_LABEL = (f'{FURMARK_BENCH_WIDTH}×{FURMARK_BENCH_HEIGHT} · {FU
 # maga is információ a szerviznek. Költség: kb. +13 mp.
 FURMARK_BENCH_RUNS = 2
 
+# PÓT-FUTÁS a gép LEGELSŐ mérésénél (terepen mérve 2026-07-30, Build 247). Amíg a gép
+# ablakkeretét nem ismerjük, az első futás még a NÉVLEGES ablakméretet kéri - abból tanuljuk
+# meg a keretet -, tehát az a futás egy KISEBB felbontáson készül, és nem versenyezhet a
+# kompenzált futással. Így a legelső mérésből valójában csak EGY összemérhető eredmény lesz:
+# az a kör "bemelegítés + 1 mérés", nem "2 mérés, a jobbik". Márpedig a szerviz tipikus esete
+# pont ez - vadonatúj gép, első mérés -, és ha épp azt az egy mérést kapja el egy háttér-
+# terhelés, nincs mihez hasonlítani. Ezért ha a tervezett futások után a NÉVLEGES felbontású
+# eredmények száma kevesebb a kelleténél, még ennyi pót-futás indulhat. Csak a gép legelső
+# mérését érinti (utána a keret már mentve van, és mindkét futás kompenzáltan megy).
+FURMARK_BENCH_MAX_EXTRA_RUNS = 1
+
 # ---------------------------------------------------------------------------
 # ABLAKKERET-KOMPENZÁCIÓ (terepen mérve 2026-07-30, explicit felhasználói döntés)
 # ---------------------------------------------------------------------------
