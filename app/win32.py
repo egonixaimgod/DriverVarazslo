@@ -117,3 +117,22 @@ class _SHQUERYRBINFO(ctypes.Structure):
         ("i64Size", ctypes.c_int64),
         ("i64NumItems", ctypes.c_int64),
     ]
+
+
+# SystemParametersInfoW(SPI_GETWORKAREA) - az elsődleges monitor MUNKATERÜLETE (a képernyő
+# a tálca és a többi appbar nélkül). A FurMark benchmark ablakos módban fut, és a Windows a
+# munkaterülethez VÁGJA a túl nagy ablakot: ebből tudjuk előre, belefér-e a kompenzált
+# (keretmérettel megnövelt) ablak, vagy csonkulna - lásd app/gui/benchmark.py.
+SPI_GETWORKAREA = 0x0030
+
+
+def get_work_area():
+    """Az elsődleges monitor munkaterületének mérete pixelben: (szélesség, magasság),
+    vagy None, ha a lekérdezés nem sikerült (a hívó ilyenkor "nem tudjuk"-ként kezeli,
+    nem hibaként)."""
+    rect = ctypes.wintypes.RECT()
+    ok = ctypes.windll.user32.SystemParametersInfoW(
+        SPI_GETWORKAREA, 0, ctypes.byref(rect), 0)
+    if not ok:
+        return None
+    return rect.right - rect.left, rect.bottom - rect.top

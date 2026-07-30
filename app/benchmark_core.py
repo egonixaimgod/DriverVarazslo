@@ -80,11 +80,78 @@ def parse_cinebench_output(text):
     return score
 
 
-def build_furmark_cmd(exe_path):
+def build_furmark_cmd(exe_path, width=None, height=None):
     """A FurMark 1.x parancssori benchmark-futtatás teljes parancsa (/nogui /benchmark
-    /max_time /log_score ... - a beállítások a benchmark_defs.py-ban)."""
-    from app.benchmark_defs import FURMARK_CLI_ARGS
-    return [exe_path] + list(FURMARK_CLI_ARGS)
+    /max_time /log_score ... - a beállítások a benchmark_defs.py-ban).
+
+    A `width`/`height` az ABLAKKERET-KOMPENZÁCIÓHOZ írja felül a névleges ablakméretet: a
+    FurMark a kliens-területre renderel, tehát a kért méretnél kisebb felbontás jön ki, és
+    a különbséget (keret + címsor) gépenként külön kell ráhagyni, hogy mindenhol pontosan
+    a névleges felbontás renderelődjön. Alapesetben (None) a névleges méret megy."""
+    from app.benchmark_defs import FURMARK_CLI_ARGS, FURMARK_BENCH_WIDTH, FURMARK_BENCH_HEIGHT
+    args = list(FURMARK_CLI_ARGS)
+    if width and width != FURMARK_BENCH_WIDTH:
+        args = [f'/width={width}' if a.startswith('/width=') else a for a in args]
+    if height and height != FURMARK_BENCH_HEIGHT:
+        args = [f'/height={height}' if a.startswith('/height=') else a for a in args]
+    return [exe_path] + args
+
+
+def parse_resolution(res_str):
+    """Egy '1002x712' alakú felbontás-szöveg -> (1002, 712), vagy None, ha nem értelmezhető.
+    A FurMark score-fájljának [Resolution=...] mezőjéhez (parse_furmark_scores)."""
+    if not res_str:
+        return None
+    m = _re.match(r'^\s*(\d+)\s*[xX*]\s*(\d+)\s*$', str(res_str))
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2))
+
+
+def furmark_frame_delta(req_w, req_h, actual_res, max_dx, max_dy):
+    """Az ablakkeret + címsor mérete: a KÉRT ablakméret és a TÉNYLEGESEN renderelt felbontás
+    különbsége. Ennyivel kell nagyobb ablakot kérni, hogy a névleges felbontás jöjjön ki.
+
+    None-t ad, ha az érték nem hihető keretméret:
+      - nem értelmezhető a felbontás,
+      - a tényleges NAGYOBB a kértnél (elvileg lehetetlen),
+      - a különbség a korlátok fölött van - az már nem keret, hanem CSONKULÁS (a Windows a
+        munkaterülethez vágta az ablakot egy kis kijelzőn). Ezt tanulásként elfogadva a
+        következő futás még nagyobb ablakot kérne, ami még jobban csonkulna: a hívó ilyenkor
+        inkább feladja a kompenzációt, mint hogy elszabaduljon."""
+    actual = parse_resolution(actual_res)
+    if not actual:
+        return None
+    dx, dy = req_w - actual[0], req_h - actual[1]
+    if dx < 0 or dy < 0:
+        logging.warning(f"[BENCHMARK] FurMark keretméret: a renderelt felbontás NAGYOBB a kértnél "
+                        f"(kért {req_w}x{req_h}, tényleges {actual_res}) - nem tanulunk belőle.")
+        return None
+    if dx > max_dx or dy > max_dy:
+        logging.warning(f"[BENCHMARK] FurMark keretméret: a különbség ({dx}x{dy}) túl nagy egy "
+                        f"ablakkerethez (korlát {max_dx}x{max_dy}) - ez csonkulás, nem keret "
+                        f"(kért {req_w}x{req_h}, tényleges {actual_res}); nem tanulunk belőle.")
+        return None
+    return dx, dy
+
+
+def plan_furmark_size(nominal_w, nominal_h, delta, work_area=None):
+    """A KÖVETKEZŐ FurMark futás ablakmérete. Visszaad: (szélesség, magasság, kompenzált-e).
+
+    Ha ismerjük a gép keretméretét (`delta`), akkor annyival nagyobb ablakot kérünk, hogy a
+    kliens-terület pontosan a névleges felbontás legyen. Ha a kompenzált ablak nem férne bele
+    a munkaterületbe (`work_area`), NEM kompenzálunk: a Windows úgyis levágná, és a csonkított
+    eredmény rosszabb, mint a névleges kérés. `work_area=None` = nem tudjuk, elfér-e -> a
+    kompenzáció megy, a futás utáni ellenőrzés úgyis kiszűri."""
+    if not delta or (delta[0] == 0 and delta[1] == 0):
+        return nominal_w, nominal_h, False
+    w, h = nominal_w + delta[0], nominal_h + delta[1]
+    if work_area and (w > work_area[0] or h > work_area[1]):
+        logging.warning(f"[BENCHMARK] FurMark keret-kompenzáció kihagyva: a kompenzált ablak "
+                        f"({w}x{h}) nem fér bele a munkaterületbe ({work_area[0]}x{work_area[1]}) - "
+                        f"a névleges {nominal_w}x{nominal_h} megy, a renderelt felbontás kisebb lesz.")
+        return nominal_w, nominal_h, False
+    return w, h, True
 
 
 def find_furmark_score_file(exe_dir, min_mtime=None):
@@ -238,6 +305,54 @@ foreach ($p in $targets) {{
 }}
 Write-Output "DONE"
 """
+
+
+def build_find_bench_tools_ps(patterns):
+    """A már futó stressz-/benchmark programokat MEGKERESŐ (nem ölő) PowerShell-szkript.
+    `patterns`: kisbetűs folyamatnév-minták, '*' jokerrel (a -like operátorhoz).
+
+    Kimenet soronként: 'FOUND:<név>|<pid>', a végén 'DONE'.
+
+    Két dolog itt szándékos, mindkettő terepen szerzett tapasztalat:
+      - `$ErrorActionPreference = 'SilentlyContinue'` + `exit 0`: a Get-Process nem
+        rendszergazdaként NEM-TERMINÁLÓ hibákat dob a nem olvasható folyamatokra, amitől a
+        szkript kilépési kódja 1 lesz, HOLOTT a lista rendben elkészült (élőben mérve:
+        returncode=1, miközben a keresés hibátlanul lefutott). Kilépési kódra hagyatkozva
+        a hívó eldobná a jó eredményt.
+      - a keresés és az ölés SZÉT van választva: a szkript csak listáz, a kilövés a
+        Python-oldalon megy taskkill-lel, folyamatonként külön - így minden egyes kilőtt
+        folyamat NÉV SZERINT bekerül a debug logba (destruktív lépés)."""
+    pats = ','.join("'" + str(p).replace("'", "''").lower() + "'" for p in patterns) or "''"
+    return f"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$ErrorActionPreference = 'SilentlyContinue'
+$pats = @({pats})
+foreach ($p in @(Get-Process)) {{
+    $n = $p.ProcessName.ToLower()
+    foreach ($pat in $pats) {{
+        if ($n -like $pat) {{ Write-Output ("FOUND:" + $p.ProcessName + "|" + $p.Id); break }}
+    }}
+}}
+Write-Output "DONE"
+exit 0
+"""
+
+
+def parse_find_bench_tools_output(text, skip_pids=()):
+    """A build_find_bench_tools_ps kimenetének feldolgozása. Visszaad:
+    {'found': [(név, pid)], 'ok': bool}. A `skip_pids`-ben megadott folyamatok kimaradnak
+    (a saját folyamatunk). Az 'ok' a DONE sor megléte - enélkül a lista hiányos lehet."""
+    found, done = [], False
+    skip = {int(p) for p in skip_pids}
+    for line in (text or '').splitlines():
+        line = line.strip()
+        if line.startswith('FOUND:'):
+            name, _, pid = line[6:].partition('|')
+            if pid.strip().isdigit() and int(pid) not in skip:
+                found.append((name, int(pid)))
+        elif line == 'DONE':
+            done = True
+    return {'found': found, 'ok': done}
 
 
 def parse_close_apps_output(text):

@@ -92,6 +92,71 @@ FURMARK_CLI_ARGS = ['/nogui', '/benchmark', f'/max_time={FURMARK_BENCH_TIME_MS}'
 FURMARK_SETTINGS_LABEL = (f'{FURMARK_BENCH_WIDTH}×{FURMARK_BENCH_HEIGHT} · {FURMARK_MSAA}× MSAA · '
                           f'{FURMARK_BENCH_TIME_MS // 1000} mp · animált háttér · ablakos')
 
+# ---------------------------------------------------------------------------
+# KÉT MÉRŐFUTÁS, A JOBBIK SZÁMÍT (terepen mérve 2026-07-30, explicit felhasználói döntés)
+# ---------------------------------------------------------------------------
+# Egyetlen futás megbízhatatlan, és pont a szerviz TIPIKUS esetében az: az első mérés egy
+# gépen közvetlenül a 621 MB-os stresstools.zip letöltése+kicsomagolása UTÁN történik, tehát
+# a FurMark.exe életében először fut onnan - hideg fájlcache, a Defender ekkor szkenneli a
+# frissen kiírt exe-ket, és az NVIDIA shader-cache is üres (első futásnál fordít).
+# Terepen mért adatok ugyanazon a gépen (RTX 3060, azonos parancssor, azonos felbontás):
+#     friss kicsomagolás után:  1331 képkocka -> 133.1 FPS   <-- ez ment fel a ranglistára
+#     tiszta gépen:             1812 képkocka -> 181.2 FPS
+#     3 egymás utáni ellenőrző futás: 185.5 / 184.2 / 183.5 FPS  (szórás 1.1%)
+# Vagyis a FurMark mint mérőeszköz STABIL (~1%), csak az első futás esik ~28%-ot - mintha a
+# 10 mp-es ablak első ~2.6 másodperce nem rendelt volna semmit. Ugyanannak a körnek a
+# Cinebench-e is 3.3%-kal alacsonyabb lett, tehát tényleg háttérterhelés volt.
+# Ezért a mérés KÉTSZER fut le teljes hosszban, és a MAGASABB FPS számít: az első futás így
+# egyben bemelegítés is, a második pedig egy véletlen háttérterhelést (Windows Update,
+# Defender, indexelő) is kivéd. Mindkét futás bekerül a logba - a kettő közti nagy eltérés
+# maga is információ a szerviznek. Költség: kb. +13 mp.
+FURMARK_BENCH_RUNS = 2
+
+# ---------------------------------------------------------------------------
+# ABLAKKERET-KOMPENZÁCIÓ (terepen mérve 2026-07-30, explicit felhasználói döntés)
+# ---------------------------------------------------------------------------
+# A /width és /height az ABLAK méretét állítja, a FurMark viszont a KLIENS-területre
+# renderel (ablakkeret + címsor nélkül) - a kért 1024×768-ból élőben [Resolution=1002x712]
+# lett, ami 9.3%-kal kevesebb képpont. A keret/címsor mérete GÉPFÜGGŐ (DPI-skálázás, téma),
+# tehát a ranglista eddig különböző pixelszámú méréseket hasonlított össze: egy 125%-ra
+# skálázott laptopon magasabb a címsor -> kisebb renderfelület -> hamisan magasabb FPS.
+# Élőben ellenőrizve: /width=1046 /height=824 -> pontosan [Resolution=1024x768] (és az FPS
+# 184-ről 174.6-ra esett, azaz a régi számok ~5%-kal felfelé torzítottak).
+# Ezért az első futásból KIOLVASSUK a keret méretét (kért - tényleges), elmentjük a gépre
+# (<app_data>\furmark_frame_delta.json), és a következő futásokat már ekkora ráhagyással
+# indítjuk, hogy MINDEN gépen pontosan 1024×768 renderelődjön.
+FURMARK_FRAME_DELTA_FILE = 'furmark_frame_delta.json'
+# Hihetőségi korlát a tanult keretméretre. Egy ablakkeret + címsor néhány tíz képpont; ennél
+# nagyobb különbség nem keret, hanem CSONKULÁS (a Windows a munkaterülethez vágta az ablakot
+# egy kis kijelzőn) - azt tanulásként elfogadva a következő futás még nagyobb ablakot kérne,
+# ami még jobban csonkulna: elszabaduló visszacsatolás. Ezért a korlát fölött nem tanulunk.
+# A korlátok a valóságból: élőben mérve 125%-os DPI-skálázáson 22x56 képpont a keret, tehát
+# 64x120 még egy ~250%-ra skálázott kijelzőt is elbír, viszont egy 1366x768-as laptopon a
+# függőleges csonkulás (768 kért -> 600 renderelt, azaz 168) MÁR NEM fér bele - és pont ez
+# volt az az eset, amit az offline teszt kibuktatott. Aki ezt fellazítja, visszahozza a
+# visszacsatolást. Második, PONTOS védővonal a munkaterület-ellenőrzés a hívóban: ha a kért
+# ablak eleve nem fér ki a képernyőre, a különbség biztosan csonkulás, nem keret.
+FURMARK_FRAME_DELTA_MAX_X = 64
+FURMARK_FRAME_DELTA_MAX_Y = 120
+
+# ---------------------------------------------------------------------------
+# MÁR FUTÓ STRESSZ-/BENCHMARK PROGRAMOK A MÉRÉS ELŐTT (terepen mérve 2026-07-30)
+# ---------------------------------------------------------------------------
+# A CLOSE_APPS_PROTECTED-es udvarias bezárás CSAK látható főablakos felhasználói programokat
+# érint, és a terepen pont a lényeget hagyta ki: a szerelő 22:43-kor kézzel elindított egy
+# FurMarkot, 22:44-kor rányomott a benchmarkra, és a Cinebench 11 mp után eredmény nélkül
+# kilépett ("nem található 'CB <pont>' sor"), mert a GPU-t egy másik program terhelte. A
+# mérés előtt ezért NÉV SZERINT kilőjük a stressz-/benchmark programokat: ezek nem a
+# felhasználó munkája (nincs mit elveszíteni), és a jelenlétük érvénytelenné teszi a mérést.
+BENCH_PRE_KILL_IMAGES = [
+    # a stressz-teszt nézet programjai (load generátorok + szenzor-monitorok: a HWiNFO/GPU-Z
+    # folyamatos szenzor-lekérdezése is beleszól a mérésbe)
+    'furmark', 'prime95', 'linpack', 'linpack*', 'hwinfo64', 'hwinfo32', 'hwmonitor*',
+    'hdsentinel*', 'cpuz*', 'gpu-z*', 'zentimings', 'nvidiaprofileinspector',
+    # a benchmark programok korábbi, kézzel indított példányai (egyenkénti indító kártyák)
+    'cinebench*', 'heaven*',
+]
+
 # A FurMark folyamat kilépésére/pontszám-fájljára várt TÖBBLET-idő a max_time felett,
 # másodpercben (induló ablak + shader-fordítás + a score-fájl kiírása). Ha letelik és a
 # folyamat még él, kilőjük - egyes FurMark-verziók a benchmark után eredmény-ablakot

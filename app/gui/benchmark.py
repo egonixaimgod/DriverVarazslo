@@ -15,12 +15,15 @@ működik)."""
 # === AUTO-IMPORTS ===
 import os
 import time
+import json
 import subprocess
 import threading
 import logging
 import tempfile
 from datetime import datetime
 from app import common
+from app.common import _app_data_dir
+from app.win32 import get_work_area
 from app.benchmark_defs import BENCH_TOOLS
 from app.benchmark_defs import CINEBENCH_TIMEOUT_S
 from app.benchmark_defs import FURMARK_BENCH_TIME_MS
@@ -28,11 +31,20 @@ from app.benchmark_defs import FURMARK_BENCH_WIDTH
 from app.benchmark_defs import FURMARK_BENCH_HEIGHT
 from app.benchmark_defs import FURMARK_EXIT_GRACE_S
 from app.benchmark_defs import FURMARK_MSAA
+from app.benchmark_defs import FURMARK_BENCH_RUNS
+from app.benchmark_defs import FURMARK_FRAME_DELTA_FILE
+from app.benchmark_defs import FURMARK_FRAME_DELTA_MAX_X
+from app.benchmark_defs import FURMARK_FRAME_DELTA_MAX_Y
+from app.benchmark_defs import BENCH_PRE_KILL_IMAGES
 from app.benchmark_defs import CINEBENCH_SETTINGS_LABEL
 from app.benchmark_defs import FURMARK_SETTINGS_LABEL
 from app.benchmark_defs import CLOSE_APPS_PROTECTED
 from app.benchmark_defs import CLOSE_APPS_WAIT_S
 from app.benchmark_core import build_close_apps_ps
+from app.benchmark_core import build_find_bench_tools_ps
+from app.benchmark_core import parse_find_bench_tools_output
+from app.benchmark_core import furmark_frame_delta
+from app.benchmark_core import plan_furmark_size
 from app.benchmark_core import parse_close_apps_output
 from app.benchmark_core import find_bench_tool_exes
 from app.benchmark_core import gather_machine_specs
@@ -251,17 +263,54 @@ class GuiBenchmarkMixin:
             return None
         return parse_cinebench_output(text)
 
-    def _run_furmark_capture(self, exe_path):
-        """A FurMark parancssori benchmark futtatása fix ideig + az FPS kiolvasása a
+    # ------------------------------------------------------------------
+    # FurMark: ablakkeret-kompenzáció (gépenként megjegyezve)
+    # ------------------------------------------------------------------
+    def _furmark_delta_path(self):
+        return os.path.join(_app_data_dir(), FURMARK_FRAME_DELTA_FILE)
+
+    def _furmark_delta_load(self):
+        """A gépre korábban megtanult ablakkeret-méret beolvasása -> (dx, dy) vagy None.
+        Hibánál None: kompenzáció nélkül is van eredmény, csak kisebb felbontáson."""
+        try:
+            with open(self._furmark_delta_path(), 'r', encoding='utf-8') as fh:
+                data = json.load(fh)
+            dx, dy = int(data['dx']), int(data['dy'])
+        except Exception as e:
+            logging.debug(f"[BENCHMARK] {FURMARK_FRAME_DELTA_FILE} nem olvasható: {e}")
+            return None
+        if not (0 <= dx <= FURMARK_FRAME_DELTA_MAX_X and 0 <= dy <= FURMARK_FRAME_DELTA_MAX_Y):
+            logging.warning(f"[BENCHMARK] A mentett FurMark keretméret ({dx}x{dy}) a hihetőségi "
+                            f"korlátokon kívül van - eldobva, újratanuljuk.")
+            return None
+        logging.info(f"[BENCHMARK] FurMark ablakkeret a géphez mentve: {dx}x{dy} képpont - a mérőfutás "
+                     f"{FURMARK_BENCH_WIDTH + dx}x{FURMARK_BENCH_HEIGHT + dy}-es ablakot kér, hogy "
+                     f"pontosan {FURMARK_BENCH_WIDTH}x{FURMARK_BENCH_HEIGHT} renderelődjön.")
+        return dx, dy
+
+    def _furmark_delta_save(self, dx, dy):
+        """A megtanult ablakkeret-méret mentése a gépre. Hibája nem állítja meg a mérést,
+        csak a következő futás fogja újratanulni."""
+        try:
+            with open(self._furmark_delta_path(), 'w', encoding='utf-8') as fh:
+                json.dump({'dx': dx, 'dy': dy, 'nominal': f'{FURMARK_BENCH_WIDTH}x{FURMARK_BENCH_HEIGHT}',
+                           'learned': datetime.now().strftime('%Y-%m-%d %H:%M')}, fh)
+            logging.info(f"[BENCHMARK] FurMark ablakkeret megtanulva és elmentve: {dx}x{dy} képpont "
+                         f"({self._furmark_delta_path()}).")
+        except Exception as e:
+            logging.warning(f"[BENCHMARK] A FurMark keretméret mentése nem sikerült: {e}")
+
+    def _run_furmark_once(self, exe_path, width, height):
+        """EGY FurMark mérőfutás a megadott ablakmérettel + az eredmény kiolvasása a
         /log_score által írt score-fájlból. Egyes FurMark-verziók a benchmark után
         eredmény-ablakot hagynak fenn - a türelmi idő után a folyamatot kilőjük, a
-        score-fájl ilyenkor már kint van. Visszaad: (FPS, ténylegesen renderelt felbontás)
-        vagy (None, None), ha nincs értelmezhető eredmény."""
+        score-fájl ilyenkor már kint van. Visszaad: a parse_furmark_scores dict-je
+        kiegészítve a kért mérettel ('req_w'/'req_h'), vagy None."""
         exe_dir = os.path.dirname(exe_path)
         # time.time() itt SZÁNDÉKOS: fájl-mtime-mal (falióra-bélyeggel) hasonlítjuk össze,
         # nem időtartamot mérünk. 5 mp ráhagyás az óra/fájlrendszer felbontására.
         start_stamp = time.time() - 5
-        cmd = build_furmark_cmd(exe_path)
+        cmd = build_furmark_cmd(exe_path, width, height)
         logging.info(f"[BENCHMARK] [CMD] Popen futtatása: {subprocess.list2cmdline(cmd)}")
         proc = subprocess.Popen(cmd, cwd=exe_dir, stdin=subprocess.DEVNULL,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -276,33 +325,150 @@ class GuiBenchmarkMixin:
                          "eredmény-ablak maradhat fenn) - a score-fájlt így is megnézzük.")
         score_file = find_furmark_score_file(exe_dir, min_mtime=start_stamp)
         if not score_file:
-            return None, None
+            return None
         try:
             with open(score_file, 'r', encoding='utf-8', errors='replace') as fh:
                 text = fh.read()
         except OSError as e:
             logging.error(f"[BENCHMARK] FurMark score-fájl olvasási hiba ({score_file}): {e}")
-            return None, None
+            return None
         res = parse_furmark_scores(text)
         if not res:
-            return None, None
-        # A ténylegesen renderelt felbontás naplózása: /nogui-val a FurMark ABLAKOS módban
-        # fut, és a Windows a munkaterülethez vághatja az ablakot - ha ez megtörténik, a
-        # gép FPS-e nem hasonlítható össze a többiével, és ezt csak innen lehet észrevenni.
-        expected = f"{FURMARK_BENCH_WIDTH}x{FURMARK_BENCH_HEIGHT}"
-        actual = res.get('resolution')
-        if actual and actual != expected:
-            logging.warning(f"[BENCHMARK] A FurMark NEM a kért felbontáson futott "
-                            f"(kért: {expected}, tényleges: {actual}, mód: {res.get('mode')}) - "
-                            f"a Windows a munkaterülethez vágta az ablakot, az FPS emiatt nem "
-                            f"teljesen összemérhető más gépekével.")
+            return None
         # Kereszt-ellenőrzés: a FurMark a képkockaszámot adja vissza kilépési kódként is
         # (terepen mérve: returncode=618 mellett [FRAMES=618]) - ha a kettő egyezik, a
         # kiolvasott eredmény bizonyítottan a MOSTANI futásé.
         if res.get('score') is not None and proc.returncode == res['score']:
             logging.info(f"[BENCHMARK] Kereszt-ellenőrzés OK: a kilépési kód ({proc.returncode}) "
                          f"megegyezik a score-fájl képkockaszámával.")
-        return res.get('fps'), (actual.replace('x', '×') if actual else None)
+        res['req_w'], res['req_h'] = width, height
+        return res
+
+    def _run_furmark_capture(self, exe_path, progress=None):
+        """A FurMark GPU-mérés: FURMARK_BENCH_RUNS teljes hosszú futás, és a MAGASABB FPS
+        számít (lásd a benchmark_defs.py indoklását - terepen mérve az ELSŐ futás ~28%-kal
+        alacsonyabb lett a hideg cache/shader-fordítás/Defender miatt, míg a bemelegedett
+        gép szórása 1.1%). Az első futás egyben az ablakkeret megtanulására is szolgál, hogy
+        a további futások pontosan a névleges felbontáson rendereljenek.
+        Visszaad: (FPS, ténylegesen renderelt felbontás szövegként) vagy (None, None)."""
+        nominal = (FURMARK_BENCH_WIDTH, FURMARK_BENCH_HEIGHT)
+        nominal_str = f'{nominal[0]}x{nominal[1]}'
+        delta = self._furmark_delta_load()
+        work_area = get_work_area()
+        wa_txt = f"{work_area[0]}x{work_area[1]} px" if work_area else "ismeretlen"
+        logging.info(f"[BENCHMARK] FurMark mérés indul: {FURMARK_BENCH_RUNS} futás, a jobbik FPS "
+                     f"számít (névleges felbontás {nominal_str}, munkaterület: {wa_txt}).")
+        results = []
+        give_up_compensation = False
+        for run_no in range(1, FURMARK_BENCH_RUNS + 1):
+            if progress:
+                progress(run_no)
+            w, h, compensated = plan_furmark_size(
+                nominal[0], nominal[1], None if give_up_compensation else delta, work_area)
+            res = self._run_furmark_once(exe_path, w, h)
+            if not res:
+                logging.warning(f"[BENCHMARK] A(z) {run_no}. FurMark futás nem adott értelmezhető "
+                                f"eredményt - a többi futás eredménye számít.")
+                continue
+            actual = res.get('resolution')
+            res['exact'] = (actual == nominal_str)
+            results.append(res)
+            logging.info(f"[BENCHMARK] FurMark {run_no}/{FURMARK_BENCH_RUNS}. futás: {res.get('fps')} FPS "
+                         f"({res.get('score')} képkocka), kért ablak {w}x{h}, renderelt {actual}"
+                         f"{' - NÉVLEGES felbontás' if res['exact'] else ''}.")
+            if res['exact']:
+                if delta is None:
+                    # A kért ablakméret pont a névleges felbontást adta: ezen a gépen nincs
+                    # mit kompenzálni (0x0) - mentjük, hogy ne tanuljuk újra minden mérésnél.
+                    delta = (0, 0)
+                    self._furmark_delta_save(0, 0)
+                continue
+            # Nem a névleges felbontás jött ki - vagy még nem ismerjük a keretet (ilyenkor
+            # most tanuljuk meg), vagy már kompenzáltunk és MÉGSEM stimmel: utóbbi azt
+            # jelenti, hogy a Windows csonkította az ablakot (kis kijelző), és a további
+            # kompenzáció csak rontana rajta.
+            if compensated:
+                logging.warning(f"[BENCHMARK] A kompenzált ablak ({w}x{h}) ELLENÉRE sem a névleges "
+                                f"felbontás renderelődött ({actual}) - a Windows a munkaterülethez "
+                                f"vágta az ablakot. A további futásokban nincs kompenzáció, az FPS "
+                                f"emiatt nem teljesen összemérhető más gépekével.")
+                give_up_compensation = True
+                continue
+            if work_area and (w > work_area[0] or h > work_area[1]):
+                # A kért ablak eleve nem fér ki a képernyőre: a különbség biztosan CSONKULÁS,
+                # nem ablakkeret - ebből tanulva a következő futás még nagyobb ablakot kérne.
+                logging.warning(f"[BENCHMARK] A kért ablak ({w}x{h}) nem fér bele a munkaterületbe "
+                                f"({work_area[0]}x{work_area[1]}), a renderelt {actual} tehát csonkított - "
+                                f"nem tanulunk belőle keretméretet, és nem is kompenzálunk ezen a gépen.")
+                give_up_compensation = True
+                continue
+            learned = furmark_frame_delta(w, h, actual, FURMARK_FRAME_DELTA_MAX_X,
+                                          FURMARK_FRAME_DELTA_MAX_Y)
+            if learned and learned != delta:
+                logging.info(f"[BENCHMARK] FurMark ablakkeret kiszámolva ebből a futásból: kért "
+                             f"{w}x{h}, renderelt {actual} -> keret {learned[0]}x{learned[1]} képpont. "
+                             f"A következő futás ekkora ráhagyással indul.")
+                delta = learned
+                self._furmark_delta_save(*learned)
+            elif not learned:
+                give_up_compensation = True
+        if not results:
+            logging.error("[BENCHMARK] Egyik FurMark futás sem adott értelmezhető eredményt.")
+            return None, None
+        # A NÉVLEGES felbontáson futott eredmények versenyeznek egymással; ha ilyen nincs (pl.
+        # kis kijelzőn csonkul az ablak), akkor a meglévők közül a legjobb - egy csonkított
+        # szám is jobb, mint a semmi (ez a "soha ne maradjon eredmény nélkül" alapelv).
+        exact = [r for r in results if r.get('exact')]
+        pool = exact or results
+        best = max(pool, key=lambda r: r.get('fps') or 0)
+        all_fps = [f"{r.get('fps')} FPS @ {r.get('resolution')}" for r in results]
+        spread = ''
+        fps_vals = [r.get('fps') for r in pool if r.get('fps')]
+        if len(fps_vals) > 1 and max(fps_vals) > 0:
+            spread = f", eltérés {100.0 * (max(fps_vals) - min(fps_vals)) / max(fps_vals):.1f}%"
+        logging.info(f"[BENCHMARK] FurMark döntés: {len(results)} futásból "
+                     f"[{', '.join(all_fps)}] -> a legjobb NÉVLEGES felbontású számít: "
+                     f"{best.get('fps')} FPS @ {best.get('resolution')}{spread}.")
+        actual = best.get('resolution')
+        if actual and actual != nominal_str:
+            # Ez a régi, terepen bevált figyelmeztetés: ha a VÉGSŐ eredmény nem a névleges
+            # felbontáson készült, a gép FPS-e nem hasonlítható össze a többiével, és ezt
+            # csak innen lehet észrevenni.
+            logging.warning(f"[BENCHMARK] A FurMark NEM a névleges felbontáson futott "
+                            f"(névleges: {nominal_str}, tényleges: {actual}, mód: {best.get('mode')}) - "
+                            f"a Windows a munkaterülethez vágta az ablakot, az FPS emiatt nem "
+                            f"teljesen összemérhető más gépekével.")
+        return best.get('fps'), (actual.replace('x', '×') if actual else None)
+
+    def _kill_running_bench_tools(self):
+        """A mérés ELŐTT: a már futó stressz-/benchmark programok kilövése. Terepen mérve
+        (2026-07-30) egy kézzel indított FurMark mellett a Cinebench 11 mp után, pontszám
+        nélkül lépett ki - egy másik program terhelése alatt a mérés érvénytelen.
+        Az udvarias programbezárás (_close_running_apps_sync) ezeket nem éri el
+        megbízhatóan, és nincs is mit menteni bennük, ezért itt taskkill megy.
+        Minden érintett folyamatot NÉV SZERINT logolunk, MIELŐTT hozzányúlnánk.
+        Visszaad: a kilőtt folyamatok neveinek listája."""
+        script = build_find_bench_tools_ps(BENCH_PRE_KILL_IMAGES)
+        res = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+                        timeout=60)
+        if not res:
+            logging.warning("[BENCHMARK] A futó stressz-programok lekérdezése nem futott le - "
+                            "a mérés így is folytatódik.")
+            return []
+        parsed = parse_find_bench_tools_output(res.stdout or '', skip_pids=[os.getpid()])
+        if not parsed['ok']:
+            logging.warning(f"[BENCHMARK] A stressz-program kereső szkript nem írt DONE sort "
+                            f"(returncode={res.returncode}) - a lista hiányos lehet.")
+        found = parsed['found']
+        if not found:
+            logging.info("[BENCHMARK] Nem fut stressz-/benchmark program - tiszta gépen mérünk.")
+            return []
+        logging.warning(f"[BENCHMARK] MÁR FUT {len(found)} stressz-/benchmark program, ezek "
+                        f"érvénytelenné tennék a mérést - kilövés: "
+                        f"{[f'{n} (pid={p})' for n, p in found]}")
+        for name, pid in found:
+            self._run(['taskkill', '/F', '/T', '/PID', str(pid)], ok_codes=(0, 128))
+        return [n for n, _ in found]
 
     def run_benchmark_suite(self, close_apps=False):
         """A "Benchmark futtatása" gomb: TELJESEN AUTOMATA, 1 kattintásos futtatás
@@ -346,6 +512,14 @@ class GuiBenchmarkMixin:
                         progress('close', 'done', f'{closed_n} program bezárva.')
                 else:
                     progress('close', 'done', 'Kihagyva (a gép így is mérhető).')
+                # A már futó stressz-/benchmark programok kilövése FÜGGETLENÜL attól, kérte-e
+                # a felhasználó a programbezárást: ezek nem a felhasználó munkája, viszont a
+                # jelenlétük érvénytelenné teszi a mérést (terepen: egy kézzel indított
+                # FurMark mellett a Cinebench pontszám nélkül lépett ki).
+                killed = self._kill_running_bench_tools()
+                if killed:
+                    self.emit('toast', {'message': f'ℹ️ Már futó teszt-program leállítva a mérés előtt: '
+                                                   f'{", ".join(killed[:4])}', 'type': 'info'})
                 if self._bench_cancel:
                     raise _BenchCancelled()
 
@@ -380,9 +554,14 @@ class GuiBenchmarkMixin:
                     raise _BenchAbort('A Cinebench nem adott ki pontszámot (részletek a debug logban).')
                 progress('cinebench', 'done', f'{cb_score:g} pont · {CINEBENCH_SETTINGS_LABEL}')
 
-                # --- 2) FurMark GPU ---
+                # --- 2) FurMark GPU (két futás, a jobbik számít) ---
                 progress('furmark', 'run', f'{FURMARK_SETTINGS_LABEL} — fut...')
-                fm_fps, fm_res = self._run_furmark_capture(fm_exe)
+
+                def fm_progress(run_no):
+                    progress('furmark', 'run', f'{FURMARK_SETTINGS_LABEL} — {run_no}/{FURMARK_BENCH_RUNS}. '
+                                               f'mérés fut (a jobbik eredmény számít)...')
+
+                fm_fps, fm_res = self._run_furmark_capture(fm_exe, progress=fm_progress)
                 if self._bench_cancel:
                     raise _BenchCancelled()
                 if fm_fps is None:
