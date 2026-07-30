@@ -1,0 +1,705 @@
+"""Kijelző-kezelés MAGJA: monitor-felderítés, HDR-állapot és -kapcsolás, SDR fehér szint,
+EDID-elemzés (luminancia + gamut), ICC-profil olvasás és a Windows színkezelés állapota.
+
+MIÉRT VAN EZ A PROGRAMBAN (explicit felhasználói kérés, 2026-07-30): a Windows 11 saját
+felülete ezekhez vagy hiányos, vagy szét van szórva három különböző helyre, és a szerviznek
+pont az kell, hogy EGY képernyőn lássa, mi van a kijelzővel: van-e HDR, be van-e kapcsolva,
+milyen profil van rátéve, és hogy a színkezelés egyáltalán ép-e.
+
+MINDEN ITT LÉVŐ ADAT ÉLŐBEN ELLENŐRIZVE (2026-07-30, AOC AG276QZD2 QD-OLED, DisplayPort,
+RTX 3060) - a hozzátartozó minta a fejlesztői gépről:
+  - QueryDisplayConfig  -> 1 aktív út, GDI név '\\\\.\\DISPLAY1', barátságos név 'AG276QZD2'
+  - GET_ADVANCED_COLOR_INFO(9)   -> value=0x1: HDR támogatott, kikapcsolva, 8 bit, RGB
+  - GET_ADVANCED_COLOR_INFO_2(15)-> hdrSupported+wcgSupported, activeColorMode=0 (SDR)
+  - SET_HDR_STATE(16)            -> bekapcsolva: 10 bit, activeColorMode=2 (HDR), tisztán vissza
+  - GET_SDR_WHITE_LEVEL(11)      -> SDR-ben 1000 (=80 nit), HDR-ben 3000 (=240 nit)
+  - EDID (384 bájt, CTA-861)     -> csúcs 1015 nit, teljes képmezős 254 nit, fekete 0.0006 nit
+  - EDID színpontok              -> R .686/.304  G .240/.712  B .144/.058  W .3135/.3291
+
+AMI SZÁNDÉKOSAN NINCS ITT: a profil-TÁRSÍTÁS írása. A mscms WcsAssociateColorProfileWithDevice
+ezen a gépen TRUE-t ad vissza, miközben semmit nem ír a registrybe - és menet közben kiderült,
+hogy a gép színkezelése eleve törött (lásd registered_profiles_report), ami magyarázhatja.
+Amíg ez nincs tisztázva, a nézet OLVAS és jelent, de nem társít - egy néma sikerre épített
+gomb rosszabb, mint a hiánya.
+"""
+
+# === AUTO-IMPORTS ===
+import os
+import struct
+import ctypes
+import logging
+import winreg
+from app import win32 as w32
+# === /AUTO-IMPORTS ===
+
+
+_user32 = ctypes.windll.user32
+_mscms = ctypes.WinDLL('mscms', use_last_error=True)
+
+# A színkezelés registry-gyökere (ugyanaz az ág, amit a colorprofile_core takarít).
+_ICM_BASE = r'SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM'
+_ICM_ASSOC = _ICM_BASE + r'\ProfileAssociations\Display'
+# A "Windows-kijelzőkalibráció használata" kapcsoló a Calibration ALKULCSBAN ül, nem az ICM
+# gyökerében - ezt a különbséget az első kiadásom elrontotta, és pont a legfontosabb esetet
+# tette vakká: az érték hiánya és a 0 érték ugyanúgy "nincs beállítva"-ként jött vissza.
+# A colorprofile_core (Build 235 óta) is ezt az utat írja.
+_ICM_CALIB = _ICM_BASE + r'\Calibration'
+_ICM_REGISTERED = _ICM_BASE + r'\RegisteredProfiles'
+_EDID_ROOT = r'SYSTEM\CurrentControlSet\Enum\DISPLAY'
+
+# A DisplayConfig SDR-fehérszint nyers értéke ezzel a képlettel nit: raw / 1000 * 80.
+# (A Windows 1000-et ad alapon, ami a szabványos 80 nites SDR fehér.)
+SDR_WHITE_LEVEL_UNIT = 80.0 / 1000.0
+
+
+# ============================================================================
+# Monitorok felderítése
+# ============================================================================
+
+def _query_display_paths():
+    """Az aktív megjelenítési utak lekérése. Visszaad: [(path, mode-tömb)] vagy [] hibánál."""
+    n_path = ctypes.wintypes.UINT()
+    n_mode = ctypes.wintypes.UINT()
+    rc = _user32.GetDisplayConfigBufferSizes(w32.QDC_ONLY_ACTIVE_PATHS,
+                                             ctypes.byref(n_path), ctypes.byref(n_mode))
+    if rc != 0:
+        logging.error(f"[DISPLAY] GetDisplayConfigBufferSizes hiba: {rc}")
+        return [], []
+    paths = (w32._DISPLAYCONFIG_PATH_INFO * n_path.value)()
+    modes = (w32._DISPLAYCONFIG_MODE_INFO * n_mode.value)()
+    rc = _user32.QueryDisplayConfig(w32.QDC_ONLY_ACTIVE_PATHS, ctypes.byref(n_path), paths,
+                                    ctypes.byref(n_mode), modes, None)
+    if rc != 0:
+        logging.error(f"[DISPLAY] QueryDisplayConfig hiba: {rc}")
+        return [], []
+    return list(paths)[:n_path.value], list(modes)[:n_mode.value]
+
+
+def _device_info(struct_obj, info_type, adapter_id, target_id):
+    """Egy DisplayConfigGetDeviceInfo hívás. Visszaad: a visszatérési kód (0 = OK)."""
+    struct_obj.header.type = info_type
+    struct_obj.header.size = ctypes.sizeof(struct_obj)
+    struct_obj.header.adapterId = adapter_id
+    struct_obj.header.id = target_id
+    return _user32.DisplayConfigGetDeviceInfo(ctypes.byref(struct_obj))
+
+
+def read_hdr_state(adapter_id, target_id):
+    """Egy kijelző HDR/színállapota. Két API-t kérdezünk: a RÉGI (9) minden Win10/11-en
+    megvan, az ÚJ (15) csak Win11 24H2-től, viszont sokkal többet mond (külön HDR és WCG
+    támogatás/engedélyezés, aktív színmód). Amit az új tud, azt onnan vesszük, a régi a
+    tartalék - így egy régebbi Windowson sem marad üres a nézet.
+    Visszaad: dict (soha nem None; hibánál 'supported': False)."""
+    out = {'supported': False, 'enabled': False, 'bits': None, 'encoding': None,
+           'mode': None, 'wcg_supported': False, 'wcg_enabled': False,
+           'limited_by_policy': False, 'api': None}
+    aci = w32._DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO()
+    if _device_info(aci, w32.DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO,
+                    adapter_id, target_id) == 0:
+        v = aci.value
+        out.update(supported=bool(v & 0x1), enabled=bool(v & 0x2),
+                   limited_by_policy=bool(v & 0x8),
+                   bits=aci.bitsPerColorChannel,
+                   encoding=w32.DISPLAY_COLOR_ENCODING.get(aci.colorEncoding, str(aci.colorEncoding)),
+                   api='legacy')
+    aci2 = w32._DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2()
+    if _device_info(aci2, w32.DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO_2,
+                    adapter_id, target_id) == 0:
+        v = aci2.value
+        out.update(supported=bool(v & 0x10) or bool(v & 0x1),
+                   enabled=bool(v & 0x20) or bool(v & 0x2),
+                   limited_by_policy=bool(v & 0x8),
+                   wcg_supported=bool(v & 0x40), wcg_enabled=bool(v & 0x80),
+                   bits=aci2.bitsPerColorChannel,
+                   encoding=w32.DISPLAY_COLOR_ENCODING.get(aci2.colorEncoding, str(aci2.colorEncoding)),
+                   mode=w32.DISPLAY_ADVANCED_COLOR_MODE.get(aci2.activeColorMode,
+                                                            str(aci2.activeColorMode)),
+                   api='win11')
+    return out
+
+
+def read_sdr_white_level(adapter_id, target_id):
+    """Az "SDR-tartalom fényereje" csúszka aktuális értéke nitben (None, ha nem elérhető).
+    HDR-ben ez mondja meg, milyen fényesen jelenik meg a hagyományos (SDR) tartalom."""
+    swl = w32._DISPLAYCONFIG_SDR_WHITE_LEVEL()
+    if _device_info(swl, w32.DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL,
+                    adapter_id, target_id) != 0:
+        return None
+    return round(swl.SDRWhiteLevel * SDR_WHITE_LEVEL_UNIT, 1)
+
+
+def set_hdr(adapter_id, target_id, enable):
+    """HDR be-/kikapcsolása egy kijelzőn. Először az ÚJ (Win11 24H2+) SET_HDR_STATE(16)
+    hívást próbáljuk, és csak ha az nem vezet eredményre, akkor a régi
+    SET_ADVANCED_COLOR_STATE(10)-et - a régi API a WCG-t is bekapcsolhatja HDR helyett,
+    ezért nem az az elsődleges. A siker mércéje NEM a visszatérési kód, hanem hogy a
+    VISSZAOLVASOTT állapot tényleg megváltozott-e (élőben mérve: a rossz struktúraméret
+    0-t ad vissza, miközben nem történik semmi).
+    Visszaad: (sikerult, uj_allapot_dict)."""
+    want = bool(enable)
+    logging.warning(f"[DISPLAY] HDR {'BEkapcsolása' if want else 'KIkapcsolása'} "
+                    f"(adapter={adapter_id.LowPart}:{adapter_id.HighPart}, target={target_id})...")
+    s = w32._DISPLAYCONFIG_SET_HDR_STATE()
+    s.header.type = w32.DISPLAYCONFIG_DEVICE_INFO_SET_HDR_STATE
+    s.header.size = ctypes.sizeof(s)
+    s.header.adapterId = adapter_id
+    s.header.id = target_id
+    s.value = 1 if want else 0
+    rc_new = _user32.DisplayConfigSetDeviceInfo(ctypes.byref(s))
+    state = read_hdr_state(adapter_id, target_id)
+    logging.info(f"[DISPLAY] SET_HDR_STATE(16) rc={rc_new} -> HDR most: "
+                 f"{'BE' if state['enabled'] else 'KI'}")
+    if state['enabled'] == want:
+        return True, state
+
+    s2 = w32._DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE()
+    s2.header.type = w32.DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE
+    s2.header.size = ctypes.sizeof(s2)
+    s2.header.adapterId = adapter_id
+    s2.header.id = target_id
+    s2.value = 1 if want else 0
+    rc_old = _user32.DisplayConfigSetDeviceInfo(ctypes.byref(s2))
+    state = read_hdr_state(adapter_id, target_id)
+    logging.info(f"[DISPLAY] tartalék SET_ADVANCED_COLOR_STATE(10) rc={rc_old} -> HDR most: "
+                 f"{'BE' if state['enabled'] else 'KI'}")
+    if state['enabled'] != want:
+        logging.error(f"[DISPLAY] A HDR átkapcsolása NEM sikerült (kért: {want}, "
+                      f"tényleges: {state['enabled']}; rc_uj={rc_new}, rc_regi={rc_old}).")
+    return state['enabled'] == want, state
+
+
+def _gdi_devices():
+    """A rendszer GDI kijelző-nevei (\\\\.\\DISPLAY1, ...) és a rajtuk lévő monitor neve."""
+    out = {}
+    i = 0
+    while True:
+        d = w32._DISPLAY_DEVICEW()
+        d.cb = ctypes.sizeof(d)
+        if not _user32.EnumDisplayDevicesW(None, i, ctypes.byref(d), 0):
+            break
+        i += 1
+        if not (d.StateFlags & w32.DISPLAY_DEVICE_ATTACHED_TO_DESKTOP):
+            continue
+        mon = w32._DISPLAY_DEVICEW()
+        mon.cb = ctypes.sizeof(mon)
+        mon_id = ''
+        if _user32.EnumDisplayDevicesW(d.DeviceName, 0, ctypes.byref(mon), 0):
+            mon_id = mon.DeviceID
+        out[d.DeviceName] = {
+            'adapter': d.DeviceString,
+            'primary': bool(d.StateFlags & w32.DISPLAY_DEVICE_PRIMARY_DEVICE),
+            'monitor_device_id': mon_id,
+        }
+    return out
+
+
+def enumerate_displays():
+    """A csatlakoztatott kijelzők teljes állapota. Ez a nézet fő adatforrása.
+    Visszaad: lista dict-ekből; hibánál üres lista (a nézet ezt üzenetként mutatja)."""
+    paths, _modes = _query_display_paths()
+    gdi = _gdi_devices()
+    edids = collect_edids()
+    displays = []
+    for idx, p in enumerate(paths):
+        src = w32._DISPLAYCONFIG_SOURCE_DEVICE_NAME()
+        gdi_name = ''
+        if _device_info(src, w32.DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+                        p.sourceInfo.adapterId, p.sourceInfo.id) == 0:
+            gdi_name = src.viewGdiDeviceName
+        tgt = w32._DISPLAYCONFIG_TARGET_DEVICE_NAME()
+        friendly, dev_path, tech = '', '', None
+        if _device_info(tgt, w32.DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
+                        p.targetInfo.adapterId, p.targetInfo.id) == 0:
+            friendly = tgt.monitorFriendlyDeviceName
+            dev_path = tgt.monitorDevicePath
+            tech = tgt.outputTechnology
+        hdr_state = read_hdr_state(p.targetInfo.adapterId, p.targetInfo.id)
+        rr = p.targetInfo.refreshRate
+        info = gdi.get(gdi_name, {})
+        edid = match_edid(dev_path, edids)
+        displays.append({
+            'index': idx,
+            'gdi_name': gdi_name,
+            'name': friendly or info.get('adapter') or gdi_name or f'Kijelző {idx + 1}',
+            'device_path': dev_path,
+            'adapter': info.get('adapter', ''),
+            'primary': info.get('primary', False),
+            'connection': w32.DISPLAY_OUTPUT_TECHNOLOGY.get(tech, f'0x{tech:x}' if tech else '?'),
+            'refresh_hz': round(rr.Numerator / rr.Denominator, 2) if rr.Denominator else None,
+            'hdr': hdr_state,
+            'sdr_white_nits': read_sdr_white_level(p.targetInfo.adapterId, p.targetInfo.id),
+            'edid': edid,
+            # a kapcsoláshoz kell - a nézet ezt küldi vissza a set_hdr híváskor
+            'adapter_low': p.targetInfo.adapterId.LowPart,
+            'adapter_high': p.targetInfo.adapterId.HighPart,
+            'target_id': p.targetInfo.id,
+        })
+    logging.info(f"[DISPLAY] {len(displays)} aktív kijelző: "
+                 + '; '.join(f"{d['name']} ({d['connection']}, "
+                             f"HDR {'BE' if d['hdr']['enabled'] else ('elérhető' if d['hdr']['supported'] else 'nincs')})"
+                             for d in displays))
+    return displays
+
+
+def find_display_target(adapter_low, adapter_high, target_id):
+    """A nézetből visszakapott azonosítókból a kapcsoláshoz kellő LUID+target előállítása.
+    KÜLÖN függvény, mert a JS oldalról érkező értékek nem struktúrák - és mert így a
+    kapcsolás mindig FRISSEN lekérdezett utak közül választ (a kijelző-elrendezés a nézet
+    megnyitása óta változhatott)."""
+    paths, _ = _query_display_paths()
+    for p in paths:
+        if (p.targetInfo.adapterId.LowPart == adapter_low
+                and p.targetInfo.adapterId.HighPart == adapter_high
+                and p.targetInfo.id == target_id):
+            return p.targetInfo.adapterId, p.targetInfo.id
+    logging.warning(f"[DISPLAY] A kért kijelző (adapter={adapter_low}:{adapter_high}, "
+                    f"target={target_id}) már nincs az aktív utak között - "
+                    f"a kijelző-elrendezés közben megváltozhatott.")
+    return None, None
+
+
+# ============================================================================
+# EDID - a monitor saját adatlapja (luminancia + gamut)
+# ============================================================================
+
+def _edid_luminance(raw):
+    """A CTA-861 HDR Static Metadata blokkból a fényerő-adatok.
+    A kódolás a szabvány szerint: nit = 50 * 2^(érték/32); a minimum ebből százalékosan
+    származik. Visszaad: dict vagy None, ha nincs ilyen blokk (nem HDR-képes EDID)."""
+    if len(raw) < 256 or raw[128] != 0x02:
+        return None
+    cta = raw[128:256]
+    end = cta[2] if cta[2] > 4 else 128     # a DTD-k kezdete = a data block gyűjtemény vége
+    idx = 4
+    while idx < end and idx < len(cta):
+        b0 = cta[idx]
+        tag, ln = (b0 >> 5) & 0x7, b0 & 0x1F
+        body = cta[idx + 1: idx + 1 + ln]
+        if tag == 7 and body and body[0] == 0x06 and len(body) >= 3:   # extended tag 6 = HDR static
+            eotf = body[1]
+            out = {
+                'eotf_sdr': bool(eotf & 1), 'eotf_hdr_gamma': bool(eotf & 2),
+                'eotf_pq': bool(eotf & 4), 'eotf_hlg': bool(eotf & 8),
+                'peak_nits': None, 'frame_avg_nits': None, 'min_nits': None,
+            }
+            if len(body) > 3:
+                out['peak_nits'] = round(50 * (2 ** (body[3] / 32.0)))
+            if len(body) > 4:
+                out['frame_avg_nits'] = round(50 * (2 ** (body[4] / 32.0)))
+            if len(body) > 5 and out['peak_nits']:
+                out['min_nits'] = round(out['peak_nits'] * ((body[5] / 255.0) ** 2) / 100.0, 4)
+            return out
+        idx += 1 + ln
+    return None
+
+
+def _edid_chromaticity(raw):
+    """Az EDID színpontjai (a monitor VALÓDI gamutja) + a névleges gamma.
+    A 10 bites értékek 2-2 bitje két közös bájtban (25-26) ül, a felső 8 bit külön -
+    ezt a szétszórt kódolást könnyű elrontani, ezért van külön függvényben."""
+    if len(raw) < 38:
+        return None
+    lo1, lo2 = raw[25], raw[26]
+    q = lambda hi, sh, src: (((src >> sh) & 3) | (hi << 2)) / 1024.0
+    out = {
+        'red':   (q(raw[27], 6, lo1), q(raw[28], 4, lo1)),
+        'green': (q(raw[29], 2, lo1), q(raw[30], 0, lo1)),
+        'blue':  (q(raw[31], 6, lo2), q(raw[32], 4, lo2)),
+        'white': (q(raw[33], 2, lo2), q(raw[34], 0, lo2)),
+    }
+    out = {k: (round(v[0], 4), round(v[1], 4)) for k, v in out.items()}
+    out['gamma'] = round((raw[23] + 100) / 100.0, 2) if raw[23] != 0xFF else None
+    return out
+
+
+def _edid_name(raw):
+    """A monitor neve az EDID leíró blokkjaiból (0xFC = Monitor Name)."""
+    for off in range(54, min(126, len(raw) - 18), 18):
+        if raw[off:off + 3] == b'\x00\x00\x00' and raw[off + 3] == 0xFC:
+            return raw[off + 5:off + 18].decode('ascii', 'ignore').strip().strip('\n').strip()
+    return ''
+
+
+def parse_edid(raw):
+    """Egy nyers EDID feldolgozása. Visszaad: dict, vagy None ha értelmezhetetlen."""
+    if not raw or len(raw) < 128:
+        return None
+    try:
+        return {
+            'name': _edid_name(raw),
+            'bytes': len(raw),
+            'chroma': _edid_chromaticity(raw),
+            'luminance': _edid_luminance(raw),
+        }
+    except Exception as e:
+        logging.warning(f"[DISPLAY] EDID feldolgozási hiba: {e}")
+        return None
+
+
+def collect_edids():
+    """Minden monitor EDID-je a registryből: {instance_kulcs: parse_edid(...)}.
+    FONTOS: egy monitorhoz TÖBB példány is tartozhat (élőben mérve 3 db ugyanahhoz az
+    AOC-hoz), és közülük csak EGYNEK van 384 bájtos, CTA-kiterjesztéses EDID-je - a
+    többi 128 bájtos csonk, HDR-adat nélkül. Ezért a hosszabb EDID mindig nyer."""
+    out = {}
+    try:
+        root = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _EDID_ROOT)
+    except OSError as e:
+        logging.warning(f"[DISPLAY] A DISPLAY enum ág nem olvasható: {e}")
+        return out
+    i = 0
+    while True:
+        try:
+            mon = winreg.EnumKey(root, i)
+        except OSError:
+            break
+        i += 1
+        try:
+            mk = winreg.OpenKey(root, mon)
+        except OSError:
+            continue
+        j = 0
+        while True:
+            try:
+                inst = winreg.EnumKey(mk, j)
+            except OSError:
+                break
+            j += 1
+            try:
+                dk = winreg.OpenKey(mk, inst + r'\Device Parameters')
+                raw = winreg.QueryValueEx(dk, 'EDID')[0]
+            except OSError:
+                continue
+            parsed = parse_edid(bytes(raw))
+            if not parsed:
+                continue
+            key = f'{mon}\\{inst}'
+            parsed['instance'] = key
+            prev = out.get(key)
+            if not prev or parsed['bytes'] > prev['bytes']:
+                out[key] = parsed
+    logging.debug(f"[DISPLAY] {len(out)} EDID beolvasva a registryből.")
+    return out
+
+
+def match_edid(device_path, edids):
+    """A DisplayConfig eszközútvonalához (\\\\?\\DISPLAY#AOCA610#5&...&UID28931#{guid})
+    tartozó EDID megkeresése. Az útvonal középső két tagja a registry-beli monitor- és
+    példánykulcs, csak '#' helyett '\\' elválasztóval. Ha a pontos példány nem található,
+    ugyanannak a monitor-modellnek a LEGBŐVEBB EDID-jével esünk vissza (a csonka
+    példányokon nincs HDR-adat, lásd collect_edids)."""
+    if not device_path or not edids:
+        return None
+    parts = device_path.split('#')
+    if len(parts) >= 3:
+        exact = f'{parts[1]}\\{parts[2]}'
+        if exact in edids:
+            return edids[exact]
+        model = parts[1]
+        same = [v for k, v in edids.items() if k.split('\\')[0] == model]
+        if same:
+            best = max(same, key=lambda e: e['bytes'])
+            logging.debug(f"[DISPLAY] EDID: a pontos példány ({exact}) nincs meg, "
+                          f"a modell legbővebb EDID-je használva ({best['instance']}, "
+                          f"{best['bytes']} bájt).")
+            return best
+    return None
+
+
+# ============================================================================
+# ICC-profilok
+# ============================================================================
+
+def color_directory():
+    """A Windows színprofil-mappája (rendszerint …\\system32\\spool\\drivers\\color)."""
+    buf = ctypes.create_unicode_buffer(260)
+    size = ctypes.wintypes.DWORD(ctypes.sizeof(buf))
+    if _mscms.GetColorDirectoryW(None, buf, ctypes.byref(size)):
+        return buf.value
+    logging.warning("[DISPLAY] GetColorDirectoryW nem adott vissza mappát - a beépített út lesz.")
+    return os.path.join(os.environ.get('SystemRoot', r'C:\Windows'),
+                        'System32', 'spool', 'drivers', 'color')
+
+
+_ICC_CLASS = {b'mntr': 'Monitor', b'prtr': 'Nyomtató', b'scnr': 'Szkenner',
+              b'spac': 'Színtér', b'link': 'Eszközlánc', b'abst': 'Absztrakt',
+              b'nmcl': 'Névszerinti'}
+_ICC_INTENT = {0: 'Perceptuális', 1: 'Relatív kolorimetriás', 2: 'Telítettség',
+               3: 'Abszolút kolorimetriás'}
+
+
+def parse_icc(path):
+    """Egy ICC/ICM profil fejlécének és fontos tagjeinek kiolvasása.
+
+    Amit kiszedünk, és miért pont azt: az osztály és a színtér mondja meg, hogy egyáltalán
+    MONITOR-profilról van-e szó (a mappában nyomtató-profilok is ülnek); a TRC-görbe a
+    gamma (a "2.2 kell-e" kérdés innen dől el); az rXYZ/gXYZ/bXYZ a profil szerinti gamut;
+    az MHC2 tag jelenléte pedig azt jelzi, hogy ez egy Windows HDR-kalibrációs profil.
+    Visszaad: dict (a 'hiba' kulcs jelzi, ha nem sikerült)."""
+    try:
+        with open(path, 'rb') as fh:
+            data = fh.read()
+        if len(data) < 132:
+            return {'file': os.path.basename(path), 'hiba': 'túl rövid fájl'}
+        ver = struct.unpack('>I', data[8:12])[0]
+        cls, space, pcs = data[12:16], data[16:20], data[20:24]
+        intent = struct.unpack('>I', data[64:68])[0]
+        n_tags = struct.unpack('>I', data[128:132])[0]
+        out = {
+            'file': os.path.basename(path), 'path': path, 'size': len(data),
+            'version': f'{(ver >> 24) & 0xFF}.{(ver >> 20) & 0xF}.{(ver >> 16) & 0xF}',
+            'class': _ICC_CLASS.get(cls, cls.decode('ascii', 'replace')),
+            'is_monitor': cls == b'mntr',
+            'space': space.decode('ascii', 'replace').strip(),
+            'pcs': pcs.decode('ascii', 'replace').strip(),
+            'intent': _ICC_INTENT.get(intent, str(intent)),
+            'desc': '', 'gamma': None, 'tags': [], 'has_vcgt': False, 'has_mhc2': False,
+            'primaries': {},
+        }
+        tags = []
+        for i in range(min(n_tags, 200)):
+            off = 132 + i * 12
+            if off + 12 > len(data):
+                break
+            sig, o, sz = struct.unpack('>4sII', data[off:off + 12])
+            tags.append((sig.decode('ascii', 'replace'), o, sz))
+        out['tags'] = [t[0] for t in tags]
+        out['has_vcgt'] = 'vcgt' in out['tags']
+        out['has_mhc2'] = 'MHC2' in out['tags']
+        for sig, o, sz in tags:
+            if o + sz > len(data) or sz < 8:
+                continue
+            body = data[o:o + sz]
+            if sig == 'desc' and not out['desc']:
+                if body[:4] == b'desc':
+                    ln = struct.unpack('>I', body[8:12])[0]
+                    out['desc'] = body[12:12 + max(ln - 1, 0)].decode('ascii', 'replace').strip('\x00')
+                elif body[:4] == b'mluc' and sz >= 28:
+                    ln, ofs = struct.unpack('>II', body[20:28])
+                    if ofs + ln <= sz:
+                        out['desc'] = body[ofs:ofs + ln].decode('utf-16-be', 'replace').strip('\x00')
+            elif sig == 'rTRC' and out['gamma'] is None:
+                if body[:4] == b'curv' and sz >= 12:
+                    cnt = struct.unpack('>I', body[8:12])[0]
+                    if cnt == 0:
+                        out['gamma'] = 1.0
+                    elif cnt == 1 and sz >= 14:
+                        out['gamma'] = round(struct.unpack('>H', body[12:14])[0] / 256.0, 3)
+                    else:
+                        out['gamma'] = 'táblázat'
+                elif body[:4] == b'para':
+                    out['gamma'] = 'paraméteres'
+            elif sig in ('rXYZ', 'gXYZ', 'bXYZ', 'wtpt') and sz >= 20:
+                x, y, z = struct.unpack('>iii', body[8:20])
+                out['primaries'][sig] = (round(x / 65536.0, 4), round(y / 65536.0, 4),
+                                         round(z / 65536.0, 4))
+        if not out['desc']:
+            out['desc'] = out['file']
+        return out
+    except Exception as e:
+        logging.warning(f"[DISPLAY] ICC olvasási hiba ({path}): {e}")
+        return {'file': os.path.basename(path), 'path': path, 'hiba': str(e)}
+
+
+def list_color_profiles():
+    """A gépre telepített összes ICC/ICM profil, feldolgozva. A monitor-profilok kerülnek
+    előre (a nyomtató-profilokhoz ebben a nézetben nincs dolgunk, de a listából ne
+    tűnjenek el - a szerviznek az is információ, mi van a gépen)."""
+    cdir = color_directory()
+    profiles = []
+    try:
+        names = sorted(os.listdir(cdir))
+    except OSError as e:
+        logging.error(f"[DISPLAY] A színprofil-mappa nem olvasható ({cdir}): {e}")
+        return cdir, []
+    for fn in names:
+        if fn.lower().endswith(('.icc', '.icm')):
+            profiles.append(parse_icc(os.path.join(cdir, fn)))
+    profiles.sort(key=lambda p: (not p.get('is_monitor'), p.get('file', '').lower()))
+    mon = sum(1 for p in profiles if p.get('is_monitor'))
+    logging.info(f"[DISPLAY] {len(profiles)} színprofil a(z) {cdir} mappában "
+                 f"({mon} monitor-profil, {sum(1 for p in profiles if p.get('has_mhc2'))} HDR-kalibrációs).")
+    return cdir, profiles
+
+
+# ============================================================================
+# A Windows színkezelésének állapota
+# ============================================================================
+
+def _read_assoc_branch(root):
+    """A ProfileAssociations\\Display ág beolvasása egy registry-gyökérből.
+    A profil maga ÉRTÉKKÉNT ül a {osztály-GUID}\\NNNN alkulcsokban - a puszta kulcsok
+    üresek is lehetnek, ezért az ÉRTÉKEKET számoljuk, nem a kulcsokat (ez a
+    colorprofile_core-ban már megtanult lecke, itt is érvényes)."""
+    found = []
+    try:
+        base = winreg.OpenKey(root, _ICM_ASSOC)
+    except OSError:
+        return found
+    i = 0
+    while True:
+        try:
+            g = winreg.EnumKey(base, i)
+        except OSError:
+            break
+        i += 1
+        try:
+            gk = winreg.OpenKey(base, g)
+        except OSError:
+            continue
+        j = 0
+        while True:
+            try:
+                sub = winreg.EnumKey(gk, j)
+            except OSError:
+                break
+            j += 1
+            try:
+                sk = winreg.OpenKey(gk, sub)
+            except OSError:
+                continue
+            m = 0
+            while True:
+                try:
+                    name, val, _t = winreg.EnumValue(sk, m)
+                except OSError:
+                    break
+                m += 1
+                vals = val if isinstance(val, list) else [val]
+                for v in vals:
+                    if isinstance(v, str) and v.strip():
+                        found.append({'guid': g, 'sub': sub, 'value_name': name, 'profile': v})
+    return found
+
+
+def profile_associations():
+    """Melyik monitorhoz milyen ICC-profil van társítva (rendszer- és felhasználói szinten).
+    Visszaad: {'system': [...], 'user': [...]}"""
+    out = {'system': _read_assoc_branch(winreg.HKEY_LOCAL_MACHINE),
+           'user': _read_assoc_branch(winreg.HKEY_CURRENT_USER)}
+    n = len(out['system']) + len(out['user'])
+    if n:
+        logging.info(f"[DISPLAY] {n} monitor-profil társítás: "
+                     + '; '.join(f"{a['profile']} ({a['sub']})"
+                                 for a in out['system'] + out['user']))
+    else:
+        logging.info("[DISPLAY] EGYETLEN ICC-profil sincs a kijelzőkhöz társítva - "
+                     "a Windows sRGB-ként kezeli a panelt.")
+    return out
+
+
+def calibration_management():
+    """A "Windows kijelzőkalibráció használata" kapcsoló állapota.
+
+    Ez dönti el, betöltődik-e egyáltalán a profilok gamma-görbéje (VCGT). Ha ki van
+    kapcsolva, hiába társít bárki bármilyen profilt - a gamma nem fog betöltődni, és a
+    panel korrekció nélkül marad (terepen: egy TN Dellen kiégett fehér, eltűnő
+    világosszürkék). A saját programunk Build 235-ös kiadása KIKAPCSOLTA ezt az AutoFix
+    végén; a 238-as kiadás javította (azóta 1-re állítja) - de egy 235-tel megfixált gépen
+    a 0 MAGÁTÓL SOSEM áll vissza, ezért kell ezt kiírni a szerviznek.
+
+    Mindkét lehetséges helyet nézzük: a kapcsoló az ICM-Calibration alkulcsban ül (ezt
+    írja a Windows és a mi resetünk is), de a régebbi leírások az ICM gyökeret említik -
+    egy hiányzó érték nem jelenthet "rendben van"-t, ha a másik helyen 0 áll.
+    Visszaad: 1 / 0 / None (sehol nincs beállítva = a Windows alapértelmezése)."""
+    found = None
+    for path in (_ICM_CALIB, _ICM_BASE):
+        try:
+            k = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path)
+            val = int(winreg.QueryValueEx(k, 'CalibrationManagementEnabled')[0])
+        except (OSError, ValueError, TypeError):
+            continue
+        logging.info(f"[DISPLAY] CalibrationManagementEnabled = {val} "
+                     f"(HKLM\\{path})")
+        if val == 0:            # a rossz állapot mindig nyer: ez az, amiről szólni kell
+            return 0
+        if found is None:
+            found = val
+    if found is None:
+        logging.debug("[DISPLAY] CalibrationManagementEnabled sehol nincs beállítva "
+                      "(a Windows alapértelmezése érvényes).")
+    return found
+
+
+def enable_calibration_management():
+    """A kijelzőkalibráció-kezelés VISSZAkapcsolása (érték = 1).
+
+    Csak akkor van rá szükség, ha valami kikapcsolta - tipikusan a saját Build 235-ös
+    kiadásunk AutoFixe. Az 1 a Windows alapértelmezése: NEM tölt be magától semmilyen
+    kalibrációt, csak megengedi, hogy egy társított profil gamma-görbéje betöltődjön.
+    Vagyis a visszakapcsolás nem állít be semmit, csak visszaadja a lehetőséget.
+    Visszaad: (sikerult, elozo_ertek)."""
+    prev = calibration_management()
+    logging.warning(f"[DISPLAY] CalibrationManagementEnabled beállítása 1-re "
+                    f"(előző érték: {prev if prev is not None else 'nincs beállítva'})...")
+    try:
+        k = winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, _ICM_CALIB, 0, winreg.KEY_SET_VALUE)
+        winreg.SetValueEx(k, 'CalibrationManagementEnabled', 0, winreg.REG_DWORD, 1)
+    except OSError as e:
+        logging.error(f"[DISPLAY] A kalibrációkezelés visszakapcsolása nem sikerült: {e}")
+        return False, prev
+    logging.info("[DISPLAY] A Windows kijelzőkalibráció-kezelése visszakapcsolva.")
+    return True, prev
+
+
+def registered_profiles_report():
+    """A Windowsban REGISZTRÁLT profilok (pl. az sRGB munkatér) + létezik-e a fájljuk.
+
+    MIÉRT KELL EZ - terepen bizonyított, a fejlesztői gépen (2026-07-30): a
+    HKCU\\...\\ICM\\RegisteredProfiles\\sRGB egy 'srgb_to_gamma2p2_300_mhc2.icm' nevű fájlra
+    mutatott, ami NINCS a színprofil-mappában (egy külső HDR-eszköz hagyta ott). Ettől a
+    mscms MINDEN hívása ERROR_FILE_NOT_FOUND-dal tért vissza - vagyis a gép színkezelése
+    csendben törött volt, és ezt semmilyen Windows-felület nem mutatja meg.
+    Visszaad: lista dict-ekből, a 'missing' kulcs jelzi a törött bejegyzést."""
+    cdir = color_directory()
+    out = []
+    for root, rname in ((winreg.HKEY_CURRENT_USER, 'HKCU'), (winreg.HKEY_LOCAL_MACHINE, 'HKLM')):
+        try:
+            k = winreg.OpenKey(root, _ICM_REGISTERED)
+        except OSError:
+            continue
+        i = 0
+        while True:
+            try:
+                name, val, _t = winreg.EnumValue(k, i)
+            except OSError:
+                break
+            i += 1
+            if not isinstance(val, str) or not val.strip():
+                continue
+            full = val if os.path.isabs(val) else os.path.join(cdir, val)
+            missing = not os.path.exists(full)
+            out.append({'root': rname, 'name': name, 'profile': val, 'missing': missing})
+            if missing:
+                logging.warning(f"[DISPLAY] TÖRÖTT színkezelés-regisztráció: {rname} "
+                                f"RegisteredProfiles\\{name} = '{val}', de ez a fájl NINCS MEG "
+                                f"({full}). Emiatt a Windows színkezelő hívásai hibára futnak.")
+    return out
+
+
+def repair_registered_profiles(dry_run=False):
+    """A törött (nem létező fájlra mutató) profil-regisztrációk eltávolítása.
+
+    Csak azokat a bejegyzéseket törli, amelyek fájlja BIZONYÍTOTTAN hiányzik - ép
+    regisztrációhoz nem nyúlunk. A törlés előtt minden érintett bejegyzést névvel
+    naplózunk (destruktív lépés). A Windows a hiányzó bejegyzést a saját beépített
+    alapértelmezésével pótolja, tehát a törlés a helyreállítás, nem a kár.
+    Visszaad: (eltavolitott_lista, hiba_lista)."""
+    removed, errors = [], []
+    for entry in registered_profiles_report():
+        if not entry['missing']:
+            continue
+        root = winreg.HKEY_CURRENT_USER if entry['root'] == 'HKCU' else winreg.HKEY_LOCAL_MACHINE
+        label = f"{entry['root']}\\RegisteredProfiles\\{entry['name']} -> '{entry['profile']}'"
+        if dry_run:
+            removed.append(label)
+            continue
+        logging.warning(f"[DISPLAY] Törött regisztráció ELTÁVOLÍTÁSA: {label}")
+        try:
+            k = winreg.OpenKey(root, _ICM_REGISTERED, 0, winreg.KEY_SET_VALUE)
+            winreg.DeleteValue(k, entry['name'])
+            removed.append(label)
+        except OSError as e:
+            logging.error(f"[DISPLAY] Nem sikerült eltávolítani ({label}): {e}")
+            errors.append(f"{label}: {e}")
+    return removed, errors

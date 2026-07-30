@@ -207,6 +207,37 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .stress-dl-box{padding:14px 18px;margin-bottom:16px;flex-direction:column;gap:8px}
 .stress-dl-label{font-size:12.5px;color:var(--text2);font-weight:600}
 .tool-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:12px}
+/* --- Kijelző nézet --- */
+.disp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.disp-card{padding:16px;border-radius:var(--r);border:1px solid var(--glass-border);background:rgba(38,22,66,0.5)}
+.disp-card h4{margin:0 0 4px;font-size:15px;color:#fff;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.disp-sub{font-size:11.5px;color:var(--muted);margin-bottom:12px}
+.disp-rows{display:flex;flex-direction:column;gap:6px;font-size:12.5px}
+.disp-row{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05)}
+.disp-row:last-child{border-bottom:none}
+.disp-row .k{color:var(--muted);white-space:nowrap}
+.disp-row .v{color:#fff;text-align:right;font-weight:600}
+.disp-badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:10.5px;font-weight:700;letter-spacing:.3px}
+.disp-badge.on{background:rgba(40,200,120,0.18);color:#5ee9a4;border:1px solid rgba(40,200,120,0.4)}
+.disp-badge.off{background:rgba(255,255,255,0.07);color:var(--muted);border:1px solid rgba(255,255,255,0.12)}
+.disp-badge.no{background:rgba(255,90,90,0.15);color:#ff9a9a;border:1px solid rgba(255,90,90,0.35)}
+.disp-badge.warn{background:rgba(255,180,60,0.15);color:#ffc978;border:1px solid rgba(255,180,60,0.4)}
+.disp-nits{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.disp-nit{text-align:center;padding:10px 6px;border-radius:10px;background:rgba(180,100,255,0.10);border:1px solid rgba(180,100,255,0.22)}
+.disp-nit .n{font-size:19px;font-weight:800;color:#d6b4ff;line-height:1.1}
+.disp-nit .l{font-size:10px;color:var(--muted);margin-top:3px}
+.disp-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}
+.prof-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.prof-table th{text-align:left;padding:8px 10px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--glass-border)}
+.prof-table td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,0.05);vertical-align:top}
+.prof-table tr:last-child td{border-bottom:none}
+.prof-table .pname{color:#fff;font-weight:600}
+.prof-table .pfile{color:var(--muted);font-size:11px;font-family:Consolas,monospace}
+.disp-alert{padding:14px 16px;border-radius:var(--r);margin-bottom:14px;font-size:13px;line-height:1.55}
+.disp-alert.bad{background:rgba(255,90,90,0.10);border:1px solid rgba(255,90,90,0.35);color:#ffc4c4}
+.disp-alert.good{background:rgba(40,200,120,0.10);border:1px solid rgba(40,200,120,0.32);color:#a9f0cd}
+.disp-alert b{color:#fff}
+.disp-alert code{background:rgba(0,0,0,0.35);padding:1px 6px;border-radius:4px;font-size:11.5px}
 .tool-card{position:relative;display:flex;flex-direction:column;gap:9px;padding:16px;border-radius:var(--r);border:1px solid var(--glass-border);background:rgba(38,22,66,0.5);transition:all var(--t)}
 .tool-card:hover{transform:translateY(-2px);border-color:var(--glass-border-hover);box-shadow:0 8px 26px rgba(0,0,0,0.3),0 0 18px rgba(180,100,255,0.12);background:rgba(50,30,85,0.55)}
 .tool-head{display:flex;align-items:center;gap:10px}
@@ -426,6 +457,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
     <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Driver Fix</button>
     <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stress Teszt &amp; Szervíz Programok</button>
     <button class="nav-btn" onclick="switchView('benchmark')" data-view="benchmark"><span class="icon">🏆</span>Benchmark</button>
+    <button class="nav-btn" onclick="switchView('display')" data-view="display"><span class="icon">🎨</span>Kijelző &amp; Színkezelés</button>
     <button class="nav-btn" onclick="switchView('report')" data-view="report"><span class="icon">📊</span>Rendszer Riport (PDF)</button>
     <button class="nav-btn" onclick="switchView('blockscript')" data-view="blockscript"><span class="icon">🚫</span>Net Blokkoló Script</button>
     <div class="sidebar-bottom" id="build-label">Build ---</div>
@@ -1009,6 +1041,53 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
       </div>
 
       <!-- VIEW: Report (PDF) -->
+      <!-- VIEW: Kijelző és színkezelés -->
+      <div class="view" id="view-display">
+        <div class="view-hero vh-blue" data-emoji="🎨">
+          <div class="vh-text">
+            <div class="vh-title">🎨 Kijelző &amp; Színkezelés</div>
+            <div class="vh-sub">Amit a Windows három külön helyre szórt szét, itt egy képernyőn: a monitor valódi képességei (csúcsfényerő, színtartomány, bitmélység), a HDR ki-be kapcsolása, és a rendszerbe telepített ICC-színprofilok teljes állapota. Megmutatja azt is, amit a Windows egyik felülete sem: milyen profil van ténylegesen a monitorra téve, és ép-e egyáltalán a színkezelés.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">🌗 HDR be/ki</span>
+              <span class="hero-chip">💡 Valódi nit-értékek</span>
+              <span class="hero-chip">🎯 Színprofil-áttekintés</span>
+              <span class="hero-chip">🩺 Színkezelés-diagnózis</span>
+            </div>
+          </div>
+          <div class="vh-actions">
+            <button class="btn btn-big" onclick="loadDisplayView()" id="btn-disp-refresh">🔄 Állapot Beolvasása</button>
+            <button class="btn btn-sm" onclick="api().open_windows_color_tool('hdr_settings')" style="justify-content:center">⚙️ Windows HDR-beállítások</button>
+          </div>
+        </div>
+
+        <div id="disp-diag"></div>
+
+        <div class="panel glass">
+          <div class="panel-title">🖥️ Csatlakoztatott kijelzők</div>
+          <div id="disp-monitors" class="disp-grid"><div class="empty-state">Kattints az „Állapot Beolvasása” gombra.</div></div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-title">🎯 Telepített színprofilok</div>
+          <div class="disp-sub" id="disp-profdir"></div>
+          <div id="disp-profiles"><div class="empty-state">Még nincs beolvasva.</div></div>
+          <div class="disp-actions">
+            <button class="btn btn-sm" onclick="api().open_color_profile_folder()">📁 Profilmappa megnyitása</button>
+            <button class="btn btn-sm" onclick="api().open_windows_color_tool('colorcpl')">🎛️ Színkezelés (vezérlőpult)</button>
+            <button class="btn btn-sm" onclick="api().open_windows_color_tool('dccw')">🧙 Kijelzőkalibráló varázsló</button>
+            <button class="btn btn-sm" onclick="api().open_windows_color_tool('hdr_calibration')">📐 Windows HDR Calibration (Store)</button>
+          </div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-title">🔧 Karbantartás</div>
+          <div class="disp-sub">A gyári visszaállítás leszedi a monitorokhoz rendelt egyedi ICC-profilokat, így a panel a saját alapállapotában jelenik meg. A nyomtató-profilokhoz és a Windows kalibrációkezelőjéhez SEM nyúl. A teljes hatáshoz újraindítás kell.</div>
+          <div class="disp-actions">
+            <button class="btn btn-sm btn-danger" onclick="resetDisplayColors()">🎨 Színprofilok gyári visszaállítása</button>
+          </div>
+        </div>
+      </div>
+
       <div class="view" id="view-report">
         <div class="view-hero vh-teal" data-emoji="📊">
           <div class="vh-text">
@@ -1388,6 +1467,9 @@ window.handlePyEvent = function(payload) {
     case 'benchmark_auto_result':
       onBenchmarkAutoResult(data);
       break;
+    case 'display_info':
+      renderDisplayInfo(data);
+      break;
   }
 };
 
@@ -1400,6 +1482,7 @@ function switchView(name) {
   currentView = name;
   if (name === 'stress') refreshServiceTools();
   if (name === 'benchmark') loadBenchmarkView();
+  if (name === 'display') loadDisplayView();
   
   const targetBar = document.querySelector('.target-bar');
   if (targetBar) {
@@ -1413,6 +1496,212 @@ function switchView(name) {
   if (name === 'wu') checkWuStatus();
   if (name === 'bitlocker') checkBitlockerStatus();
   if (name === 'hw' && !hwPool.length && !hwInstalled.length) { /* first visit, don't auto-scan */ }
+}
+
+/* ========== KIJELZŐ & SZÍNKEZELÉS ========== */
+let displayState = null;
+
+function loadDisplayView() {
+  const btn = document.getElementById('btn-disp-refresh');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Beolvasás...'; }
+  document.getElementById('disp-monitors').innerHTML =
+    '<div class="empty-state">Kijelzők és színprofilok beolvasása...</div>';
+  api().load_display_info();
+}
+
+function dispEsc(t) {
+  return String(t === null || t === undefined ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/* A gamut-lefedettség durva becslése: a színpontok által kifeszített háromszög területe a
+   referencia-háromszöghöz viszonyítva. NEM kolorimetriai pontosságú szám (a valódi
+   lefedettség metszet-alapú lenne), viszont arra pont jó, hogy egy szélesgamutos panel
+   azonnal látsszon — ezért írja ki a felület is "kb."-ként. */
+function dispGamutArea(r, g, b) {
+  return Math.abs((g[0] - r[0]) * (b[1] - r[1]) - (b[0] - r[0]) * (g[1] - r[1])) / 2;
+}
+const DISP_SRGB_TRI = [[0.64, 0.33], [0.30, 0.60], [0.15, 0.06]];
+const DISP_P3_TRI = [[0.680, 0.320], [0.265, 0.690], [0.150, 0.060]];
+
+function renderDisplayInfo(d) {
+  displayState = d;
+  const btn = document.getElementById('btn-disp-refresh');
+  if (btn) { btn.disabled = false; btn.textContent = '🔄 Állapot Beolvasása'; }
+  if (!d) return;
+
+  /* --- diagnózis-sáv: ép-e a színkezelés --- */
+  let diag = '';
+  const broken = (d.registered || []).filter(function (r) { return r.missing; });
+  if (broken.length) {
+    diag += '<div class="disp-alert bad"><b>⚠️ A színkezelés törött ezen a gépen.</b><br>' +
+      broken.length + ' regisztrált profil olyan fájlra mutat, ami nincs meg — emiatt a Windows ' +
+      'színkezelő hívásai hibára futnak, és a profilok társítása is meghiúsulhat. ' +
+      'Ezt egyetlen Windows-felület sem jelzi.<ul style="margin:8px 0 10px 18px">' +
+      broken.map(function (r) {
+        return '<li><code>' + dispEsc(r.root) + '\\RegisteredProfiles\\' + dispEsc(r.name) +
+          '</code> → <code>' + dispEsc(r.profile) + '</code></li>';
+      }).join('') + '</ul>' +
+      '<button class="btn btn-sm btn-danger" onclick="repairColorRegistration()">🩺 Törött bejegyzések eltávolítása</button>' +
+      '</div>';
+  }
+  if (d.assoc_count === 0 && (d.displays || []).length) {
+    const sBase = dispGamutArea(DISP_SRGB_TRI[0], DISP_SRGB_TRI[1], DISP_SRGB_TRI[2]);
+    const wide = (d.displays || []).some(function (m) {
+      return m.edid && m.edid.chroma &&
+        dispGamutArea(m.edid.chroma.red, m.edid.chroma.green, m.edid.chroma.blue) > sBase * 1.15;
+    });
+    diag += '<div class="disp-alert ' + (wide ? 'bad' : 'good') + '">' +
+      (wide
+        ? '<b>⚠️ Egyetlen ICC-profil sincs a kijelzőkhöz társítva</b>, viszont a paneled a szabvány sRGB-nél ' +
+          'jóval szélesebb színtartományú. A Windows így sRGB-ként kezeli, amitől a színek túltelítettek ' +
+          '(rikító pirosak/zöldek) minden nem színkezelt programban.'
+        : '<b>✅ Nincs egyedi ICC-profil a kijelzőkhöz társítva</b> — a Windows az alapértelmezett sRGB-kezelést ' +
+          'használja. Egy szabványos gamutú panelnél ez teljesen rendben van.') + '</div>';
+  }
+  if (d.calibration === 0) {
+    diag += '<div class="disp-alert bad"><b>⚠️ A Windows kijelzőkalibráció-kezelése KI van kapcsolva.</b><br>' +
+      'Emiatt a színprofilok gamma-görbéje (VCGT) soha nem töltődik be — hiába társítasz bármilyen profilt, ' +
+      'nem lesz hatása, és a panel korrekció nélkül marad (tipikus tünet: kiégett fehér, eltűnő ' +
+      'világosszürke árnyalatok). <b>Ezt a program Build 235-ös kiadásának 1 kattintásos fixe kapcsolta ki</b> ' +
+      '— a 238-as óta javítva, de egy régebbi fix után magától soha nem áll vissza.' +
+      '<div style="margin-top:10px"><button class="btn btn-sm" onclick="enableCalibrationManagement()">' +
+      '💡 Kalibráció-kezelés visszakapcsolása</button></div></div>';
+  }
+  (d.errors || []).forEach(function (e) { diag += '<div class="disp-alert bad">❌ ' + dispEsc(e) + '</div>'; });
+  document.getElementById('disp-diag').innerHTML = diag;
+
+  /* --- monitorok --- */
+  const mons = d.displays || [];
+  const mc = document.getElementById('disp-monitors');
+  if (!mons.length) {
+    mc.innerHTML = '<div class="empty-state">Nem sikerült kijelzőt felderíteni.</div>';
+  } else {
+    mc.innerHTML = mons.map(function (m) {
+      const h = m.hdr || {};
+      const e = m.edid || {};
+      const lum = e.luminance || null;
+      const ch = e.chroma || null;
+      let hdrBadge = '', hdrBtn = '';
+      if (!h.supported) {
+        hdrBadge = '<span class="disp-badge no">HDR nem támogatott</span>';
+      } else if (h.enabled) {
+        hdrBadge = '<span class="disp-badge on">HDR BEKAPCSOLVA</span>';
+        hdrBtn = '<button class="btn btn-sm btn-danger" onclick="setDisplayHdr(' + m.index + ',false)">🌑 HDR kikapcsolása</button>';
+      } else {
+        hdrBadge = '<span class="disp-badge off">HDR kikapcsolva</span>';
+        hdrBtn = '<button class="btn btn-sm" onclick="setDisplayHdr(' + m.index + ',true)">🌗 HDR bekapcsolása</button>';
+      }
+      if (h.limited_by_policy) hdrBadge += ' <span class="disp-badge warn">házirend korlátozza</span>';
+
+      let rows = '';
+      const R = function (k, v) {
+        rows += '<div class="disp-row"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>';
+      };
+      R('Csatlakozás', dispEsc(m.connection) + (m.refresh_hz ? ' · ' + m.refresh_hz + ' Hz' : ''));
+      R('Videokártya', dispEsc(m.adapter || '—'));
+      R('Aktív színmód', dispEsc(h.mode || (h.enabled ? 'HDR' : 'SDR')) +
+        (h.bits ? ' · ' + h.bits + ' bit' : '') + (h.encoding ? ' · ' + dispEsc(h.encoding) : ''));
+      if (h.wcg_supported) R('Széles gamut (WCG)', h.wcg_enabled ? 'bekapcsolva' : 'elérhető, kikapcsolva');
+      if (m.sdr_white_nits !== null && m.sdr_white_nits !== undefined) {
+        R('SDR-tartalom fényereje', m.sdr_white_nits + ' nit');
+      }
+      if (ch && ch.gamma) R('EDID névleges gamma', ch.gamma);
+      if (ch) {
+        const area = dispGamutArea(ch.red, ch.green, ch.blue);
+        const vsS = Math.round(area / dispGamutArea(DISP_SRGB_TRI[0], DISP_SRGB_TRI[1], DISP_SRGB_TRI[2]) * 100);
+        const vsP = Math.round(area / dispGamutArea(DISP_P3_TRI[0], DISP_P3_TRI[1], DISP_P3_TRI[2]) * 100);
+        R('Színtartomány', 'kb. ' + vsS + '% sRGB · kb. ' + vsP + '% DCI-P3');
+        R('Fehérpont (EDID)', 'x ' + ch.white[0].toFixed(4) + ' · y ' + ch.white[1].toFixed(4));
+      }
+      if (lum) {
+        const eo = [];
+        if (lum.eotf_sdr) eo.push('SDR');
+        if (lum.eotf_hdr_gamma) eo.push('HDR-gamma');
+        if (lum.eotf_pq) eo.push('PQ (HDR10)');
+        if (lum.eotf_hlg) eo.push('HLG');
+        R('Támogatott EOTF', eo.join(', ') || '—');
+      }
+
+      let nits = '';
+      if (lum && lum.peak_nits) {
+        nits = '<div class="disp-nits">' +
+          '<div class="disp-nit"><div class="n">' + lum.peak_nits + '</div><div class="l">csúcs (nit)</div></div>' +
+          '<div class="disp-nit"><div class="n">' + (lum.frame_avg_nits || '—') + '</div><div class="l">teljes képmezős</div></div>' +
+          '<div class="disp-nit"><div class="n">' +
+          (lum.min_nits !== null && lum.min_nits !== undefined ? lum.min_nits : '—') +
+          '</div><div class="l">fekete szint</div></div></div>' +
+          '<div class="disp-sub" style="margin:7px 0 0">A monitor saját EDID-adatlapjából — ezt ígéri a gyártó, nem mért érték.</div>';
+      } else if (h.supported) {
+        nits = '<div class="disp-sub" style="margin-top:10px">A monitor nem közöl HDR-luminancia adatot az EDID-ben.</div>';
+      }
+
+      return '<div class="disp-card"><h4>' + (m.primary ? '⭐ ' : '🖥️ ') + dispEsc(m.name) + ' ' + hdrBadge + '</h4>' +
+        '<div class="disp-sub">' + dispEsc(m.gdi_name) +
+        (e.name && e.name !== m.name ? ' · EDID: ' + dispEsc(e.name) : '') + '</div>' +
+        '<div class="disp-rows">' + rows + '</div>' + nits +
+        (hdrBtn ? '<div class="disp-actions">' + hdrBtn + '</div>' : '') + '</div>';
+    }).join('');
+  }
+
+  /* --- profilok --- */
+  document.getElementById('disp-profdir').textContent = d.profile_dir || '';
+  const profs = d.profiles || [];
+  const assocNames = [].concat(d.assoc ? d.assoc.system : [], d.assoc ? d.assoc.user : [])
+    .map(function (a) { return (a.profile || '').toLowerCase(); });
+  const pc = document.getElementById('disp-profiles');
+  if (!profs.length) {
+    pc.innerHTML = '<div class="empty-state">Nincs ICC/ICM profil a rendszerben.</div>';
+  } else {
+    pc.innerHTML = '<div style="overflow-x:auto"><table class="prof-table"><thead><tr>' +
+      '<th>Profil</th><th>Típus</th><th>Gamma</th><th>Jellemzők</th><th>Állapot</th></tr></thead><tbody>' +
+      profs.map(function (p) {
+        if (p.hiba) {
+          return '<tr><td class="pname">' + dispEsc(p.file) +
+            '</td><td colspan="4" style="color:#ff9a9a">Olvasási hiba: ' + dispEsc(p.hiba) + '</td></tr>';
+        }
+        const feats = [];
+        if (p.has_mhc2) feats.push('<span class="disp-badge warn">HDR-kalibrációs</span>');
+        if (p.has_vcgt) feats.push('<span class="disp-badge on">gamma-rámpa</span>');
+        if (p.version) feats.push('<span class="disp-badge off">ICC ' + dispEsc(p.version) + '</span>');
+        const used = assocNames.indexOf((p.file || '').toLowerCase()) >= 0;
+        return '<tr><td><div class="pname">' + dispEsc(p.desc || p.file) + '</div>' +
+          '<div class="pfile">' + dispEsc(p.file) + ' · ' + Math.round((p.size || 0) / 1024) + ' kB</div></td>' +
+          '<td>' + dispEsc(p.class || '—') + '</td>' +
+          '<td>' + dispEsc(p.gamma === null || p.gamma === undefined ? '—' : p.gamma) + '</td>' +
+          '<td>' + (feats.join(' ') || '—') + '</td>' +
+          '<td>' + (used ? '<span class="disp-badge on">HASZNÁLATBAN</span>'
+            : '<span class="disp-badge off">nincs társítva</span>') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+}
+
+function setDisplayHdr(index, on) {
+  const list = (displayState && displayState.displays) || [];
+  let m = null;
+  for (let i = 0; i < list.length; i++) { if (list[i].index === index) { m = list[i]; break; } }
+  if (!m) { showToast('❌ A kijelző nem található — frissítsd a nézetet!', 'error'); return; }
+  showToast((on ? '🌗 HDR bekapcsolása' : '🌑 HDR kikapcsolása') +
+    ' — a kép 1-2 másodpercre elsötétülhet...', 'info');
+  api().set_display_hdr(m.adapter_low, m.adapter_high, m.target_id, on);
+}
+
+function repairColorRegistration() {
+  showConfirm('🩺 Törött bejegyzések eltávolítása',
+    'A nem létező fájlra mutató színprofil-regisztrációk törlődnek a registryből. A Windows ezután a saját beépített alapértelmezését használja — ez a helyreállítás, nem kár. Folytatod?')
+    .then(function (ok) { if (ok) api().repair_color_registration(); });
+}
+
+function enableCalibrationManagement() {
+  showConfirm('💡 Kalibráció-kezelés visszakapcsolása',
+    'A Windows újra betöltheti a színprofilokhoz tartozó gamma-görbét. Ez a Windows alapértelmezett állapota — önmagában semmilyen kalibrációt nem állít be, csak megengedi a betöltést. Folytatod?')
+    .then(function (ok) { if (ok) api().enable_calibration_management(); });
+}
+
+function resetDisplayColors() {
+  showConfirm('🎨 Színprofilok gyári visszaállítása',
+    'A monitorokhoz rendelt egyedi ICC-profil hozzárendelések törlődnek, a panel a gyári alapállapotában jelenik meg. A nyomtató-profilokhoz nem nyúlunk. A teljes hatáshoz újraindítás javasolt. Folytatod?')
+    .then(function (ok) { if (ok) api().reset_display_colors(); });
 }
 
 /* ========== BITLOCKER ========== */
