@@ -14,6 +14,9 @@
   --accent:#d488ff;--accent2:#b855ff;--accent-glow:rgba(212,136,255,0.6);
   --green:#d488ff;--red:#ff6b5b;--yellow:#ffe066;--orange:#ffb347;
   --text:rgba(255,255,255,1);--text2:rgba(230,220,255,0.9);--text3:rgba(200,180,230,0.7);
+  /* A --muted 7 szabályban szerepelt, de sehol nem volt definiálva: azok a szövegek
+     így az öröklött fehéret kapták, és eltűnt a 3 fokozatú szöveghierarchia. */
+  --muted:rgba(200,180,230,0.7);
   --r:14px;--r-sm:8px;--t:0.25s ease;
   --font:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
   --mono:'Cascadia Code','Fira Code','Consolas',monospace;
@@ -208,7 +211,8 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .stress-dl-label{font-size:12.5px;color:var(--text2);font-weight:600}
 .tool-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:12px}
 /* --- Kijelző nézet --- */
-.disp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.empty-state{padding:26px 18px;text-align:center;color:var(--muted);font-size:13px;border:1px dashed var(--glass-border);border-radius:var(--r);background:rgba(0,0,0,0.14)}
+.disp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(520px,100%),1fr));gap:14px}
 .disp-card{padding:16px;border-radius:var(--r);border:1px solid var(--glass-border);background:rgba(38,22,66,0.5)}
 .disp-card h4{margin:0 0 4px;font-size:15px;color:#fff;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .disp-sub{font-size:11.5px;color:var(--muted);margin-bottom:12px}
@@ -223,10 +227,49 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .disp-badge.no{background:rgba(255,90,90,0.15);color:#ff9a9a;border:1px solid rgba(255,90,90,0.35)}
 .disp-badge.warn{background:rgba(255,180,60,0.15);color:#ffc978;border:1px solid rgba(255,180,60,0.4)}
 .disp-nits{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+/* --- diagnózis: ítélet-sáv + állapot-pirulák --- */
+.disp-verdict{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  padding:14px 18px;border-radius:var(--r);margin-bottom:12px;font-size:14px;font-weight:600}
+.disp-verdict.ok{background:rgba(40,200,120,0.10);border:1px solid rgba(40,200,120,0.32);color:#a9f0cd}
+.disp-verdict.bad{background:rgba(255,90,90,0.10);border:1px solid rgba(255,90,90,0.35);color:#ffc4c4}
+.disp-verdict.idle{background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);color:var(--muted)}
+.disp-verdict .dv-meta{font-size:12px;font-weight:500;opacity:.85}
+.disp-health{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:12px;margin-bottom:12px}
+.dh{padding:13px 15px;border-radius:var(--r);border:1px solid var(--glass-border);background:rgba(38,22,66,0.5)}
+.dh-t{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.dh-v{font-size:14px;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dh-fix{margin-top:9px}
+/* --- monitor-kártya belső rácsa --- */
+.dc-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.dc-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:12px;align-items:start}
+.dc-sec{padding:12px 14px;border-radius:10px;border:1px solid var(--glass-border);background:rgba(0,0,0,0.18)}
+.dc-sec-t{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:9px;font-weight:700}
+.disp-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:9px}
+.disp-fact .fk{font-size:10.5px;color:var(--muted);margin-bottom:2px}
+.disp-fact .fv{font-size:12.5px;color:#fff;font-weight:600;line-height:1.3}
+.dc-bar{margin-top:9px}
+.dc-bar .bl{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin-bottom:3px}
+.dc-bar .bt{height:7px;border-radius:99px;background:rgba(255,255,255,0.08);overflow:hidden}
+.dc-bar .bf{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--accent2),var(--accent))}
+/* --- ICC csempe --- */
+.icc-cur{padding:9px 11px;border-radius:8px;background:rgba(180,100,255,0.10);border:1px solid rgba(180,100,255,0.25);margin-bottom:9px}
+.icc-cur .icc-n{font-size:12.5px;color:#fff;font-weight:700;word-break:break-word}
+.icc-cur.none{background:rgba(255,255,255,0.04);border-color:var(--glass-border)}
+.icc-cur.none .icc-n{color:var(--muted);font-weight:500}
+.icc-pick{display:flex;flex-direction:column;gap:6px;max-height:168px;overflow-y:auto;margin-bottom:9px}
+.icc-opt{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px;
+  border:1px solid var(--glass-border);background:rgba(38,22,66,0.5);cursor:pointer;transition:all var(--t)}
+.icc-opt:hover{border-color:var(--glass-border-hover);background:rgba(50,30,85,0.6)}
+.icc-opt.sel{border-color:var(--accent);background:rgba(180,100,255,0.16)}
+.icc-opt .io-n{font-size:12px;color:#fff;font-weight:600;word-break:break-word}
+.icc-opt .io-f{font-size:10px;color:var(--muted);font-family:var(--mono)}
+/* --- karbantartás + linkek --- */
+.disp-maint{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr));gap:14px}
+.disp-links{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr));gap:10px}
 .gamma-box{margin-top:13px;padding:12px;border-radius:10px;border:1px solid var(--glass-border);background:rgba(0,0,0,0.22)}
 .gamma-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;font-size:12.5px;color:#fff;font-weight:600}
-.gamma-wrap{display:flex;gap:12px;align-items:center}
-.gamma-svg{flex:0 0 104px}
+.gamma-wrap{display:flex;flex-direction:column;gap:9px}
+.gamma-svg{width:100%;height:auto;display:block}
 .gamma-note{font-size:11px;color:var(--muted);line-height:1.5}
 .disp-nit{text-align:center;padding:10px 6px;border-radius:10px;background:rgba(180,100,255,0.10);border:1px solid rgba(180,100,255,0.22)}
 .disp-nit .n{font-size:19px;font-weight:800;color:#d6b4ff;line-height:1.1}
@@ -1057,6 +1100,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
               <span class="hero-chip">💡 Valódi nit-értékek</span>
               <span class="hero-chip">🎯 Színprofil-áttekintés</span>
               <span class="hero-chip">🩺 Színkezelés-diagnózis</span>
+              <span class="hero-chip">🎯 ICC-profil társítás</span>
             </div>
           </div>
           <div class="vh-actions">
@@ -1077,6 +1121,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
           <div class="disp-sub" id="disp-profdir"></div>
           <div id="disp-profiles"><div class="empty-state">Még nincs beolvasva.</div></div>
           <div class="disp-actions">
+            <button class="btn btn-sm btn-primary" onclick="installIcc()">📥 ICC-profil betöltése fájlból</button>
             <button class="btn btn-sm" onclick="api().open_color_profile_folder()">📁 Profilmappa megnyitása</button>
             <button class="btn btn-sm" onclick="api().open_windows_color_tool('colorcpl')">🎛️ Színkezelés (vezérlőpult)</button>
             <button class="btn btn-sm" onclick="api().open_windows_color_tool('dccw')">🧙 Kijelzőkalibráló varázsló</button>
@@ -1544,6 +1589,44 @@ function renderDisplayInfo(d) {
 
   /* --- diagnózis-sáv: ép-e a színkezelés --- */
   let diag = '';
+
+  /* (a) ÍTÉLET-SÁV: egyetlen mondat arról, hogy rendben van-e a gép. Ez a szerviz első
+     kérdése, és korábban ép gépen semmilyen visszajelzést nem kapott rá. */
+  const nBroken = (d.registered || []).filter(function (r) { return r.missing; }).length;
+  const nDisp = (d.displays || []).length;
+  const nAssoc = (d.displays || []).filter(function (m) { return m.icc && m.icc.active; }).length;
+  const problems = nBroken + (d.calibration === 0 ? 1 : 0) + (d.errors || []).length;
+  diag += '<div class="disp-verdict ' + (problems ? 'bad' : 'ok') + '">' +
+    '<span>' + (problems ? '⚠️ ' + problems + ' probléma a színkezelésben.'
+                         : '✅ A színkezelés ép ezen a gépen.') + '</span>' +
+    '<span class="dv-meta">' + nDisp + ' kijelző · ' + (d.profiles || []).length + ' profil · ' +
+    nAssoc + ' társítva</span></div>';
+
+  /* (b) NÉGY ÁLLAPOT-PIRULA: a gép színkezelésének négy eldöntendő kérdése, mindegyik
+     mellett ott a javítógomb. HDR és gamma szándékosan NINCS itt: azok egy-egy konkrét
+     monitor tényei, a helyük a monitor-kártyán van. */
+  const pill = function (title, val, fix) {
+    return '<div class="dh"><div class="dh-t">' + title + '</div><div class="dh-v">' + val + '</div>' +
+      (fix ? '<div class="dh-fix">' + fix + '</div>' : '') + '</div>';
+  };
+  let pills = '';
+  pills += pill('🩺 Színkezelés-regisztráció',
+    nBroken ? '<span class="disp-badge no">' + nBroken + ' TÖRÖTT</span>'
+            : '<span class="disp-badge on">ÉP</span>',
+    nBroken ? '<button class="btn btn-sm btn-danger" onclick="repairColorRegistration()">Javítás</button>' : '');
+  pills += pill('🎯 Profil-társítás',
+    nAssoc ? '<span class="disp-badge on">' + nAssoc + ' / ' + nDisp + ' kijelzőn</span>'
+           : '<span class="disp-badge off">nincs társítás</span>', '');
+  pills += pill('🔐 Profil-betöltés',
+    d.calibration === 0 ? '<span class="disp-badge no">LETILTVA</span>'
+      : (d.calibration === 1 ? '<span class="disp-badge on">ENGEDÉLYEZVE</span>'
+                             : '<span class="disp-badge off">nincs beállítva</span>'),
+    d.calibration === 0 ? '<button class="btn btn-sm" onclick="setCalibrationManagement(true)">Bekapcsolás</button>' : '');
+  const nGen = (d.displays || []).filter(function (m) { return m.generic_monitor; }).length;
+  pills += pill('🖥️ Monitor-illesztőprogram',
+    nGen ? '<span class="disp-badge warn">' + nGen + ' generikus</span>'
+         : '<span class="disp-badge on">gyári</span>', '');
+  diag += '<div class="disp-health">' + pills + '</div>';
   const broken = (d.registered || []).filter(function (r) { return r.missing; });
   if (broken.length) {
     diag += '<div class="disp-alert bad"><b>⚠️ A színkezelés törött ezen a gépen.</b><br>' +
@@ -1580,6 +1663,14 @@ function renderDisplayInfo(d) {
       '<div style="margin-top:10px"><button class="btn btn-sm" onclick="setCalibrationManagement(true)">' +
       '💡 Kalibráció-kezelés visszakapcsolása</button></div></div>';
   }
+  const gen = (d.displays || []).filter(function (m) { return m.generic_monitor; });
+  if (gen.length && d.assoc_count === 0) {
+    diag += '<div class="disp-alert good"><b>ℹ️ A monitor generikus illesztőprogramon fut</b> (' +
+      gen.map(function (m) { return dispEsc(m.name); }).join(', ') + ').<br>' +
+      'Ilyenkor <b>nincs gyári ICC-profil</b>, amit a Windows társíthatna — ez normális, és a lineáris ' +
+      'gamma-rámpa itt tényleg a gyári alapállapot. Ha a monitorhoz LÉTEZIK gyári illesztőprogram, azt a ' +
+      '„Driver Keresés és Telepítés” nézet megtalálhatja; a gyári INF a saját ICC-profilját is felteszi és társítja.</div>';
+  }
   (d.errors || []).forEach(function (e) { diag += '<div class="disp-alert bad">❌ ' + dispEsc(e) + '</div>'; });
   document.getElementById('disp-diag').innerHTML = diag;
 
@@ -1599,68 +1690,74 @@ function renderDisplayInfo(d) {
         hdrBadge = '<span class="disp-badge no">HDR nem támogatott</span>';
       } else if (h.enabled) {
         hdrBadge = '<span class="disp-badge on">HDR BEKAPCSOLVA</span>';
-        hdrBtn = '<button class="btn btn-sm btn-danger" onclick="setDisplayHdr(' + m.index + ',false)">🌑 HDR kikapcsolása</button>';
+        hdrBtn = '<button class="btn btn-sm btn-danger" onclick="setDisplayHdr(' + m.index + ',false)">🌑 HDR ki</button>';
       } else {
         hdrBadge = '<span class="disp-badge off">HDR kikapcsolva</span>';
-        hdrBtn = '<button class="btn btn-sm" onclick="setDisplayHdr(' + m.index + ',true)">🌗 HDR bekapcsolása</button>';
+        hdrBtn = '<button class="btn btn-sm" onclick="setDisplayHdr(' + m.index + ',true)">🌗 HDR be</button>';
       }
       if (h.limited_by_policy) hdrBadge += ' <span class="disp-badge warn">házirend korlátozza</span>';
+      if (m.monitor_driver) {
+        hdrBadge += m.generic_monitor
+          ? ' <span class="disp-badge warn">generikus driver</span>'
+          : ' <span class="disp-badge on">gyári driver</span>';
+      }
 
-      let rows = '';
-      const R = function (k, v) {
-        rows += '<div class="disp-row"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>';
+      /* --- ADATOK csempe: rácsba szedve, nem 10 soros függőleges hasábként --- */
+      let facts = '';
+      const F = function (k, v) {
+        facts += '<div class="disp-fact"><div class="fk">' + k + '</div><div class="fv">' + v + '</div></div>';
       };
-      R('Csatlakozás', dispEsc(m.connection) + (m.refresh_hz ? ' · ' + m.refresh_hz + ' Hz' : ''));
-      R('Videokártya', dispEsc(m.adapter || '—'));
-      R('Aktív színmód', dispEsc(h.mode || (h.enabled ? 'HDR' : 'SDR')) +
-        (h.bits ? ' · ' + h.bits + ' bit' : '') + (h.encoding ? ' · ' + dispEsc(h.encoding) : ''));
-      if (h.wcg_supported) R('Széles gamut (WCG)', h.wcg_enabled ? 'bekapcsolva' : 'elérhető, kikapcsolva');
+      F('Csatlakozás', dispEsc(m.connection) + (m.refresh_hz ? ' · ' + m.refresh_hz + ' Hz' : ''));
+      F('Videokártya', dispEsc(m.adapter || '—'));
+      if (m.monitor_driver) F('Monitor driver', dispEsc(m.monitor_driver));
+      F('Aktív színmód', dispEsc(h.mode || (h.enabled ? 'HDR' : 'SDR')) + (h.bits ? ' · ' + h.bits + ' bit' : ''));
+      F('Színkódolás', dispEsc(h.encoding || '—'));
+      if (h.wcg_supported) F('Széles gamut (WCG)', h.wcg_enabled ? 'bekapcsolva' : 'elérhető, ki');
       if (m.sdr_white_nits !== null && m.sdr_white_nits !== undefined) {
-        /* Ez a DisplayConfig SDR-fehérszintje, NEM a panel fényereje. SDR módban a Windows
-           mindig a szabványos 80 nites sRGB referencia-fehéret adja vissza (fix érték, nem
-           mérés) — ezt korábban "SDR-tartalom fényereje: 80 nit"-ként írtuk ki, amit jogosan
-           lehetett a monitor maximumának olvasni. HDR-ben viszont ez a Beállítások
-           "SDR-tartalom fényereje" csúszkájának valódi értéke. A panel tényleges fényereje
-           a lenti nit-csempéken van, az EDID-ből. */
-        if (h.enabled) {
-          R('SDR-tartalom fényereje (HDR-ben)', m.sdr_white_nits + ' nit');
-        } else {
-          R('SDR referencia-fehér', m.sdr_white_nits + ' nit <span class="disp-badge off">szabvány</span>');
-        }
+        /* SDR módban a Windows mindig a szabványos 80 nites sRGB referencia-fehéret adja
+           vissza (fix érték, nem mérés) — a panel tényleges fényereje a nit-csempéken van. */
+        F(h.enabled ? 'SDR-tartalom fényereje' : 'SDR referencia-fehér',
+          m.sdr_white_nits + ' nit' + (h.enabled ? '' : ' <span class="disp-badge off">szabvány</span>'));
       }
-      if (ch && ch.gamma) R('EDID névleges gamma', ch.gamma);
-      if (ch) {
-        const area = dispGamutArea(ch.red, ch.green, ch.blue);
-        const vsS = Math.round(area / dispGamutArea(DISP_SRGB_TRI[0], DISP_SRGB_TRI[1], DISP_SRGB_TRI[2]) * 100);
-        const vsP = Math.round(area / dispGamutArea(DISP_P3_TRI[0], DISP_P3_TRI[1], DISP_P3_TRI[2]) * 100);
-        R('Színtartomány', 'kb. ' + vsS + '% sRGB · kb. ' + vsP + '% DCI-P3');
-        R('Fehérpont (EDID)', 'x ' + ch.white[0].toFixed(4) + ' · y ' + ch.white[1].toFixed(4));
-      }
+      if (ch && ch.gamma) F('EDID gamma', ch.gamma);
+      if (ch) F('Fehérpont', 'x ' + ch.white[0].toFixed(4) + ' · y ' + ch.white[1].toFixed(4));
       if (lum) {
         const eo = [];
         if (lum.eotf_sdr) eo.push('SDR');
         if (lum.eotf_hdr_gamma) eo.push('HDR-gamma');
-        if (lum.eotf_pq) eo.push('PQ (HDR10)');
+        if (lum.eotf_pq) eo.push('PQ');
         if (lum.eotf_hlg) eo.push('HLG');
-        R('Támogatott EOTF', eo.join(', ') || '—');
+        F('EOTF', eo.join(', ') || '—');
       }
 
-      let nits = '';
+      /* --- FÉNYERŐ & SZÍNTARTOMÁNY csempe --- */
+      let bright = '';
       if (lum && lum.peak_nits) {
-        nits = '<div class="disp-nits">' +
+        bright += '<div class="disp-nits">' +
           '<div class="disp-nit"><div class="n">' + lum.peak_nits + '</div><div class="l">csúcs (nit)</div></div>' +
           '<div class="disp-nit"><div class="n">' + (lum.frame_avg_nits || '—') + '</div><div class="l">teljes képmezős</div></div>' +
           '<div class="disp-nit"><div class="n">' +
           (lum.min_nits !== null && lum.min_nits !== undefined ? lum.min_nits : '—') +
-          '</div><div class="l">fekete szint</div></div></div>' +
-          '<div class="disp-sub" style="margin:7px 0 0"><b>Ez a panel tényleges fényereje</b> (a monitor saját EDID-adatlapjából — a gyártó ígérete, nem mért érték). A csúcs kis felületen érvényes, a teljes képmezős érték a nagy fehér felületeké.</div>';
-      } else if (h.supported) {
-        nits = '<div class="disp-sub" style="margin-top:10px">A monitor nem közöl HDR-luminancia adatot az EDID-ben.</div>';
+          '</div><div class="l">fekete szint</div></div></div>';
+      }
+      if (ch) {
+        const area = dispGamutArea(ch.red, ch.green, ch.blue);
+        const vsS = Math.round(area / dispGamutArea(DISP_SRGB_TRI[0], DISP_SRGB_TRI[1], DISP_SRGB_TRI[2]) * 100);
+        const vsP = Math.round(area / dispGamutArea(DISP_P3_TRI[0], DISP_P3_TRI[1], DISP_P3_TRI[2]) * 100);
+        const bar = function (label, pct) {
+          return '<div class="dc-bar"><div class="bl"><span>' + label + '</span><span>kb. ' + pct + '%</span></div>' +
+            '<div class="bt"><div class="bf" style="width:' + Math.min(100, pct) + '%"></div></div></div>';
+        };
+        bright += bar('sRGB lefedettség', vsS) + bar('DCI-P3 lefedettség', vsP);
+      }
+      if (lum && lum.peak_nits) {
+        bright += '<div class="disp-sub" style="margin:9px 0 0"><b>A panel tényleges fényereje</b> — a monitor ' +
+          'EDID-adatlapjából (a gyártó ígérete, nem mért érték). A csúcs kis felületen érvényes.</div>';
+      } else if (!ch) {
+        bright += '<div class="disp-sub">A monitor nem közöl luminancia-adatot.</div>';
       }
 
-      /* --- gamma-rámpa: a videokártya LUT-ja, a legközvetlenebb tény a színútvonalról ---
-         Lineáris = a jel érintetlenül megy a panelre. A görbét ki is rajzoljuk, mert egy
-         "módosított" felirat önmagában nem mondja meg, MERRE tér el. */
+      /* --- GAMMA-RÁMPA csempe: a legközvetlenebb tény a színútvonalról --- */
       let gamma = '';
       const gr = m.gamma_ramp;
       if (gr) {
@@ -1676,28 +1773,61 @@ function renderDisplayInfo(d) {
               return '<polyline points="' + pts(gr.curve[c]) + '" fill="none" stroke="' +
                 ['#ff6b6b', '#5ee9a4', '#6ba8ff'][i] + '" stroke-width="2" opacity="0.9"/>';
             }).join('');
-        gamma = '<div class="gamma-box"><div class="gamma-head"><span>📈 Gamma-rámpa (videokártya LUT)</span>' +
-          (gr.linear ? '<span class="disp-badge on">LINEÁRIS</span>'
-                     : '<span class="disp-badge warn">MÓDOSÍTVA</span>') + '</div><div class="gamma-wrap">' +
-          '<svg class="gamma-svg" viewBox="-2 -2 104 64" width="104" height="64">' +
+        gamma = '<div class="gamma-wrap">' +
+          '<svg class="gamma-svg" viewBox="-2 -2 104 64" preserveAspectRatio="xMidYMid meet">' +
           '<rect x="0" y="0" width="100" height="60" fill="rgba(255,255,255,0.03)" rx="3"/>' +
           '<line x1="0" y1="60" x2="100" y2="0" stroke="rgba(255,255,255,0.22)" stroke-width="1" stroke-dasharray="3 3"/>' +
           lines + '</svg><div class="gamma-note">' +
           (gr.linear
-            ? 'A jel <b>érintetlenül</b> megy a panelre — semmilyen profil vagy kalibráló program nem tölt be korrekciót. A monitor a saját, natív képét adja.'
-            : 'Valami <b>korrekciót tölt be</b> (ICC-profil VCGT tagja, kalibráló program vagy gyártói eszköz). A szaggatott vonal a korrekciómentes referencia.') +
-          '<br>Max eltérés a lineáristól: <b>' + gr.max_deviation + '</b> / 65535 (tűrés: ' + gr.tolerance + ')</div></div></div>';
+            ? 'A jel <b>érintetlenül</b> megy a panelre — semmilyen korrekció nincs betöltve.'
+            : 'Valami <b>korrekciót tölt be</b>. A szaggatott vonal a korrekciómentes referencia.') +
+          '<br>Eltérés a lineáristól: <b>' + gr.max_deviation + '</b> / 65535</div></div>';
       } else {
-        gamma = '<div class="gamma-box"><div class="gamma-head"><span>📈 Gamma-rámpa</span>' +
-          '<span class="disp-badge off">nem olvasható</span></div>' +
-          '<div class="gamma-note">Ez a kijelző/illesztőprogram nem teszi elérhetővé a LUT-ot.</div></div>';
+        gamma = '<div class="gamma-note">Ez a kijelző nem teszi elérhetővé a LUT-ot.</div>';
       }
 
-      return '<div class="disp-card"><h4>' + (m.primary ? '⭐ ' : '🖥️ ') + dispEsc(m.name) + ' ' + hdrBadge + '</h4>' +
-        '<div class="disp-sub">' + dispEsc(m.gdi_name) +
-        (e.name && e.name !== m.name ? ' · EDID: ' + dispEsc(e.name) : '') + '</div>' +
-        '<div class="disp-rows">' + rows + '</div>' + nits + gamma +
-        (hdrBtn ? '<div class="disp-actions">' + hdrBtn + '</div>' : '') + '</div>';
+      /* --- ICC-PROFIL csempe: mi van HASZNÁLATBAN + társítás --- */
+      const icc = m.icc || {};
+      const act = icc.active;
+      const profs = (displayState && displayState.profiles || []).filter(function (x) {
+        return x.is_monitor && !x.hiba;
+      });
+      let iccHtml = act
+        ? '<div class="icc-cur"><div class="fk" style="font-size:10.5px;color:var(--muted);margin-bottom:3px">JELENLEG HASZNÁLATBAN</div>' +
+          '<div class="icc-n">' + dispEsc(act) + '</div></div>'
+        : '<div class="icc-cur none"><div class="icc-n">Nincs ICC-profil társítva — a Windows alapértelmezését használja.</div></div>';
+      if (profs.length) {
+        iccHtml += '<div class="icc-pick">' + profs.map(function (x) {
+          const sel = act && x.file.toLowerCase() === String(act).toLowerCase();
+          return '<div class="icc-opt' + (sel ? ' sel' : '') + '" onclick="pickIcc(' + m.index + ',this)" data-file="' +
+            dispEsc(x.file) + '"><div><div class="io-n">' + dispEsc(x.desc || x.file) + '</div>' +
+            '<div class="io-f">' + dispEsc(x.file) + '</div></div>' +
+            (sel ? '<span class="disp-badge on">aktív</span>' : '') + '</div>';
+        }).join('') + '</div>';
+      } else {
+        iccHtml += '<div class="disp-sub">Nincs monitor-profil a rendszerben. Tölts be egyet lentebb!</div>';
+      }
+      iccHtml += '<div class="disp-actions" style="margin-top:0">' +
+        '<button class="btn btn-sm" id="btn-icc-set-' + m.index + '" onclick="applyIcc(' + m.index + ')" disabled>🎯 Társítás</button>' +
+        (act ? '<button class="btn btn-sm btn-danger" onclick="removeIcc(' + m.index + ',\'' +
+               dispEsc(act).replace(/'/g, "\\'") + '\')">✖ Leszedés</button>' : '') + '</div>';
+
+      const sec = function (t, body) {
+        return '<div class="dc-sec"><div class="dc-sec-t">' + t + '</div>' + body + '</div>';
+      };
+      return '<div class="disp-card">' +
+        '<div class="dc-head"><div><h4 style="margin:0">' + (m.primary ? '⭐ ' : '🖥️ ') + dispEsc(m.name) + '</h4>' +
+        '<div class="disp-sub" style="margin:5px 0 0">' + hdrBadge + '</div>' +
+        '<div class="disp-sub" style="margin:5px 0 0">' + dispEsc(m.gdi_name) +
+        (e.name && e.name !== m.name ? ' · EDID: ' + dispEsc(e.name) : '') + '</div></div>' +
+        (hdrBtn ? '<div>' + hdrBtn + '</div>' : '') + '</div>' +
+        '<div class="dc-body">' +
+        sec('Adatok', '<div class="disp-facts">' + facts + '</div>') +
+        sec('Fényerő &amp; színtartomány', bright) +
+        sec('📈 Gamma-rámpa (GPU LUT)' + (gr ? (gr.linear ? ' <span class="disp-badge on">LINEÁRIS</span>'
+                                                         : ' <span class="disp-badge warn">MÓDOSÍTVA</span>') : ''), gamma) +
+        sec('🎯 ICC-színprofil', iccHtml) +
+        '</div></div>';
     }).join('');
   }
 
@@ -1719,14 +1849,20 @@ function renderDisplayInfo(d) {
   /* --- profilok --- */
   document.getElementById('disp-profdir').textContent = d.profile_dir || '';
   const profs = d.profiles || [];
+  /* A "használatban" jelöléshez a KIJELZŐK társításai a mérvadóak (az assoc a teljes gépről
+     szól, a displays[].icc viszont kijelzőnként pontos) — a kettőt egyesítjük. */
   const assocNames = [].concat(d.assoc ? d.assoc.system : [], d.assoc ? d.assoc.user : [])
-    .map(function (a) { return (a.profile || '').toLowerCase(); });
+    .map(function (a) { return (a.profile || '').toLowerCase(); })
+    .concat((d.displays || []).reduce(function (acc, m) {
+      const i = m.icc || {};
+      return acc.concat((i.user || []), (i.system || []));
+    }, []).map(function (x) { return String(x).toLowerCase(); }));
   const pc = document.getElementById('disp-profiles');
   if (!profs.length) {
     pc.innerHTML = '<div class="empty-state">Nincs ICC/ICM profil a rendszerben.</div>';
   } else {
     pc.innerHTML = '<div style="overflow-x:auto"><table class="prof-table"><thead><tr>' +
-      '<th>Profil</th><th>Típus</th><th>Gamma</th><th>Jellemzők</th><th>Állapot</th></tr></thead><tbody>' +
+      '<th>Profil</th><th>Típus</th><th>Gamma</th><th>Jellemzők</th><th>Állapot</th><th></th></tr></thead><tbody>' +
       profs.map(function (p) {
         if (p.hiba) {
           return '<tr><td class="pname">' + dispEsc(p.file) +
@@ -1743,9 +1879,46 @@ function renderDisplayInfo(d) {
           '<td>' + dispEsc(p.gamma === null || p.gamma === undefined ? '—' : p.gamma) + '</td>' +
           '<td>' + (feats.join(' ') || '—') + '</td>' +
           '<td>' + (used ? '<span class="disp-badge on">HASZNÁLATBAN</span>'
-            : '<span class="disp-badge off">nincs társítva</span>') + '</td></tr>';
+            : '<span class="disp-badge off">nincs társítva</span>') + '</td>' +
+          '<td><button class="btn btn-sm btn-danger" onclick="uninstallIcc(\'' +
+          dispEsc(p.file).replace(/'/g, "\\'") + '\')" title="Eltávolítás a rendszerből">🗑</button></td></tr>';
       }).join('') + '</tbody></table></div>';
   }
+}
+
+/* Az ICC-csempén kiválasztott profil kijelölése (kijelzőnként külön tartva). */
+const iccPicked = {};
+function pickIcc(index, el) {
+  const box = el.parentNode;
+  Array.prototype.forEach.call(box.children, function (c) { c.classList.remove('sel'); });
+  el.classList.add('sel');
+  iccPicked[index] = el.getAttribute('data-file');
+  const btn = document.getElementById('btn-icc-set-' + index);
+  if (btn) btn.disabled = false;
+}
+
+function applyIcc(index) {
+  const f = iccPicked[index];
+  if (!f) { showToast('Előbb válassz egy profilt a listából!', 'warning'); return; }
+  showConfirm('🎯 ICC-profil társítása',
+    'A(z) „' + f + '” profil hozzá lesz rendelve ehhez a kijelzőhöz.\n\nA teljes hatáshoz ki-be jelentkezés vagy újraindítás kell. Bármikor leszedhető. Folytatod?')
+    .then(function (ok) { if (ok) api().associate_icc_profile(index, f); });
+}
+
+function removeIcc(index, file) {
+  showConfirm('✖ Társítás megszüntetése',
+    'A(z) „' + file + '” profil leszedésre kerül erről a kijelzőről. A profil FÁJLJA a rendszerben marad, csak a hozzárendelés szűnik meg. Folytatod?')
+    .then(function (ok) { if (ok) api().disassociate_icc_profile(index, file); });
+}
+
+function installIcc() {
+  api().install_icc_profile();
+}
+
+function uninstallIcc(file) {
+  showConfirm('🗑 Profil eltávolítása a rendszerből',
+    'A(z) „' + file + '” profil FÁJLJA törlődik a rendszerből, és minden kijelzőről leszedjük a társítását.\n\nEz nem vonható vissza — a profilt újra be kell majd tölteni fájlból. Folytatod?')
+    .then(function (ok) { if (ok) api().uninstall_icc_profile(file); });
 }
 
 function setDisplayHdr(index, on) {

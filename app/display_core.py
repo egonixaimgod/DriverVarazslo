@@ -16,18 +16,12 @@ RTX 3060) - a hozzátartozó minta a fejlesztői gépről:
   - EDID (384 bájt, CTA-861)     -> csúcs 1015 nit, teljes képmezős 254 nit, fekete 0.0006 nit
   - EDID színpontok              -> R .686/.304  G .240/.712  B .144/.058  W .3135/.3291
 
-AMI SZÁNDÉKOSAN NINCS ITT: a profil-TÁRSÍTÁS írása. A mscms WcsAssociateColorProfileWithDevice
-ezen a gépen TRUE-t ad vissza, miközben SEMMIT nem ír a registrybe (a WcsDisassociate... utána
-ERROR_PROFILE_NOT_ASSOCIATED_WITH_DEVICE-szal bukik, a régi AssociateColorProfileWithDeviceW
-pedig FALSE-t ad hibakód nélkül).
+ICC-PROFIL TÁRSÍTÁS (2026-07-31): a társítás KÖZVETLEN REGISTRY-ÍRÁSSAL megy, mert az
+erre való mscms API-k ezen a Windowson bizonyítottan nem csinálnak semmit - a mérési
+jegyzőkönyv az associate_profile() docstringjében. Az InstallColorProfileW ezzel szemben
+működik, azt használjuk a profil telepítésére.
 
-A KÉZENFEKVŐ MAGYARÁZAT MEGDŐLT (2026-07-31, mérve): a gyanú az volt, hogy a törött
-RegisteredProfiles/sRGB bejegyzés (ami minden mscms-hívást ERROR_FILE_NOT_FOUND-dal tért
-vissza) okozza. A bejegyzés eltávolítása után ÚJRA MÉRVE a viselkedés VÁLTOZATLAN - tehát
-nem az volt az ok. Ez a nyom tehát le van zárva; a következő vizsgálat innen induljon
-(jelöltek: a device-név alakja, a WcsSetUsePerUserProfiles előfeltétele, vagy hogy a
-Windows 11 máshol tárolja a display-társításokat). Amíg ez nincs tisztázva, a nézet OLVAS
-és jelent, de nem társít - egy néma sikerre épített gomb rosszabb, mint a hiánya.
+AMI TOVÁBBRA SINCS ITT: ICC-profil generálás és a vezetett nit-teszt.
 """
 
 # === AUTO-IMPORTS ===
@@ -248,13 +242,19 @@ def _gdi_devices():
             continue
         mon = w32._DISPLAY_DEVICEW()
         mon.cb = ctypes.sizeof(mon)
-        mon_id = ''
+        mon_id, mon_name = '', ''
         if _user32.EnumDisplayDevicesW(d.DeviceName, 0, ctypes.byref(mon), 0):
             mon_id = mon.DeviceID
+            mon_name = mon.DeviceString
         out[d.DeviceName] = {
             'adapter': d.DeviceString,
             'primary': bool(d.StateFlags & w32.DISPLAY_DEVICE_PRIMARY_DEVICE),
             'monitor_device_id': mon_id,
+            # A MONITOR illesztőprogramjának neve ("Generic PnP Monitor" vs. a gyári modellnév).
+            # Ez dönti el, hogy VAN-E egyáltalán gyári ICC-profil esély ezen a gépen: a gyári
+            # monitor-INF telepít és társít egy gyári profilt, a generikus monitor.inf nem.
+            # Enélkül a "miért nem olyan a kép, mint gyárilag" kérdés megválaszolhatatlan.
+            'monitor_driver': mon_name,
         }
     return out
 
@@ -289,6 +289,10 @@ def enumerate_displays():
             'name': friendly or info.get('adapter') or gdi_name or f'Kijelző {idx + 1}',
             'device_path': dev_path,
             'adapter': info.get('adapter', ''),
+            'monitor_driver': info.get('monitor_driver', ''),
+            'monitor_device_id': info.get('monitor_device_id', ''),
+            'icc': device_profiles(info.get('monitor_device_id', '')),
+            'generic_monitor': 'generic' in (info.get('monitor_driver', '') or '').lower(),
             'primary': info.get('primary', False),
             'connection': w32.DISPLAY_OUTPUT_TECHNOLOGY.get(tech, f'0x{tech:x}' if tech else '?'),
             'refresh_hz': round(rr.Numerator / rr.Denominator, 2) if rr.Denominator else None,
@@ -637,6 +641,183 @@ def _read_assoc_branch(root):
                     if isinstance(v, str) and v.strip():
                         found.append({'guid': g, 'sub': sub, 'value_name': name, 'profile': v})
     return found
+
+
+def monitor_assoc_key(monitor_device_id):
+    """A monitor eszköz-azonosítójából a hozzá tartozó ICM registry-alkulcs útja.
+
+    A DeviceID alakja:  MONITOR\\AOCA610\\{4d36e96e-e325-11ce-bfc1-08002be10318}\\0003
+                                          ^^^^ osztály-GUID              ^^^^ példány
+    és a társítás pontosan ezen a két tagon ül:
+        ...\\ICM\\ProfileAssociations\\Display\\{osztály-GUID}\\{példány}
+    Visszaad: a relatív kulcsút, vagy None, ha az azonosító nem értelmezhető."""
+    if not monitor_device_id:
+        return None
+    parts = monitor_device_id.split('\\')
+    if len(parts) < 4 or not parts[2].startswith('{'):
+        logging.debug(f"[DISPLAY] Nem értelmezhető monitor-azonosító: {monitor_device_id!r}")
+        return None
+    return f"{_ICM_ASSOC}\\{parts[2]}\\{parts[3]}"
+
+
+def device_profiles(monitor_device_id):
+    """Az EHHEZ A MONITORHOZ társított ICC-profilok. Ez válaszolja meg a "melyik profil van
+    most használatban?" kérdést - a globális profile_associations() az egész gépről szól,
+    ez viszont egy konkrét kijelzőről.
+
+    Visszaad: {'user': [...], 'system': [...], 'active': <a hatályos profil neve vagy None>}
+    Az 'active' a felhasználói szintet részesíti előnyben, mert a Windows is azt használja,
+    ha a "Use my settings for this device" be van kapcsolva."""
+    key = monitor_assoc_key(monitor_device_id)
+    out = {'user': [], 'system': [], 'active': None}
+    if not key:
+        return out
+    for root, name in ((winreg.HKEY_CURRENT_USER, 'user'), (winreg.HKEY_LOCAL_MACHINE, 'system')):
+        try:
+            k = winreg.OpenKey(root, key)
+        except OSError:
+            continue
+        i = 0
+        while True:
+            try:
+                vname, val, _t = winreg.EnumValue(k, i)
+            except OSError:
+                break
+            i += 1
+            if vname.lower() != 'icmprofile':
+                continue
+            for v in (val if isinstance(val, list) else [val]):
+                if isinstance(v, str) and v.strip():
+                    out[name].append(v.strip())
+    out['active'] = (out['user'] or out['system'] or [None])[0]
+    return out
+
+
+def associate_profile(monitor_device_id, profile_name, per_user=True):
+    """Egy ICC-profil TÁRSÍTÁSA a monitorhoz - közvetlen registry-írással.
+
+    MIÉRT NEM AZ API-VAL (terepen mérve 2026-07-31, ez a modul legdrágább tanulsága):
+    a `WcsAssociateColorProfileWithDevice` ezen a Windows 11-en TRUE-t ad vissza, miközben
+    SEMMIT nem ír sehova - rendszergazdaként is, felhasználói és rendszerszintű hatókörrel
+    is; a `WcsDisassociate...` utána ERROR_PROFILE_NOT_ASSOCIATED_WITH_DEVICE-szal bukik, a
+    régi `AssociateColorProfileWithDeviceW` pedig FALSE-t ad hibakód nélkül. A közvetlen
+    registry-írás viszont MŰKÖDIK, és a Windows saját Színkezelés vezérlőpultja azonnal
+    látja is (élőben ellenőrizve: "Use my settings for this device" bepipálva, a profil
+    "(default)" jelöléssel). Ha valaki egyszer visszaírná API-hívásra, azt előbb pontosan
+    ezzel a próbával kell igazolni: társítás után a vezérlőpultnak MUTATNIA kell.
+
+    Az érték neve `ICMProfile` (REG_MULTI_SZ), és a `UsePerUserProfiles`=1 az, ami a
+    vezérlőpult "Use my settings for this device" pipájának felel meg.
+    Visszaad: (sikerult, uzenet)."""
+    key = monitor_assoc_key(monitor_device_id)
+    if not key:
+        return False, 'A monitor azonosítója nem értelmezhető.'
+    root = winreg.HKEY_CURRENT_USER if per_user else winreg.HKEY_LOCAL_MACHINE
+    scope = 'felhasználói' if per_user else 'rendszerszintű'
+    existing = device_profiles(monitor_device_id)
+    current = existing['user'] if per_user else existing['system']
+    logging.warning(f"[DISPLAY] ICC-profil TÁRSÍTÁSA ({scope}): '{profile_name}' -> "
+                    f"{monitor_device_id} (eddigi: {current or 'nincs'})")
+    profiles = [profile_name] + [p for p in current if p.lower() != profile_name.lower()]
+    try:
+        k = winreg.CreateKeyEx(root, key, 0, winreg.KEY_ALL_ACCESS)
+        winreg.SetValueEx(k, 'ICMProfile', 0, winreg.REG_MULTI_SZ, profiles)
+        if per_user:
+            winreg.SetValueEx(k, 'UsePerUserProfiles', 0, winreg.REG_DWORD, 1)
+    except OSError as e:
+        logging.error(f"[DISPLAY] A társítás nem sikerült: {e}")
+        return False, str(e)
+    logging.info(f"[DISPLAY] Társítva. A kijelző profilsora most: {profiles}")
+    return True, ''
+
+
+def disassociate_profile(monitor_device_id, profile_name):
+    """Egy ICC-profil társításának MEGSZÜNTETÉSE a monitorról (mindkét hatókörben).
+    Ha a monitorhoz nem marad profil, az `ICMProfile` érték is eltűnik - a Windows ilyenkor
+    a saját alapértelmezéséhez tér vissza. A profil FÁJLJÁHOZ nem nyúlunk.
+    Visszaad: (sikerult, uzenet)."""
+    key = monitor_assoc_key(monitor_device_id)
+    if not key:
+        return False, 'A monitor azonosítója nem értelmezhető.'
+    logging.warning(f"[DISPLAY] ICC-profil társításának MEGSZÜNTETÉSE: '{profile_name}' -> "
+                    f"{monitor_device_id}")
+    touched, errors = 0, []
+    for root, scope in ((winreg.HKEY_CURRENT_USER, 'felhasználói'),
+                        (winreg.HKEY_LOCAL_MACHINE, 'rendszerszintű')):
+        try:
+            k = winreg.OpenKey(root, key, 0, winreg.KEY_ALL_ACCESS)
+        except OSError:
+            continue
+        try:
+            val, _t = winreg.QueryValueEx(k, 'ICMProfile')
+        except OSError:
+            continue
+        cur = [v for v in (val if isinstance(val, list) else [val]) if isinstance(v, str) and v.strip()]
+        left = [v for v in cur if v.lower() != profile_name.lower()]
+        if len(left) == len(cur):
+            continue
+        try:
+            if left:
+                winreg.SetValueEx(k, 'ICMProfile', 0, winreg.REG_MULTI_SZ, left)
+            else:
+                winreg.DeleteValue(k, 'ICMProfile')
+            touched += 1
+            logging.info(f"[DISPLAY] {scope} hatókör: maradt {left or 'semmi'}")
+        except OSError as e:
+            logging.error(f"[DISPLAY] Nem sikerült eltávolítani ({scope}): {e}")
+            errors.append(str(e))
+    if errors:
+        return False, errors[0]
+    if not touched:
+        return False, 'Ez a profil nem volt társítva ehhez a kijelzőhöz.'
+    return True, ''
+
+
+def install_profile(src_path):
+    """Egy ICC/ICM fájl TELEPÍTÉSE a rendszerbe (bemásolás a színprofil-mappába).
+
+    Az `InstallColorProfileW` az EGYETLEN mscms-hívás, ami ezen a gépen bizonyítottan
+    működik (rc=1, err=0) - ezért ezt használjuk, és nem kézzel másolunk: így a Windows
+    a saját nyilvántartásába is felveszi a profilt.
+    Visszaad: (sikerult, telepitett_fajlnev_vagy_hibauzenet)."""
+    if not src_path or not os.path.isfile(src_path):
+        return False, 'A fájl nem található.'
+    if not src_path.lower().endswith(('.icc', '.icm')):
+        return False, 'Csak .icc vagy .icm kiterjesztésű színprofil telepíthető.'
+    name = os.path.basename(src_path)
+    logging.warning(f"[DISPLAY] ICC-profil TELEPÍTÉSE a rendszerbe: {src_path}")
+    ctypes.set_last_error(0)
+    ok = _mscms.InstallColorProfileW(None, src_path)
+    err = ctypes.get_last_error()
+    if not ok:
+        logging.error(f"[DISPLAY] InstallColorProfileW sikertelen (err={err}).")
+        return False, f'A Windows nem fogadta el a profilt (hibakód: {err}).'
+    dest = os.path.join(color_directory(), name)
+    if not os.path.exists(dest):
+        logging.warning(f"[DISPLAY] A telepítés sikeresnek tűnt, de a fájl nincs a mappában: {dest}")
+        return False, 'A telepítés nem hozta létre a fájlt a színprofil-mappában.'
+    logging.info(f"[DISPLAY] Telepítve: {dest}")
+    return True, name
+
+
+def uninstall_profile(profile_name):
+    """Egy telepített színprofil ELTÁVOLÍTÁSA a rendszerből (a fájl törlése).
+    Előbb minden kijelzőről leszedjük a társítását, hogy ne maradjon árva hivatkozás -
+    pont az a hiba, amit a registered_profiles_report a gépen talált.
+    Visszaad: (sikerult, uzenet)."""
+    logging.warning(f"[DISPLAY] Színprofil ELTÁVOLÍTÁSA a rendszerből: {profile_name}")
+    for d in enumerate_displays():
+        icc = d.get('icc') or {}
+        if any(p.lower() == profile_name.lower() for p in icc.get('user', []) + icc.get('system', [])):
+            disassociate_profile(d.get('monitor_device_id', ''), profile_name)
+    ctypes.set_last_error(0)
+    ok = _mscms.UninstallColorProfileW(None, profile_name, True)
+    err = ctypes.get_last_error()
+    if not ok:
+        logging.error(f"[DISPLAY] UninstallColorProfileW sikertelen (err={err}).")
+        return False, f'Nem sikerült eltávolítani (hibakód: {err}).'
+    logging.info(f"[DISPLAY] Eltávolítva: {profile_name}")
+    return True, ''
 
 
 def profile_associations():

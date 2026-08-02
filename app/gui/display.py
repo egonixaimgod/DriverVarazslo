@@ -10,12 +10,14 @@ Ez a nézet mindezt egy helyen mutatja, és a felfedezett hibát javítani is tu
 A nem-UI logika az app/display_core.py-ban van (a `_core` konvenció szerint), a mixin
 csak megjelenít és szálat kezel.
 
-AMI SZÁNDÉKOSAN NINCS BENNE EBBEN A KÖRBEN: a profil TÁRSÍTÁSA monitorhoz, ICC-profil
-generálás és a vezetett nit-teszt. A társításhoz használt mscms API a fejlesztői gépen
-TRUE-t adott vissza úgy, hogy közben semmit nem írt a registrybe (emelt joggal sem) -
-amíg ez nincs tisztázva, nem kerül ide gomb: egy néma sikerre épülő gomb rosszabb, mint
-a hiánya. A nézet ezért ebben a körben OLVAS, HDR-t kapcsol és a törött színkezelést
-javítja - mindezt élőben ellenőrzött API-kkal.
+ICC-PROFIL KEZELÉS (2026-07-31): a nézet telepít, társít, leszed és eltávolít
+színprofilokat, és kiírja, melyik van HASZNÁLATBAN az adott kijelzőn. A társítás
+KÖZVETLEN REGISTRY-ÍRÁSSAL megy, mert az erre való mscms API-k ezen a Windowson
+bizonyítottan nem csinálnak semmit - a részletes indoklás a display_core
+associate_profile() docstringjében áll. Élőben ellenőrizve: a Windows saját Színkezelés
+vezérlőpultja azonnal mutatja a társítást.
+
+AMI TOVÁBBRA SINCS BENNE: ICC-profil generálás és a vezetett nit-teszt.
 """
 
 # === AUTO-IMPORTS ===
@@ -148,6 +150,122 @@ class GuiDisplayMixin:
                     logging.error(f"[DISPLAY] Az állapot frissítése a HDR-kapcsolás után hibára futott: {e}")
 
         threading.Thread(target=worker, daemon=True, name="display-hdr").start()
+
+    # ------------------------------------------------------------------
+    # ICC-profilok: telepítés, társítás, leszedés, eltávolítás
+    # ------------------------------------------------------------------
+    def _find_display(self, index):
+        """A nézetből érkező sorszámhoz tartozó FRISS kijelző-rekord. Mindig újra
+        felderítünk: a monitor lecsatlakozhatott a nézet betöltése óta."""
+        for d in display_core.enumerate_displays():
+            if d.get('index') == index:
+                return d
+        return None
+
+    def install_icc_profile(self):
+        """ICC/ICM fájl kiválasztása és TELEPÍTÉSE a rendszerbe (a színprofil-mappába).
+        A telepítés önmagában nem változtat a képen - a profilt utána még társítani kell
+        egy kijelzőhöz."""
+        logging.info("[API] install_icc_profile()")
+
+        def worker():
+            try:
+                path = self.select_file('Válassz ICC/ICM színprofilt',
+                                        'Színprofil (*.icc;*.icm)')
+                if not path:
+                    return
+                ok, res = display_core.install_profile(path)
+                if ok:
+                    self.emit('toast', {'message': f'✅ Profil telepítve: {res}. Most már társítható '
+                                                   f'egy kijelzőhöz.', 'type': 'success'})
+                else:
+                    self.emit('toast', {'message': f'❌ {res}', 'type': 'error'})
+                self.emit('display_info', self._collect_display_state())
+            except Exception as e:
+                logging.error(f"[DISPLAY] install_icc_profile hiba: {e}", exc_info=True)
+                self.emit('toast', {'message': f'❌ Hiba a profil telepítésekor: {e}', 'type': 'error'})
+
+        threading.Thread(target=worker, daemon=True, name="display-icc-install").start()
+
+    def associate_icc_profile(self, monitor_index, profile_file):
+        """A megadott ICC-profil TÁRSÍTÁSA a megadott kijelzőhöz.
+
+        FIGYELMEZTETÉS a felhasználó felé: ha a profil-betöltés le van tiltva
+        (CalibrationManagementEnabled=0), a társítás megtörténik, de a profil gamma-görbéje
+        NEM fog betöltődni - ezt jelezzük is, különben a szerelő azt hinné, nem működött."""
+        logging.info(f"[API] associate_icc_profile(monitor={monitor_index}, profil={profile_file!r})")
+
+        def worker():
+            try:
+                d = self._find_display(int(monitor_index))
+                if not d:
+                    self.emit('toast', {'message': '❌ Ez a kijelző már nem elérhető - frissítsd a nézetet!',
+                                        'type': 'error'})
+                    return
+                ok, msg = display_core.associate_profile(d.get('monitor_device_id', ''), profile_file)
+                if not ok:
+                    self.emit('toast', {'message': f'❌ A társítás nem sikerült: {msg}', 'type': 'error'})
+                else:
+                    warn = ''
+                    if display_core.calibration_management() == 0:
+                        warn = (' ⚠️ FIGYELEM: a profil-betöltés jelenleg LE VAN TILTVA, ezért a profil '
+                                'gamma-görbéje nem fog betöltődni - kapcsold be a Karbantartás résznél!')
+                    self.emit('toast', {'message': f'✅ „{profile_file}” társítva ehhez: {d["name"]}. '
+                                                   f'A teljes hatáshoz ki-be jelentkezés vagy újraindítás kell.{warn}',
+                                        'type': 'warning' if warn else 'success'})
+                self.emit('display_info', self._collect_display_state())
+            except Exception as e:
+                logging.error(f"[DISPLAY] associate_icc_profile hiba: {e}", exc_info=True)
+                self.emit('toast', {'message': f'❌ Hiba a társításkor: {e}', 'type': 'error'})
+
+        threading.Thread(target=worker, daemon=True, name="display-icc-assoc").start()
+
+    def disassociate_icc_profile(self, monitor_index, profile_file):
+        """A megadott ICC-profil társításának MEGSZÜNTETÉSE a megadott kijelzőn.
+        A profil FÁJLJA a rendszerben marad, csak a kijelzőhöz rendelése szűnik meg."""
+        logging.info(f"[API] disassociate_icc_profile(monitor={monitor_index}, profil={profile_file!r})")
+
+        def worker():
+            try:
+                d = self._find_display(int(monitor_index))
+                if not d:
+                    self.emit('toast', {'message': '❌ Ez a kijelző már nem elérhető - frissítsd a nézetet!',
+                                        'type': 'error'})
+                    return
+                ok, msg = display_core.disassociate_profile(d.get('monitor_device_id', ''), profile_file)
+                if ok:
+                    self.emit('toast', {'message': f'✅ „{profile_file}” leszedve erről: {d["name"]}. '
+                                                   f'A kijelző a Windows alapértelmezéséhez tér vissza '
+                                                   f'(ki-be jelentkezés után).', 'type': 'success'})
+                else:
+                    self.emit('toast', {'message': f'❌ {msg}', 'type': 'error'})
+                self.emit('display_info', self._collect_display_state())
+            except Exception as e:
+                logging.error(f"[DISPLAY] disassociate_icc_profile hiba: {e}", exc_info=True)
+                self.emit('toast', {'message': f'❌ Hiba a leszedéskor: {e}', 'type': 'error'})
+
+        threading.Thread(target=worker, daemon=True, name="display-icc-disassoc").start()
+
+    def uninstall_icc_profile(self, profile_file):
+        """Egy telepített színprofil ELTÁVOLÍTÁSA a rendszerből (a fájl törlésével).
+        Előbb minden kijelzőről leszedjük - így nem marad árva hivatkozás, ami pontosan az
+        a hiba, amit a nézet diagnózis-sávja jelez."""
+        logging.info(f"[API] uninstall_icc_profile({profile_file!r})")
+
+        def worker():
+            try:
+                ok, msg = display_core.uninstall_profile(profile_file)
+                if ok:
+                    self.emit('toast', {'message': f'✅ „{profile_file}” eltávolítva a rendszerből.',
+                                        'type': 'success'})
+                else:
+                    self.emit('toast', {'message': f'❌ {msg}', 'type': 'error'})
+                self.emit('display_info', self._collect_display_state())
+            except Exception as e:
+                logging.error(f"[DISPLAY] uninstall_icc_profile hiba: {e}", exc_info=True)
+                self.emit('toast', {'message': f'❌ Hiba az eltávolításkor: {e}', 'type': 'error'})
+
+        threading.Thread(target=worker, daemon=True, name="display-icc-uninstall").start()
 
     # ------------------------------------------------------------------
     # Színkezelés javítása / visszaállítása
