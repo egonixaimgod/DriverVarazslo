@@ -223,6 +223,11 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .disp-badge.no{background:rgba(255,90,90,0.15);color:#ff9a9a;border:1px solid rgba(255,90,90,0.35)}
 .disp-badge.warn{background:rgba(255,180,60,0.15);color:#ffc978;border:1px solid rgba(255,180,60,0.4)}
 .disp-nits{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.gamma-box{margin-top:13px;padding:12px;border-radius:10px;border:1px solid var(--glass-border);background:rgba(0,0,0,0.22)}
+.gamma-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;font-size:12.5px;color:#fff;font-weight:600}
+.gamma-wrap{display:flex;gap:12px;align-items:center}
+.gamma-svg{flex:0 0 104px}
+.gamma-note{font-size:11px;color:var(--muted);line-height:1.5}
 .disp-nit{text-align:center;padding:10px 6px;border-radius:10px;background:rgba(180,100,255,0.10);border:1px solid rgba(180,100,255,0.22)}
 .disp-nit .n{font-size:19px;font-weight:800;color:#d6b4ff;line-height:1.1}
 .disp-nit .l{font-size:10px;color:var(--muted);margin-top:3px}
@@ -1653,10 +1658,45 @@ function renderDisplayInfo(d) {
         nits = '<div class="disp-sub" style="margin-top:10px">A monitor nem közöl HDR-luminancia adatot az EDID-ben.</div>';
       }
 
+      /* --- gamma-rámpa: a videokártya LUT-ja, a legközvetlenebb tény a színútvonalról ---
+         Lineáris = a jel érintetlenül megy a panelre. A görbét ki is rajzoljuk, mert egy
+         "módosított" felirat önmagában nem mondja meg, MERRE tér el. */
+      let gamma = '';
+      const gr = m.gamma_ramp;
+      if (gr) {
+        const W = 100, H = 60;
+        const pts = function (arr) {
+          return arr.map(function (v, i) {
+            return (i * W / (arr.length - 1)).toFixed(1) + ',' + (H - v * H).toFixed(1);
+          }).join(' ');
+        };
+        const lines = gr.linear
+          ? '<polyline points="' + pts(gr.curve.g) + '" fill="none" stroke="#5ee9a4" stroke-width="2.5"/>'
+          : ['r', 'g', 'b'].map(function (c, i) {
+              return '<polyline points="' + pts(gr.curve[c]) + '" fill="none" stroke="' +
+                ['#ff6b6b', '#5ee9a4', '#6ba8ff'][i] + '" stroke-width="2" opacity="0.9"/>';
+            }).join('');
+        gamma = '<div class="gamma-box"><div class="gamma-head"><span>📈 Gamma-rámpa (videokártya LUT)</span>' +
+          (gr.linear ? '<span class="disp-badge on">LINEÁRIS</span>'
+                     : '<span class="disp-badge warn">MÓDOSÍTVA</span>') + '</div><div class="gamma-wrap">' +
+          '<svg class="gamma-svg" viewBox="-2 -2 104 64" width="104" height="64">' +
+          '<rect x="0" y="0" width="100" height="60" fill="rgba(255,255,255,0.03)" rx="3"/>' +
+          '<line x1="0" y1="60" x2="100" y2="0" stroke="rgba(255,255,255,0.22)" stroke-width="1" stroke-dasharray="3 3"/>' +
+          lines + '</svg><div class="gamma-note">' +
+          (gr.linear
+            ? 'A jel <b>érintetlenül</b> megy a panelre — semmilyen profil vagy kalibráló program nem tölt be korrekciót. A monitor a saját, natív képét adja.'
+            : 'Valami <b>korrekciót tölt be</b> (ICC-profil VCGT tagja, kalibráló program vagy gyártói eszköz). A szaggatott vonal a korrekciómentes referencia.') +
+          '<br>Max eltérés a lineáristól: <b>' + gr.max_deviation + '</b> / 65535 (tűrés: ' + gr.tolerance + ')</div></div></div>';
+      } else {
+        gamma = '<div class="gamma-box"><div class="gamma-head"><span>📈 Gamma-rámpa</span>' +
+          '<span class="disp-badge off">nem olvasható</span></div>' +
+          '<div class="gamma-note">Ez a kijelző/illesztőprogram nem teszi elérhetővé a LUT-ot.</div></div>';
+      }
+
       return '<div class="disp-card"><h4>' + (m.primary ? '⭐ ' : '🖥️ ') + dispEsc(m.name) + ' ' + hdrBadge + '</h4>' +
         '<div class="disp-sub">' + dispEsc(m.gdi_name) +
         (e.name && e.name !== m.name ? ' · EDID: ' + dispEsc(e.name) : '') + '</div>' +
-        '<div class="disp-rows">' + rows + '</div>' + nits +
+        '<div class="disp-rows">' + rows + '</div>' + nits + gamma +
         (hdrBtn ? '<div class="disp-actions">' + hdrBtn + '</div>' : '') + '</div>';
     }).join('');
   }
@@ -1728,7 +1768,10 @@ function setCalibrationManagement(on) {
   const title = on ? '💡 Profil-betöltés ENGEDÉLYEZÉSE' : '🔒 Profil-betöltés LETILTÁSA';
   const msg = on
     ? 'A Windows újra betöltheti a társított színprofilok gamma-görbéjét (VCGT). Ez a Windows alapértelmezett állapota — önmagában semmilyen kalibrációt nem állít be, csak megengedi a betöltést. Folytatod?'
-    : 'Mostantól SEMMILYEN színprofil gamma-görbéje nem fog betöltődni ezen a gépen, akkor sem, ha valaki profilt társít. A panel a saját, natív képét adja — szélesgamutos monitoron ez a telített, "nyitott" kép. Bármikor visszakapcsolható. Folytatod?';
+    : 'Mostantól SEMMILYEN színprofil gamma-görbéje nem fog betöltődni ezen a gépen, akkor sem, ha valaki ' +
+      'profilt társít. A panel a saját, natív képét adja — szélesgamutos monitoron ez a telített, "nyitott" kép.\n\n' +
+      'FONTOS: a MÁR betöltött gamma-rámpa a következő ki-be jelentkezésig / újraindításig érvényben marad — ' +
+      'a Kijelző fülön a „Gamma-rámpa” dobozból látod, mikor lett tényleg lineáris. Bármikor visszakapcsolható. Folytatod?';
   showConfirm(title, msg).then(function (ok) { if (ok) api().set_calibration_management(on); });
 }
 

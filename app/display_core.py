@@ -17,10 +17,17 @@ RTX 3060) - a hozzátartozó minta a fejlesztői gépről:
   - EDID színpontok              -> R .686/.304  G .240/.712  B .144/.058  W .3135/.3291
 
 AMI SZÁNDÉKOSAN NINCS ITT: a profil-TÁRSÍTÁS írása. A mscms WcsAssociateColorProfileWithDevice
-ezen a gépen TRUE-t ad vissza, miközben semmit nem ír a registrybe - és menet közben kiderült,
-hogy a gép színkezelése eleve törött (lásd registered_profiles_report), ami magyarázhatja.
-Amíg ez nincs tisztázva, a nézet OLVAS és jelent, de nem társít - egy néma sikerre épített
-gomb rosszabb, mint a hiánya.
+ezen a gépen TRUE-t ad vissza, miközben SEMMIT nem ír a registrybe (a WcsDisassociate... utána
+ERROR_PROFILE_NOT_ASSOCIATED_WITH_DEVICE-szal bukik, a régi AssociateColorProfileWithDeviceW
+pedig FALSE-t ad hibakód nélkül).
+
+A KÉZENFEKVŐ MAGYARÁZAT MEGDŐLT (2026-07-31, mérve): a gyanú az volt, hogy a törött
+RegisteredProfiles/sRGB bejegyzés (ami minden mscms-hívást ERROR_FILE_NOT_FOUND-dal tért
+vissza) okozza. A bejegyzés eltávolítása után ÚJRA MÉRVE a viselkedés VÁLTOZATLAN - tehát
+nem az volt az ok. Ez a nyom tehát le van zárva; a következő vizsgálat innen induljon
+(jelöltek: a device-név alakja, a WcsSetUsePerUserProfiles előfeltétele, vagy hogy a
+Windows 11 máshol tárolja a display-társításokat). Amíg ez nincs tisztázva, a nézet OLVAS
+és jelent, de nem társít - egy néma sikerre épített gomb rosszabb, mint a hiánya.
 """
 
 # === AUTO-IMPORTS ===
@@ -168,6 +175,65 @@ def set_hdr(adapter_id, target_id, enable):
     return state['enabled'] == want, state
 
 
+# A gamma-rámpa "lineárisnak" tekintésének tűréshatára (65535-ös skálán). Nem 0, mert a
+# Windows/illesztőprogram kerekítése miatt egy érintetlen rámpa is szórhat pár egységet.
+# 64 = a teljes skála ~0.1%-a: ennél nagyobb eltérés már szándékos korrekció.
+GAMMA_LINEAR_TOLERANCE = 64
+# Hány pontot adunk vissza a görbéből a felületnek (a 256-ból mintavételezve). 17 pont
+# elég egy felismerhető görbe kirajzolásához, és nem fújja fel a JS-nek küldött adatot.
+GAMMA_CURVE_POINTS = 17
+
+
+def read_gamma_ramp(gdi_name):
+    """A kijelzőre TÉNYLEGESEN betöltött gamma-rámpa (a videokártya LUT-ja) beolvasása.
+
+    EZ A LEGKÖZVETLENEBB TÉNY az egész színkezelésből: hiába van (vagy nincs) profil
+    társítva, a képet végső soron ez a tábla módosítja. Lineáris rámpa = a jel érintetlenül
+    megy a panelre; módosított rámpa = valami (ICC-profil VCGT tagja, kalibráló program,
+    gyártói eszköz) korrekciót tölt be. A nézetben ezért külön kiírjuk.
+
+    A DC-t a konkrét kijelzőre nyitjuk (CreateDCW a GDI-névvel), nem a teljes asztalra:
+    több monitornál külön-külön más rámpa lehet betöltve.
+    Visszaad: dict(linear, max_deviation, curve) vagy None, ha nem olvasható."""
+    hdc = ctypes.windll.gdi32.CreateDCW(None, gdi_name, None, None) if gdi_name else 0
+    own = bool(hdc)
+    if not hdc:      # tartalék: az elsődleges kijelző asztali DC-je
+        hdc = ctypes.windll.user32.GetDC(0)
+        if not hdc:
+            logging.warning(f"[DISPLAY] Nem sikerült DC-t nyitni a gamma-rámpához ({gdi_name}).")
+            return None
+    ramp = (ctypes.c_ushort * 768)()
+    try:
+        ok = ctypes.windll.gdi32.GetDeviceGammaRamp(hdc, ctypes.byref(ramp))
+    finally:
+        if own:
+            ctypes.windll.gdi32.DeleteDC(hdc)
+        else:
+            ctypes.windll.user32.ReleaseDC(0, hdc)
+    if not ok:
+        logging.info(f"[DISPLAY] GetDeviceGammaRamp nem támogatott ezen a kijelzőn ({gdi_name}).")
+        return None
+    ideal = [(i * 65535) // 255 for i in range(256)]
+    max_dev = 0
+    for ch in range(3):
+        for i in range(256):
+            d = abs(ramp[ch * 256 + i] - ideal[i])
+            if d > max_dev:
+                max_dev = d
+    step = 255 / (GAMMA_CURVE_POINTS - 1)
+    curve = {}
+    for ch, name in enumerate(('r', 'g', 'b')):
+        curve[name] = [round(ramp[ch * 256 + min(255, int(round(k * step)))] / 65535.0, 4)
+                       for k in range(GAMMA_CURVE_POINTS)]
+    linear = max_dev <= GAMMA_LINEAR_TOLERANCE
+    logging.info(f"[DISPLAY] Gamma-rámpa ({gdi_name}): "
+                 f"{'LINEÁRIS' if linear else 'MÓDOSÍTOTT'}, "
+                 f"max eltérés a lineáristól {max_dev}/65535 "
+                 f"(tűrés {GAMMA_LINEAR_TOLERANCE}).")
+    return {'linear': linear, 'max_deviation': max_dev,
+            'tolerance': GAMMA_LINEAR_TOLERANCE, 'curve': curve}
+
+
 def _gdi_devices():
     """A rendszer GDI kijelző-nevei (\\\\.\\DISPLAY1, ...) és a rajtuk lévő monitor neve."""
     out = {}
@@ -228,6 +294,7 @@ def enumerate_displays():
             'refresh_hz': round(rr.Numerator / rr.Denominator, 2) if rr.Denominator else None,
             'hdr': hdr_state,
             'sdr_white_nits': read_sdr_white_level(p.targetInfo.adapterId, p.targetInfo.id),
+            'gamma_ramp': read_gamma_ramp(gdi_name),
             'edid': edid,
             # a kapcsoláshoz kell - a nézet ezt küldi vissza a set_hdr híváskor
             'adapter_low': p.targetInfo.adapterId.LowPart,
