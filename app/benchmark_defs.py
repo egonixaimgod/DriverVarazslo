@@ -120,6 +120,31 @@ CINEBENCH_TIMEOUT_S = 2400
 # 1920-1898 = 22 és 1080-1024 = 56 pontosan az ugyanazon a gépen mért ablakkeret, vagyis ott
 # nem csonkulás volt, hanem kliens-terület. A mostani mérés a másik esetet mutatja: 3840-1924
 # már nem lehet ablakkeret. Mindkettő ugyanarra tanít: a score-fájl dönt, semmi más.)
+#
+# ===========================================================================================
+# REFERENCIA-MÉRÉSEK: MI MENNYIBE KERÜL (2026-08-03, Intel HD Graphics 530, 1024x768, 10 mp)
+# ===========================================================================================
+# Ezek az egyetlen mért adataink arról, hogy az egyes kapcsolók mennyit vesznek el az FPS-ből.
+# Egy jövőbeli "állítsuk át X-re" kérésnél ezekből lehet becsülni, nem tippből.
+#     MSAA-létra (Xtreme burn-in bekapcsolva):
+#         /msaa=0 -> 6.2 FPS      /msaa=2 -> 3.6 FPS      /msaa=4 -> 2.1 FPS      /msaa=8 -> 1.3 FPS
+#         (szép monoton skálázás, duplázásonként ~1.7x; a score-fájl [MSAA=..] mezője minden
+#          esetben a KÉRT értéket igazolta vissza, tehát a driver nem vett vissza belőle)
+#     Xtreme burn-in ára:  8x MSAA-n 2.4 -> 1.3 FPS, azaz nagyjából FELEZI a képkockaszámot.
+#     Futásmód:            /benchmark 1.3 FPS  vs  /run_mode=2 (burn-in) 1.2 FPS -> LÉNYEGTELEN.
+#     Dinamikus háttér:    be 1.3 FPS  vs  /enable_dyn_bkg=0 1.3 FPS -> MÉRHETETLEN a különbség
+#                          (ezért is felesleges volt a régi script /enable_dyn_bkg=1 kapcsolója).
+#
+# HARMADIK ESET, AMIKOR A FURMARK FELÜLETE MÁST MOND, MINT A VALÓSÁG (2026-08-03).
+# A felhasználó kézzel is megpróbálta reprodukálni a program által mért 1.1 FPS-t, ugyanezen a
+# gépen, a GUI-ban beállított 1024x768 + 8X MSAA + Xtreme burn-in mellett - és 7 FPS-t kapott.
+# A fenti létra megmondja, mi történt: a 7 FPS nem a 8x MSAA szintje (1.3), hanem pontosan a
+# 0x MSAA-é (6.2). Vagyis a GUI-s futás NEM alkalmazta az élsimítást, hiába írta a fejléce,
+# hogy "1024x768 (8X MSAA)". A mi CLI-futásainknál ezzel szemben a score-fájl [MSAA=8]-at ír
+# ÉS az FPS is pontosan a 8x-hoz tartozó szintre esik - két független bizonyíték.
+# TANULSÁG (harmadszor ugyanaz): a FurMark KIÍRT beállítása nem mérés. Ha valaha kézi és
+# automata eredményt kell összevetni, a score-fájl [MSAA=..]/[Resolution=..] mezője és az
+# FPS-szint a bizonyíték, nem a képernyőn látható felirat.
 FURMARK_BENCH_TIME_MS = 10000       # explicit felhasználói kérés: 10 mp elég az FPS-hez
 FURMARK_BENCH_WIDTH = 1024
 FURMARK_BENCH_HEIGHT = 768
