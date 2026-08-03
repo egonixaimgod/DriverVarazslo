@@ -82,6 +82,52 @@ STRESS_SPLASH_TITLE_MARKERS = ('elemzés', 'analy', 'betölt', 'loading', 'pleas
 # ott viszont SEMMILYEN automatizálás nincs (kifejezett felhasználói kérés).
 STRESS_TOOLS_BULK = ['furmark', 'prime95', 'linpack', 'hwinfo']
 
+# ---------------------------------------------------------------------------
+# PARANCSSORI KAPCSOLÓK A TÖMEGES INDÍTÁSHOZ (explicit felhasználói kérés, 2026-07-31)
+# ---------------------------------------------------------------------------
+# CSAK a "Stress teszt indítása" (start_stress_tests) útra vonatkozik. Az EGYENKÉNTI indítás
+# (start_stress_tool) szándékosan érintetlen marad: ott a felhasználó maga állít be mindent
+# (korábbi explicit döntés), tehát oda nem adunk kapcsolót.
+#
+# FurMark: 4K + 8x MSAA + Xtreme burn-in, vagyis a lehető legdurvább terhelés.
+#
+# A FELBONTÁS ITT SZÁNDÉKOSAN NAGYOBB, MINT A BENCHMARKNÁL (1024x768) - ne "egységesítsd"
+# vissza. Mérve (2026-07-31, lásd a benchmark_defs.py mérési blokkját): az ablakos FurMark a
+# képernyőnél nagyobb képet nem renderel, a kért 4K-ból egy 1080p monitoron ~1924x1061 lesz.
+# A BENCHMARKNÁL ez végzetes lenne, mert ott a gépeket kell összehasonlítani, és így a
+# monitor méretétől függne az eredmény - ezért ott kicsi, mindenhol elférő méret kell.
+# ITT viszont nincs mit összehasonlítani, csak égetni: a "vágja a saját kijelzőjéhez"
+# viselkedés éppen azt jelenti, hogy minden gépen a lehető LEGNAGYOBB képet rendereli.
+# A mintavétel (MSAA) ezért jön a benchmark_defs-ből, a méret viszont itt van megadva.
+# AMIBEN MÉG KÜLÖNBÖZIK a benchmark parancsától, és mindkettő szándékos:
+#   - /run_mode=2 (stability test / burn-in) a /benchmark helyett, és NINCS /max_time:
+#     a stressz-teszt addig fut, amíg a felhasználó le nem állítja (nincs időkorlát).
+#   - NINCS /log_score: a stressz-futás nem mérés, és nem szabad beleírnia a FurMark
+#     pontszám-fájljába, amit a Benchmark nézet parseol (a benchmark ugyan mtime szerint
+#     szűr, de a legtisztább, ha ide nem is kerül bejegyzés).
+# ELLENŐRIZENDŐ ÉLESBEN: a Geeks3D dokumentáció szerint a /max_time alapértéke 60000 ms, de
+# az a BENCHMARK hossza; a README szerint a burn-in "runs until the user presses the ESC key".
+# Ha a terepen mégis leállna magától kb. egy perc után, akkor kell ide egy explicit
+# "végtelen" kapcsoló (a program saját startup_options.xml-jében ez a
+# time_based_benchmark="0" + max_time="0" páros).
+from app.benchmark_defs import FURMARK_MSAA as _FM_MSAA
+
+# A stressz-teszt FurMark felbontása: 4K-t kérünk, hogy minden gépen a kijelzője adta
+# maximumot rendereljen (lásd a fenti indoklást - ez NEM a benchmark felbontása).
+STRESS_FURMARK_WIDTH = 3840
+STRESS_FURMARK_HEIGHT = 2160
+
+STRESS_TOOL_ARGS = {
+    'furmark': ['/nogui', '/run_mode=2',
+                f'/width={STRESS_FURMARK_WIDTH}', f'/height={STRESS_FURMARK_HEIGHT}',
+                f'/msaa={_FM_MSAA}', '/xtreme_burning',
+                '/disable_catalyst_warning', '/nomenubar'],
+}
+
+# A felületen megjelenő leírás a tömeges indításhoz (egy forrásból, mint a benchmarknál).
+STRESS_FURMARK_LABEL = (f'{STRESS_FURMARK_WIDTH}×{STRESS_FURMARK_HEIGHT} · {_FM_MSAA}× MSAA · '
+                        f'Xtreme burn-in · időkorlát nélkül')
+
 # A "Minden teszt bezárása" (stop_stress_tests) által név szerint is kilövendő programok -
 # biztonsági háló arra az esetre, ha egy folyamatot nem az általunk eltárolt PID-fa alól
 # indítottak (pl. UAC 'runas' út, ahol nincs PID-ünk, vagy kézzel indított példány). A
@@ -121,7 +167,13 @@ LINPACK_RAM_OPTIONS = [(1, 2), (2, 4), (3, 6), (4, 8), (5, 10), (6, 14), (7, 30)
 #   'exact':         csak TELJES felirat-egyezés számít (rövid feliratoknál - 'OK', 'Igen' -
 #                    véd a részleges hamis találatoktól, pl. 'ventilátorok' vége 'ok')
 STRESS_CLICK_SEQUENCES = {
-    'furmark': ['GPU stress test', 'GO'],  # beállító-ablak -> "*** CAUTION ***" figyelmeztetés
+    # FurMark: a tömeges indítás 2026-07-31 óta /nogui-val megy (lásd STRESS_TOOL_ARGS), tehát
+    # NINCS beállító-ablak, amin a 'GPU stress test' gombot kellene megnyomni - az a lépés
+    # kikerült. A "*** CAUTION ***" figyelmeztetés OPCIONÁLIS lépésként bent marad: a Benchmark
+    # nézet /nogui-s futásai alapján fel sem jön (különben ott sem születne pontszám felügyelet
+    # nélkül), de ha egy FurMark-verzió mégis kirakja, ne álljon meg tőle a stressz-teszt. Rövid
+    # időkorláttal, hogy a hiánya ne késleltesse az ablakrendezést.
+    'furmark': [{'labels': ['GO'], 'optional': True, 'timeout': 20, 'exact': True}],
     'prime95': [
         {'labels': ['Just Stress Testing'], 'skip_if_found': ['small ffts (tests l1/l2/l3']},  # GIMPS üdvözlő (csak első indításkor)
         'small ffts (tests l1/l2/l3',  # torture test típus rádiógomb

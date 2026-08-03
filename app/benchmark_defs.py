@@ -54,46 +54,98 @@ CINEBENCH_TIMEOUT_S = 2400
 # furmark-scores.txt-be kerül - EZT parseoljuk, nem a képernyőt). A beállítások FIXEK,
 # hogy a ranglista FPS-értékei összehasonlíthatóak legyenek gépek között.
 #
-# A BEÁLLÍTÁSOK A SZERVIZ RÉGI, KÉZI FURMARK-SCRIPTJÉT KÖVETIK (explicit felhasználói
-# döntés, 2026-07-29): a kollégák évek óta 1024-es ablakban, animált háttérrel futtatják
-# a kártyákat, és FEJBŐL ISMERIK a szokásos FPS-tartományokat - a benchmarknak ehhez a
-# megszokáshoz kell igazodnia, nem fordítva. Ezért: 1024x768, 0x MSAA, /enable_dyn_bkg=1
-# + /bkg_img_id=2 (a régi script animált háttere). Amiben SZÁNDÉKOSAN eltérünk:
-#   - a magasság 768, nem a script 728-a (kifejezett felhasználói döntés) - kb. 5%-kal
-#     több képpont, tehát a mi FPS-ünk kicsivel a megszokott alatt lesz;
-#   - a futásidő 10 mp (a régi script végtelen): elég az FPS kiolvasásához, viszont a
-#     kártya még HIDEG, teljes boost órajelen - egy percekig sütött kártyánál mért
-#     értékhez képest ez magasabb szám. A ranglistát ez nem zavarja (minden gépen
-#     ugyanaz a beállítás), a régi script-tapasztalattal viszont csak nagyságrendileg
-#     vethető össze.
+# 1024x768 + 8x MSAA + Xtreme burn-in (explicit felhasználói döntés, 2026-07-31). A cél EGY
+# mondatban: a mérés vigye el a kártyát a falig, hogy a szám a VIDEOKÁRTYÁRÓL szóljon, ne a
+# processzorról - DE úgy, hogy MINDEN gépen ugyanaz a képméret renderelődjön.
 #
-# Ablakos mód, teljes képernyő SZÁNDÉKOSAN nincs: egy nem támogatott felbontású panelen
-# a módváltás elbukhat, és akkor NINCS eredmény - egy kisebb ablak rosszabb esetben is
-# ad számot. Figyelendő viszont (terepen mérve 2026-07-29): a Windows a munkaterülethez
-# VÁGJA az ablakot - a kért 1920x1080-ból [Resolution=1898x1024] lett egy 1080p
-# monitoron. Az 1024x768 egy 1366x768-as laptopon szintén csonkulna (~1024x690), ezért a
-# ténylegesen renderelt felbontást a score-fájlból kiolvassuk, és eltérésnél WARNING
-# kerül a logba - a torzítás soha nem néma.
+# A felbontás azért maradt 1024x768 (és nem 4K vagy 1080p lett), mert MÉRÉS mondta meg, hogy
+# az ablakos FurMark a KÉPERNYŐNÉL nagyobb képet nem renderel - lásd a lenti mérési blokkot.
+# A terhelést a 8x MSAA + Xtreme burn-in adja, nem a felbontás:
+#   - a képkockánkénti mintaszám 786k -> 6.3M (8x), plusz az Xtreme burn-in emeli a szőrzet
+#     terhelését; a régi 1024x768/0x MSAA-hoz képest ez nagyságrendileg 10x GPU-munka,
+#     tehát a driver/CPU képkocka-beküldése már nem lehet a szűk keresztmetszet;
+#   - 1024x768 MINDEN szerviz-monitoron elfér (még egy 1366x768-as laptopon is), tehát nincs
+#     olyan gép, amelyik a saját kijelzőjéhez vágva, kisebb képen mérne.
+# Következmények:
+#   - a ranglista RÉGI sorai (1024x768/0x MSAA, Xtreme nélkül) NEM hasonlíthatók az újakhoz -
+#     a táblában nincs beállítás-oszlop, tehát a régi sorokat kézzel kell törölni;
+#   - régi/kis VRAM-ú kártyán a driver csendben lejjebb veheti a mintavételt, ezért a
+#     score-fájl [MSAA=..] ÉS [Resolution=..] mezőjét is kiolvassuk, eltérésnél WARNING megy a
+#     logba, és a felületen a TÉNYLEGESEN renderelt érték jelenik meg - a torzítás sosem néma.
+#
+# A STRESSZ-TESZT tömeges indítása SZÁNDÉKOSAN nem ezt a felbontást használja (lásd
+# app/stress_defs.py: STRESS_TOOL_ARGS): ott 4K-t kérünk, mert ott nincs összehasonlítás, csak
+# terhelés - a "vágja a monitorához" viselkedés ott egyenesen jó, azt jelenti, hogy a lehető
+# legnagyobb képet rendereli az adott gépen.
+#
+# A RÉGI SZERVIZ-SCRIPT ÖRÖKSÉGE TELJESEN MEGSZŰNT (explicit felhasználói döntés, 2026-07-31).
+# Korábban a felbontás/háttér azért volt olyan, amilyen, mert a kollégák fejből ismerték a
+# hozzá tartozó FPS-tartományokat; ez a szempont elesett. Az animált háttér
+# (/enable_dyn_bkg + /bkg_img_id) is emiatt került ki: a szőrzet mellett elhanyagolható
+# terhelés, viszont egy plusz változó a gépek összehasonlításában. Ami maradt a parancssorban,
+# az mind ÜZEMELTETÉS, nem képi beállítás: /nogui (ne várjon a beállító ablakban), /benchmark
+# + /max_time (kötött hosszú mérés), /log_score (ebből olvassuk ki az eredményt),
+# /disable_catalyst_warning (AMD-figyelmeztetés ne blokkolja a felügyelet nélküli futást),
+# /nomenubar (ne takarja a menüsor a képet).
+#
+# Ablakos mód, teljes képernyő SZÁNDÉKOSAN nincs: egy nem támogatott felbontású panelen a
+# módváltás elbukhat, és akkor NINCS eredmény - egy ablak rosszabb esetben is ad számot.
+#
+# ===========================================================================================
+# A KÉPERNYŐNÉL NAGYOBB KÉPET AZ ABLAKOS FURMARK NEM RENDEREL - MÉRVE, NE VITASD ÚJRA
+# ===========================================================================================
+# Ez a szakasz azért van itt, mert a FurMark FELÜLETE MÁST MOND, MINT AMIT CSINÁL, és emiatt
+# a projektben már kétszer született téves következtetés. A program fejléce ("Burn-in test,
+# 3840x2160 (8X MSAA)") és a furmark-gpu-monitoring.xml width/height mezője a KÉRT beállítást
+# írja ki - nem a ténylegesen renderelt képet. Az EGYETLEN megbízható forrás a /log_score
+# által írt score-fájl [Resolution=..] mezője.
+#
+# A döntő mérés (2026-07-31, a csomagban lévő FurMark 1.39.3.0, Intel HD Graphics 530, 1080p
+# monitor, azonos beállítások: /nogui /benchmark /max_time=10000 /msaa=8, Xtreme nélkül):
+#     kért 3840x2160  ->  [Resolution=1924x1061]  ->  13 képkocka / 10 mp
+#     kért 1280x720   ->  [Resolution=1264x681]   ->  28 képkocka / 10 mp
+#     kért 3840x2160  ->  [Resolution=1924x1061]  ->  14 képkocka / 10 mp   (ismétlés)
+# Ha tényleg 4K-ban renderelt volna, a 720p-s kérés UGYANANNYI képkockát adott volna. Kétszer
+# annyit adott, és a pixelarány (2.04 Mpx vs 0.86 Mpx = 2.37x) pontosan megmagyarázza a
+# sebességkülönbséget. Vagyis: a kép az ABLAK KLIENS-TERÜLETE, amit a rendszer a képernyőhöz
+# igazít - egy 1080p monitoron ~1924x1061 a plafon, akárhány K-t kérünk.
+#
+# EBBŐL KÖVETKEZIK a felbontás-választás: ha a névleges méret nagyobb a kijelzőnél, akkor a
+# ranglista nem gépeket, hanem MONITOROKAT hasonlítana (egy 4K-s monitoros gép négyszer annyi
+# képpontot renderelne, mint egy 1080p-s), ami sokkal rosszabb torzítás bárminél, ami eddig
+# ebben a fájlban szerepelt. Ezért kell olyan méret, ami MINDEN gépen elfér: 1024x768.
+#
+# (Történeti helyesbítés: a 2026-07-29-i mérés - kért 1920x1080 -> [Resolution=1898x1024] -
+# sokáig "a Windows a munkaterülethez vágta az ablakot"-ként szerepelt itt, holott
+# 1920-1898 = 22 és 1080-1024 = 56 pontosan az ugyanazon a gépen mért ablakkeret, vagyis ott
+# nem csonkulás volt, hanem kliens-terület. A mostani mérés a másik esetet mutatja: 3840-1924
+# már nem lehet ablakkeret. Mindkettő ugyanarra tanít: a score-fájl dönt, semmi más.)
 FURMARK_BENCH_TIME_MS = 10000       # explicit felhasználói kérés: 10 mp elég az FPS-hez
 FURMARK_BENCH_WIDTH = 1024
 FURMARK_BENCH_HEIGHT = 768
-FURMARK_MSAA = 0
-# A régi szerviz-script animált háttere (a bkg_img_id=2 a FurMark 1.19+ alapértelmezett
-# képe). Kis plusz terhelés, de a megszokott FPS-ekhez ez is hozzátartozik.
-FURMARK_DYN_BKG_ARGS = ['/enable_dyn_bkg=1', '/bkg_img_id=2']
+FURMARK_MSAA = 8
+# Xtreme burn-in: "sets FurMark in a mode that overburns the GPU" (Geeks3D dokumentáció) -
+# a szőrzet-renderelés terhelését emeli tovább, nagyobb fogyasztással. Explicit felhasználói
+# döntés (2026-07-31), és egyben a szerviz kézi gyakorlata: a gépen talált FurMark saját
+# startup_options.xml-jében xtreme_burn_in="1" van, tehát kézzel is így nyomatják. A ranglistát
+# nem zavarja (minden gépen ugyanaz), viszont TUDNI kell: ez egy "power virus" mód - gyenge
+# tápon vagy haldokló kártyán a gép összeeshet mérés közben, és akkor nincs eredmény.
+# (A GUI-ban mellette lévő post-FX-hez az 1.x-ben NINCS parancssori kapcsoló, csak
+# startup_options.xml - ezért azt szándékosan nem erőltetjük bele a mérésbe.)
 FURMARK_CLI_ARGS = ['/nogui', '/benchmark', f'/max_time={FURMARK_BENCH_TIME_MS}',
                     f'/width={FURMARK_BENCH_WIDTH}', f'/height={FURMARK_BENCH_HEIGHT}',
-                    f'/msaa={FURMARK_MSAA}'] + FURMARK_DYN_BKG_ARGS + [
+                    f'/msaa={FURMARK_MSAA}', '/xtreme_burning',
                     '/log_score', '/disable_catalyst_warning', '/nomenubar']
 
 # A felületen megjelenő beállítás-leírás. EGY forrásból megy a UI-ba
 # (get_benchmark_settings), hogy a kiírt és a ténylegesen futtatott beállítás soha ne
 # csúszhasson szét - a szerviznek pontosan tudnia kell, mivel készült a szám.
 FURMARK_SETTINGS_LABEL = (f'{FURMARK_BENCH_WIDTH}×{FURMARK_BENCH_HEIGHT} · {FURMARK_MSAA}× MSAA · '
-                          f'{FURMARK_BENCH_TIME_MS // 1000} mp · animált háttér · ablakos')
+                          f'Xtreme burn-in · {FURMARK_BENCH_TIME_MS // 1000} mp · ablakos')
 
 # ---------------------------------------------------------------------------
-# KÉT MÉRŐFUTÁS, A JOBBIK SZÁMÍT (terepen mérve 2026-07-30, explicit felhasználói döntés)
+# HÁROM MÉRŐFUTÁS, A JOBBIK SZÁMÍT (terepen mérve 2026-07-30, explicit felhasználói döntés;
+# 2-ről 3-ra emelve 2026-07-31, a 4K + 8x MSAA beállítással együtt)
 # ---------------------------------------------------------------------------
 # Egyetlen futás megbízhatatlan, és pont a szerviz TIPIKUS esetében az: az első mérés egy
 # gépen közvetlenül a 621 MB-os stresstools.zip letöltése+kicsomagolása UTÁN történik, tehát
@@ -106,47 +158,58 @@ FURMARK_SETTINGS_LABEL = (f'{FURMARK_BENCH_WIDTH}×{FURMARK_BENCH_HEIGHT} · {FU
 # Vagyis a FurMark mint mérőeszköz STABIL (~1%), csak az első futás esik ~28%-ot - mintha a
 # 10 mp-es ablak első ~2.6 másodperce nem rendelt volna semmit. Ugyanannak a körnek a
 # Cinebench-e is 3.3%-kal alacsonyabb lett, tehát tényleg háttérterhelés volt.
-# Ezért a mérés KÉTSZER fut le teljes hosszban, és a MAGASABB FPS számít: az első futás így
-# egyben bemelegítés is, a második pedig egy véletlen háttérterhelést (Windows Update,
-# Defender, indexelő) is kivéd. Mindkét futás bekerül a logba - a kettő közti nagy eltérés
-# maga is információ a szerviznek. Költség: kb. +13 mp.
-FURMARK_BENCH_RUNS = 2
+# Ezért a mérés HÁROMSZOR fut le teljes hosszban, és a MAGASABB FPS számít: az első futás a
+# "cold run" (a FurMark ekkor tölti be magát, fordítja a shadereket, foglalja a 4K-s 8x MSAA
+# képpuffert), a maradék kettő az igazi mérés - így egy véletlen háttérterhelés (Windows
+# Update, Defender, indexelő) sem tudja egyetlen mérésnél elrontani az eredményt. A 4K + 8x
+# MSAA váltás után ez a bemelegítés még fontosabb: nagyobb a betöltendő állapot, és a driver
+# az első futáskor allokálja a lényegesen nagyobb puffereket. MINDEN futás bekerül a logba -
+# a közöttük lévő nagy eltérés maga is információ a szerviznek. Költség: kb. +13 mp futásonként.
+FURMARK_BENCH_RUNS = 3
 
 # PÓT-FUTÁS a gép LEGELSŐ mérésénél (terepen mérve 2026-07-30, Build 247). Amíg a gép
 # ablakkeretét nem ismerjük, az első futás még a NÉVLEGES ablakméretet kéri - abból tanuljuk
-# meg a keretet -, tehát az a futás egy KISEBB felbontáson készül, és nem versenyezhet a
-# kompenzált futással. Így a legelső mérésből valójában csak EGY összemérhető eredmény lesz:
-# az a kör "bemelegítés + 1 mérés", nem "2 mérés, a jobbik". Márpedig a szerviz tipikus esete
-# pont ez - vadonatúj gép, első mérés -, és ha épp azt az egy mérést kapja el egy háttér-
-# terhelés, nincs mihez hasonlítani. Ezért ha a tervezett futások után a NÉVLEGES felbontású
-# eredmények száma kevesebb a kelleténél, még ennyi pót-futás indulhat. Csak a gép legelső
-# mérését érinti (utána a keret már mentve van, és mindkét futás kompenzáltan megy).
+# meg a keretet -, tehát az a futás KISEBB képen készül, és nem versenyezhet a kompenzált
+# futásokkal. Ha emiatt nem marad elég összemérhető eredmény, még ennyi pót-futás indulhat.
+# Csak a gép legelső mérését érinti (utána a keret már mentve van).
 FURMARK_BENCH_MAX_EXTRA_RUNS = 1
 
+# Hány ÖSSZEMÉRHETŐ (a névleges felbontáson készült) eredmény kell ahhoz, hogy ne induljon
+# pót-futás. Kettő: ennyiből már van mit összehasonlítani, tehát egy véletlen háttérterhelés
+# nem tudja egyedül eldönteni a végeredményt. SZÁNDÉKOSAN nem FURMARK_BENCH_RUNS (=3): a gép
+# legelső mérésénél az első futás úgyis a "cold run" (ekkor tanuljuk a keretet is), tehát a
+# 3 tervezett futásból 2 összemérhető eredmény pontosan a kívánt "bemelegítés + 2 mérés"
+# felállás - a küszöböt 3-ra állítva minden új gép feleslegesen futna egy negyediket is.
+FURMARK_MIN_COMPARABLE_RUNS = 2
+
 # ---------------------------------------------------------------------------
-# ABLAKKERET-KOMPENZÁCIÓ (terepen mérve 2026-07-30, explicit felhasználói döntés)
+# ABLAKKERET-KOMPENZÁCIÓ (terepen mérve 2026-07-30, megerősítve 2026-07-31)
 # ---------------------------------------------------------------------------
-# A /width és /height az ABLAK méretét állítja, a FurMark viszont a KLIENS-területre
-# renderel (ablakkeret + címsor nélkül) - a kért 1024×768-ból élőben [Resolution=1002x712]
-# lett, ami 9.3%-kal kevesebb képpont. A keret/címsor mérete GÉPFÜGGŐ (DPI-skálázás, téma),
-# tehát a ranglista eddig különböző pixelszámú méréseket hasonlított össze: egy 125%-ra
-# skálázott laptopon magasabb a címsor -> kisebb renderfelület -> hamisan magasabb FPS.
-# Élőben ellenőrizve: /width=1046 /height=824 -> pontosan [Resolution=1024x768] (és az FPS
-# 184-ről 174.6-ra esett, azaz a régi számok ~5%-kal felfelé torzítottak).
-# Ezért az első futásból KIOLVASSUK a keret méretét (kért - tényleges), elmentjük a gépre
-# (<app_data>\furmark_frame_delta.json), és a következő futásokat már ekkora ráhagyással
-# indítjuk, hogy MINDEN gépen pontosan 1024×768 renderelődjön.
+# CÉL: a RENDERELT kép minden gépen pontosan FURMARK_BENCH_WIDTH x FURMARK_BENCH_HEIGHT
+# legyen - csak így hasonlítható össze két gép FPS-e.
+# A /width és /height az ABLAK méretét állítja, a FurMark viszont a KLIENS-területre renderel
+# (ablakkeret + címsor nélkül), és a keret mérete GÉPFÜGGŐ. Élőben mért értékek:
+#     125%-ra skálázott gép: keret 22x56 px  -> kért 1024x768 -> renderelt 1002x712
+#                                             -> kért 1046x824 -> renderelt PONTOSAN 1024x768
+#     100%-os gép:           keret 16x39 px  -> kért 1280x720 -> renderelt 1264x681
+# Kompenzáció nélkül tehát ugyanaz a parancssor a két gépen 1002x712-t és 1008x729-et
+# renderelne: ~3% pixelkülönbség, azaz a magasabb DPI-jű gép INGYEN kapna pár FPS-t. (A
+# 125%-os gépen mérve: kompenzálva 184 -> 174.6 FPS, vagyis a régi sorok ~5%-kal optimisták.)
+# Ezért az első futásból kiolvassuk a keretet (kért - renderelt), elmentjük a gépre, és a
+# további futások ennyivel nagyobb ablakot kérnek.
 FURMARK_FRAME_DELTA_FILE = 'furmark_frame_delta.json'
 # Hihetőségi korlát a tanult keretméretre. Egy ablakkeret + címsor néhány tíz képpont; ennél
-# nagyobb különbség nem keret, hanem CSONKULÁS (a Windows a munkaterülethez vágta az ablakot
-# egy kis kijelzőn) - azt tanulásként elfogadva a következő futás még nagyobb ablakot kérne,
-# ami még jobban csonkulna: elszabaduló visszacsatolás. Ezért a korlát fölött nem tanulunk.
-# A korlátok a valóságból: élőben mérve 125%-os DPI-skálázáson 22x56 képpont a keret, tehát
-# 64x120 még egy ~250%-ra skálázott kijelzőt is elbír, viszont egy 1366x768-as laptopon a
-# függőleges csonkulás (768 kért -> 600 renderelt, azaz 168) MÁR NEM fér bele - és pont ez
-# volt az az eset, amit az offline teszt kibuktatott. Aki ezt fellazítja, visszahozza a
-# visszacsatolást. Második, PONTOS védővonal a munkaterület-ellenőrzés a hívóban: ha a kért
-# ablak eleve nem fér ki a képernyőre, a különbség biztosan csonkulás, nem keret.
+# nagyobb különbség nem keret, hanem CSONKULÁS - azt tanulásként elfogadva a következő futás
+# még nagyobb ablakot kérne, ami még jobban csonkulna: elszabaduló visszacsatolás. A korlátok
+# a valóságból jönnek: 22x56 (125% DPI) és 16x39 (100% DPI) a mért keretek, tehát a 64x120 még
+# egy ~250%-ra skálázott kijelzőt is elbír, viszont egy 1366x768-as laptopon a függőleges
+# csonkulás (768 kért -> 600 renderelt, azaz 168) MÁR NEM fér bele - és pont ez volt az az
+# eset, amit az offline teszt kibuktatott. Aki ezt fellazítja, visszahozza a visszacsatolást.
+# Második védővonal a munkaterület-ellenőrzés (plan_furmark_size): ha a kompenzált ablak nem
+# fér ki a képernyőre, nem kompenzálunk. Ez az 1024x768-as névleges méretnél értelmes és
+# elégséges - minden létező kijelzőn elfér, tehát a "nem fér ki" tényleg csak csonkulást
+# jelenthet. (2026-07-31-én rövid ideig 3840x2160 volt a névleges méret, ahol ez az őr mindig
+# tüzelt volna; az a felbontás azóta kikerült, mert MÉRVE nem is renderelődött - lásd fentebb.)
 FURMARK_FRAME_DELTA_MAX_X = 64
 FURMARK_FRAME_DELTA_MAX_Y = 120
 

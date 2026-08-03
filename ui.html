@@ -2912,11 +2912,15 @@ function renderBenchSettings(s) {
   const cbChip = document.getElementById('bench-chip-cb');
   const fmChip = document.getElementById('bench-chip-fm');
   if (cbChip) cbChip.textContent = '🧠 Cinebench R20 · ' + s.cinebench;
-  if (fmChip) fmChip.textContent = '🎮 FurMark · ' + s.furmark_short + ' · ' + s.furmark_seconds + ' mp';
+  // A futásszámot is kiírjuk: az első futás bemelegítés (cold run), utána jön a tényleges
+  // mérés - a puszta "10 mp" a GPU-teszt hosszát a többszörösével hibázná el.
+  const fmRuns = s.furmark_runs ? (' · ' + s.furmark_runs + '× futás') : '';
+  if (fmChip) fmChip.textContent = '🎮 FurMark · ' + s.furmark_short + ' · ' + s.furmark_seconds + ' mp' + fmRuns;
   const box = document.getElementById('bench-settings');
   if (box) {
     box.innerHTML = '<span>⚙️ <b>Cinebench R20:</b> ' + esc(s.cinebench) + '</span>' +
-                    '<span>🎮 <b>FurMark:</b> ' + esc(s.furmark) + '</span>' +
+                    '<span>🎮 <b>FurMark:</b> ' + esc(s.furmark) + esc(fmRuns) +
+                    (s.furmark_runs ? ' (az első bemelegítés, a legjobb eredmény számít)' : '') + '</span>' +
                     '<span><code>' + esc(s.furmark_cmd) + '</code></span>';
     box.title = 'A FurMark pontosan így indul:\n' + s.furmark_cmd;
   }

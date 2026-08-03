@@ -119,10 +119,15 @@ class _SHQUERYRBINFO(ctypes.Structure):
     ]
 
 
-# SystemParametersInfoW(SPI_GETWORKAREA) - az elsődleges monitor MUNKATERÜLETE (a képernyő
-# a tálca és a többi appbar nélkül). A FurMark benchmark ablakos módban fut, és a Windows a
-# munkaterülethez VÁGJA a túl nagy ablakot: ebből tudjuk előre, belefér-e a kompenzált
-# (keretmérettel megnövelt) ablak, vagy csonkulna - lásd app/gui/benchmark.py.
+# SystemParametersInfoW(SPI_GETWORKAREA) - az elsődleges monitor MUNKATERÜLETE (a képernyő a
+# tálca és a többi appbar nélkül). A FurMark benchmark ablakkeret-kompenzációja használja: ha
+# a keretmérettel megnövelt ablak már nem férne el a képernyőn, akkor nem kompenzálunk, mert
+# ott a renderelt kép úgyis csonkulna (lásd app/gui/benchmark.py + app/benchmark_defs.py).
+# FIGYELEM: ez NEM azt jelenti, hogy a Windows a munkaterülethez vágja az ablakot - a
+# ténylegesen renderelt méretről kizárólag a FurMark score-fájljának [Resolution=..] mezője
+# dönt, sosem a képernyőmérettel való összevetés.
+# (A stressz-teszt ablakelrendezése nem ezt hívja: annak saját, helyi SPI_GETWORKAREA
+# definíciója van az app/gui/stress_automation.py-ban.)
 SPI_GETWORKAREA = 0x0030
 
 

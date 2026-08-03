@@ -24,6 +24,8 @@ from app.stress_defs import STRESS_POWER_REG_KEY
 from app.stress_defs import STRESS_POWER_SETTINGS
 from app.stress_defs import STRESS_TOOLS
 from app.stress_defs import STRESS_TOOLS_BULK
+from app.stress_defs import STRESS_TOOL_ARGS
+from app.stress_defs import STRESS_FURMARK_LABEL
 from app.win32 import SEE_MASK_NOCLOSEPROCESS
 from app.win32 import SW_SHOWNORMAL
 from app.win32 import _MEMORYSTATUSEX
@@ -200,7 +202,7 @@ class GuiStressMixin:
                 for prompt, answer, needs_enter in LINPACK_PROMPT_SCRIPT]
 
     def _launch_stress_exe(self, exe, display_name, console_script=None, click_sequence=None, thread_sink=None,
-                           result_sink=None, result_key=None):
+                           result_sink=None, result_key=None, args=None):
         """Egy stressz-teszt/monitor .exe elindítása, UAC-elutasítás (WinError 740, pl.
         HWiNFO64.exe requireAdministrator manifestje) esetén ShellExecuteExW-es 'runas'
         újrapróbálással. Visszaadási érték:
@@ -231,7 +233,11 @@ class GuiStressMixin:
         result_sink/result_key: opcionális dict + kulcs - az automatizálási szál
         befejezésekor result_sink[result_key] = True/False kerül bele (végigment-e a
         teljes kattintás-/gépelés-sorozat), ebből tudja a start_stress_tests a záró
-        összegzésben kimutatni, melyik programnál kellhet kézi beállítás."""
+        összegzésben kimutatni, melyik programnál kellhet kézi beállítás.
+        args: opcionális parancssori kapcsolók listája (STRESS_TOOL_ARGS - jelenleg a
+        FurMark 4K/8x MSAA/Xtreme burn-in indítása a tömeges úton). CSAK a tömeges indítás
+        adja meg; az egyenkénti indítás szándékosan kapcsoló nélkül futtat, hogy a
+        felhasználó maga állíthasson be mindent."""
         def _run_automation_safely(func, *args):
             # A háttérszál céljának védőrétege - ha bármi a try/except-eken KÍVÜL dobna
             # kivételt (pl. egy elgépelés egy jövőbeli módosításban), az itt látszódjon a
@@ -246,9 +252,10 @@ class GuiStressMixin:
                 if result_sink is not None and result_key is not None:
                     result_sink[result_key] = ok
 
+        cmd = [exe] + list(args or [])
         try:
-            proc = subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
-            logging.info(f"[STRESSTOOLS] Elindítva: {display_name} ({exe}), pid={proc.pid}")
+            proc = subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
+            logging.info(f"[STRESSTOOLS] Elindítva: {display_name} ({subprocess.list2cmdline(cmd)}), pid={proc.pid}")
             auto_thread = None
             if console_script:
                 auto_thread = threading.Thread(target=_run_automation_safely, args=(self._auto_answer_console, proc.pid, console_script), daemon=True, name=f"auto:{display_name}")
@@ -278,7 +285,9 @@ class GuiStressMixin:
                     sei.hwnd = None
                     sei.lpVerb = "runas"
                     sei.lpFile = exe
-                    sei.lpParameters = None
+                    # A parancssori kapcsolók az emelt ágon is kellenek, különben a FurMark
+                    # itt beállítások nélkül, a saját alapértelmezésével indulna el.
+                    sei.lpParameters = subprocess.list2cmdline(list(args)) if args else None
                     sei.lpDirectory = os.path.dirname(exe)
                     sei.nShow = SW_SHOWNORMAL
                     sei.hInstApp = None
@@ -481,13 +490,18 @@ class GuiStressMixin:
                                 logging.debug(f"[STRESSTOOLS] HWiNFO64.INI írása sikertelen (az update-értesítőt a kattintás-szekvencia kezeli): {e}")
                         console_script = self._build_linpack_console_script() if key == 'linpack' else None
                         click_sequence = STRESS_CLICK_SEQUENCES.get(key)
+                        # Parancssori kapcsolók CSAK a tömeges úton (STRESS_TOOL_ARGS) - jelenleg
+                        # a FurMark indul velük 4K / 8x MSAA / Xtreme burn-in, időkorlát nélkül.
+                        tool_args = STRESS_TOOL_ARGS.get(key)
                         pid = self._launch_stress_exe(exe, display_name, console_script=console_script, click_sequence=click_sequence,
-                                                      thread_sink=auto_threads, result_sink=auto_results, result_key=key)
+                                                      thread_sink=auto_threads, result_sink=auto_results, result_key=key,
+                                                      args=tool_args)
                         if pid:
                             launched += 1
                             pid_map[key] = pid
                             self._stress_pids[key] = pid  # stop_stress_tests innen tudja, mit kell kilőni
-                            self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva: {display_name}'})
+                            beall = f' ({STRESS_FURMARK_LABEL})' if key == 'furmark' else ''
+                            self.emit('task_progress', {'task': 'stress', 'log': f'✅ Elindítva: {display_name}{beall}'})
                             if console_script:
                                 self.emit('task_progress', {'task': 'stress', 'log': '  🤖 Linpack menü automatikus kitöltése elindult (RAM-választás + megerősítések).'})
                             if click_sequence:

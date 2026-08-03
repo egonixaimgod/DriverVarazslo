@@ -82,12 +82,13 @@ def parse_cinebench_output(text):
 
 def build_furmark_cmd(exe_path, width=None, height=None):
     """A FurMark 1.x parancssori benchmark-futtatás teljes parancsa (/nogui /benchmark
-    /max_time /log_score ... - a beállítások a benchmark_defs.py-ban).
+    /max_time /width /height /msaa /xtreme_burning /log_score ... - a beállítások mind a
+    benchmark_defs.py-ban).
 
     A `width`/`height` az ABLAKKERET-KOMPENZÁCIÓHOZ írja felül a névleges ablakméretet: a
-    FurMark a kliens-területre renderel, tehát a kért méretnél kisebb felbontás jön ki, és
-    a különbséget (keret + címsor) gépenként külön kell ráhagyni, hogy mindenhol pontosan
-    a névleges felbontás renderelődjön. Alapesetben (None) a névleges méret megy."""
+    FurMark a kliens-területre renderel, tehát a kért méretnél kisebb kép jön ki, és a
+    különbséget (keret + címsor) gépenként külön kell ráhagyni, hogy mindenhol pontosan a
+    névleges felbontás renderelődjön. Alapesetben (None) a névleges méret megy."""
     from app.benchmark_defs import FURMARK_CLI_ARGS, FURMARK_BENCH_WIDTH, FURMARK_BENCH_HEIGHT
     args = list(FURMARK_CLI_ARGS)
     if width and width != FURMARK_BENCH_WIDTH:
@@ -111,14 +112,15 @@ def parse_resolution(res_str):
 def furmark_frame_delta(req_w, req_h, actual_res, max_dx, max_dy):
     """Az ablakkeret + címsor mérete: a KÉRT ablakméret és a TÉNYLEGESEN renderelt felbontás
     különbsége. Ennyivel kell nagyobb ablakot kérni, hogy a névleges felbontás jöjjön ki.
+    Élőben mért értékek: 22x56 px egy 125%-ra skálázott gépen, 16x39 px egy 100%-oson - épp
+    ezért gépfüggő, és épp ezért kell tanulni, nem beégetni.
 
     None-t ad, ha az érték nem hihető keretméret:
       - nem értelmezhető a felbontás,
       - a tényleges NAGYOBB a kértnél (elvileg lehetetlen),
-      - a különbség a korlátok fölött van - az már nem keret, hanem CSONKULÁS (a Windows a
-        munkaterülethez vágta az ablakot egy kis kijelzőn). Ezt tanulásként elfogadva a
-        következő futás még nagyobb ablakot kérne, ami még jobban csonkulna: a hívó ilyenkor
-        inkább feladja a kompenzációt, mint hogy elszabaduljon."""
+      - a különbség a korlátok fölött van - az már nem keret, hanem CSONKULÁS. Ezt tanulásként
+        elfogadva a következő futás még nagyobb ablakot kérne, ami még jobban csonkulna: a
+        hívó ilyenkor inkább feladja a kompenzációt, mint hogy elszabaduljon."""
     actual = parse_resolution(actual_res)
     if not actual:
         return None
@@ -139,17 +141,17 @@ def plan_furmark_size(nominal_w, nominal_h, delta, work_area=None):
     """A KÖVETKEZŐ FurMark futás ablakmérete. Visszaad: (szélesség, magasság, kompenzált-e).
 
     Ha ismerjük a gép keretméretét (`delta`), akkor annyival nagyobb ablakot kérünk, hogy a
-    kliens-terület pontosan a névleges felbontás legyen. Ha a kompenzált ablak nem férne bele
-    a munkaterületbe (`work_area`), NEM kompenzálunk: a Windows úgyis levágná, és a csonkított
-    eredmény rosszabb, mint a névleges kérés. `work_area=None` = nem tudjuk, elfér-e -> a
-    kompenzáció megy, a futás utáni ellenőrzés úgyis kiszűri."""
+    kliens-terület pontosan a névleges felbontás legyen. Ha a kompenzált ablak már nem férne
+    bele a munkaterületbe (`work_area`), NEM kompenzálunk: ott a kép úgyis csonkulna, és a
+    csonkított eredmény rosszabb, mint a névleges kérés. `work_area=None` = nem tudjuk,
+    elfér-e -> a kompenzáció megy, a futás utáni [Resolution=..] ellenőrzés úgyis kiszűri."""
     if not delta or (delta[0] == 0 and delta[1] == 0):
         return nominal_w, nominal_h, False
     w, h = nominal_w + delta[0], nominal_h + delta[1]
     if work_area and (w > work_area[0] or h > work_area[1]):
         logging.warning(f"[BENCHMARK] FurMark keret-kompenzáció kihagyva: a kompenzált ablak "
                         f"({w}x{h}) nem fér bele a munkaterületbe ({work_area[0]}x{work_area[1]}) - "
-                        f"a névleges {nominal_w}x{nominal_h} megy, a renderelt felbontás kisebb lesz.")
+                        f"a névleges {nominal_w}x{nominal_h} megy, a renderelt kép kisebb lesz.")
         return nominal_w, nominal_h, False
     return w, h, True
 
@@ -188,8 +190,12 @@ def find_furmark_score_file(exe_dir, min_mtime=None):
 def parse_furmark_scores(text):
     """A FurMark score-fájl (append-napló) UTOLSÓ bejegyzéséből az FPS (és a pontszám)
     kiolvasása. A fájlformátum ERŐSEN verziófüggő, ezért több mintát próbálunk, mindig az
-    utolsó találatot véve. Visszaad: {'fps', 'score', 'resolution', 'mode'} vagy None, ha
-    semmi értelmezhető nincs a szövegben.
+    utolsó találatot véve. Visszaad: {'fps', 'score', 'resolution', 'mode', 'msaa'} vagy
+    None, ha semmi értelmezhető nincs a szövegben.
+
+    Az 'msaa' azért kell, mert 2026-07-31 óta 8x MSAA-val mérünk: egy régi kártyán/driveren a
+    kért mintavétel CSENDBEN lejjebb eshet, és akkor az az FPS nem hasonlítható a többihez.
+    A hívó ezt összeveti a kért értékkel és eltérésnél WARNING-ot ír (a torzítás sosem néma).
 
     Formátumok (a sorrend prioritás):
       1. FurMark 1.39.x (TEREPEN MÉRT, 2026-07-29 - ez NEM ír sem 'FPS', sem 'points' szót,
@@ -207,6 +213,7 @@ def parse_furmark_scores(text):
     score = None
     resolution = None
     mode = None
+    msaa = None
 
     res_m = _re.findall(r'\[\s*Resolution\s*=\s*([0-9]+x[0-9]+)', text, _re.IGNORECASE)
     if res_m:
@@ -214,6 +221,10 @@ def parse_furmark_scores(text):
     mode_m = _re.findall(r'\[\s*Mode\s*=\s*([A-Za-z]+)', text, _re.IGNORECASE)
     if mode_m:
         mode = mode_m[-1]
+    # "[MSAA=8X]" - a záró X elhagyható, mert verziónként hol van, hol nincs.
+    msaa_m = _re.findall(r'\[\s*MSAA\s*=\s*(\d+)\s*X?\s*\]', text, _re.IGNORECASE)
+    if msaa_m:
+        msaa = int(msaa_m[-1])
 
     # 1) FurMark 1.39.x: [FRAMES=..] + [TIME_MS=..] -> az FPS-t nekünk kell kiszámolni.
     fr = _re.findall(r'\[\s*FRAMES\s*=\s*(\d+)\s*\]', text, _re.IGNORECASE)
@@ -223,8 +234,8 @@ def parse_furmark_scores(text):
         score = frames                      # a FurMark "pontszáma" maga a képkockaszám
         fps = round(frames * 1000.0 / time_ms, 1)
         logging.info(f"[BENCHMARK] FurMark (1.39-es formátum): FRAMES={frames}, TIME_MS={time_ms} "
-                     f"-> FPS={fps}, felbontás={resolution}, mód={mode}")
-        return {'fps': fps, 'score': score, 'resolution': resolution, 'mode': mode}
+                     f"-> FPS={fps}, felbontás={resolution}, MSAA={msaa}, mód={mode}")
+        return {'fps': fps, 'score': score, 'resolution': resolution, 'mode': mode, 'msaa': msaa}
 
     # 2) A klasszikus 1.x sorok - a FurMark verziónként KÉTFÉLE sorrendet is írt:
     #    "... 3162 points (FPS: 52) ..."  ÉS  "... 3162 points (52 FPS, 60000 ms) ..."
@@ -252,8 +263,8 @@ def parse_furmark_scores(text):
                         f"A fájl vége: {tail!r}")
         return None
     logging.info(f"[BENCHMARK] FurMark eredmény kiolvasva: FPS={fps}, Score={score}, "
-                 f"felbontás={resolution}, mód={mode}")
-    return {'fps': fps, 'score': score, 'resolution': resolution, 'mode': mode}
+                 f"felbontás={resolution}, MSAA={msaa}, mód={mode}")
+    return {'fps': fps, 'score': score, 'resolution': resolution, 'mode': mode, 'msaa': msaa}
 
 
 # ============================================================================

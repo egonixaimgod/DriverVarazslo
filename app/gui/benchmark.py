@@ -33,6 +33,7 @@ from app.benchmark_defs import FURMARK_EXIT_GRACE_S
 from app.benchmark_defs import FURMARK_MSAA
 from app.benchmark_defs import FURMARK_BENCH_RUNS
 from app.benchmark_defs import FURMARK_BENCH_MAX_EXTRA_RUNS
+from app.benchmark_defs import FURMARK_MIN_COMPARABLE_RUNS
 from app.benchmark_defs import FURMARK_FRAME_DELTA_FILE
 from app.benchmark_defs import FURMARK_FRAME_DELTA_MAX_X
 from app.benchmark_defs import FURMARK_FRAME_DELTA_MAX_Y
@@ -84,6 +85,9 @@ class GuiBenchmarkMixin:
             'furmark': FURMARK_SETTINGS_LABEL,
             'furmark_short': f'{FURMARK_BENCH_WIDTH}×{FURMARK_BENCH_HEIGHT} · {FURMARK_MSAA}× MSAA',
             'furmark_seconds': FURMARK_BENCH_TIME_MS // 1000,
+            # A futásszám is a felületre megy: 1 bemelegítő + a mérőfutások, tehát a nézeten
+            # kiírt "10 mp" magában félrevezető lenne (a GPU-teszt ennek a többszöröse).
+            'furmark_runs': FURMARK_BENCH_RUNS,
             'furmark_cmd': 'FurMark.exe ' + ' '.join(build_furmark_cmd('')[1:]),
         }
 
@@ -267,12 +271,15 @@ class GuiBenchmarkMixin:
     # ------------------------------------------------------------------
     # FurMark: ablakkeret-kompenzáció (gépenként megjegyezve)
     # ------------------------------------------------------------------
+    # Cél: a RENDERELT kép minden gépen pontosan a névleges felbontás legyen - lásd a
+    # benchmark_defs.py mért adatait (a keret 125% DPI-n 22x56 px, 100%-on 16x39 px, tehát
+    # kompenzáció nélkül a magasabb DPI-jű gép kisebb képet renderel és ingyen kap FPS-t).
     def _furmark_delta_path(self):
         return os.path.join(_app_data_dir(), FURMARK_FRAME_DELTA_FILE)
 
     def _furmark_delta_load(self):
         """A gépre korábban megtanult ablakkeret-méret beolvasása -> (dx, dy) vagy None.
-        Hibánál None: kompenzáció nélkül is van eredmény, csak kisebb felbontáson."""
+        Hibánál None: kompenzáció nélkül is van eredmény, csak kisebb képen."""
         try:
             with open(self._furmark_delta_path(), 'r', encoding='utf-8') as fh:
                 data = json.load(fh)
@@ -284,6 +291,8 @@ class GuiBenchmarkMixin:
             logging.warning(f"[BENCHMARK] A mentett FurMark keretméret ({dx}x{dy}) a hihetőségi "
                             f"korlátokon kívül van - eldobva, újratanuljuk.")
             return None
+        # A mentett érték a NÉVLEGES mérethez tartozik; ha a beállítás azóta változott, a keret
+        # attól még ugyanaz (képpontban mért ablakkeret), tehát nem kell eldobni.
         logging.info(f"[BENCHMARK] FurMark ablakkeret a géphez mentve: {dx}x{dy} képpont - a mérőfutás "
                      f"{FURMARK_BENCH_WIDTH + dx}x{FURMARK_BENCH_HEIGHT + dy}-es ablakot kér, hogy "
                      f"pontosan {FURMARK_BENCH_WIDTH}x{FURMARK_BENCH_HEIGHT} renderelődjön.")
@@ -349,9 +358,9 @@ class GuiBenchmarkMixin:
         """A FurMark GPU-mérés: FURMARK_BENCH_RUNS teljes hosszú futás, és a MAGASABB FPS
         számít (lásd a benchmark_defs.py indoklását - terepen mérve az ELSŐ futás ~28%-kal
         alacsonyabb lett a hideg cache/shader-fordítás/Defender miatt, míg a bemelegedett
-        gép szórása 1.1%). Csak az AZONOS, névleges felbontáson készült eredmények
+        gép szórása 1.1%). Csak az AZONOS, névleges felbontáson renderelt eredmények
         versenyeznek egymással - a gép legelső mérésénél az első futás még a névleges
-        ablakméretet kéri (abból tanuljuk az ablakkeretet), tehát kisebb felbontáson készül és
+        ABLAKMÉRETET kéri (abból tanuljuk meg az ablakkeretet), tehát kisebb képen készül és
         nem indulhat; ilyenkor egy PÓT-FUTÁS pótolja a hiányzó összehasonlítást.
         Visszaad: (FPS, ténylegesen renderelt felbontás szövegként) vagy (None, None)."""
         nominal = (FURMARK_BENCH_WIDTH, FURMARK_BENCH_HEIGHT)
@@ -360,7 +369,8 @@ class GuiBenchmarkMixin:
         work_area = get_work_area()
         wa_txt = f"{work_area[0]}x{work_area[1]} px" if work_area else "ismeretlen"
         logging.info(f"[BENCHMARK] FurMark mérés indul: {FURMARK_BENCH_RUNS} futás, a jobbik FPS "
-                     f"számít (névleges felbontás {nominal_str}, munkaterület: {wa_txt}).")
+                     f"számít (névleges kép {nominal_str}, {FURMARK_MSAA}x MSAA, Xtreme burn-in, "
+                     f"munkaterület: {wa_txt}).")
         results = []
         give_up_compensation = False
         run_no = 0
@@ -371,7 +381,7 @@ class GuiBenchmarkMixin:
                 # felbontású) eredmény - tipikusan a gép legelső mérésénél, ahol az első futás
                 # még a keret megtanulására ment el (lásd FURMARK_BENCH_MAX_EXTRA_RUNS).
                 exact_n = sum(1 for r in results if r.get('exact'))
-                if exact_n >= FURMARK_BENCH_RUNS or give_up_compensation:
+                if exact_n >= FURMARK_MIN_COMPARABLE_RUNS or give_up_compensation:
                     break
                 if run_no > FURMARK_BENCH_RUNS + FURMARK_BENCH_MAX_EXTRA_RUNS:
                     logging.warning(f"[BENCHMARK] Csak {exact_n} névleges felbontású FurMark eredmény "
@@ -394,25 +404,32 @@ class GuiBenchmarkMixin:
             res['exact'] = (actual == nominal_str)
             results.append(res)
             logging.info(f"[BENCHMARK] FurMark {run_no}/{max(FURMARK_BENCH_RUNS, run_no)}. futás: "
-                         f"{res.get('fps')} FPS "
-                         f"({res.get('score')} képkocka), kért ablak {w}x{h}, renderelt {actual}"
+                         f"{res.get('fps')} FPS ({res.get('score')} képkocka), kért ablak {w}x{h}, "
+                         f"renderelt {actual}, MSAA={res.get('msaa')}"
                          f"{' - NÉVLEGES felbontás' if res['exact'] else ''}.")
+            # A kért mintavétel nem mindig a kapott: kevés VRAM-ú/régi kártyán a driver
+            # csendben lejjebb veheti a 8x MSAA-t, és akkor az az FPS nem hasonlítható a
+            # többi gépéhez. A score-fájl megmondja - némán nem mehet el mellette.
+            if res.get('msaa') is not None and res['msaa'] != FURMARK_MSAA:
+                logging.warning(f"[BENCHMARK] A FurMark NEM a kért mintavétellel futott "
+                                f"(kért {FURMARK_MSAA}x MSAA, tényleges {res['msaa']}x) - a kártya/"
+                                f"driver lejjebb vette. Az eredmény emiatt nem teljesen "
+                                f"összemérhető más gépekével.")
             if res['exact']:
                 if delta is None:
-                    # A kért ablakméret pont a névleges felbontást adta: ezen a gépen nincs
-                    # mit kompenzálni (0x0) - mentjük, hogy ne tanuljuk újra minden mérésnél.
+                    # A kért ablakméret pont a névleges képet adta: ezen a gépen nincs mit
+                    # kompenzálni (0x0) - mentjük, hogy ne tanuljuk újra minden mérésnél.
                     delta = (0, 0)
                     self._furmark_delta_save(0, 0)
                 continue
-            # Nem a névleges felbontás jött ki - vagy még nem ismerjük a keretet (ilyenkor
-            # most tanuljuk meg), vagy már kompenzáltunk és MÉGSEM stimmel: utóbbi azt
-            # jelenti, hogy a Windows csonkította az ablakot (kis kijelző), és a további
-            # kompenzáció csak rontana rajta.
+            # Nem a névleges felbontás jött ki - vagy még nem ismerjük a keretet (ilyenkor most
+            # tanuljuk meg), vagy már kompenzáltunk és MÉGSEM stimmel: utóbbi azt jelenti, hogy
+            # a kép csonkult (kis kijelző), és a további kompenzáció csak rontana rajta.
             if compensated:
                 logging.warning(f"[BENCHMARK] A kompenzált ablak ({w}x{h}) ELLENÉRE sem a névleges "
-                                f"felbontás renderelődött ({actual}) - a Windows a munkaterülethez "
-                                f"vágta az ablakot. A további futásokban nincs kompenzáció, az FPS "
-                                f"emiatt nem teljesen összemérhető más gépekével.")
+                                f"felbontás renderelődött ({actual}) - a kép a képernyőhöz csonkult. "
+                                f"A további futásokban nincs kompenzáció, az FPS emiatt nem teljesen "
+                                f"összemérhető más gépekével.")
                 give_up_compensation = True
                 continue
             if work_area and (w > work_area[0] or h > work_area[1]):
@@ -436,13 +453,14 @@ class GuiBenchmarkMixin:
         if not results:
             logging.error("[BENCHMARK] Egyik FurMark futás sem adott értelmezhető eredményt.")
             return None, None
-        # A NÉVLEGES felbontáson futott eredmények versenyeznek egymással; ha ilyen nincs (pl.
-        # kis kijelzőn csonkul az ablak), akkor a meglévők közül a legjobb - egy csonkított
+        # A NÉVLEGES felbontáson renderelt eredmények versenyeznek egymással; ha ilyen nincs
+        # (pl. kis kijelzőn csonkul a kép), akkor a meglévők közül a legjobb - egy csonkított
         # szám is jobb, mint a semmi (ez a "soha ne maradjon eredmény nélkül" alapelv).
         exact = [r for r in results if r.get('exact')]
         pool = exact or results
         best = max(pool, key=lambda r: r.get('fps') or 0)
-        all_fps = [f"{r.get('fps')} FPS @ {r.get('resolution')}" for r in results]
+        all_fps = [f"{r.get('fps')} FPS @ {r.get('resolution')} / {r.get('msaa')}x MSAA"
+                   for r in results]
         spread = ''
         fps_vals = [r.get('fps') for r in pool if r.get('fps')]
         if len(fps_vals) > 1 and max(fps_vals) > 0:
@@ -455,10 +473,11 @@ class GuiBenchmarkMixin:
             # Ez a régi, terepen bevált figyelmeztetés: ha a VÉGSŐ eredmény nem a névleges
             # felbontáson készült, a gép FPS-e nem hasonlítható össze a többiével, és ezt
             # csak innen lehet észrevenni.
-            logging.warning(f"[BENCHMARK] A FurMark NEM a névleges felbontáson futott "
-                            f"(névleges: {nominal_str}, tényleges: {actual}, mód: {best.get('mode')}) - "
-                            f"a Windows a munkaterülethez vágta az ablakot, az FPS emiatt nem "
-                            f"teljesen összemérhető más gépekével.")
+            logging.warning(f"[BENCHMARK] A FurMark NEM a kért felbontáson futott "
+                            f"(kért: {nominal_str}, tényleges: {actual}, MSAA: {best.get('msaa')}, "
+                            f"mód: {best.get('mode')}) - vagy a kliens-terület kisebb a kért ablaknál "
+                            f"(ablakkeret + címsor), vagy a Windows/a driver levágta a kért méretet. "
+                            f"Az FPS emiatt nem teljesen összemérhető más gépekével.")
         return best.get('fps'), (actual.replace('x', '×') if actual else None)
 
     def _kill_running_bench_tools(self):
@@ -601,7 +620,7 @@ class GuiBenchmarkMixin:
                     'ok': True, 'cinebench': cb_score, 'furmark': fm_fps,
                     'cinebench_settings': CINEBENCH_SETTINGS_LABEL,
                     'furmark_settings': f'{shown_res} · {FURMARK_MSAA}× MSAA · '
-                                        f'{FURMARK_BENCH_TIME_MS // 1000} mp · animált háttér',
+                                        f'{FURMARK_BENCH_TIME_MS // 1000} mp',
                     'suggested_name': specs.get('machine_name', '')})
                 self.emit('toast', {'message': '🏁 Benchmark kész! Írd be a gép nevét, és megy fel a ranglistára.', 'type': 'success'})
             except _BenchCancelled:
