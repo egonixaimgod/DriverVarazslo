@@ -171,8 +171,19 @@ def set_hdr(adapter_id, target_id, enable):
 
 # A gamma-rámpa "lineárisnak" tekintésének tűréshatára (65535-ös skálán). Nem 0, mert a
 # Windows/illesztőprogram kerekítése miatt egy érintetlen rámpa is szórhat pár egységet.
-# 64 = a teljes skála ~0.1%-a: ennél nagyobb eltérés már szándékos korrekció.
-GAMMA_LINEAR_TOLERANCE = 64
+#
+# 257 = PONTOSAN EGY 8 BITES LÉPCSŐFOK (65535 / 255). Ez a korlát azért ekkora, mert ennél
+# kisebb eltérés a kimeneten meg sem tud jelenni: a panel 8 bites jelet kap, tehát egy 256
+# egységnyi eltérés ugyanarra a kimeneti szintre kerekedik, mint a korrekciómentes érték.
+# Terepen mérve (2026-08-03, Intel HD Graphics 530 + DELL P2414H, frissen telepített Windows,
+# semmilyen kalibráció): max. eltérés 255/65535, azaz 0.39% - tisztán a driver kerekítése,
+# a görbe szemre tökéletes egyenes. A korábbi 64-es korláttal ez "MÓDOSÍTVA" jelzést kapott,
+# vagyis a nézet gyakorlatilag MINDEN Intel-gépen korrekciót kiáltott ott, ahol semmi nem
+# volt - pont az a hamis riasztás, amit a projekt máshol (ok_codes) szándékosan kerül.
+# NE vidd vissza 64-re: egy valódi korrekció (ICC VCGT-je, kalibráló program, full->limited
+# range konverzió) nagyságrendekkel nagyobb eltérést okoz - a 0-255 -> 16-235 szűkítés
+# például kb. 4100 egységet -, tehát a 257-es korlát azokat mind meg fogja fogni.
+GAMMA_LINEAR_TOLERANCE = 257
 # Hány pontot adunk vissza a görbéből a felületnek (a 256-ból mintavételezve). 17 pont
 # elég egy felismerhető görbe kirajzolásához, és nem fújja fel a JS-nek küldött adatot.
 GAMMA_CURVE_POINTS = 17
