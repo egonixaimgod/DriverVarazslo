@@ -37,6 +37,7 @@ from app.wu_core import _is_boot_path_protected
 from app.wu_core import _export_net_driver_backup
 from app.wu_core import _restore_net_driver_backup
 from app.wu_core import detect_wifi_state
+from app.wu_core import collect_driver_usage
 from app.wu_core import collect_wifi_protection
 from app.wu_core import is_wifi_protected
 from app.wu_core import export_wlan_profiles
@@ -272,6 +273,37 @@ class GuiAutofixMixin:
         # törlünk" alapszabály alóli kivételt itt is a FELHASZNÁLÓ adja meg, ugyanúgy,
         # mint a nyomtató-checkboxnál (lásd CLAUDE.md: nem szabad automatikus,
         # felhasználó nélküli szelektív törlést bevezetni).
+        # KÉZI KIVÉTELEK: amit a technikus a megerősítő dialógus jobb oldalán kivett a
+        # törlésből. Ez NEM az automatikus szelektív törlés visszahozása (azt a CLAUDE.md
+        # tiltja, és jó okkal) - itt minden egyes kivételt a FELHASZNÁLÓ jelölt meg, név
+        # szerint, a képernyőn. Ugyanaz az elv, mint a nyomtató-checkboxnál, csak
+        # csomag-szinten. Az EREDETI INF-nevet is ellenőrizzük: a listát az előző lábon
+        # állította össze a tech, és bár a csomagok azóta nem települtek újra, egy
+        # átszámozott oemNN.inf semmiképp ne védjen meg egy másik csomagot.
+        keep_list = self._autofix_stats_get('keep_packages') or []
+        if keep_list:
+            keep_map = {(k.get('published') or '').lower(): (k.get('original') or '').lower()
+                        for k in keep_list}
+            kept, mismatched = [], []
+            for d in drivers:
+                pub = (d.get('published') or '').lower()
+                if pub not in keep_map:
+                    continue
+                if keep_map[pub] and keep_map[pub] != (d.get('original') or '').lower():
+                    mismatched.append(pub)
+                    continue
+                kept.append(d)
+            if mismatched:
+                logging.warning(f"[AUTOFIX-DELETE] {len(mismatched)} kézi kivétel figyelmen kívül hagyva, "
+                                f"mert időközben másik csomagé lett a publikált név: {mismatched}")
+            if kept:
+                kept_keys = {id(d) for d in kept}
+                drivers = [d for d in drivers if id(d) not in kept_keys]
+                self.emit('task_progress', {'task': task_id, 'log': f'🔒 {len(kept)} db driver kihagyva a törlésből (kézi választás a fix indításakor).\n'})
+                for d in kept:
+                    logging.info(f"[AUTOFIX-DELETE] Kézi kivétel - törlésből kizárva: {d.get('published', '?')} "
+                                 f"({d.get('original', '?')}) - {d.get('provider', '?')} [{d.get('class', '?')}]")
+
         wifi_protected_pkgs = []
         if getattr(self, '_autofix_wifi_mode', False):
             wifi_infs, wifi_state = collect_wifi_protection(self._run)
@@ -1464,6 +1496,63 @@ class GuiAutofixMixin:
     # detect_wifi_state / collect_wifi_protection / export_wlan_profiles /
     # restore_wlan_profiles / clear_wlan_backup - ott van az indoklás is.
     # ------------------------------------------------------------------
+    def get_autofix_delete_preview(self):
+        """A megerősítő dialógus jobb oldali listája: MI FOG TÖRLŐDNI, és mi mihez tartozik.
+
+        MIÉRT: eddig a tech vakon nyomott Igent egy "minden third-party driver törlődik"
+        mondatra. Terepen (2026-08-05) egy távoli asztali program drivere tűnt el, és
+        utólag nem lehetett kideríteni, mihez tartozott. Ezért itt NÉV SZERINT látszik
+        minden csomag, mellette hogy MELYIK JELEN LÉVŐ ESZKÖZ használja - és
+        kipipálható/kivehető egyenként.
+
+        A védettségeket SZÁNDÉKOSAN ugyanazok a függvények számolják, amiket a törlési
+        fázis is használ (_collect_printer_protection, collect_wifi_protection,
+        _collect_boot_path_protection) - ha az előnézet és a valóság külön logikán
+        futna, az előbb-utóbb hazudna a technikusnak.
+
+        Csoportok: 'boot' (rendszerlemez útja - MINDIG védett, a checkboxoktól
+        függetlenül), 'printer', 'wifi', 'normal'. A felület ezek alapján szürkíti ki
+        a sorokat a bal oldali kapcsolók állása szerint.
+
+        Lassú (több WMI-lekérdezés), ezért a JS aszinkron hívja: a lista a már betöltött
+        driver-adatokból AZONNAL megjelenik, ez a hívás csak kiegészíti."""
+        try:
+            drivers = self._get_third_party_drivers()
+            usage = collect_driver_usage(self._run)
+            printer_infs, printer_vendors = _collect_printer_protection(self._run)
+            wifi_infs, wifi_state = collect_wifi_protection(self._run)
+            # A boot-védelem HÁRMAST ad vissza, és a `detected=False` ág (nem sikerült
+            # felderíteni a rendszerlemez láncát) fail-safe módon az egész
+            # BOOT_FALLBACK_PROTECT_CLASSES-t védi - ezt a döntést nem szabad itt
+            # újraírni, ezért a törléssel KÖZÖS _is_boot_path_protected dönt.
+            boot_infs, _boot_chain, boot_detected = _collect_boot_path_protection(self._run)
+            out = []
+            for d in drivers:
+                pub = (d.get('published') or '').lower()
+                if _is_boot_path_protected(d, boot_infs, boot_detected):
+                    group = 'boot'
+                elif is_wifi_protected(d, wifi_infs):
+                    group = 'wifi'
+                elif _is_printer_protected(d, printer_infs, printer_vendors, AUTOFIX_PRINTER_SKIP_CLASSES):
+                    group = 'printer'
+                else:
+                    group = 'normal'
+                out.append({
+                    'published': d.get('published', ''), 'original': d.get('original', ''),
+                    'provider': d.get('provider', ''), 'version': d.get('version', ''),
+                    'class': d.get('class', ''), 'date': d.get('date', ''),
+                    'devices': usage.get(pub, []), 'group': group,
+                })
+            groups = {}
+            for r in out:
+                groups[r['group']] = groups.get(r['group'], 0) + 1
+            logging.info(f"[PREVIEW] Törlési előnézet: {len(out)} csomag, csoportok: {groups}; "
+                         f"eszközhöz kötött: {sum(1 for r in out if r['devices'])}")
+            return {'drivers': out, 'wifi_adapter': wifi_state.get('adapter', '')}
+        except Exception as e:
+            logging.warning(f"[PREVIEW] A törlési előnézet összeállítása sikertelen: {e}")
+            return {'drivers': [], 'wifi_adapter': '', 'error': str(e)}
+
     def _replace_old_wifi_driver(self, task_id='autofix'):
         """ZÁRÓ LÉPÉS Wi-Fi módban: a fölöslegessé vált RÉGI Wi-Fi driver kivezetése.
 
@@ -1619,10 +1708,10 @@ class GuiAutofixMixin:
         return ok
 
     def run_autofix(self, skip_printer_drivers=True, allow_storage_drivers=False, allow_firmware=False,
-                    wifi_mode=False):
+                    wifi_mode=False, keep_packages=None):
         logging.info(f"[API] run_autofix() indítása (skip_printer_drivers={skip_printer_drivers}, "
                      f"allow_storage_drivers={allow_storage_drivers}, allow_firmware={allow_firmware}, "
-                     f"wifi_mode={wifi_mode})")
+                     f"wifi_mode={wifi_mode}, keep_packages={len(keep_packages or [])} db)")
         if self.target_os_path:
             self.emit('toast', {'message': 'Az 1 kattintásos fix csak az Élő (jelenlegi) rendszeren futtatható le biztonságosan!', 'type': 'error'})
             return
@@ -1695,6 +1784,21 @@ class GuiAutofixMixin:
                                         f"átvisszük az új lánc jelentésébe: {[p.get('original') for p in prev_pre]}")
                         self._autofix_stats_set('carry_pre_packages', prev_pre)
                         self.emit('task_progress', {'task': 'autofix', 'log': f'ℹ️ Egy korábbi, félbeszakadt fix {len(prev_pre)} csomagot érintett - ezeket is figyeljük a záró jelentésben.'})
+
+                    # A dialógus jobb oldalán KÉZZEL kivett csomagok. A törlés a KÖVETKEZŐ
+                    # lábon fut (külön processz), ezért a lánc-állapotba kell tenni - és
+                    # csak a fenti _autofix_stats_clear() UTÁN, különben azonnal elveszne.
+                    # Név szerint naplózzuk: a "hova tűnt / miért maradt meg X" kérdés
+                    # később csak így válaszolható meg a logból.
+                    if keep_packages:
+                        keep_clean = [{'published': (k.get('published') or ''),
+                                       'original': (k.get('original') or '')}
+                                      for k in keep_packages if k.get('published')]
+                        if keep_clean:
+                            self._autofix_stats_set('keep_packages', keep_clean)
+                            logging.info(f"[AUTOFIX] A technikus {len(keep_clean)} csomagot vett ki a törlésből: "
+                                         f"{[k['original'] or k['published'] for k in keep_clean]}")
+                            self.emit('task_progress', {'task': 'autofix', 'log': f'🔒 {len(keep_clean)} db drivert kézzel kivettél a törlésből - ezek megmaradnak.'})
 
                     self._disable_sleep_sync()
                     

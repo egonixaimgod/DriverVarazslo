@@ -2007,6 +2007,47 @@ def _wlan_backup_ssids():
     return out
 
 
+_DRIVER_USAGE_PS = r"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Get-WmiObject Win32_PnPSignedDriver -ErrorAction SilentlyContinue |
+  Where-Object { $_.InfName -and $_.DeviceName } |
+  Select-Object InfName, DeviceName, DeviceClass |
+  ConvertTo-Json -Compress
+"""
+
+
+def collect_driver_usage(run_fn):
+    """Melyik driver-csomagot MELYIK jelen lévő eszköz használja.
+
+    MIÉRT KELL: a törlési előnézetben a puszta INF-név (`oem37.inf`, `nvvad.inf`)
+    semmit nem mond a technikusnak. Terepen valós eset (2026-08-05): egy távoli
+    asztali program ("ninja...") drivere törlődött, és utólag nem lehetett kideríteni,
+    mihez tartozott - se a névből, se a naplóból. Ez a leképezés adja meg a választ:
+    a publikált INF-hez tartozó eszközök NEVÉT mutatjuk, nem a fájlnevet.
+
+    Visszatérés: {publikált_inf_kisbetűvel: [eszköznevek]}. Hibánál üres dict - olyankor
+    az előnézet a nevek nélkül, de működőképesen jelenik meg."""
+    usage = {}
+    try:
+        res = run_fn(["powershell", "-NoProfile", "-Command", _DRIVER_USAGE_PS],
+                     encoding='utf-8', timeout=180)
+        data = json.loads(res.stdout) if res and (res.stdout or '').strip() else []
+        if isinstance(data, dict):
+            data = [data]
+        for d in data:
+            inf = str(d.get('InfName') or '').strip().lower()
+            name = str(d.get('DeviceName') or '').strip()
+            if not inf or not name:
+                continue
+            names = usage.setdefault(inf, [])
+            if name not in names:
+                names.append(name)
+        logging.info(f"[USAGE] {len(usage)} driver-csomaghoz található jelen lévő eszköz.")
+    except Exception as e:
+        logging.warning(f"[USAGE] A driver-eszköz leképezés lekérdezése sikertelen: {e}")
+    return usage
+
+
 def wlan_connect(run_fn, ssid):
     """Csatlakozási kísérlet egy MÁR MEGLÉVŐ profillal. Ez a gyors út: ha a Windows
     csak nem kapcsolódott vissza magától (de a profil megvan és a jelszó a helyén),
