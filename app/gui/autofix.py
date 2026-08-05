@@ -949,11 +949,29 @@ class GuiAutofixMixin:
 
         # Az idézőjelek egyszeresek: a _ps_quote nélkül egy aposztrófos felhasználónév
         # (C:\Users\O'Brien\...) széttörné a generált parancsot és megölné a láncot.
+        #
+        # A -Settings KÖTELEZŐ, nem díszítés (terepen bizonyított, 2026-08-05, Dell
+        # Latitude 7400): a Register-ScheduledTask -Settings nélkül a Windows
+        # alapértelmezését kapja, abban pedig `DisallowStartIfOnBatteries = True` -
+        # vagyis a feladat AKKUMULÁTORRÓL EL SEM INDUL. A tünet néma és félrevezető:
+        # a regisztráció sikeres ("State: Ready"), a gép szabályosan újraindul, aztán
+        # a lánc egyszerűen nem folytatódik, és a `schtasks /query /v` szerint a feladat
+        # "Last Result: 267011" (= soha nem futott). Semmi hibaüzenet, sehol.
+        # Addig nem derült ki, amíg a gépek a szerelőpulton, hálózati kábellel ÉS
+        # töltőn álltak; a Wi-Fi-s telepítés viszont pont azt hozta magával, hogy a
+        # laptop hálózati kábel nélkül - így gyakran töltő nélkül is - fut.
+        #   -AllowStartIfOnBatteries    : induljon el akkuról is (ez a tényleges javítás)
+        #   -DontStopIfGoingOnBatteries : ha menet közben húzzák ki a töltőt, ne álljon le
+        #   -StartWhenAvailable         : ha a bejelentkezéskori indítás valamiért kimaradt,
+        #                                 pótolja, amint teheti
+        #   -ExecutionTimeLimit 0       : nincs időkorlát (az alapértelmezett 72 óra egy
+        #                                 megakadt lábnál elvágná a láncot)
         task_ps = f'''
         $action = New-ScheduledTaskAction -Execute '{_ps_quote(exec_path)}' -Argument '{_ps_quote(args)}'
         $trigger = New-ScheduledTaskTrigger -AtLogOn
         $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
-        Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Force
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero)
+        Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force
         '''
         self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", task_ps])
 
