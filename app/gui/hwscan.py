@@ -657,13 +657,19 @@ try {
             else:
                 if pages >= max_pages:
                     stop = f'lapkorlát ({max_pages})'
-        msg = (f"[CATALOG] Lekérdezés: {hwid} -> {len(rows)} sor "
-               f"(a katalógusban összesen {total}, {pages} lap, "
-               f"{'dátum szerint csökkenő' if sorted_ok else 'RENDEZETLEN'}; {stop})")
-        # Eszközönként max 4 ilyen hívás fut, 91 eszközre ez több száz sor lenne INFO-n
-        # (a forgó log tele futna vele - lásd CLAUDE.md "hot loops"), ezért alapból DEBUG.
-        # Ami viszont ritka és érdekes: ha tényleg lapoztunk, vagy ha a rendezés kiesett.
-        (logging.info if (pages > 1 or not sorted_ok) else logging.debug)(msg)
+        # LOGOLÁS: ez egy FORRÓ ÚT - eszközönként max 4 hívás, 126 eszközre és 2 körre
+        # ez négyszáznál is több sor. Terepen mérve (2026-08-06, Build 264) 448 ilyen sor
+        # keletkezett, amiből 412 "-> 0 sor" volt, azaz 92% tartalmatlan zaj a forgó
+        # logban (lásd CLAUDE.md: a maximális logolás maximális INFORMÁCIÓT jelent, nem
+        # maximális sorszámot). A nulla találat amúgy sem vész el: a [CALL]-réteg
+        # minden hívást rögzít a HWID-del együtt, a döntést pedig a Döntés-sor összegzi.
+        # Marad tehát: van találat (DEBUG), illetve a ritka és érdekes esetek (INFO):
+        # ha ténylegesen lapoztunk, vagy ha a rendezés kiesett.
+        if rows or pages > 1 or not sorted_ok:
+            msg = (f"[CATALOG] Lekérdezés: {hwid} -> {len(rows)} sor "
+                   f"(a katalógusban összesen {total}, {pages} lap, "
+                   f"{'dátum szerint csökkenő' if sorted_ok else 'RENDEZETLEN'}; {stop})")
+            (logging.info if (pages > 1 or not sorted_ok) else logging.debug)(msg)
         return rows
 
     def _catalog_driver_models(self, guid, ssl_ctx):
@@ -811,7 +817,15 @@ try {
         # eszközre letöltöttünk és az INF-vizsgálat elvetett, azt nem töltjük le újra
         # (egy videokártya-csomag 1,2 GB). A jelölést a tartós no-bind tár őrzi, GUID
         # szerint - a cím ehhez kevés, mert a katalógusban 10 azonos című sor is lehet.
-        bad_guids = (known_no_bind or {}).get((item.get('pnp_id') or '').upper()) or set()
+        # A szűrés SZÁNDÉKOSAN csak a katalógus-GUID-ra megy, és csak akkor, ha marad
+        # más jelölt: itt dől el, mi kerül a KÉZI SZKEN LISTÁJÁRA, és egy találatot sosem
+        # tüntetünk el - a technikus egy kattintással újrapróbálhat egy korábban elvetett
+        # csomagot is (megjelölve, be nem jelölve jelenik meg). A fölösleges LETÖLTÉST a
+        # telepítő oldalán spóroljuk meg (_install_catalog_sync: _proven_wrong), ami a
+        # csomagcsalád régebbi kiadását is felismeri.
+        bad_guids = {rec.get('guid') for rec in
+                     ((known_no_bind or {}).get((item.get('pnp_id') or '').upper()) or [])
+                     if rec.get('guid')}
         if bad_guids:
             usable = [c for c in cands if c[1] not in bad_guids]
             if usable and len(usable) != len(cands):
@@ -986,8 +1000,7 @@ try {
         known_records = self._no_bind_load()
         bad_by_pnp = {}
         for rec in known_records:
-            if rec.get('guid'):
-                bad_by_pnp.setdefault((rec.get('pnp') or '').upper(), set()).add(rec['guid'])
+            bad_by_pnp.setdefault((rec.get('pnp') or '').upper(), []).append(rec)
         found = []
         lock = threading.Lock()
         q = queue.Queue()
@@ -1603,11 +1616,29 @@ try {
         # ugyanazt a cab-ot több tucat külön bejegyzésként (külön GUID-dal, külön címmel)
         # listázza, tehát a következő futás simán "másik" jelöltet választana ugyanarra a
         # fájlra. Az URL feloldása pár KB-os kérés, a letöltés viszont akár 1,2 GB.
-        prev_bad_urls = {}
+        prev_bad = {}
         if not self.target_os_path:
             for rec in self._no_bind_load():
-                if rec.get('url'):
-                    prev_bad_urls.setdefault((rec.get('pnp') or '').upper(), set()).add(rec['url'])
+                prev_bad.setdefault((rec.get('pnp') or '').upper(), []).append(rec)
+
+        def _proven_wrong(pnp, guid, title, date, url):
+            """Bizonyítottan NEM ehhez az eszközhöz való-e már ez a csomag? Három kulcs:
+            az azonos letöltési URL, az azonos katalógus-GUID, illetve UGYANANNAK a
+            csomagcsaládnak egy régebbi/azonos kiadása - de az utóbbi csak akkor, ha a
+            korábbi bukás oka az INF-vizsgálat volt (az "ez az INF nem ismeri ezt az
+            eszközt" tény; a "felment, de nem vette át" viszont változhat).
+            A találat ettől még LISTÁRA KERÜL a kézi szkenben (megjelölve, be nem
+            jelölve) - itt csak a fölösleges LETÖLTÉST spóroljuk meg."""
+            for rec in prev_bad.get((pnp or '').upper()) or []:
+                if url and rec.get('url') == url:
+                    return True
+                if guid and rec.get('guid') == guid:
+                    return True
+                if 'nem alkalmazható' in (rec.get('reason') or '') and rec.get('title') \
+                        and catalog_title_family(rec['title']) == catalog_title_family(title or '') \
+                        and release_rank(date, title) <= release_rank(rec.get('date'), rec.get('title')):
+                    return True
+            return False
 
         try:
             import concurrent.futures
@@ -1675,13 +1706,18 @@ try {
                 # cab), nem végleges hibát.
                 CATALOG_DL_ATTEMPTS = 3
                 chosen = None        # (guid, cím, dátum, url) - amit végül telepítünk
-                # UGYANAZT A CSOMAGOT NEM TÖLTJÜK LE KÉTSZER (lásd lent) - és amit egy
-                # KORÁBBI FUTÁS már bizonyítottan elvetett erre az eszközre, azt sem.
-                known_bad = set(prev_bad_urls.get((drv.get('pnp_id') or '').upper()) or ())
-                tried_urls = set(known_bad)
+                # UGYANAZT A CSOMAGOT NEM TÖLTJÜK LE KÉTSZER (lásd lent).
+                tried_urls = set()
                 for cand_i, (cand_guid, cand_title, cand_date, cand_url) in enumerate(candidates):
                     if self._check_cancel():
                         return
+                    # KORÁBBI FUTÁSBAN MÁR MEGBUKOTT? Még az URL feloldása előtt eldönthető,
+                    # ha a GUID vagy a csomagcsalád egyezik - ilyenkor egy kérés sem megy ki.
+                    if _proven_wrong(drv.get('pnp_id'), cand_guid, cand_title, cand_date, cand_url):
+                        logging.info(f"[CATALOG_INSTALL] {name}: a(z) {cand_i + 1}. jelölt "
+                                     f"('{cand_title}') egy KORÁBBI futásban már bizonyítottan "
+                                     f"nem ehhez az eszközhöz való - nem töltjük le újra.")
+                        continue
                     if cand_url is None:
                         # A tartalék URL-jét csak akkor oldjuk fel, ha tényleg kell.
                         cand_url = self._catalog_download_url(cand_guid, ssl_ctx, name)
@@ -1697,12 +1733,12 @@ try {
                     # háromszor töltené le ugyanazt az 1,2 GB-ot, ami rosszabb a hibánál,
                     # amit javítani akar. A DownloadDialog-kérés pár KB, tehát az URL
                     # feloldása után derül ki - és onnan már ingyen ugorjuk át.
-                    if cand_url in tried_urls:
-                        why = ("egy KORÁBBI futásban már bizonyítottan nem ehhez az eszközhöz való"
-                               if cand_url in known_bad else
-                               "UGYANARRA a csomagra mutat, mint egy már kipróbált jelölt")
+                    if cand_url in tried_urls or _proven_wrong(drv.get('pnp_id'), cand_guid,
+                                                              cand_title, cand_date, cand_url):
                         logging.info(f"[CATALOG_INSTALL] {name}: a(z) {cand_i + 1}. jelölt "
-                                     f"('{cand_title}') {why} - nem töltjük le újra.")
+                                     f"('{cand_title}') ugyanarra a csomagra mutat, mint egy már "
+                                     f"kipróbált (vagy korábban megbukott) jelölt - "
+                                     f"nem töltjük le újra.")
                         continue
                     tried_urls.add(cand_url)
                     if cand_i:
