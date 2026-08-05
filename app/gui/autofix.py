@@ -378,8 +378,19 @@ class GuiAutofixMixin:
             # némán kimaradnának, pedig pont ezek a legveszélyeztetettebbek. Az A láb ezért
             # a régi listát 'carry_pre_packages' néven átmenti (lásd run_autofix).
             carry = self._autofix_stats_get('carry_pre_packages') or []
+            # A csomaghoz tartozó ESZKÖZNEVEK is elmennek a lánc-állapotba. Enélkül a záró
+            # jelentés nem tudja megkülönböztetni a két gyökeresen más esetet, és terepen
+            # (2026-08-05) pont a rosszabbik tanácsot adta: az `ag276qzd2.inf` (AOC monitor)
+            # a "nem jött vissza" listára került "dugd be az eszközt / telepítsd újra a
+            # programot" tanáccsal - miközben a monitor VÉGIG be volt dugva, ott van az
+            # egészség-jelentésben is (monitor.inf-en fut), csak épp sem a WU, sem a
+            # katalógus nem ismer hozzá gyári csomagot (a MONITOR\AOCA610 kulcsra négyszer
+            # is 0 sor jött). Ha az eszköz JELEN VAN, a teendő a gyártói oldal, nem a
+            # bedugás. Egy WMI-lekérdezés, a törlés előtt egyszer.
+            usage = collect_driver_usage(self._run)
             cur_pkgs = [{'original': d.get('original', ''), 'provider': d.get('provider', ''),
-                         'version': d.get('version', ''), 'class': d.get('class', '')}
+                         'version': d.get('version', ''), 'class': d.get('class', ''),
+                         'devices': usage.get((d.get('published') or '').strip().lower(), [])}
                         for d in drivers if d.get('original')]
             cur_names = {(p.get('original') or '').strip().lower() for p in cur_pkgs}
             carried = [c for c in carry if (c.get('original') or '').strip().lower() not in cur_names]
@@ -1252,6 +1263,40 @@ class GuiAutofixMixin:
             if not missing:
                 self.emit('task_progress', {'task': task_id, 'log': '✅ Nincs olyan csomag, ami nyom nélkül eltűnt volna.'})
                 return
+
+            # NEGYEDIK CSOPORT: az eszköz JELEN VAN, csak nincs hozzá csomag sehol.
+            # A törlés előtt feljegyeztük, melyik eszköz(ök) használták a csomagot; ha
+            # valamelyik most is ott van a gépben, akkor a "dugd be az eszközt" tanács
+            # egyszerűen téves - a program mindent megkeresett, a WU és a katalógus sem
+            # ismer hozzá gyári csomagot. Ilyenkor a gyártó letöltőoldala a teendő.
+            # (Terepi eset: AOC AG276QZD2 monitor - a gyári monitor-INF-fel a gyári ICC
+            # színprofil is elveszett, és a Kijelző nézet is emiatt mutat "Generic PnP
+            # Monitor"-t.)
+            present_names = {n.strip().lower()
+                             for names in (self._collect_present_device_names() or {}).values()
+                             for n in names}
+            still_here, really_gone = [], []
+            for p in missing:
+                devs = [d for d in (p.get('devices') or []) if d.strip().lower() in present_names]
+                if devs:
+                    p['_present_devices'] = devs
+                    still_here.append(p)
+                else:
+                    really_gone.append(p)
+
+            if still_here:
+                self.emit('task_progress', {'task': task_id, 'log': f'\n⚠️ {len(still_here)} db csomaghoz NEM találtunk pótlást, pedig az eszköz A GÉPBEN VAN:'})
+                for p in still_here:
+                    self.emit('task_progress', {'task': task_id,
+                                                'log': f"{_line(p)} → {', '.join(p['_present_devices'][:2])}"})
+                    logging.info(f"[AUTOFIX] Nincs pótlás, de az eszköz jelen van: "
+                                 f"{p.get('original')} ({p.get('provider')}) - {p['_present_devices']}")
+                self.emit('task_progress', {'task': task_id, 'log': '   Az eszköz működik (a Windows beépített driverével), de a GYÁRI driver hiányzik: sem a Windows Update, sem a Microsoft Update Catalog nem ismer hozzá csomagot.'})
+                self.emit('task_progress', {'task': task_id, 'log': '👉 TEENDŐ: az eszköz GYÁRTÓJÁNAK letöltőoldaláról pótolható (monitornál ezzel a gyári színprofil is visszajön). A "Driver Keresés és Telepítés" menü gyártói kártyái segítenek megtalálni.'})
+
+            if not really_gone:
+                return
+            missing = really_gone
             self.emit('task_progress', {'task': task_id, 'log': f'\n⚠️ {len(missing)} db csomag NEM került vissza a fix után:'})
             for p in missing:
                 self.emit('task_progress', {'task': task_id, 'log': _line(p)})
@@ -1266,6 +1311,17 @@ class GuiAutofixMixin:
             self.emit('task_progress', {'task': task_id, 'log': '👉 TEENDŐ: dugd be az eszközt, majd futtass egy szkennelést a "Driver Keresés és Telepítés" menüben - a program megkeresi hozzá a drivert. Programhoz tartozó drivernél telepítsd újra az adott programot.'})
         except Exception as e:
             logging.warning(f"[AUTOFIX] Eltűnt csomagok összevetése sikertelen (nem kritikus): {e}")
+
+    def _collect_present_device_names(self):
+        """A JELENLEG telepített driver-csomagokat használó eszközök nevei
+        ({INF: [eszköznevek]}). A záró jelentés ebből tudja eldönteni, hogy egy eltűnt
+        csomag eszköze még a gépben van-e. Hibánál üres dict (a jelentés ilyenkor a
+        régi, óvatosabb szöveget adja)."""
+        try:
+            return collect_driver_usage(self._run) or {}
+        except Exception as e:
+            logging.warning(f"[AUTOFIX] A jelenlévő eszközök nevei nem kérdezhetők le: {e}")
+            return {}
 
     @staticmethod
     def _health_report_worth_listing(dev, inst):

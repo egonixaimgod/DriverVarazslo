@@ -809,6 +809,14 @@ def is_generic_replace_candidate(dev, inst, allow_storage=False, allow_firmware=
         return False
     if not inst or not _is_inbox_driver(inst):
         return False
+    # COMPOSITE USB SZÜLŐ: nem "generikus driveren szenvedő" eszköz - az usbccgp épp a
+    # helyes driver rajta, a gyári driver a gyerek-interfészekre való (lásd
+    # is_composite_parent). Ez NEM keresés-szűrő: az eszköz a mély szkenben ugyanúgy
+    # benne marad, csak nem állítjuk róla, hogy a Windows alapdrivere cserére szorul -
+    # különben minden szken felajánl rá egy csomagot, ami a szülőn definíció szerint
+    # sosem "látszik" telepítettnek (terep, 2026-08-05: Razer + Creative).
+    if is_composite_parent(dev, inst):
+        return False
     pclass = (dev.get('pclass') or '').strip().upper()
     if pclass in STORAGE_RISK_CLASSES and not allow_storage:
         return False
@@ -1236,6 +1244,161 @@ def is_newer_release(cand_date, cand_version, cur_date, cur_version):
     if cv is not None and cur_v is not None:
         return cv > cur_v
     return None
+
+
+# ============================================================================
+# HOLTVERSENY-DÖNTÉS A KATALÓGUSBAN: "Driver Model" (támogatott eszköznevek)
+# ============================================================================
+
+def _norm_model_name(s):
+    """Eszköz-/modellnév normalizálása összevetéshez: kisbetű, csak betű-szám-szóköz,
+    összevont szóközök. (A katalógus 'NVIDIA GeForce RTX 3060', a WMI
+    'NVIDIA GeForce RTX 3060' - de zárójeles/R-jeles változatok is előfordulnak.)"""
+    s = re.sub(r'\((?:r|tm|c)\)', ' ', (s or '').lower())
+    return ' '.join(re.sub(r'[^a-z0-9 ]+', ' ', s).split())
+
+
+def driver_model_rank(device_name, model_text):
+    """Mennyire vall a katalógus-tétel "Driver Model" mezője ERRE az eszközre?
+
+    2 - a felsorolásban PONTOSAN ez az eszköznév szerepel,
+    1 - valamelyik tétel tartalmazza az eszköznevet (vagy fordítva),
+    0 - nem mond semmit (nincs adat, vagy nem illik).
+
+    CSAK RANGSOROLÁSRA való, vétóra SOHA: a mező sok csomagnál üres vagy pongyola
+    ('Realtek High Definition Audio' vs. a Windows-beli 'High Definition Audio Device'),
+    és egy hibás vétó itt pont azt a drivert dobná el, amiért az egész kör fut. A
+    holtversenyt viszont eldönti: a 2026-08-05-i futásban a videokártyára 10 azonos
+    című, azonos dátumú sor közül vaktában választottunk, 1,2 GB letöltés után derült
+    ki, hogy nem ehhez a kártyához való."""
+    dev = _norm_model_name(device_name)
+    if not dev or len(dev) < 5 or dev == 'ismeretlen eszkoz':
+        return 0
+    entries = [_norm_model_name(p) for p in (model_text or '').split(',')]
+    entries = [e for e in entries if e]
+    if not entries:
+        return 0
+    if any(e == dev for e in entries):
+        return 2
+    dev_tokens = set(dev.split())
+    for e in entries:
+        # A rövid nevek (pl. "audio") túl könnyen illeszkednének, ezért van alsó hossz.
+        if len(e) >= 6 and len(dev) >= 6 and (e in dev or dev in e):
+            return 1
+        # Részleges egyezés SZAVANKÉNT is: a katalógus és a Windows ugyanazt az eszközt
+        # gyakran más szórenddel/előtaggal nevezi meg, és egyik sem részszövege a másiknak.
+        # Mérve: 'Realtek High Definition Audio' (katalógus) vs 'High Definition Audio
+        # Device' (Windows) - 4-ből 3 közös szó, de részszöveg-egyezés nincs.
+        #
+        # DE: ha van TÍPUSSZÁM a nevekben, annak is egyeznie kell. A márkaszavak
+        # ('nvidia geforce rtx') a lista MINDEN tételében ott vannak, tehát önmagukban
+        # egy RTX 4070-et is "illeszkedőnek" mondanának egy RTX 30-as listára - pont a
+        # holtverseny-döntést rontanák el, amiért az egész mező kell. (Az offline teszt
+        # ezt kapta el.)
+        e_tokens = set(e.split())
+        common = dev_tokens & e_tokens
+        if len(common) >= 3 and len(common) >= 0.6 * min(len(dev_tokens), len(e_tokens)):
+            has_num = any(any(c.isdigit() for c in t) for t in (dev_tokens | e_tokens))
+            if not has_num or any(any(c.isdigit() for c in t) for t in common):
+                return 1
+    return 0
+
+
+def catalog_title_family(title):
+    """A katalógus-cím "családja": a záró (verziószám) és az "MS Katalógus:" előtag nélkül.
+
+    Ezzel ismerhető fel, hogy két találat UGYANANNAK a csomagnak két kiadása-e:
+        'MS Katalógus: Realtek Semiconductor Corp. MEDIA Driver Update (6.0.10007.1)'
+        'MS Katalógus: Realtek Semiconductor Corp. MEDIA Driver Update (6.0.9992.1)'
+    -> azonos család. A no-bind emlékezet ezt használja, hogy egy már bizonyítottan nem
+    ide való csomag RÉGEBBI kiadását ne töltsük le még egyszer (2026-08-05, terep)."""
+    t = re.sub(r'^\s*MS Katal[oó]gus:\s*', '', (title or ''), flags=re.IGNORECASE)
+    t = re.sub(r'\s*\(\s*v?\d[\d.]*\s*\)\s*$', '', t)
+    return ' '.join(t.lower().split())
+
+
+# ============================================================================
+# COMPOSITE USB SZÜLŐ: a gyerek-interfészeken van a gyári driver
+# ============================================================================
+
+# Ezeken az INF-eken a Windows COMPOSITE/generikus USB szülőt futtat (usbccgp). Ez nem
+# "hiányzó gyári driver", hanem a helyes driver: egy több funkciós USB-eszköznél
+# (billentyűzet+egér+hangkártya egy tokban) a szülő dolga csak annyi, hogy szétossza a
+# funkciókat &MI_00, &MI_01... gyerek-interfészekre - a GYÁRI driver ezekre a
+# gyerekekre kerül, amiket a Windows külön eszközként sorol fel (és amiket a program
+# külön is megkeres).
+COMPOSITE_PARENT_INFS = {'usb.inf', 'usbccgp.inf'}
+
+
+def is_composite_parent(dev, inst):
+    """Composite USB SZÜLŐ eszköz-e (usbccgp), aminek a gyerek-interfészein van a driver?
+
+    Miért kell külön kezelni (terepi log + képernyőkép, 2026-08-05):
+    a Razer egér `USB\\VID_1532&PID_00B9` és a Creative hangkártya `USB\\VID_041E&PID_3274`
+    szülő-csomópontja `usb.inf`-en fut, amit a program "Windows alapdriver"-nek látott,
+    és gyári cserére jelölt. Az eredmény mindkét esetben félrevezető volt:
+      - a Razer katalógus-csomag felment (és 200 fel nem használt INF-et hagyott a
+        DriverStore-ban, amit külön ki kellett vezetni), majd a program azt írta ki,
+        hogy "az eszköz a Windows driverén maradt (usb.inf) - nem valódi csere" -
+        holott a szülő SOSEM fog usb.inf-ről elmozdulni, mert az a dolga;
+      - a Creative csomag már fent volt a gyerek-interfészen, a pnputil ezt "up-to-date
+        on device USB\\VID_041E&PID_3274&MI_00" néven vissza is írta, mégis minden
+        szken újra felajánlotta, előre bejelölve.
+    Az eszköz ettől még benne marad MINDEN keresésben (a mély szken kérdezi a
+    katalógust); csak azt nem állítjuk róla, hogy generikus driveren szenved."""
+    if not inst:
+        return False
+    if (inst.get('inf') or '').strip().lower() not in COMPOSITE_PARENT_INFS:
+        return False
+    ids = [(dev.get('id') or '')] + list((dev or {}).get('all_hwids') or [])
+    ids.append((dev or {}).get('pnp_id') or '')
+    return any(re.match(r'USB\\VID_[0-9A-F]{4}&PID_[0-9A-F]{4}', (i or '').upper()) for i in ids)
+
+
+def _hwid_family_stems(dev):
+    """Az eszköz "családtörzsei": a VID/PID ill. VEN/DEV párosig levágott azonosítók.
+    Ezekkel ismerhető fel, hogy egy pnputil által jelentett eszköz-példány (pl. egy
+    &MI_00 gyerek-interfész) UGYANAHHOZ a fizikai eszközhöz tartozik-e."""
+    stems = set()
+    for raw in [(dev or {}).get('id') or '', (dev or {}).get('pnp_id') or ''] + \
+               list((dev or {}).get('all_hwids') or []):
+        s = (raw or '').upper()
+        m = re.match(r'(USB\\VID_[0-9A-F]{4}&PID_[0-9A-F]{4})', s) or \
+            re.match(r'((?:PCI|HDAUDIO)\\(?:FUNC_\d+&)?VEN_[0-9A-F]{4}&DEV_[0-9A-F]{4})', s)
+        if m:
+            stems.add(m.group(1))
+    return stems
+
+
+def pnputil_bound_devices(stdout):
+    """A pnputil kimenetéből az ESZKÖZ-PÉLDÁNYOK, amikre a csomag ténylegesen rákötött.
+
+    A `pnputil /add-driver ... /install` a telepített INF-ek után kiírja, melyik eszközre
+    került rá vagy melyiken naprakész:
+        Driver package installed on device:  USB\\VID_041E&PID_3274&MI_00\\7&887c350&0&0000
+        Driver package is up-to-date on device: USB\\VID_...
+    Ez az EGYETLEN olyan adat, amiből látszik, hogy egy composite USB szülőre szánt
+    csomag a GYEREK-interfészre ment fel - a szülő INF-je ilyenkor jogosan marad usb.inf,
+    és a régi kötés-ellenőrzés emiatt hamisan "nem vette át"-ot jelentett."""
+    out = []
+    for m in re.finditer(r'(?:installed|up-to-date)\s+on\s+device\s*:?\s*(\S+)',
+                         stdout or '', re.IGNORECASE):
+        out.append(m.group(1).strip().upper())
+    return out
+
+
+def package_bound_to_device_family(stdout, dev):
+    """Rákötött-e a csomag az eszköz SAJÁT családjának valamelyik példányára (akár egy
+    gyerek-interfészre)? A kötés-ellenőrzés ezt fogadja el sikerként akkor is, ha maga
+    a lekérdezett (szülő) eszköz INF-je nem változott."""
+    stems = _hwid_family_stems(dev)
+    if not stems:
+        return False
+    for inst in pnputil_bound_devices(stdout):
+        for stem in stems:
+            if inst.startswith(stem + '&') or inst.startswith(stem + '\\') or inst == stem:
+                return True
+    return False
 
 
 # ============================================================================

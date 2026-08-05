@@ -33,6 +33,10 @@ from app.wu_core import deep_catalog_candidates as wu_core_deep_candidates
 from app.wu_core import inf_package_applies
 from app.wu_core import unoffered_requested_titles
 from app.wu_core import is_specific_hwid
+from app.wu_core import driver_model_rank
+from app.wu_core import catalog_title_family
+from app.wu_core import package_bound_to_device_family
+from app.wu_core import is_composite_parent
 from app.wu_core import device_risk_marker
 from app.wu_core import mark_device_risk
 from app.wu_core import is_firmware_update
@@ -62,6 +66,32 @@ PNP_ERROR_CODE_DESCRIPTIONS = {
     43: 'Az eszköz hibát jelzett és leállt',
     52: 'A driver aláírása nem ellenőrizhető',
 }
+
+
+# --- Microsoft Update Catalog: lapozás, rendezés, holtverseny-kezelés ---
+#
+# A katalógus laponként 25 sort ad (mérve: "1 - 25 of 546 (page 1 of 22)"), a lapozás
+# és a rendezés pedig sima query-paraméter - a nevek a katalógus saját
+# SiteConstants.aspx-éből: QueryStringPageIndex='p', QueryStringSortColumn='scol',
+# QueryStringSortDirection='sdir'. Rendezhető oszlopok (a fejléc data-columnName-jei):
+# Title, Products, ClassificationComputed, DateComputed, DriverVerVersion, SizeInBytes.
+CATALOG_PAGE_SIZE = 25
+# Legfeljebb ennyi lapot kérünk le EGY HWID-re. A dátum szerinti rendezés miatt az 1. lap
+# már a legfrissebb 25 sort tartalmazza; a többi lap csak akkor kell, ha a legfrissebb
+# dátumú holtverseny átlóg a lap végén. 3 lap = 75 sor, bőven fedi a mért eseteket.
+CATALOG_MAX_PAGES = 3
+CATALOG_SORT_QS = '&scol=DateComputed&sdir=desc'
+# Ennyi holtverseny-jelöltnél kérjük le a részletlapot a "Driver Model" mezőért
+# (letöltés előtti, pár KB-os alkalmasság-jelzés - lásd _catalog_driver_models). PONTOS
+# névegyezésnél azonnal megállunk, tehát a jó esetben ennél jóval kevesebb kérés fut. A
+# felső korlát azért kell, mert a holtverseny nagy is lehet (mérve: 45 sor a Realtek
+# NIC-re) - viszont bőven megéri: pár KB-os kérésekkel kerülünk el egy rossz, akár
+# 1,2 GB-os letöltést, és csak azoknál az eszközöknél fut, ahol tényleg telepítenénk.
+CATALOG_MODEL_PROBE_MAX = 10
+# Ha az INF-vizsgálat elveti a nyertes csomagot, ennyi TARTALÉK jelöltet próbálunk még
+# (a nyertessel együtt ennyi letöltés lehet összesen). Csak azonos dátumú jelöltek
+# jönnek szóba, tehát a tartalék sosem lehet régebbi kiadás - lásd _catalog_find_driver.
+CATALOG_MAX_CANDIDATES = 3
 
 
 class GuiHwScanMixin:
@@ -534,14 +564,12 @@ try {
                 return 0
             return 1
 
-    def _catalog_fetch_rows(self, hwid, ssl_ctx):
-        """Egy HWID katalógus-keresése. Visszatérés: [(guid, cím, sor_szöveg_kisbetűs,
-        dátum_iso)] - a sor_szöveg a teljes <tr> tag-mentesítve (Products oszloppal, a
-        pontozáshoz), a dátum a sor "Last Updated" oszlopából (m/d/yyyy -> yyyy-MM-dd)."""
-        import urllib.request, urllib.parse
-        url = 'https://www.catalog.update.microsoft.com/Search.aspx?q=' + urllib.parse.quote(hwid)
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        html = urllib.request.urlopen(req, context=ssl_ctx, timeout=30).read().decode('utf-8')
+    @staticmethod
+    def _catalog_parse_rows(html):
+        """A találati lap sorainak kibontása: [(guid, cím, sor_szöveg_kisbetűs, dátum_iso)].
+        A sor_szöveg a teljes <tr> tag-mentesítve (Products oszloppal, a pontozáshoz), a
+        dátum a "Last Updated" oszlopból (m/d/yyyy -> yyyy-MM-dd). Külön (statikus)
+        függvény, hogy egy elmentett lapon offline is tesztelhető legyen."""
         rows = []
         for row_m in re.finditer(r'<tr[^>]*>(.*?)</tr>', html, re.S):
             row_html = row_m.group(1)
@@ -558,6 +586,132 @@ try {
             rows.append((guid, title, row_text.lower(), date_iso))
         return rows
 
+    def _catalog_fetch_rows(self, hwid, ssl_ctx, max_pages=CATALOG_MAX_PAGES):
+        """Egy HWID katalógus-keresése, DÁTUM SZERINT CSÖKKENŐ sorrendben, szükség esetén
+        LAPOZVA. Visszatérés: [(guid, cím, sor_szöveg_kisbetűs, dátum_iso)].
+
+        MIÉRT NEM ELÉG EGY LAPOT LEKÉRNI (terepi log + élő mérés, 2026-08-06):
+        a katalógus laponként 25 sort ad, a régi kód pedig egyetlen, RENDEZETLEN lapot
+        kért le - vagyis a döntésünk azon a 25 soron állt, amit a szerver épp elsőnek
+        adott. Mérve ugyanezen a gépen:
+            PCI\\VEN_10DE&DEV_2504            -> "1 - 25 of 546"   (22 lap)
+            HDAUDIO\\FUNC_01&VEN_10EC&DEV_0892 -> "1 - 25 of 1000"  (40 lap)
+        tehát a videokártyára a csomagok 4,6%-át láttuk. Rosszabb: a rendezetlen lap
+        ÖSSZETÉTELE nem állandó. A 2026-08-05-i futásban ugyanarra a hangeszközre, ugyanazzal
+        a 3 HWID-del, négy körben KÉT KÜLÖNBÖZŐ nyertes jött ki (6.0.9992.1 [2026-05-18]
+        háromszor, 6.0.10007.1 [2026-06-22] egyszer) - a nálunk 5 héttel frissebb csomag
+        háromszor egyszerűen nem került bele a mintába. Vagyis a "legfrissebb dátum nyer"
+        szabály helyes volt, csak nem a teljes listára alkalmaztuk.
+
+        A megoldás nem 22 lap letöltése (91 eszköz × 4 HWID mellett az kezelhetetlen),
+        hanem a SZERVER OLDALI RENDEZÉS: a lapozás egyszerű GET (`&p=<0-alapú lapindex>`),
+        a rendezés `&scol=DateComputed&sdir=desc` - mindkét paraméternév a katalógus saját
+        SiteConstants.aspx-éből való (QueryStringPageIndex='p', QueryStringSortColumn='scol').
+        Így az 1. lap MÁR a 25 legfrissebb sort tartalmazza, ami pontosan az, amire a
+        dátum-elsődlegű döntésnek szüksége van. Következő lapot csak akkor kérünk, ha a
+        legfrissebb dátumú csoport ÁTLÓG a lap végén (különben a holtverseny egy részét
+        nem látnánk) - a mért két esetben ez 1 lapot jelent.
+
+        A rendezés determinisztikus: háromszor egymás után lekérve azonos az eredmény
+        (mérve). Ha a rendezett kérés bármiért elhasal, visszaesünk a rendezetlenre -
+        az a régi viselkedés, nem rosszabb a mainál."""
+        import urllib.request, urllib.parse
+        base = ('https://www.catalog.update.microsoft.com/Search.aspx?q='
+                + urllib.parse.quote(hwid))
+
+        def fetch(url):
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            return urllib.request.urlopen(req, context=ssl_ctx, timeout=30).read().decode('utf-8')
+
+        try:
+            html = fetch(base + CATALOG_SORT_QS)
+            sorted_ok = True
+        except Exception as e:
+            # A rendezés elvesztése nem végzetes: a régi (rendezetlen) viselkedést kapjuk.
+            logging.debug(f"[CATALOG] A rendezett lekérdezés elhasalt ({hwid}): {e} - rendezetlenül próbáljuk.")
+            html = fetch(base)
+            sorted_ok = False
+
+        rows = self._catalog_parse_rows(html)
+        total_m = re.search(r'(\d+)\s*-\s*(\d+)\s+of\s+(\d+)', html)
+        total = int(total_m.group(3)) if total_m else len(rows)
+        pages, stop = 1, 'egy lap elég'
+        if sorted_ok and rows:
+            top_date = rows[0][3] or ''
+            # Amíg a lap UTOLSÓ sora is a legfrissebb dátumú csoportba tartozik, a csoport
+            # átlóghat a következő lapra - azt is le kell kérni, különben a holtverseny
+            # egy részét (és talán épp az eszközhöz valót) nem is látjuk.
+            while (pages < max_pages and len(rows) >= CATALOG_PAGE_SIZE * pages
+                   and (rows[-1][3] or '') == top_date and len(rows) < total):
+                try:
+                    more = self._catalog_parse_rows(fetch(f"{base}{CATALOG_SORT_QS}&p={pages}"))
+                except Exception as e:
+                    stop = f'a {pages + 1}. lap nem jött le ({e})'
+                    break
+                if not more:
+                    stop = f'a {pages + 1}. lap üres'
+                    break
+                seen = {r[0] for r in rows}
+                rows += [r for r in more if r[0] not in seen]
+                pages += 1
+            else:
+                if pages >= max_pages:
+                    stop = f'lapkorlát ({max_pages})'
+        msg = (f"[CATALOG] Lekérdezés: {hwid} -> {len(rows)} sor "
+               f"(a katalógusban összesen {total}, {pages} lap, "
+               f"{'dátum szerint csökkenő' if sorted_ok else 'RENDEZETLEN'}; {stop})")
+        # Eszközönként max 4 ilyen hívás fut, 91 eszközre ez több száz sor lenne INFO-n
+        # (a forgó log tele futna vele - lásd CLAUDE.md "hot loops"), ezért alapból DEBUG.
+        # Ami viszont ritka és érdekes: ha tényleg lapoztunk, vagy ha a rendezés kiesett.
+        (logging.info if (pages > 1 or not sorted_ok) else logging.debug)(msg)
+        return rows
+
+    def _catalog_driver_models(self, guid, ssl_ctx):
+        """Egy katalógus-tétel részletlapjáról a "Driver Model" mező (a TÁMOGATOTT
+        ESZKÖZÖK neve), kisbetűsen. Üres string, ha nincs vagy nem jött le.
+
+        Miért éri meg egy külön kérés: a részletlap pár KB, a csomag viszont akár 1,2 GB.
+        A 2026-08-05-i futásban a videokártyára 10 azonos című, azonos dátumú sor volt
+        holtversenyben ('NVIDIA Display Driver Update (32.0.15.9595)'), a program vaktában
+        vitte el az egyiket, 1,2 GB-ot töltött, és az INF-vizsgálat kiderítette, hogy a
+        csomag nem ismeri ezt a kártyát. A részletlap viszont NÉVSZERINT felsorolja:
+        "Driver Model: NVIDIA GeForce RTX 3090,...,NVIDIA GeForce RTX 3060,..." - ez az
+        egyetlen olyan adat, amiből LETÖLTÉS ELŐTT eldönthető, melyik holtverseny-sor való
+        ehhez a géphez."""
+        import urllib.request
+        try:
+            req = urllib.request.Request(
+                'https://www.catalog.update.microsoft.com/ScopedViewInline.aspx?updateid=' + guid,
+                headers={'User-Agent': 'Mozilla/5.0'})
+            html = urllib.request.urlopen(req, context=ssl_ctx, timeout=30).read().decode('utf-8')
+        except Exception as e:
+            logging.debug(f"[CATALOG] Részletlap nem jött le ({guid}): {e}")
+            return ''
+        text = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ',
+                                          re.sub(r'<script.*?</script>', '', html, flags=re.S)))
+        m = re.search(r'Driver Model:\s*(.*?)\s*(?:Driver Provider|Driver Version|Driver Class|'
+                      r'Supported products|Supported languages|Company|Architecture|Classification|$)', text)
+        return (m.group(1) if m else '').strip().lower()
+
+    def _catalog_download_url(self, guid, ssl_ctx, name=''):
+        """A letöltési link feloldása egy katalógus-tétel GUID-jából (DownloadDialog).
+        Külön függvény, mert a holtverseny-tartalék (lásd _install_catalog_sync) is ezen
+        keresztül kéri le a KÖVETKEZŐ jelölt URL-jét, amikor az elsőt az INF-vizsgálat
+        elvetette. None, ha nem sikerült."""
+        import urllib.request
+        dl_body = f'updateIDs=[{{"size":0,"languages":"","uidInfo":"{guid}","updateID":"{guid}"}}]'
+        dl_req = urllib.request.Request(
+            'https://www.catalog.update.microsoft.com/DownloadDialog.aspx',
+            data=dl_body.encode('utf-8'),
+            headers={'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/x-www-form-urlencoded'})
+        try:
+            dl_html = urllib.request.urlopen(dl_req, context=ssl_ctx, timeout=30).read().decode('utf-8')
+        except Exception as e:
+            logging.debug(f"[CATALOG] DownloadDialog hiba ({name or guid}): {e}")
+            return None
+        cab_link = re.search(r'downloadInformation\[0\]\.files\[0\]\.url\s*=\s*[\"\']([^\"\']+)[\"\']', dl_html)
+        return cab_link.group(1) if cab_link else None
+
     @staticmethod
     def _catalog_row_is_microsoft(title):
         """Microsoft saját csomagja-e a katalógus-sor? A katalógusban a cím a
@@ -566,8 +720,11 @@ try {
         nem hoz semmit (az van fent), ezért az ilyen sorokat kihagyjuk."""
         return (title or '').strip().lower().startswith('microsoft')
 
-    def _catalog_find_driver(self, item, installed_info, ssl_ctx):
+    def _catalog_find_driver(self, item, installed_info, ssl_ctx, known_no_bind=None):
         """Egy eszköz legjobb katalógus-találatának felkutatása.
+
+        known_no_bind: {PNP_ID_NAGYBETŰS: {korábban megbukott katalógus-GUID-ok}} - a
+        tartós no-bind tárból, EGYSZER beolvasva a hívóban (nem szálanként/eszközönként).
 
         Az eszköz ÖSSZES hardver-azonosítóját lekérdezi a legspecifikusabbtól
         (VEN&DEV&SUBSYS&REV) az általánosabbig (VEN&DEV), max 4-et (hálózat-kímélés),
@@ -615,7 +772,6 @@ try {
         base = base_vendor_hwid(hwids[0] if hwids else '')
         if base and is_specific_hwid(base) and base.lower() not in {h.lower() for h in hwids}:
             hwids = hwids[:3] + [base]
-        import urllib.request
 
         inst = (installed_info or {}).get((item.get('pnp_id') or '').upper()) or {}
         inst_ver_str = inst.get('version', '')
@@ -651,6 +807,17 @@ try {
 
         best_score = max(s for s, _g, _t, _d in scored)
         cands = [c for c in scored if c[0] == best_score]
+        # KORÁBBAN MÁR MEGBUKOTT CSOMAGOK KIHAGYÁSA: amit egy előző futásban ugyanerre az
+        # eszközre letöltöttünk és az INF-vizsgálat elvetett, azt nem töltjük le újra
+        # (egy videokártya-csomag 1,2 GB). A jelölést a tartós no-bind tár őrzi, GUID
+        # szerint - a cím ehhez kevés, mert a katalógusban 10 azonos című sor is lehet.
+        bad_guids = (known_no_bind or {}).get((item.get('pnp_id') or '').upper()) or set()
+        if bad_guids:
+            usable = [c for c in cands if c[1] not in bad_guids]
+            if usable and len(usable) != len(cands):
+                logging.debug(f"[CATALOG] {item['name']}: {len(cands) - len(usable)} jelölt kihagyva "
+                              f"(korábban letöltöttük, és nem erre az eszközre való volt).")
+                cands = usable
         # A legjobb pontszámúak közül a LEGFRISSEBB DÁTUMÚ sor nyer, és csak azonos
         # dátumnál dönt a verziószám. (A katalógus sor-sorrendje nem newest-first.)
         #
@@ -661,7 +828,9 @@ try {
         # 1168.19.704.2024 "nyerne" - pedig több mint egy évvel régebbi csomag. A
         # kiadási dátum viszont mindkét sémán át értelmes, és a két terepi esetben
         # (Realtek audio + Realtek LAN) is a helyes csomagot választja.
-        best = max(cands, key=lambda c: ((c[3] or ''), _parse_driver_version(c[2]) or ()))
+        ordered = sorted(cands, key=lambda c: ((c[3] or ''), _parse_driver_version(c[2]) or ()),
+                         reverse=True)
+        best = ordered[0]
         best_ver = _parse_driver_version(best[2])
         _bs, best_id, best_title, best_date = best
         # EGY összegző sor a teljes választásról (a soronkénti pontozás szándékosan nem
@@ -723,23 +892,58 @@ try {
                              f"{item['name']} - telepített {inst_ver_str} [{inst.get('date') or '?'}] "
                              f"-> '{best_title}' [{best_date or '?'}]")
 
-        dl_body = f'updateIDs=[{{"size":0,"languages":"","uidInfo":"{best_id}","updateID":"{best_id}"}}]'
-        dl_req = urllib.request.Request(
-            'https://www.catalog.update.microsoft.com/DownloadDialog.aspx',
-            data=dl_body.encode('utf-8'),
-            headers={'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/x-www-form-urlencoded'})
-        try:
-            dl_html = urllib.request.urlopen(dl_req, context=ssl_ctx, timeout=30).read().decode('utf-8')
-        except Exception as e:
-            logging.debug(f"[CATALOG] DownloadDialog hiba ({item['name']}): {e}")
+        # HOLTVERSENY ELDÖNTÉSE A RÉSZLETLAPRÓL, LETÖLTÉS ELŐTT.
+        # Idáig csak akkor jutunk el, ha tényleg fel is akarjuk ajánlani a csomagot (a
+        # kiadás-kapun túl vagyunk), tehát ez körönként néhány eszközt érint, nem az
+        # összeset. Csak az AZONOS DÁTUMÚ jelöltek versenyeznek: a kiadás-kapu rájuk
+        # ugyanazt mondja, tehát a köztük való választás nem ronthat a döntésen - viszont
+        # pont ez a 10-es NVIDIA holtverseny, ahol eddig vaktában választottunk.
+        tie = [c for c in ordered if (c[3] or '') == (best_date or '')]
+        if len(tie) > 1:
+            ranked = []
+            for cand in tie[:CATALOG_MODEL_PROBE_MAX]:
+                rank = driver_model_rank(item['name'], self._catalog_driver_models(cand[1], ssl_ctx))
+                ranked.append((rank, cand))
+                if rank >= 2:
+                    # Pontos névegyezés: nincs értelme több részletlapot lekérdezni. E nélkül
+                    # a korai kilépés nélkül egy 45 tételes holtverseny (mérve: Realtek NIC)
+                    # 45 kérést jelentene, a korlát pedig kizárhatná a jó jelöltet - az
+                    # offline teszt pont ezt kapta el, amikor a 8. sor volt a helyes.
+                    break
+            probed = {c[1] for _r, c in ranked}
+            ranked += [(0, c) for c in tie if c[1] not in probed]
+            ranked.sort(key=lambda r: (r[0], _parse_driver_version(r[1][2]) or ()), reverse=True)
+            if ranked[0][0] > 0 and ranked[0][1][1] != best_id:
+                logging.info(f"[CATALOG] Holtverseny eldöntve a részletlap alapján: {item['name']} - "
+                             f"'{ranked[0][1][2]}' (a támogatott eszközök közt szerepel), "
+                             f"a korábbi vak választás helyett '{best_title}'.")
+                best = ranked[0][1]
+                _bs, best_id, best_title, best_date = best
+                best_ver = _parse_driver_version(best_title)
+            elif ranked[0][0] == 0:
+                logging.debug(f"[CATALOG] {item['name']}: {len(tie)} holtverseny-jelölt, de a "
+                              f"részletlapok 'Driver Model' mezője egyiknél sem mond semmit - "
+                              f"marad a dátum/verzió szerinti sorrend.")
+            # A tartalék: a maradék azonos dátumú jelölt. Ha a nyertes INF-jéről kiderül,
+            # hogy nem ehhez az eszközhöz való, a telepítő ezekkel próbálkozik tovább
+            # ahelyett, hogy feladná (lásd _install_catalog_sync). Azonos dátum miatt
+            # tartalékként sem kerülhet fel régebbi kiadás.
+            alts = [(c[1], c[2], c[3]) for _r, c in ranked if c[1] != best_id][:CATALOG_MAX_CANDIDATES - 1]
+        else:
+            alts = []
+
+        cab_url = self._catalog_download_url(best_id, ssl_ctx, item['name'])
+        if not cab_url:
             return None
-        cab_link = re.search(r'downloadInformation\[0\]\.files\[0\]\.url\s*=\s*[\"\']([^\"\']+)[\"\']', dl_html)
-        if not cab_link:
-            return None
-        logging.debug(f"[CATALOG] Találat: {item['name']} ('{best_title}') - {cab_link.group(1)[:50]}...")
+        logging.debug(f"[CATALOG] Találat: {item['name']} ('{best_title}') - {cab_url[:50]}...")
         return {
             "name": item['name'], "cat": item['cat'], "hwid": item['id'],
-            "url": cab_link.group(1), "pnp_id": item.get('pnp_id', ''),
+            "url": cab_url, "pnp_id": item.get('pnp_id', ''),
+            # A tétel katalógus-GUID-ja + a tartalék jelöltek [(guid, cím, dátum)]: a
+            # telepítő ezekből tud továbblépni, a no-bind tár pedig GUID szerint jegyzi
+            # meg, melyik konkrét csomag bukott meg ezen az eszközön.
+            "cat_guid": best_id,
+            "alt_candidates": alts,
             "installed_version": inst_ver_str,
             "installed_date": inst.get('date', ''),
             # A telepítés UTÁNI kötés-ellenőrzéshez: az eszköz ÖSSZES valódi hardver-
@@ -775,6 +979,15 @@ try {
         ssl_ctx = ssl.create_default_context()
         if installed_info is None:
             installed_info = self._get_installed_driver_info()
+        # A tartós no-bind tár EGYSZER olvasva (nem eszközönként/szálanként): eszközönként
+        # azok a katalógus-GUID-ok, amiket egy korábbi futás már letöltött és az INF-vizsgálat
+        # elvetett. Ezeket a jelöltválasztás átugorja - így nem tölthetjük le másodszor
+        # ugyanazt az 1,2 GB-ot ugyanarra a kártyára.
+        known_records = self._no_bind_load()
+        bad_by_pnp = {}
+        for rec in known_records:
+            if rec.get('guid'):
+                bad_by_pnp.setdefault((rec.get('pnp') or '').upper(), set()).add(rec['guid'])
         found = []
         lock = threading.Lock()
         q = queue.Queue()
@@ -788,7 +1001,8 @@ try {
                 except Exception:
                     break
                 try:
-                    hit = self._catalog_find_driver(dev, installed_info, ssl_ctx)
+                    hit = self._catalog_find_driver(dev, installed_info, ssl_ctx,
+                                                    known_no_bind=bad_by_pnp)
                     if hit:
                         with lock:
                             found.append(hit)
@@ -832,16 +1046,35 @@ try {
         # nem ajánlja fel ELŐRE BEJELÖLVE ugyanazt a más gépre szabott csomagot minden
         # AutoFix után (terepi visszajelzés, 2026-07-28). Csak jelölés: a felhasználó
         # bejelölheti, az AutoFix saját (láncon belüli) tiltólistáját nem érinti.
-        known = {((t.get('pnp') or '').upper(), t.get('title') or ''): (t.get('reason') or '')
-                 for t in self._no_bind_load()}
-        if known:
+        # A jelölés HÁROM úton illeszkedhet, és mindegyikre szükség van:
+        #  (a) ugyanaz a katalógus-GUID (a legpontosabb - egy címhez 10 sor is tartozhat);
+        #  (b) ugyanaz a cím (a régi kulcs, a korábbi bejegyzésekhez);
+        #  (c) UGYANAZ A CSOMAG RÉGEBBI/AZONOS KIADÁSA. Ez utóbbi a 2026-08-05-i eset:
+        #      a záró kör a Realtek audiót 6.0.9992.1 [2026-05-18] néven ajánlotta, míg a
+        #      feljegyzett bukás a 6.0.10007.1 [2026-06-22] volt - más cím, tehát a régi
+        #      kulcs nem fogta, és a program letöltötte ugyanazt a Clevo-csomagot még
+        #      egyszer. Egy ÚJABB kiadás viszont továbbra sem maszkolható (szándékos:
+        #      lehet, hogy a gyártó épp kijavította) - ezért a release_rank-összevetés.
+        if known_records:
             marked = []
             for hit in deduped:
-                k = ((hit.get('pnp_id') or '').upper(), hit.get('wu_title') or '')
-                if k in known:
-                    hit['prev_no_bind'] = True
-                    hit['prev_no_bind_reason'] = known[k]
-                    marked.append(hit.get('name'))
+                pnp = (hit.get('pnp_id') or '').upper()
+                title = hit.get('wu_title') or ''
+                hit_rank = release_rank(hit.get('wu_date'), title)
+                for rec in known_records:
+                    if (rec.get('pnp') or '').upper() != pnp:
+                        continue
+                    same = (rec.get('guid') and rec['guid'] == hit.get('cat_guid')) or \
+                           (rec.get('title') or '') == title
+                    older_variant = (
+                        not same and rec.get('title')
+                        and catalog_title_family(rec['title']) == catalog_title_family(title)
+                        and hit_rank <= release_rank(rec.get('date'), rec.get('title')))
+                    if same or older_variant:
+                        hit['prev_no_bind'] = True
+                        hit['prev_no_bind_reason'] = rec.get('reason') or ''
+                        marked.append(hit.get('name'))
+                        break
             if marked:
                 logging.info(f"[CATALOG] {len(marked)} találat megjelölve (korábbi futásban az eszköz "
                              f"nem vette át, nem lesz előre bejelölve): {marked}")
@@ -1108,7 +1341,20 @@ try {
                 if not k[1] or k in keys:
                     continue
                 keys.add(k)
+                # A GUID és a KIADÁS DÁTUMA is elmegy a bejegyzésbe: a GUID-ról ismerhető
+                # fel újra pontosan ugyanaz a katalógus-sor (egy címhez tíz is tartozhat),
+                # a dátum pedig ahhoz kell, hogy a csomag RÉGEBBI kiadását se töltsük le
+                # újra - miközben egy ÚJABB kiadás továbbra sem maszkolódik le.
                 existing.append({'pnp': k[0], 'title': k[1], 'name': d.get('name') or '',
+                                 'guid': d.get('cat_guid') or '',
+                                 # A LETÖLTÉSI URL a legerősebb kulcs: mérve (2026-08-06) a
+                                 # katalógus UGYANAZT a cab-ot 25 külön bejegyzésként (25 GUID)
+                                 # listázza, tehát a GUID-tiltás önmagában nem akadályozza meg,
+                                 # hogy a következő futás egy másik bejegyzésen keresztül
+                                 # ugyanazt az 1,2 GB-ot letöltse. Az URL tartalom-hasht
+                                 # tartalmaz, így egy ÚJABB kiadás automatikusan más URL-t kap.
+                                 'url': d.get('url') or '',
+                                 'date': d.get('wu_date') or '',
                                  'reason': d.get('no_bind_reason') or '',
                                  'recorded': time.strftime('%Y-%m-%d')})
                 added.append(d.get('name') or k[1])
@@ -1352,6 +1598,16 @@ try {
         # drivert - ezek kulcsát a tartós no-bind emlékezetből törölni kell (ha egy
         # korábban nem-kötő csomag most mégis felment, a jelölése elavult).
         bound_ok = []
+        # KORÁBBAN MÁR BIZONYÍTOTTAN NEM IDE VALÓ CSOMAGOK, eszközönként, LETÖLTÉSI URL
+        # szerint. Ez az egyetlen kulcs, ami tényleg megfogja az ismétlést: a katalógus
+        # ugyanazt a cab-ot több tucat külön bejegyzésként (külön GUID-dal, külön címmel)
+        # listázza, tehát a következő futás simán "másik" jelöltet választana ugyanarra a
+        # fájlra. Az URL feloldása pár KB-os kérés, a letöltés viszont akár 1,2 GB.
+        prev_bad_urls = {}
+        if not self.target_os_path:
+            for rec in self._no_bind_load():
+                if rec.get('url'):
+                    prev_bad_urls.setdefault((rec.get('pnp') or '').upper(), set()).add(rec['url'])
 
         try:
             import concurrent.futures
@@ -1386,6 +1642,18 @@ try {
                 cab_path = os.path.join(temp_dir, f"drv_{idx}{file_ext or '.cab'}")
                 ext_path = os.path.join(temp_dir, f"drv_ext_{idx}")
 
+                # HOLTVERSENY-TARTALÉK: a nyertes mellett a vele AZONOS DÁTUMÚ jelöltek is
+                # itt vannak (lásd _catalog_find_driver). Ha a nyertes INF-jéről kiderül,
+                # hogy nem ehhez az eszközhöz való, továbblépünk a következőre ahelyett,
+                # hogy feladnánk. Terep (2026-08-05): a videokártyára 10 azonos című sor
+                # közül vaktában vittünk el egyet, 1,2 GB letöltés után derült ki, hogy nem
+                # ismeri ezt a kártyát - és a maradék 9-et meg se néztük, a gép pedig úgy
+                # zárta a láncot, hogy "a katalógusban nincs jobb driver".
+                candidates = [(drv.get('cat_guid') or '', drv.get('wu_title') or '',
+                               drv.get('wu_date') or '', url)]
+                for (g, t, d) in (drv.get('alt_candidates') or [])[:CATALOG_MAX_CANDIDATES - 1]:
+                    candidates.append((g, t, d, None))
+
                 self.emit('task_progress', {'task': task_id, 'log': f'-> {name} letöltése...'})
                 # ÚJRAPRÓBÁLKOZÁS: a katalógus cab-jai százmegásak (egy videokártya-csomag
                 # 1,1 GB), és egy ekkora letöltés alatt egy megszakadt kapcsolat teljesen
@@ -1406,65 +1674,140 @@ try {
                 # (b) az expand hibája és a hiányzó INF is újrapróbálást vált ki (sérült
                 # cab), nem végleges hibát.
                 CATALOG_DL_ATTEMPTS = 3
-                pkg_ok, last_err = False, None
-                for attempt in range(1, CATALOG_DL_ATTEMPTS + 1):
+                chosen = None        # (guid, cím, dátum, url) - amit végül telepítünk
+                # UGYANAZT A CSOMAGOT NEM TÖLTJÜK LE KÉTSZER (lásd lent) - és amit egy
+                # KORÁBBI FUTÁS már bizonyítottan elvetett erre az eszközre, azt sem.
+                known_bad = set(prev_bad_urls.get((drv.get('pnp_id') or '').upper()) or ())
+                tried_urls = set(known_bad)
+                for cand_i, (cand_guid, cand_title, cand_date, cand_url) in enumerate(candidates):
                     if self._check_cancel():
                         return
-                    try:
-                        logging.debug(f"[CATALOG_INSTALL] Letöltés ({attempt}/{CATALOG_DL_ATTEMPTS}): {url[:80]}...")
-                        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-                        with urllib.request.urlopen(req, context=ssl_ctx, timeout=120) as resp, open(cab_path, 'wb') as f:
-                            expected_len = resp.headers.get('Content-Length')
-                            shutil.copyfileobj(resp, f)
-                        got_len = os.path.getsize(cab_path)
-                        if expected_len and expected_len.isdigit() and got_len != int(expected_len):
-                            raise IOError(f"csonka letöltés: {got_len}/{expected_len} byte jött le")
-                        logging.debug(f"[CATALOG_INSTALL] Letöltve: {cab_path} ({got_len} byte, "
-                                      f"{attempt}. próbálkozásra)")
-                        if file_ext == '.msu':
-                            pkg_ok = True   # az .msu-t a wusa/dism ellenőrzi, expand-kör nincs
-                            break
-                        # Kicsomagolás + INF-jelenlét még a próbálkozás-körön BELÜL: egy
-                        # sérült cab tünete pont ez a kettő, és mindkettőre a friss
-                        # újraletöltés a gyógyszer, nem a végleges hiba.
-                        if os.path.isdir(ext_path):
-                            shutil.rmtree(ext_path, ignore_errors=True)   # előző kör maradéka
-                        os.makedirs(ext_path, exist_ok=True)
-                        exp_res = self._run(['expand', cab_path, '-F:*', ext_path])
-                        if not exp_res or exp_res.returncode != 0:
-                            rc = exp_res.returncode if exp_res else '?'
-                            raise IOError(f"az expand nem tudta kicsomagolni (kód={rc}) - valószínűleg sérült cab")
-                        for inner_cab in glob.glob(os.path.join(ext_path, '*.cab')):
-                            inner_ext = inner_cab + '_ext'
-                            os.makedirs(inner_ext, exist_ok=True)
-                            self._run(['expand', inner_cab, '-F:*', inner_ext])
-                        has_inf = False
-                        for _r, _d, files in os.walk(ext_path):
-                            if any(fn.lower().endswith('.inf') for fn in files):
-                                has_inf = True
-                                break
-                        if not has_inf:
-                            raise IOError("a kicsomagolt csomagban nincs .inf - sérült vagy nem driver-csomag")
-                        pkg_ok = True
-                        break
-                    except Exception as e:
-                        last_err = e
-                        logging.warning(f"[CATALOG_INSTALL] Letöltési/kicsomagolási hiba ({name}, {attempt}/{CATALOG_DL_ATTEMPTS}): {e}")
+                    if cand_url is None:
+                        # A tartalék URL-jét csak akkor oldjuk fel, ha tényleg kell.
+                        cand_url = self._catalog_download_url(cand_guid, ssl_ctx, name)
+                        if not cand_url:
+                            logging.warning(f"[CATALOG_INSTALL] {name}: a(z) {cand_i + 1}. jelölt "
+                                            f"('{cand_title}') letöltési linkje nem oldható fel - kihagyva.")
+                            continue
+                    # UGYANAZ A CSOMAG TÖBB KATALÓGUS-BEJEGYZÉSKÉNT. Mérve (2026-08-06,
+                    # élő katalógus): a `PCI\VEN_10DE&DEV_2504` legfrissebb dátumú 25 sora
+                    # KÖZÜL AZ ELSŐ ÖT MIND UGYANARRA a cab-ra mutat (azonos fájlnév, azonos
+                    # 1165,1 MB méret, azonos INF-lista) - a katalógus OS-ágakként külön
+                    # bejegyzésként listázza ugyanazt a csomagot. A tartalék-logika enélkül
+                    # háromszor töltené le ugyanazt az 1,2 GB-ot, ami rosszabb a hibánál,
+                    # amit javítani akar. A DownloadDialog-kérés pár KB, tehát az URL
+                    # feloldása után derül ki - és onnan már ingyen ugorjuk át.
+                    if cand_url in tried_urls:
+                        why = ("egy KORÁBBI futásban már bizonyítottan nem ehhez az eszközhöz való"
+                               if cand_url in known_bad else
+                               "UGYANARRA a csomagra mutat, mint egy már kipróbált jelölt")
+                        logging.info(f"[CATALOG_INSTALL] {name}: a(z) {cand_i + 1}. jelölt "
+                                     f"('{cand_title}') {why} - nem töltjük le újra.")
+                        continue
+                    tried_urls.add(cand_url)
+                    if cand_i:
+                        self.emit('task_progress', {'task': task_id, 'log': f'  ↻ {name}: következő katalógus-jelölt próbája ({cand_title})...'})
+                    url = cand_url
+                    pkg_ok, last_err = False, None
+                    for attempt in range(1, CATALOG_DL_ATTEMPTS + 1):
+                        if self._check_cancel():
+                            return
                         try:
-                            if os.path.exists(cab_path):
-                                os.remove(cab_path)
-                        except Exception as ce:
-                            logging.debug(f"[CATALOG_INSTALL] A félbemaradt fájl törlése sikertelen ({cab_path}): {ce}")
-                        shutil.rmtree(ext_path, ignore_errors=True)
-                        if attempt < CATALOG_DL_ATTEMPTS:
-                            self.emit('task_progress', {'task': task_id, 'log': f'  ↻ {name} letöltése megszakadt ({e}) - újrapróbálás ({attempt + 1}/{CATALOG_DL_ATTEMPTS})...'})
-                            time.sleep(3)
-                if not pkg_ok:
-                    logging.error(f"[CATALOG_INSTALL] Letöltés/kicsomagolás VÉGLEG sikertelen {CATALOG_DL_ATTEMPTS} próbálkozás után ({name}): {last_err}")
-                    self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name} letöltési/kicsomagolási hiba {CATALOG_DL_ATTEMPTS} próbálkozás után: {last_err}'})
+                            logging.debug(f"[CATALOG_INSTALL] Letöltés ({attempt}/{CATALOG_DL_ATTEMPTS}): {url[:80]}...")
+                            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+                            with urllib.request.urlopen(req, context=ssl_ctx, timeout=120) as resp, open(cab_path, 'wb') as f:
+                                expected_len = resp.headers.get('Content-Length')
+                                shutil.copyfileobj(resp, f)
+                            got_len = os.path.getsize(cab_path)
+                            if expected_len and expected_len.isdigit() and got_len != int(expected_len):
+                                raise IOError(f"csonka letöltés: {got_len}/{expected_len} byte jött le")
+                            logging.debug(f"[CATALOG_INSTALL] Letöltve: {cab_path} ({got_len} byte, "
+                                          f"{attempt}. próbálkozásra)")
+                            if file_ext == '.msu':
+                                pkg_ok = True   # az .msu-t a wusa/dism ellenőrzi, expand-kör nincs
+                                break
+                            # Kicsomagolás + INF-jelenlét még a próbálkozás-körön BELÜL: egy
+                            # sérült cab tünete pont ez a kettő, és mindkettőre a friss
+                            # újraletöltés a gyógyszer, nem a végleges hiba.
+                            if os.path.isdir(ext_path):
+                                shutil.rmtree(ext_path, ignore_errors=True)   # előző kör maradéka
+                            os.makedirs(ext_path, exist_ok=True)
+                            exp_res = self._run(['expand', cab_path, '-F:*', ext_path])
+                            if not exp_res or exp_res.returncode != 0:
+                                rc = exp_res.returncode if exp_res else '?'
+                                raise IOError(f"az expand nem tudta kicsomagolni (kód={rc}) - valószínűleg sérült cab")
+                            for inner_cab in glob.glob(os.path.join(ext_path, '*.cab')):
+                                inner_ext = inner_cab + '_ext'
+                                os.makedirs(inner_ext, exist_ok=True)
+                                self._run(['expand', inner_cab, '-F:*', inner_ext])
+                            has_inf = False
+                            for _r, _d, files in os.walk(ext_path):
+                                if any(fn.lower().endswith('.inf') for fn in files):
+                                    has_inf = True
+                                    break
+                            if not has_inf:
+                                raise IOError("a kicsomagolt csomagban nincs .inf - sérült vagy nem driver-csomag")
+                            pkg_ok = True
+                            break
+                        except Exception as e:
+                            last_err = e
+                            logging.warning(f"[CATALOG_INSTALL] Letöltési/kicsomagolási hiba ({name}, {attempt}/{CATALOG_DL_ATTEMPTS}): {e}")
+                            try:
+                                if os.path.exists(cab_path):
+                                    os.remove(cab_path)
+                            except Exception as ce:
+                                logging.debug(f"[CATALOG_INSTALL] A félbemaradt fájl törlése sikertelen ({cab_path}): {ce}")
+                            shutil.rmtree(ext_path, ignore_errors=True)
+                            if attempt < CATALOG_DL_ATTEMPTS:
+                                self.emit('task_progress', {'task': task_id, 'log': f'  ↻ {name} letöltése megszakadt ({e}) - újrapróbálás ({attempt + 1}/{CATALOG_DL_ATTEMPTS})...'})
+                                time.sleep(3)
+                    if not pkg_ok:
+                        # A LETÖLTÉS bukása nem "rossz csomag" - itt nincs értelme a következő
+                        # jelöltnek (a hálózat a hibás), ezért az eredeti viselkedés marad.
+                        logging.error(f"[CATALOG_INSTALL] Letöltés/kicsomagolás VÉGLEG sikertelen {CATALOG_DL_ATTEMPTS} próbálkozás után ({name}): {last_err}")
+                        self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name} letöltési/kicsomagolási hiba {CATALOG_DL_ATTEMPTS} próbálkozás után: {last_err}'})
+                        with counter_lock:
+                            fail += 1
+                        return
+
+                    # ALKALMAZHATÓSÁG-ELLENŐRZÉS a telepítés ELŐTT (lásd wu_core.inf_package_applies):
+                    # a katalógus a törzs-HWID-re más gépgyártóra szabott változatot is adhat,
+                    # ami feltelepül, de sosem köt rá az eszközre. Ilyet meg se próbálunk -
+                    # helyette a következő azonos dátumú jelölttel folytatjuk.
+                    if file_ext == '.msu' or self.target_os_path or not drv.get('all_hwids'):
+                        chosen = (cand_guid, cand_title, cand_date, cand_url)
+                        break
+                    if inf_package_applies(ext_path, drv.get('all_hwids')) is False:
+                        logging.warning(f"[CATALOG_INSTALL] Nem alkalmazható csomag ({cand_i + 1}/{len(candidates)}), "
+                                        f"kihagyva: {name} ({cand_title})")
+                        self.emit('task_progress', {'task': task_id, 'log': f'  ↷ {name}: a(z) „{cand_title}” csomag más gépre/alaplapra készült (az INF nem ismeri ezt az eszközt) - kihagyva.'})
+                        # MINDEN megbukott jelölt bekerül a no-bind emlékezetbe (GUID-dal),
+                        # így a következő futás nem tölti le újra ugyanezt a csomagot.
+                        with counter_lock:
+                            no_bind.append(dict(drv, wu_title=cand_title, wu_date=cand_date,
+                                                cat_guid=cand_guid,
+                                                no_bind_reason='nem alkalmazható (más gépre szabott INF)'))
+                        continue
+                    chosen = (cand_guid, cand_title, cand_date, cand_url)
+                    break
+
+                if chosen is None:
+                    logging.warning(f"[CATALOG_INSTALL] {name}: mind a(z) {len(candidates)} katalógus-jelölt "
+                                    f"INF-je más eszközre való - nincs telepíthető csomag.")
+                    self.emit('task_progress', {'task': task_id, 'log': f'  ↷ {name}: a katalógus {len(candidates)} jelöltjéből egyik sem ehhez az eszközhöz való - kihagyva.'})
                     with counter_lock:
-                        fail += 1
+                        skipped += 1
                     return
+                if chosen[1] != (drv.get('wu_title') or ''):
+                    # Ez a sor a bizonyíték, hogy a tartalék-logika dolgozott: enélkül a
+                    # terepi logból nem derülne ki, miért MÁS csomag ment fel, mint amit a
+                    # keresés nyertesként kiírt.
+                    logging.info(f"[CATALOG_INSTALL] {name}: a nyertes csomag nem volt alkalmazható, "
+                                 f"a tartalék jelölt megy fel: '{chosen[1]}' [{chosen[2] or '?'}]")
+                    self.emit('task_progress', {'task': task_id, 'log': f'  ✔ {name}: a tartalék katalógus-csomag illik az eszközre ({chosen[1]}).'})
+                drv['cat_guid'], drv['wu_title'], drv['wu_date'], drv['url'] = \
+                    chosen[0], chosen[1], chosen[2], chosen[3]
+                url = chosen[3]
 
                 if file_ext == '.msu':
                     # .msu: wusa csendes telepítés (offline cél-OS-nél dism /Add-Package).
@@ -1483,20 +1826,6 @@ try {
                     rc = res.returncode if res else '?'
                     self.emit('task_progress', {'task': task_id, 'log': f'  {"✅" if ok else "❌"} {name} (.msu, kód={rc})'})
                     return
-
-                # ALKALMAZHATÓSÁG-ELLENŐRZÉS a telepítés ELŐTT (lásd wu_core.inf_package_applies):
-                # a katalógus a törzs-HWID-re más gépgyártóra szabott változatot is adhat,
-                # ami feltelepül, de sosem köt rá az eszközre. Ilyet meg se próbálunk.
-                if not self.target_os_path and drv.get('all_hwids'):
-                    applies = inf_package_applies(ext_path, drv.get('all_hwids'))
-                    if applies is False:
-                        logging.warning(f"[CATALOG_INSTALL] Nem alkalmazható csomag, kihagyva: {name} ({drv.get('wu_title')})")
-                        self.emit('task_progress', {'task': task_id, 'log': f'  ↷ {name}: a katalógus csomagja más gépre/alaplapra készült (az INF nem ismeri ezt az eszközt) - kihagyva.'})
-                        with counter_lock:
-                            skipped += 1
-                            drv['no_bind_reason'] = 'nem alkalmazható (más gépre szabott INF)'
-                            no_bind.append(drv)
-                        return
 
                 self.emit('task_progress', {'task': task_id, 'log': f'  Telepítés: {name}...'})
                 is_offline = bool(self.target_os_path)
@@ -1539,7 +1868,10 @@ try {
                         reboot_pending = (res.returncode == 3010
                                           or 'reboot is needed' in (res.stdout or '').lower())
                         if drv.get('pnp_id') and drv.get('installed_inf') and not is_offline:
-                            bind_checks.append((drv, reboot_pending))
+                            # A pnputil kimenete is elmegy: abból derül ki, ha a csomag egy
+                            # GYEREK-INTERFÉSZRE kötött rá (composite USB), miközben maga a
+                            # lekérdezett szülő - helyesen - usb.inf-en maradt.
+                            bind_checks.append((drv, reboot_pending, res.stdout or ''))
                         if drv.get('generic_replace'):
                             # A pnputil kiírja, milyen néven publikálta a csomagot
                             # ("Published Name: oem42.inf") - visszaálláskor pontosan ezt
@@ -1603,13 +1935,25 @@ try {
                 if bind_checks:
                     now_info = self._get_installed_driver_info()
                     stuck = []
-                    for drv, reboot_pending in bind_checks:
+                    for drv, reboot_pending, pnp_out in bind_checks:
                         if reboot_pending:
                             continue   # csak a következő bootnál dől el - most nem ítélkezünk
                         cur = (now_info.get((drv.get('pnp_id') or '').upper()) or {})
                         cur_inf = (cur.get('inf') or '').strip().lower()
                         if cur_inf and cur_inf == drv.get('installed_inf'):
-                            stuck.append(drv)
+                            # A SZÜLŐ INF-je nem változott - de ez composite USB-nél NEM
+                            # bukás: ott a gyári driver a &MI_xx gyerek-interfészre megy, a
+                            # szülő pedig marad usbccgp-n, mert az a helyes driver rajta. A
+                            # pnputil ilyenkor a gyereket nevezi meg ("installed/up-to-date
+                            # on device: USB\VID_041E&PID_3274&MI_00\..."), és 2026-08-05-ig
+                            # pont ezt az esetet könyveltük el "az eszköz nem vette át"-ként.
+                            if package_bound_to_device_family(pnp_out, drv):
+                                logging.info(f"[CATALOG_INSTALL] {drv.get('name')}: a csomag az eszköz "
+                                             f"gyerek-interfészére kötött rá (a szülő marad "
+                                             f"{drv.get('installed_inf')}, ez így helyes).")
+                                bound_ok.append(drv)
+                            else:
+                                stuck.append(drv)
                         else:
                             bound_ok.append(drv)
                     for drv in stuck:
