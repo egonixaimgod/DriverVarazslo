@@ -33,17 +33,39 @@ def dup_version_key(vstr):
 def get_active_published_infs(run):
     """A jelenlévő eszközök által ténylegesen használt publikált inf-nevek halmaza
     kisbetűvel (pl. {'oem12.inf'}). Hiba esetén None: a hívó ilyenkor NEM törölhet
-    (inkább nem takarítunk, mint hogy egy aktív drivert lőjünk ki)."""
+    (inkább nem takarítunk, mint hogy egy aktív drivert lőjünk ki).
+
+    ÜRES HALMAZ SOSEM TÉRHET VISSZA - az is hiba, nem eredmény (2026-08-05, offline
+    teszt találta). A régi kód csak KIVÉTELRE adott None-t: ha a PowerShell némán
+    elhasalt (üres stdout, vagy nem-JSON kimenet), a `data = []` ág simán lefutott,
+    és a hívó egy ÜRES aktív-listát kapott - amiben MINDEN csomag használatlannak
+    látszik. Élő Windowson mindig több tucat INF aktív, tehát a nulla elem
+    definíció szerint sikertelen lekérdezés. Ez a hívók "None -> nem törlünk"
+    biztonsági ágát csendben kikerülte volna (duplikátum-takarítás, elhalasztott
+    INF-kivezetés).
+
+    A returncode-ot szándékosan NEM tekintjük ítéletnek: a kimenet dönt. Egy
+    non-terminating PowerShell hiba (pl. olvashatatlan WMI-példány) 1-es kóddal
+    tér vissza, miközben a lista maga hibátlan - ilyenkor kár lenne eldobni."""
     try:
         ps = ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
               "Get-WmiObject Win32_PnPSignedDriver | Where-Object { $_.InfName } | "
               "Select-Object InfName | ConvertTo-Json -Compress")
         res = run(["powershell", "-NoProfile", "-Command", ps], encoding='utf-8', timeout=120)
-        data = json.loads(res.stdout) if res and (res.stdout or '').strip() else []
+        raw = (res.stdout or '') if res else ''
+        if not raw.strip():
+            logging.error(f"[DUPDRV] Az aktív inf-lista lekérdezése ÜRES kimenetet adott "
+                          f"(rc={getattr(res, 'returncode', '?')}) - ez hiba, nem üres lista.")
+            return None
+        data = json.loads(raw)
         if isinstance(data, dict):
             data = [data]
         active = {str(d.get('InfName') or '').strip().lower() for d in data}
         active.discard('')
+        if not active:
+            logging.error("[DUPDRV] Az aktív inf-lista értelmezhető, de EGYETLEN inf-et sem "
+                          "tartalmaz - élő rendszeren ez lehetetlen, hibaként kezeljük.")
+            return None
         logging.info(f"[DUPDRV] Aktívan használt inf-ek: {len(active)} db")
         return active
     except Exception as e:

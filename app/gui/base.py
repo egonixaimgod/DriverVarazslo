@@ -53,6 +53,12 @@ class GuiBaseMixin:
         # kapcsoló, mert más a kockázat: a firmware-írás visszafordíthatatlan, és egy
         # megszakadt flash hardveresen teszi tönkre az eszközt. Alapértelmezés: KI.
         self.allow_firmware_updates = '--allow-firmware' in sys.argv
+        # "Wi-Fi-s telepítés": a gép vezeték nélkül lóg a hálózaton, ezért (a) a
+        # CSATLAKOZOTT Wi-Fi adapter driverét a törlési fázis megtartja, és (b) minden
+        # újraindítás után hosszabban várunk a hálózat felállására. A lábak külön
+        # processzek, ezért a többi dialógus-választáshoz hasonlóan ez is CSAK az
+        # ütemezett feladat argumentumában él tovább (lásd _schedule_autofix_resume).
+        self.wifi_mode = '--wifi-mode' in sys.argv
         self._si = subprocess.STARTUPINFO()
         self._si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         self._nw = subprocess.CREATE_NO_WINDOW
@@ -79,7 +85,36 @@ class GuiBaseMixin:
         # docstringjét (app/gui/autofix.py) - szűk, bizonyíték-alapú feltétellel takarít.
         self._cleanup_leftover_autofix_policy()
 
+        # Harmadik "félbehagyott munka" eset: az AutoFix UTOLSÓ lábában elhalasztott
+        # INF-kivezetés (lásd _finish_deferred_inf_cleanup). A lánc közbeni halasztásokat
+        # a következő láb intézi, de ha a halasztás az utolsó lábban történt, nincs
+        # következő láb - ilyenkor itt, a legközelebbi induláskor fejezzük be (ekkor a
+        # gép már réges-rég újraindult, tehát a kötések eldőltek). Háttérszálon fut és
+        # csak akkor csinál bármit, ha a fájl létezik: normál induláskor egy fájl-
+        # létezés-vizsgálat a teljes költsége, a WMI-lekérdezés (~15-25 mp) nem
+        # késleltetheti az ablak megjelenését.
+        try:
+            if os.path.exists(self._deferred_inf_cleanup_path()):
+                threading.Thread(target=self._deferred_inf_cleanup_at_startup,
+                                 name='inf-cleanup', daemon=True).start()
+        except Exception as e:
+            logging.debug(f"[INIT] Elhalasztott INF-kivezetés indítása sikertelen: {e}")
+
         logging.info("[INIT] DriverToolApi kész.")
+
+    def _deferred_inf_cleanup_at_startup(self):
+        """Az induláskori pótló kivezetés burkolója. Resume lábon NEM fut: ott a lánc
+        maga intézi a megfelelő ponton (a törlési fázis után), és két párhuzamos
+        pnputil-törlés-sorozat egymásnak esne. Csendes: a felületre nem emit-el
+        (indulásnál nincs is még hova), csak a naplóba dolgozik."""
+        try:
+            if getattr(self, 'resume_mode', False) or getattr(self, 'resume_step1', False):
+                logging.debug("[INIT] Resume láb - az elhalasztott INF-kivezetést a lánc végzi el.")
+                return
+            logging.info("[INIT] Elhalasztott INF-kivezetés található - befejezés a háttérben.")
+            self._finish_deferred_inf_cleanup(task_id='')
+        except Exception as e:
+            logging.warning(f"[INIT] Az elhalasztott INF-kivezetés nem fejeződött be: {e}")
 
     def set_window(self, window):
         logging.info("[WINDOW] WebView ablak beállítása...")
@@ -345,6 +380,50 @@ class GuiBaseMixin:
             except Exception as e:
                 logging.debug(f"[NET] Internet-ellenőrzés sikertelen ({host}:{port}): {e}")
         return False
+
+    def _wait_for_internet(self, timeout, task_id=None, reason=''):
+        """Megvárja, amíg a hálózat feláll - a `_check_internet` EGYSZERI próbája helyett.
+
+        MIÉRT: a `_check_internet` egy 3 mp-es TCP-próba, és a lánc közvetlenül a
+        bejelentkezés után futtatja. Kábelnél a link már bootkor él, Wi-Finél viszont a
+        WLAN szolgáltatás indulása + asszociáció + hitelesítés + DHCP együtt 15-45 mp -
+        vagyis az AutoFix "nincs internet"-et látott olyankor is, amikor fél perc múlva
+        lett volna. Ez volt a "wifivel nem megy" panasz első számú oka (2026-08-05).
+        Vezetékesen is hasznos: lassú switch/DHCP mellett eddig szintén elhasalhatott.
+
+        Azonnal tér vissza, ha már az első próba sikerül (a tipikus eset) - a várakozás
+        csak akkor kerül bármibe, ha tényleg nincs még hálózat. Kb. 2 mp-enként próbál
+        újra, és 10 mp-enként visszajelez a felületre, hogy ne tűnjön fagyottnak.
+        Megszakítható: a _cancel_flag-et minden körben nézi.
+
+        Visszatérés: True, ha lett internet a határidőn belül."""
+        deadline = time.monotonic() + max(0, timeout)
+        attempt = 0
+        announced = False
+        while True:
+            if getattr(self, '_cancel_flag', False):
+                logging.info("[NET] A hálózat-várakozást megszakították.")
+                return False
+            if self._check_internet():
+                if attempt:
+                    waited = int(timeout - max(0, deadline - time.monotonic()))
+                    logging.info(f"[NET] Internet {waited} mp várakozás után elérhető ({attempt + 1}. próba).")
+                    if task_id:
+                        self.emit('task_progress', {'task': task_id, 'log': f'✅ Hálózat feláll ({waited} mp után).'})
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logging.warning(f"[NET] {timeout} mp alatt sem lett internet ({attempt + 1} próba, ok: {reason or 'n/a'}).")
+                return False
+            if not announced:
+                announced = True
+                logging.info(f"[NET] Még nincs internet - várakozás max. {timeout} mp ({reason or 'n/a'}).")
+                if task_id:
+                    self.emit('task_progress', {'task': task_id, 'log': f'⏳ Várakozás a hálózatra (max. {timeout} mp){(" - " + reason) if reason else ""}...'})
+            elif attempt % 5 == 0 and task_id:
+                self.emit('task_progress', {'task': task_id, 'log': f'⏳ Még nincs hálózat... (hátra: {int(remaining)} mp)'})
+            attempt += 1
+            time.sleep(min(2.0, max(0.1, remaining)))
 
     def open_file(self, path):
         logging.info(f"[API] open_file: {path}")

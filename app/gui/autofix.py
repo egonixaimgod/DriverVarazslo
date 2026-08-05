@@ -36,9 +36,16 @@ from app.wu_core import _collect_boot_path_protection
 from app.wu_core import _is_boot_path_protected
 from app.wu_core import _export_net_driver_backup
 from app.wu_core import _restore_net_driver_backup
+from app.wu_core import detect_wifi_state
+from app.wu_core import collect_wifi_protection
+from app.wu_core import is_wifi_protected
+from app.wu_core import export_wlan_profiles
+from app.wu_core import restore_wlan_profiles
+from app.wu_core import clear_wlan_backup
 from app.wu_core import WU_MAX_CONSECUTIVE_FAILURES
 from app.wu_core import _filter_wu_older_duplicates
 from app.wu_core import _install_abort_reason
+from app.wu_core import pending_reboot_victim
 from app.wu_core import is_reboot_pending
 from app.wu_core import verify_failed_installs
 from app.wu_core import unoffered_requested_titles
@@ -78,6 +85,15 @@ AUTOFIX_DEEP_CATALOG = True
 # amit a hwscan._install_catalog_sync "already exists" no-op-ként kezel - a jelölt így a
 # következő körben már nem hoz telepítést, és a lánc magától lezárul.
 AUTOFIX_MAX_INSTALL_LEGS = 10
+
+# Meddig várunk a hálózat felállására egy-egy láb elején (_wait_for_internet).
+# Wi-Fi-s telepítésnél lényegesen tovább: a WLAN szolgáltatás indulása + asszociáció +
+# hitelesítés + DHCP együtt terepen 15-45 mp, vállalati (802.1X) hálózaton még több.
+# Kábelen is várunk valamennyit, mert lassú switch/DHCP mellett eddig szintén elhasalt
+# az egyszeri, 3 mp-es próba. Ha a hálózat már él (a tipikus eset), a várakozás nem
+# kerül semmibe: az első próba azonnal visszatér.
+AUTOFIX_NET_WAIT_WIFI = 120
+AUTOFIX_NET_WAIT_WIRED = 45
 
 
 class GuiAutofixMixin:
@@ -245,6 +261,41 @@ class GuiAutofixMixin:
                 for d in skipped:
                     logging.info(f"[PRINTER-PROTECT] Törlésből kizárva: {d.get('published', '?')} "
                                  f"({d.get('original', '?')}) - {d.get('provider', '?')} [{d.get('class', '?')}]")
+
+        # WI-FI-VÉDELEM: a "Wi-Fi-s telepítés" checkboxszal a tech kimondta, hogy a gép
+        # vezeték nélkül lóg a hálózaton. Ilyenkor a CSATLAKOZOTT Wi-Fi adapter driverét
+        # megtartjuk - kábelnél a beépített LAN-driver átveszi a törölt gyárit, Wi-Finél
+        # viszont sok kártyához nincs használható inbox driver, és a gép internet nélkül
+        # ragadna, miközben a lánc folytatása pont internetből dolgozna. A "mindent
+        # törlünk" alapszabály alóli kivételt itt is a FELHASZNÁLÓ adja meg, ugyanúgy,
+        # mint a nyomtató-checkboxnál (lásd CLAUDE.md: nem szabad automatikus,
+        # felhasználó nélküli szelektív törlést bevezetni).
+        if getattr(self, '_autofix_wifi_mode', False):
+            wifi_infs, wifi_state = collect_wifi_protection(self._run)
+            # Az aktív SSID-t eltesszük: a vész-újracsatlakozás ezt próbálja először.
+            self._autofix_wifi_ssid = wifi_state.get('ssid', '')
+            wifi_skipped = [d for d in drivers if is_wifi_protected(d, wifi_infs)]
+            if wifi_skipped:
+                wifi_keys = {id(d) for d in wifi_skipped}
+                drivers = [d for d in drivers if id(d) not in wifi_keys]
+                self.emit('task_progress', {'task': task_id, 'log': f'📶 A Wi-Fi kártya drivere védve a törléstől ({wifi_state.get("adapter") or "Wi-Fi adapter"}) - így a kapcsolat a lánc alatt sem szakad meg.\n'})
+                for d in wifi_skipped:
+                    logging.info(f"[WIFI-PROTECT] Törlésből kizárva: {d.get('published', '?')} "
+                                 f"({d.get('original', '?')}) - {d.get('provider', '?')} [{d.get('class', '?')}]")
+            elif wifi_state.get('wifi'):
+                # Van Wi-Fi kapcsolat, de a driverét nem tudtuk azonosítani (vagy inbox
+                # driveren fut, tehát nincs is third-party csomagja) - ezt ki kell mondani,
+                # mert a kapcsolat elvesztésének kockázata a technikusé.
+                self.emit('task_progress', {'task': task_id, 'log': '⚠️ A Wi-Fi driver nem azonosítható a törlési listán (lehet, hogy Windows-alapdriveren fut) - a kapcsolat elveszhet a törlés után.\n'})
+                logging.warning("[WIFI-PROTECT] Wi-Fi mód bekapcsolva, de a törlési listán nincs "
+                                f"az adapterhez tartozó csomag (INF: {wifi_infs or 'ismeretlen'}).")
+            # WLAN-profilok mentése: másodlagos háló arra az esetre, ha a kapcsolat
+            # mégis elveszne (pl. a driver újraszámozása után árván maradt profil).
+            saved = export_wlan_profiles(self._run)
+            if saved:
+                logging.info(f"[WLAN-BACKUP] {len(saved)} Wi-Fi profil elmentve: {[s['ssid'] for s in saved]}")
+                self.emit('task_progress', {'task': task_id, 'log': f'🛟 {len(saved)} mentett Wi-Fi hálózat biztonsági mentése kész (a lánc végén törlődik).\n'})
+
         total = len(drivers)
         logging.info(f"[AUTOFIX-DELETE] Ténylegesen törlendő csomagok: {total} db.")
         if total > 0:
@@ -637,9 +688,19 @@ class GuiAutofixMixin:
                     self.emit('task_progress', {'task': task_id, 'log': f'\nℹ️ Utóellenőrzés: {len(verified)} "sikertelen" driver valójában FELKERÜLT a rendszerre (a Windows Update jelentése félrevezető volt):'})
                     for t in sorted(verified):
                         self.emit('task_progress', {'task': task_id, 'log': f'   ✅ {t}'})
+                # PENDING-REBOOT KEGYELEM: a pending-reboot miatt megszakadt kör utolsó
+                # bukott csomagja nem a saját hibájából bukott - nem tiltjuk ki véglegesen,
+                # a gyógyír rá pont az az újraindítás, ami közvetlenül utána következik.
+                # A szabály és a terepi bizonyíték a közös magban: wu_core.pending_reboot_victim.
+                reboot_victim = pending_reboot_victim(round_failed_titles, aborted_reason)
                 newly_failed = []
                 for title in round_failed_titles:
                     if title in verified:
+                        continue
+                    if title == reboot_victim:
+                        logging.info(f"[AUTOFIX-WU] NEM kizárva (a pending-reboot miatt megszakadt kör "
+                                     f"utolsó csomagja, újraindítás után újrapróbáljuk): {title}")
+                        self.emit('task_progress', {'task': task_id, 'log': f'↻ {title} - az újraindítás után újrapróbáljuk (ez a hiba a reboot-váró állapot miatt jött).'})
                         continue
                     fuid = title_to_uid.get(title)
                     if fuid:
@@ -836,6 +897,8 @@ class GuiAutofixMixin:
             resume_flag += ' --allow-storage-drivers'
         if getattr(self, '_autofix_allow_firmware', False) and '--allow-firmware' not in resume_flag:
             resume_flag += ' --allow-firmware'
+        if getattr(self, '_autofix_wifi_mode', False) and '--wifi-mode' not in resume_flag:
+            resume_flag += ' --wifi-mode'
         exe_path = _app_exe_path()
         temp_env = os.environ.get('TEMP', '!!').lower()
         # Ha temp mappából fut a program, a következő indulásig törlődhet alóla az exe -
@@ -1330,6 +1393,14 @@ class GuiAutofixMixin:
             # (lassabb hidegindítás). Nem kapcsoljuk vissza automatikusan (a szerviz
             # szempontjából a kikapcsolt hiberboot a helyesebb állapot), de kimondjuk.
             self._emit_fast_startup_note(task_id)
+            # WI-FI MÓD ZÁRÁSA: kimondjuk, hogy a Wi-Fi driver szándékosan maradt a helyén
+            # (a "mindent törlünk" elvtől való eltérést mindig ki kell mondani - ugyanúgy,
+            # mint a nyomtatóknál), és eltakarítjuk a WLAN-profil mentést, hogy ügyfélgépen
+            # ne maradjon hátra hálózati profil-fájl.
+            if getattr(self, '_autofix_wifi_mode', False):
+                self.emit('task_progress', {'task': task_id, 'log': '\n📶 Wi-Fi-s telepítés: a Wi-Fi kártya drivere szándékosan MEGMARADT, hogy a kapcsolat a lánc alatt ne szakadjon meg.'})
+                self.emit('task_progress', {'task': task_id, 'log': 'Ha a Wi-Fi drivert is cserélni akarod, tedd kábelre a gépet, és futtasd újra a fixet Wi-Fi mód nélkül.'})
+                clear_wlan_backup()
             # A WU videokártya-driverei jellemzően hónapokkal a gyári kiadás mögött járnak,
             # az AutoFix pedig szándékosan CSAK a WU-ból dolgozik (a gyártói ellenőrzés a
             # manuális szken része, lásd app/gui/nvidia.py + vendorgpu.py). A szerviz-
@@ -1338,9 +1409,56 @@ class GuiAutofixMixin:
         except Exception as e:
             logging.warning(f"[AUTOFIX] Összefoglaló hiba (nem kritikus): {e}")
 
-    def run_autofix(self, skip_printer_drivers=True, allow_storage_drivers=False, allow_firmware=False):
+    # ------------------------------------------------------------------
+    # WI-FI-S TELEPÍTÉS (a dialógus nagy checkboxa). A közös mag a wu_core-ban:
+    # detect_wifi_state / collect_wifi_protection / export_wlan_profiles /
+    # restore_wlan_profiles / clear_wlan_backup - ott van az indoklás is.
+    # ------------------------------------------------------------------
+    def _net_wait_seconds(self):
+        """Mennyit várjunk a hálózatra ebben a lábban. Wi-Fi módban lényegesen többet."""
+        return AUTOFIX_NET_WAIT_WIFI if getattr(self, '_autofix_wifi_mode', False) else AUTOFIX_NET_WAIT_WIRED
+
+    def get_autofix_net_state(self):
+        """A megerősítő dialógus hívja: van-e aktív Wi-Fi / vezetékes kapcsolat.
+
+        Ebből jelöli be előre a "Wi-Fi-s telepítés" checkboxot (explicit user decision:
+        automatikus felismerés) - ha a gép Wi-Fin lóg és NINCS aktív vezetékes link,
+        akkor a fixnek Wi-Fi módban kell futnia, és ezt ne kelljen fejben tartani.
+        Aszinkron hívás a JS-ből: a dialógus azonnal megjelenik, a pipa utólag kerül be."""
+        try:
+            state = detect_wifi_state(self._run)
+            state['suggest'] = bool(state.get('wifi') and not state.get('wired'))
+            logging.info(f"[WIFI] Dialógus-javaslat: wifi-mód előre bejelölve={state['suggest']}")
+            return state
+        except Exception as e:
+            logging.warning(f"[WIFI] A dialógus hálózat-felismerése sikertelen: {e}")
+            return {'wifi': False, 'wired': False, 'adapter': '', 'ssid': '', 'suggest': False}
+
+    def _autofix_recover_wifi(self, task_id='autofix'):
+        """Utolsó esély Wi-Fi módban: a mentett WLAN-profilok visszaimportálása és
+        csatlakozás, majd újabb várakozás. Csak akkor fut, ha a türelmes várakozás után
+        SINCS internet - vagyis vagy a driver, vagy a profil, vagy a hálózat maga hiányzik.
+        Visszatérés: lett-e internet."""
+        self.emit('task_progress', {'task': task_id, 'log': '📶 Nincs Wi-Fi kapcsolat - mentett hálózati profilok visszaállítása és újracsatlakozás...'})
+        try:
+            tried = restore_wlan_profiles(self._run, getattr(self, '_autofix_wifi_ssid', '') or '')
+        except Exception as e:
+            logging.warning(f"[WIFI] A WLAN-profilok visszaállítása elhasalt: {e}")
+            tried = False
+        if not tried:
+            self.emit('task_progress', {'task': task_id, 'log': '⚠️ Nincs mentett Wi-Fi profil, amivel újra lehetne csatlakozni.'})
+            return False
+        ok = self._wait_for_internet(AUTOFIX_NET_WAIT_WIFI, task_id, 'Wi-Fi újracsatlakozás után')
+        self.emit('task_progress', {'task': task_id,
+                                    'log': ('✅ Wi-Fi kapcsolat helyreállítva!\n' if ok
+                                            else '⚠️ A Wi-Fi újracsatlakozás nem sikerült.')})
+        return ok
+
+    def run_autofix(self, skip_printer_drivers=True, allow_storage_drivers=False, allow_firmware=False,
+                    wifi_mode=False):
         logging.info(f"[API] run_autofix() indítása (skip_printer_drivers={skip_printer_drivers}, "
-                     f"allow_storage_drivers={allow_storage_drivers}, allow_firmware={allow_firmware})")
+                     f"allow_storage_drivers={allow_storage_drivers}, allow_firmware={allow_firmware}, "
+                     f"wifi_mode={wifi_mode})")
         if self.target_os_path:
             self.emit('toast', {'message': 'Az 1 kattintásos fix csak az Élő (jelenlegi) rendszeren futtatható le biztonságosan!', 'type': 'error'})
             return
@@ -1355,10 +1473,12 @@ class GuiAutofixMixin:
                 skip_printers = getattr(self, 'skip_printer_drivers', True)
                 allow_storage = getattr(self, 'allow_storage_drivers', False)
                 allow_fw = getattr(self, 'allow_firmware_updates', False)
+                wifi = getattr(self, 'wifi_mode', False)
             else:
                 skip_printers = skip_printer_drivers
                 allow_storage = bool(allow_storage_drivers)
                 allow_fw = bool(allow_firmware)
+                wifi = bool(wifi_mode)
             # A belépési log a JS-paramétert írja ki, ami a resume lábakon a frontend
             # ALAPÉRTÉKE (mindig True), nem a felhasználó választása - egy nyomtató-panasz
             # kivizsgálásánál pont ez a mező vinne félre. Ezért a FELOLDOTT értéket is
@@ -1372,17 +1492,22 @@ class GuiAutofixMixin:
             # lánc közepén (lásd ott a részletes indoklást).
             logging.info(f"[AUTOFIX] Firmware-frissítések engedélyezve: {allow_fw} "
                          f"(forrás: {'sys.argv --allow-firmware' if (is_resume_step1 or is_resume_mode) else 'GUI dialógus'})")
+            logging.info(f"[AUTOFIX] Wi-Fi-s telepítés: {wifi} "
+                         f"(forrás: {'sys.argv --wifi-mode' if (is_resume_step1 or is_resume_mode) else 'GUI dialógus'})")
             self._autofix_skip_printers = skip_printers
             self._autofix_allow_storage = allow_storage
             self._autofix_allow_firmware = allow_fw
+            self._autofix_wifi_mode = wifi
 
             task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if (is_resume_mode or is_resume_step1) else '1 Kattintásos Driver Javítás és Frissítés'
             self.emit('task_start', {'task': 'autofix', 'title': task_title})
             try:
-                # Internet ellenőrzés autofix elején (ha nem resume mód)
+                # Internet ellenőrzés autofix elején (ha nem resume mód). Wi-Fi módban
+                # türelmesebben: a lánc indítása pillanatában is előfordulhat, hogy a
+                # Wi-Fi épp most áll fel (a tech az imént kapcsolt hálózatot).
                 if not is_resume_mode and not is_resume_step1:
                     self.emit('task_progress', {'task': 'autofix', 'log': '⏳ Internetkapcsolat ellenőrzése...'})
-                    if not self._check_internet():
+                    if not self._wait_for_internet(self._net_wait_seconds(), 'autofix', 'a fix indítása előtt'):
                         self.emit('toast', {'message': '❌ Nincs internetkapcsolat! Kérlek csatlakozz egy hálózathoz az Autofix előtt!', 'type': 'error'})
                         self.emit('task_complete', {'task': 'autofix', 'status': '❌ Nincs Internetkapcsolat!'})
                         return
@@ -1583,18 +1708,35 @@ class GuiAutofixMixin:
                         self._reboot_or_cancel('Újraindulás a telepítés előtt...')
                         return
 
+                    # Az ELŐZŐ láb újraindítás-igényes (3010) katalógus-csomagjainak fel nem
+                    # használt INF-jei: most, friss boot után dől el, hogy rákötött-e rájuk
+                    # eszköz. Ami nem kötött, az kivezethető a DriverStore-ból. E nélkül
+                    # örökre bent maradtak (2026-08-05, Latitude 7400: az Intel chipset-cab
+                    # ~100 idegen platformra szánt INF-je hízlalta a gépet 143 csomagra).
+                    self._finish_deferred_inf_cleanup()
+                    if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
+
                     # 🛟 Hálózati mentőöv: ha a driver-törlés után a gép internet nélkül
                     # maradt (a WU/beépített driver nem fedte le a hálózati kártyát -
                     # terepen látott eset friss AM5-ös Realtek 2.5GbE-vel), a törlés előtt
                     # elmentett Net-drivereket visszatöltjük, különben a lánc WU-keresése
                     # esélytelen lenne.
-                    if not self._check_internet():
+                    #
+                    # ELŐBB VISZONT MEGVÁRJUK A HÁLÓZATOT: az itteni ellenőrzés eddig egyetlen
+                    # 3 mp-es próba volt, közvetlenül a bejelentkezés után - Wi-Fin ez jóval
+                    # a kapcsolat felállása ELŐTT fut le, és a lánc feleslegesen esett a
+                    # mentőöv-ágra (ez volt a "wifivel nem megy" fő oka, 2026-08-05).
+                    net_ok = self._wait_for_internet(self._net_wait_seconds(), 'autofix', 'a driver-törlés után')
+                    # Wi-Fi módban a WLAN-profil az első esély: ha a driver megvan (védve
+                    # volt), jellemzően csak az újracsatlakozás hiányzik - ez olcsóbb és
+                    # célzottabb, mint a teljes Net-driver visszatöltés.
+                    if not net_ok and getattr(self, '_autofix_wifi_mode', False):
+                        net_ok = self._autofix_recover_wifi('autofix')
+                    if not net_ok:
                         self.emit('task_progress', {'task': 'autofix', 'log': '🛟 Nincs internet a driver-törlés után! Mentett hálózati driverek visszaállítása...'})
-                        net_ok = False
                         if _restore_net_driver_backup(self._run):
                             self._run(['pnputil', '/scan-devices'])
-                            time.sleep(15)
-                            net_ok = self._check_internet()
+                            net_ok = self._wait_for_internet(self._net_wait_seconds(), 'autofix', 'a hálózati driver visszaállítása után')
                             if net_ok:
                                 self.emit('task_progress', {'task': 'autofix', 'log': '✅ Hálózat helyreállítva a mentett driverekből!\n'})
                         else:

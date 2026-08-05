@@ -1123,7 +1123,146 @@ try {
         except Exception as e:
             logging.warning(f"[CATALOG] A tartós no-bind lista frissítése nem sikerült: {e}")
 
-    def _cleanup_unused_staged_infs(self, pnp_out, name, task_id):
+    # ------------------------------------------------------------------
+    # ELHALASZTOTT INF-KIVEZETÉS (pending_inf_cleanup.json).
+    # Miért kell: a reboot-igényes (3010) telepítésnél a kivezetés jogosan marad ki -
+    # a kötés csak a következő bootnál dől el, most nem ítélkezhetünk. Csakhogy
+    # korábban EZZEL VÉGE IS VOLT: senki nem tért vissza rájuk, így a fel nem használt
+    # INF-ek örökre a DriverStore-ban maradtak. Terepen (2026-08-05, Dell Latitude 7400):
+    # az `Intel(R) PCI Express Root Port #13 - 9DB4` katalógus-cab a TELJES Intel
+    # chipset-INF gyűjteményt hordozza (ApolloLake, Avoton, Baytrail, Braswell,
+    # Broadwell, ColetoCreek, CougarPoint, Crystalwell, Denverton, FPGA, Haswell,
+    # IceLake, IvyBridge, IvyTown, JakeTown, KabyLake...), a pnputil 3010-nel tért
+    # vissza, a kivezetés kimaradt - és a gép 23 third-party csomagja 163-ra hízott
+    # (a záró duplikátum-takarítás után is 143 maradt, mert ezek nem duplikátumok:
+    # mindnek külön eredeti INF-neve van). Mellékhatás: a `dism /Get-Drivers` 0,6 mp-ről
+    # 77 mp-re lassult. Ezért a kihagyott csomag INF-jeit ide jegyezzük fel, és a
+    # KÖVETKEZŐ LÁB elején (tehát egy valódi újraindítás után) fejezzük be a munkát.
+    # A fájl szándékosan NEM az autofix_stats.json (az a lánccal együtt törlődik):
+    # ha a halasztás az utolsó lábban történt, a bejegyzés túléli a láncot, és a
+    # program következő indulásakor takarítunk.
+    # ------------------------------------------------------------------
+    def _deferred_inf_cleanup_path(self):
+        return os.path.join(_app_data_dir(), 'pending_inf_cleanup.json')
+
+    def _deferred_inf_cleanup_load(self):
+        """Az elhalasztott kivezetés-lista; hibánál üres (a takarítás elmaradása nem
+        végzetes, csak a DriverStore marad szemetesebb)."""
+        try:
+            with open(self._deferred_inf_cleanup_path(), 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return data if isinstance(data, list) else []
+        except FileNotFoundError:
+            return []
+        except Exception as e:
+            logging.debug(f"[CATALOG_INSTALL] pending_inf_cleanup.json nem olvasható: {e}")
+            return []
+
+    def _deferred_inf_cleanup_save(self, items):
+        """Üres listánál a fájl TÖRLŐDIK - így a "van-e elhalasztott munka?" kérdés a
+        következő induláskor egy olcsó fájl-létezés-vizsgálat."""
+        try:
+            p = self._deferred_inf_cleanup_path()
+            if not items:
+                if os.path.exists(p):
+                    os.remove(p)
+                return
+            with open(p, 'w', encoding='utf-8') as f:
+                json.dump(items[-500:], f, ensure_ascii=False, indent=1)
+        except Exception as e:
+            logging.warning(f"[CATALOG_INSTALL] pending_inf_cleanup.json írása nem sikerült: {e}")
+
+    def _defer_inf_cleanup(self, entries, name):
+        """A reboot-igényes csomag MINDEN publikált INF-jét feljegyzi későbbi elbírálásra.
+
+        Szándékosan az összeset (nem csak a most használatlanokat): a kötés a bootnál
+        dől el, tehát a mostani "used" jelzés még nem ítélet. A következő láb friss
+        rendszerállapotból dönt, nem ebből a listából."""
+        try:
+            items = self._deferred_inf_cleanup_load()
+            have = {(i.get('published') or '').lower() for i in items}
+            added = []
+            for inf, pub, _used in entries:
+                if pub in have:
+                    continue
+                have.add(pub)
+                items.append({'published': pub,
+                              'original': inf.split('\\')[-1].split('/')[-1].lower(),
+                              'package': name,
+                              'recorded': time.strftime('%Y-%m-%d')})
+                added.append(pub)
+            if not added:
+                return
+            self._deferred_inf_cleanup_save(items)
+            logging.info(f"[CATALOG_INSTALL] {name}: újraindítást igénylő telepítés - a csomag "
+                         f"{len(added)} INF-jének elbírálása a következő lábra halasztva "
+                         f"({self._deferred_inf_cleanup_path()}): {added}")
+        except Exception as e:
+            logging.warning(f"[CATALOG_INSTALL] Az elhalasztott kivezetés feljegyzése nem sikerült ({name}): {e}")
+
+    def _finish_deferred_inf_cleanup(self, task_id='autofix'):
+        """A korábban elhalasztott INF-kivezetés befejezése FRISS BOOT után.
+
+        Három biztonsági szabály, mindegyik ugyanazt a hibát zárja ki (nehogy egy
+        használatban lévő vagy időközben újraszámozott csomagot lőjünk ki):
+          - az aktív publikált INF-ek listája (Win32_PnPSignedDriver) a döntő; ha a
+            lekérdezés hibázik (None), NEM törlünk semmit és a lista is megmarad;
+          - csak akkor törlünk, ha a publikált oemNN.inf MÉG MINDIG ugyanahhoz az
+            eredeti INF-névhez tartozik, mint a feljegyzéskor (újraszámozás ellen);
+          - a törlés sima `pnputil /delete-driver` (se /uninstall, se /force): ha bármi
+            mégis használja, a pnputil elutasítja és a csomag marad.
+        Visszatérés: hány csomag lett kivezetve."""
+        items = self._deferred_inf_cleanup_load()
+        if not items:
+            return 0
+        logging.info(f"[CATALOG_INSTALL] {len(items)} elhalasztott INF-bejegyzés elbírálása a friss boot után...")
+        active = dupdrivers_core.get_active_published_infs(self._run)
+        if active is None:
+            logging.warning("[CATALOG_INSTALL] Az aktív INF-lista nem kérdezhető le - az elhalasztott "
+                            "kivezetés kimarad, a lista megmarad a következő alkalomra.")
+            return 0
+        current = {(d.get('published') or '').lower(): (d.get('original') or '').lower()
+                   for d in self._get_third_party_drivers()}
+        todo, in_use, gone, renumbered = [], [], 0, []
+        for it in items:
+            pub = (it.get('published') or '').lower()
+            if pub not in current:
+                gone += 1                      # már nincs a gépen - a bejegyzés elévült
+            elif current[pub] != (it.get('original') or '').lower():
+                renumbered.append(pub)         # időközben más csomag kapta ezt a nevet
+            elif pub in active:
+                in_use.append(pub)             # a boot után mégis rákötött egy eszköz
+            else:
+                todo.append(it)
+        if renumbered:
+            logging.warning(f"[CATALOG_INSTALL] {len(renumbered)} bejegyzés kihagyva, mert a publikált név "
+                            f"időközben másik csomagé lett (újraszámozás): {renumbered}")
+        logging.info(f"[CATALOG_INSTALL] Elhalasztott kivezetés mérlege: {len(todo)} törlendő, "
+                     f"{len(in_use)} a boot után mégis használatba került ({in_use}), "
+                     f"{gone} már nincs a gépen, {len(renumbered)} újraszámozott.")
+        if not todo:
+            self._deferred_inf_cleanup_save([])
+            return 0
+        self.emit('task_progress', {'task': task_id, 'log': f'🧹 {len(todo)} fel nem használt INF kivezetése a DriverStore-ból (az előző kör újraindítás-igényes csomagjaiból)...'})
+        done, refused = 0, 0
+        for i, it in enumerate(todo):
+            if getattr(self, '_cancel_flag', False):
+                self._deferred_inf_cleanup_save(todo[i:])
+                raise Exception("Magyar_Megszakit_Flag")
+            pub = it['published']
+            dres = self._run(['pnputil', '/delete-driver', pub], ok_codes=(0, 3010))
+            if dres and dres.returncode in (0, 3010):
+                done += 1
+            else:
+                refused += 1
+                logging.info(f"[CATALOG_INSTALL] Kivezetés elutasítva (marad): {pub} "
+                             f"({it.get('original')}, {it.get('package')}), rc={getattr(dres, 'returncode', '?')}")
+        self._deferred_inf_cleanup_save([])
+        logging.info(f"[CATALOG_INSTALL] Elhalasztott kivezetés kész: {done} törölve, {refused} elutasítva.")
+        self.emit('task_progress', {'task': task_id, 'log': f'✅ DriverStore-takarítás: {done} fel nem használt INF kivezetve.\n'})
+        return done
+
+    def _cleanup_unused_staged_infs(self, pnp_out, name, task_id, defer=False):
         """Több-INF-es katalógus-csomag FEL NEM HASZNÁLT INF-jeinek kivezetése a DriverStore-ból.
 
         Miért: a `pnputil /add-driver <mappa>\\*.inf /subdirs /install` a csomag MINDEN
@@ -1137,11 +1276,14 @@ try {
         Döntési szabály: a pnputil kimenete blokkonként elárulja az egyes INF-ek sorsát -
         amelyik "installed on device" / "up-to-date on device" sort kapott, azt jelen lévő
         eszköz használja, MARAD; a csak stage-elt többi megy. Csak több-INF-es csomagnál
-        fut (az egy-INF-es nem-kötő esetet a bind-check kezeli no-bindként), és
-        reboot-igényes telepítésnél egyáltalán nem (a kötés a következő bootnál dől el,
-        most nem ítélkezünk - ugyanaz az elv, mint a bind-checknél). A törlés sima
+        fut (az egy-INF-es nem-kötő esetet a bind-check kezeli no-bindként). A törlés sima
         `pnputil /delete-driver` (se /uninstall, se /force): ha bármi mégis használja,
-        a pnputil elutasítja és a csomag marad - ezt a kimenetel-logika elviseli."""
+        a pnputil elutasítja és a csomag marad - ezt a kimenetel-logika elviseli.
+
+        `defer=True` (reboot-igényes telepítés): MOST nem ítélkezünk - a kötés a következő
+        bootnál dől el -, de a csomagot NEM ejtjük: feljegyezzük, és a következő láb
+        (`_finish_deferred_inf_cleanup`) friss rendszerállapotból dönt róla. Korábban itt
+        egyszerűen véget ért a történet, és a fel nem használt INF-ek örökre bent maradtak."""
         try:
             blocks = re.split(r'(?=Adding driver package)', pnp_out or '')
             entries = []
@@ -1153,6 +1295,9 @@ try {
                 used = bool(re.search(r'installed on device|up-to-date on device', b, re.IGNORECASE))
                 entries.append((m.group(1), p.group(1).lower(), used))
             if len(entries) <= 1:
+                return
+            if defer:
+                self._defer_inf_cleanup(entries, name)
                 return
             unused = [(inf, pub) for inf, pub, used in entries if not used]
             if not unused:
@@ -1413,13 +1558,15 @@ try {
                     self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name} hiba: {res.stdout[:100]}'})
 
                 # Több-INF-es csomag fel nem használt INF-jeinek kivezetése (Razer-eset,
-                # lásd _cleanup_unused_staged_infs) - reboot-igényes telepítésnél nem,
-                # ott a kötés a következő bootnál dől el.
+                # lásd _cleanup_unused_staged_infs). Reboot-igényes telepítésnél MOST nem
+                # ítélkezünk (a kötés a következő bootnál dől el), de a csomagot nem
+                # ejtjük: a defer=True feljegyzi a következő lábnak. Korábban itt egy
+                # `if not pkg_reboot` állt, és a kihagyott csomag INF-jei örökre bent
+                # maradtak - így hízott egy gép 23 csomagról 143-ra (2026-08-05, Latitude).
                 if not is_offline:
                     pkg_reboot = (res.returncode == 3010
                                   or 'reboot is needed' in (res.stdout or '').lower())
-                    if not pkg_reboot:
-                        self._cleanup_unused_staged_infs(res.stdout or '', name, task_id)
+                    self._cleanup_unused_staged_infs(res.stdout or '', name, task_id, defer=pkg_reboot)
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
                 futures = [executor.submit(process_catalog_driver, i, drv) for i, drv in enumerate(selected_pool)]

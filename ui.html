@@ -1204,6 +1204,19 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
     <div class="modal-header"><h3 id="mc-title">Megerősítés</h3></div>
     <div class="modal-body">
       <div id="mc-message" style="line-height:1.8;font-size:13px;white-space:pre-line"></div>
+      <!-- FŐ OPCIÓ: Wi-Fi-s telepítés. Szándékosan NAGYOBB és kiemelt a három kis
+           kapcsolónál - ez nem finomhangolás, hanem azt mondja meg, milyen hálózaton
+           fut a gép, és ettől függ, hogy a lánc egyáltalán túléli-e az újraindításokat.
+           A pipa állapotát a get_autofix_net_state() felismerése állítja be (lásd
+           showAutoFixConfirm), a tech felülbírálhatja. -->
+      <label class="toggle" id="mc-wifi-mode-row" style="display:none;margin-top:16px;padding:14px 16px;border:2px solid var(--accent2);border-radius:var(--r);background:linear-gradient(135deg,rgba(184,85,255,0.18),rgba(212,136,255,0.08));align-items:flex-start;gap:12px" title="Kapcsold be, ha a gép Wi-Fin csatlakozik az internetre. Ilyenkor a fix (1) MEGTARTJA a Wi-Fi kártya driverét a törlésnél - vezeték nélküli kártyákhoz gyakran nincs használható Windows-alapdriver, és a gép internet nélkül ragadna -, és (2) minden újraindítás után türelmesen megvárja, amíg a Wi-Fi újracsatlakozik. Vezetékes hálózaton hagyd kikapcsolva, hogy a Wi-Fi driver is frissülhessen.">
+        <input type="checkbox" id="mc-wifi-mode">
+        <span class="toggle-track" style="flex:0 0 auto;margin-top:2px"></span>
+        <span style="display:block">
+          <span style="display:block;font-size:16px;font-weight:800;letter-spacing:0.3px">📶 WI-FI-S TELEPÍTÉS</span>
+          <span id="mc-wifi-hint" style="display:block;margin-top:5px;font-size:12px;font-weight:400;color:var(--text3);line-height:1.5">A gép Wi-Fin csatlakozik: a fix megtartja a Wi-Fi drivert, és minden újraindítás után megvárja az újracsatlakozást.</span>
+        </span>
+      </label>
       <label class="toggle" id="mc-skip-printers-row" style="display:none;margin-top:14px" title="Bekapcsolva a meglévő nyomtató/szkenner driverek NEM törlődnek - ezek gyakran csak a gyári driverrel működnek jól, és egy multifunkciós készülék segéd-driverei több eszközosztályban szétszórva ülnek. FONTOS: ez csak a TÖRLÉSRE vonatkozik. Újabb nyomtató-drivert a program mindkét állásban keres és telepít, ha a Windows Update kínál.">
         <input type="checkbox" id="mc-skip-printers" checked>
         <span class="toggle-track"></span>
@@ -2550,18 +2563,20 @@ async function startAutoFix(skipConfirm = false) {
   let skipPrinters = true;
   let allowStorage = false;
   let allowFirmware = false;
+  let wifiMode = false;
   if (!ok) {
     const res = await showAutoFixConfirm('1 Kattintásos Driver Fix', 'Megerősíted a teljes automatikus javítás (visszaállítási pont, driver törlés és újratelepítés) indítását?');
     ok = res.ok;
     skipPrinters = res.skipPrinters;
     allowStorage = res.allowStorage;
     allowFirmware = res.allowFirmware;
+    wifiMode = res.wifiMode;
   }
   if (ok) {
     document.getElementById('btn-autofix').disabled = true;
     document.getElementById('btn-autofix').textContent = '⏳ FOLYAMATBAN...';
     try {
-      await api().run_autofix(skipPrinters, allowStorage, allowFirmware);
+      await api().run_autofix(skipPrinters, allowStorage, allowFirmware, wifiMode);
     } catch (e) {
       toast('Autofix hiba: ' + e, 'error');
       document.getElementById('btn-autofix').disabled = false;
@@ -3385,10 +3400,12 @@ function showAutoFixConfirm(title, message) {
       const skip = document.getElementById('mc-skip-printers').checked;
       const storage = document.getElementById('mc-allow-storage').checked;
       const firmware = document.getElementById('mc-allow-firmware').checked;
+      const wifi = document.getElementById('mc-wifi-mode').checked;
+      document.getElementById('mc-wifi-mode-row').style.display = 'none';
       document.getElementById('mc-skip-printers-row').style.display = 'none';
       document.getElementById('mc-allow-storage-row').style.display = 'none';
       document.getElementById('mc-allow-firmware-row').style.display = 'none';
-      resolve({ ok: val, skipPrinters: skip, allowStorage: storage, allowFirmware: firmware });
+      resolve({ ok: val, skipPrinters: skip, allowStorage: storage, allowFirmware: firmware, wifiMode: wifi });
     };
     document.getElementById('mc-title').textContent = title;
     document.getElementById('mc-message').textContent = message;
@@ -3402,6 +3419,30 @@ function showAutoFixConfirm(title, message) {
     document.getElementById('mc-allow-storage-row').style.display = 'flex';
     document.getElementById('mc-allow-firmware').checked = false;
     document.getElementById('mc-allow-firmware-row').style.display = 'flex';
+    // WI-FI MÓD: a dialógus AZONNAL megjelenik (a hálózat-felismerés PowerShell-hívás,
+    // pár másodperc), a pipa és a magyarázó sor utólag frissül. Alapból kikapcsolva
+    // nyílik, és csak akkor kapcsol be magától, ha a gép TÉNYLEG Wi-Fin lóg és nincs
+    // aktív vezetékes link - kábeles gépen a Wi-Fi driver is frissüljön.
+    const wifiBox = document.getElementById('mc-wifi-mode');
+    const wifiHint = document.getElementById('mc-wifi-hint');
+    wifiBox.checked = false;
+    wifiHint.textContent = 'Hálózat felismerése...';
+    document.getElementById('mc-wifi-mode-row').style.display = 'flex';
+    api().get_autofix_net_state().then(st => {
+      st = st || {};
+      if (st.suggest) {
+        wifiBox.checked = true;
+        wifiHint.textContent = 'Felismerve: a gép Wi-Fin csatlakozik'
+          + (st.ssid ? ' (' + st.ssid + ')' : '') + '. A fix megtartja a Wi-Fi drivert, és minden újraindítás után megvárja az újracsatlakozást.';
+      } else if (st.wired) {
+        wifiHint.textContent = 'Felismerve: vezetékes kapcsolat. Így a Wi-Fi driver is frissülhet - csak akkor kapcsold be, ha a fix alatt Wi-Fire váltasz.';
+      } else {
+        wifiHint.textContent = 'Kapcsold be, ha a gép Wi-Fin csatlakozik: a fix megtartja a Wi-Fi drivert, és megvárja az újracsatlakozást minden újraindítás után.';
+      }
+    }).catch(e => {
+      wifiHint.textContent = 'Kapcsold be, ha a gép Wi-Fin csatlakozik: a fix megtartja a Wi-Fi drivert, és megvárja az újracsatlakozást minden újraindítás után.';
+      api().js_log('WARN', '[UI] Hálózat-felismerés sikertelen: ' + e);
+    });
     document.getElementById('modal-confirm').classList.add('active');
   });
 }

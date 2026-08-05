@@ -1294,6 +1294,31 @@ def _install_abort_reason(consecutive_failures, reboot_pending):
     return None
 
 
+def pending_reboot_victim(round_failed_titles, aborted_reason):
+    """Az a bukott csomag, amelyik NEM a saját hibájából bukott - ezt nem szabad
+    véglegesen kizárni a lánc további lábaiból. Nincs ilyen -> None.
+
+    MIÉRT: a kör a 'reboot' okot csak úgy kaphatja meg, hogy egy telepítési hiba UTÁN
+    lekérdezett `is_reboot_pending` PENDING-et adott (lásd _install_abort_reason) - és
+    az első ilyen válasznál azonnal megszakítunk. Vagyis pontosan a LEGUTOLSÓ bukott
+    csomag az, amelyik már a megmérgezett sessionben kapta a [kód=4]-et; a korábbi
+    bukások ugyanabban a körben még PENDING=False mellett történtek, azok valódiak.
+    A 'failstreak' megszakítás szintén valódi hibasorozat, ott nincs kegyelem.
+
+    TEREPEN (2026-08-05, Dell Latitude 7400): az "Intel Corporation Bluetooth Driver
+    Update (24.40.0.3)" volt a 16/20. csomag; [kód=4] + PENDING -> kör vége, majd a
+    régi kód VÉGLEGESEN kizárta. Így a lánc további 2 lába meg sem próbálta újra, és a
+    gép a 3 hónappal régebbi 24.20.0.3-mal zárt - pedig a gyógyír pont az az újraindítás
+    volt, ami közvetlenül utána amúgy is megtörtént. (Az AutoFix attempt_counts-nál álló
+    komment ugyanezt már ki is mondja: "Lábak közt viszont pont az újraindítás a
+    gyógyír".) Ez nem tud végtelen kört okozni: egy friss booton, pending-reboot nélkül
+    ugyanez a csomag már nem kap 'reboot' megszakítást, tehát ott bukásnál rendesen
+    tiltólistára kerül - a láb-plafon (AUTOFIX_MAX_INSTALL_LEGS) pedig a végső korlát."""
+    if aborted_reason != 'reboot' or not round_failed_titles:
+        return None
+    return round_failed_titles[-1]
+
+
 def _filter_wu_older_duplicates(matches, wu_by_uid):
     """UGYANANNAK AZ ILLESZTŐPROGRAM-CSALÁDNAK csak a LEGÚJABB verzióját tartja meg.
 
@@ -1805,3 +1830,218 @@ def _restore_net_driver_backup(run_fn):
     ok = bool(res) and ('successfully' in (res.stdout or '').lower() or res.returncode in (0, 259, 3010))
     logging.info(f"[NET-BACKUP] Visszaállítás {'sikeres' if ok else 'részben/nem sikerült'} innen: {src}")
     return True
+
+
+# ============================================================================
+# WI-FI-S TELEPÍTÉS - KÖZÖS MAG (a "Wi-Fi-s telepítés" checkbox mögötti logika)
+#
+# MIÉRT KELL: az AutoFix eddig csak vezetékes hálózaton volt megbízható, és a
+# terepi tapasztalat ("wifivel nem megy") három, egymástól független ok együttese:
+#
+#  1. A kapcsolat-ellenőrzés EGYSZERI, 3 mp-es TCP-próba volt, és a lánc közvetlenül
+#     a bejelentkezés után futtatta. Kábelnél a link már bootkor él; Wi-Finél a WLAN
+#     szolgáltatás indulása + asszociáció + hitelesítés + DHCP együtt 15-45 mp - vagyis
+#     a fix "nincs internet"-et látott olyankor is, amikor 20 mp múlva lett volna.
+#     Erre a hívó oldali _wait_for_internet a válasz (app/gui/base.py).
+#  2. A törlési fázis a Wi-Fi kártya driverét is törölte. Ethernetnél ez általában
+#     ártalmatlan (a Windows beépített LAN-drivere átveszi), Wi-Finél viszont sok
+#     Intel/Realtek/Qualcomm kártyához nincs használható inbox driver -> a gép
+#     driver nélkül marad, és nincs miről visszajönnie.
+#  3. Ha a driver mégis visszakerül, a mentett hálózat elveszhet: a WLAN-profilok az
+#     interfész GUID-ja alá vannak kötve (Wlansvc\Profiles\Interfaces\{GUID}), és egy
+#     driver törlés+újratelepítés új GUID-ot adhat -> a profilok árván maradnak, nincs
+#     automatikus újracsatlakozás.
+#
+# A megoldás (explicit user decision, 2026-08-05): bekapcsolt checkboxnál a CSATLAKOZOTT
+# Wi-Fi adapter driverét MEGTARTJUK - ugyanaz az elv, mint a nyomtató-védelemnél, és a
+# "mindent törlünk" alapszabály alóli kivételt itt is a felhasználó adja meg. A kapcsolat
+# így egy pillanatra sem szakad meg; a telepítési fázis ettől még ráfrissíthet újabb
+# verziót, tehát a driver nem "fagy be". A WLAN-profil-mentés a másodlagos háló arra az
+# esetre, ha a kapcsolat mégis elveszne.
+# ============================================================================
+
+# A csatlakozott Wi-Fi adapter azonosítása. Szándékosan Get-NetAdapter/Get-NetConnectionProfile
+# (strukturált objektumok), NEM `netsh wlan show interfaces` szövegparse: a netsh kimenete
+# LOKALIZÁLT, magyar Windowson más címkékkel jön, és ezen a projekten már van sebhely a
+# lokalizált konzolkimenet parse-olásából (lásd delete_succeeded magyar pnputil-stemjei).
+_WIFI_DETECT_PS = r"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$out = @{ WifiUp = $false; WiredUp = $false; Adapter = ''; Alias = ''; Inf = ''; Ssid = ''; PnpId = '' }
+try {
+    foreach ($a in (Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' })) {
+        # 9 = NdisPhysicalMediumNative802_11; a PhysicalMediaType szöveg a tartalék.
+        if (($a.NdisPhysicalMedium -eq 9) -or ("$($a.PhysicalMediaType)" -like '*802.11*')) {
+            $out.WifiUp = $true
+            if (-not $out.Alias) {
+                $out.Alias = "$($a.Name)"
+                $out.Adapter = "$($a.InterfaceDescription)"
+                $out.PnpId = "$($a.PnPDeviceID)"
+            }
+        } else {
+            $out.WiredUp = $true
+        }
+    }
+} catch {}
+try {
+    if ($out.PnpId) {
+        $inf = (Get-PnpDeviceProperty -InstanceId $out.PnpId -KeyName 'DEVPKEY_Device_DriverInfPath' -ErrorAction SilentlyContinue).Data
+        if ($inf) { $out.Inf = "$inf" }
+    }
+} catch {}
+try {
+    if ($out.Alias) {
+        $p = @(Get-NetConnectionProfile -InterfaceAlias $out.Alias -ErrorAction SilentlyContinue)
+        if ($p.Count -gt 0) { $out.Ssid = "$($p[0].Name)" }
+    }
+} catch {}
+$out | ConvertTo-Json -Compress
+"""
+
+
+def detect_wifi_state(run_fn):
+    """A gép aktuális hálózati képe a Wi-Fi-s telepítéshez.
+
+    Visszatérés (dict): `wifi` (van-e AKTÍV vezeték nélküli kapcsolat), `wired` (van-e
+    aktív vezetékes), `adapter` (a Wi-Fi kártya neve), `alias` (interfész-alias, pl.
+    'Wi-Fi'), `inf` (a Wi-Fi driver PUBLIKÁLT inf-neve, pl. 'oem24.inf'), `ssid`.
+    Hiba esetén minden mező üres/False - olyankor a hívó úgy viselkedik, mintha nem
+    lenne Wi-Fi (a checkbox nem jelölődik be előre, védelem nincs)."""
+    state = {'wifi': False, 'wired': False, 'adapter': '', 'alias': '', 'inf': '', 'ssid': ''}
+    try:
+        res = run_fn(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", _WIFI_DETECT_PS],
+                     encoding='utf-8', timeout=90)
+        data = json.loads(res.stdout) if res and (res.stdout or '').strip() else {}
+        state['wifi'] = bool(data.get('WifiUp'))
+        state['wired'] = bool(data.get('WiredUp'))
+        state['adapter'] = str(data.get('Adapter') or '')
+        state['alias'] = str(data.get('Alias') or '')
+        state['ssid'] = str(data.get('Ssid') or '')
+        inf = str(data.get('Inf') or '')
+        state['inf'] = os.path.basename(inf).strip().lower() if inf else ''
+        logging.info(f"[WIFI] Hálózati állapot: wifi={state['wifi']} vezetékes={state['wired']} "
+                     f"adapter='{state['adapter']}' alias='{state['alias']}' inf='{state['inf']}' "
+                     f"ssid='{state['ssid']}'")
+    except Exception as e:
+        logging.warning(f"[WIFI] A hálózati állapot lekérdezése sikertelen (Wi-Fi mód nélkül folytatjuk): {e}")
+    return state
+
+
+def collect_wifi_protection(run_fn):
+    """A törlésből kihagyandó Wi-Fi INF-nevek halmaza (kisbetűvel) + a felismert állapot.
+
+    Csak a TÉNYLEGESEN CSATLAKOZOTT Wi-Fi adapter saját driverét védi - se a gyártó
+    összes csomagját (az a nyomtatóknál indokolt, itt a vezetékes drivert is bevonná),
+    se a PROSet-féle kiegészítő Extension/SoftwareComponent csomagokat (azok a kezelő-
+    felületet adják, nem a kapcsolatot). Visszatérés: (védett INF-ek halmaza, állapot-dict)."""
+    state = detect_wifi_state(run_fn)
+    protected = {state['inf']} if state.get('inf') else set()
+    if not state.get('wifi'):
+        logging.info("[WIFI-PROTECT] Nincs aktív Wi-Fi kapcsolat - nincs mit védeni.")
+    elif not protected:
+        logging.warning("[WIFI-PROTECT] Van aktív Wi-Fi kapcsolat, de a driver INF-je nem "
+                        "olvasható ki - a Wi-Fi driver NEM lesz védve a törléstől!")
+    else:
+        logging.info(f"[WIFI-PROTECT] Védett Wi-Fi INF: {sorted(protected)} "
+                     f"(adapter: {state.get('adapter')})")
+    return protected, state
+
+
+def is_wifi_protected(drv, protected_infs):
+    """Egy dism-listás csomagról eldönti, hogy a Wi-Fi-védelem alá esik-e. A publikált
+    (oemNN.inf) ÉS az eredeti INF-nevet is nézi: a DEVPKEY a publikáltat adja, de a
+    csomag újratelepítés után átszámozódhat - ugyanaz a kettős egyeztetés, mint a
+    nyomtató-védelemnél (_is_printer_protected)."""
+    if not protected_infs:
+        return False
+    return ((drv.get('published', '') or '').lower() in protected_infs
+            or (drv.get('original', '') or '').lower() in protected_infs)
+
+
+def _wlan_backup_dir():
+    return os.path.join(_app_data_dir(), 'wlan_backup')
+
+
+def export_wlan_profiles(run_fn):
+    """A mentett Wi-Fi hálózatok exportja a lánc idejére.
+
+    A `key=clear` kapcsolót SZÁNDÉKOSAN NEM adjuk meg: azzal a Wi-Fi jelszó NYÍLT
+    SZÖVEGGEL kerülne egy XML-be az ügyfél gépén. Kulcs nélkül a keyMaterial titkosítva
+    marad, ami ugyanazon a gépen és ugyanazzal a felhasználóval (a resume lábak pontosan
+    ilyenek: a feladat -UserId $env:USERNAME alatt fut) simán visszaimportálható.
+    A mappát a lánc végén töröljük (_clear_wlan_backup).
+
+    Visszatérés: a mentett hálózatok SSID-listája (a naplóba is ez megy, kulcs soha)."""
+    dest = _wlan_backup_dir()
+    try:
+        shutil.rmtree(dest, ignore_errors=True)
+        os.makedirs(dest, exist_ok=True)
+    except Exception as e:
+        logging.warning(f"[WLAN-BACKUP] A mentési mappa előkészítése sikertelen: {e}")
+        return []
+    try:
+        run_fn(['netsh', 'wlan', 'export', 'profile', f'folder={dest}'], timeout=120)
+    except Exception as e:
+        logging.warning(f"[WLAN-BACKUP] A netsh export elhasalt: {e}")
+        return []
+    return _wlan_backup_ssids()
+
+
+def _wlan_backup_ssids():
+    """A mentett profil-XML-ekből kiolvasott SSID-k. Az XML `<name>` elemét olvassuk,
+    NEM a fájlnevet: a fájlnév ékezetes/különleges karaktereknél torzulhat, és a netsh
+    kimenete lokalizált - az XML viszont nyelvfüggetlen."""
+    out = []
+    src = _wlan_backup_dir()
+    if not os.path.isdir(src):
+        return out
+    for fn in sorted(os.listdir(src)):
+        if not fn.lower().endswith('.xml'):
+            continue
+        path = os.path.join(src, fn)
+        try:
+            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                m = re.search(r'<name>(.*?)</name>', f.read(), re.IGNORECASE | re.DOTALL)
+            out.append({'ssid': (m.group(1).strip() if m else ''), 'file': path})
+        except Exception as e:
+            logging.debug(f"[WLAN-BACKUP] {fn} nem olvasható: {e}")
+    return out
+
+
+def restore_wlan_profiles(run_fn, prefer_ssid=''):
+    """A mentett WLAN-profilok visszaimportálása és csatlakozási kísérlet.
+
+    `user=current`: a kulcs DPAPI-val az AKTUÁLIS felhasználóhoz titkosítva lett
+    exportálva (lásd export_wlan_profiles), tehát `user=all`-lal nem is menne.
+    Először a lánc indulásakor aktív SSID-t próbáljuk, utána a többit.
+    Visszatérés: megpróbáltunk-e egyáltalán csatlakozni (bool)."""
+    profiles = _wlan_backup_ssids()
+    if not profiles:
+        logging.info("[WLAN-BACKUP] Nincs mentett WLAN-profil, a visszaállítás kimarad.")
+        return False
+    for p in profiles:
+        res = run_fn(['netsh', 'wlan', 'add', 'profile', f'filename={p["file"]}', 'user=current'], timeout=60)
+        logging.info(f"[WLAN-BACKUP] Profil import: '{p['ssid']}' rc={getattr(res, 'returncode', '?')}")
+    order = [p for p in profiles if p['ssid'] and p['ssid'] == prefer_ssid]
+    order += [p for p in profiles if p['ssid'] and p['ssid'] != prefer_ssid]
+    tried = False
+    for p in order:
+        tried = True
+        res = run_fn(['netsh', 'wlan', 'connect', f'name={p["ssid"]}'], timeout=60)
+        logging.info(f"[WLAN-BACKUP] Csatlakozási kísérlet: '{p['ssid']}' rc={getattr(res, 'returncode', '?')}")
+        if res and res.returncode == 0:
+            break
+    return tried
+
+
+def clear_wlan_backup():
+    """A WLAN-mentés törlése a lánc végén - ügyfélgépen nem hagyunk hátra hálózati
+    profil-fájlokat. Naplózza, mit törölt (destruktív lépés, még ha sajátunk is)."""
+    dest = _wlan_backup_dir()
+    if not os.path.isdir(dest):
+        return
+    try:
+        count = len([f for f in os.listdir(dest) if f.lower().endswith('.xml')])
+        shutil.rmtree(dest, ignore_errors=True)
+        logging.info(f"[WLAN-BACKUP] A lánc végén törölve: {count} mentett WLAN-profil ({dest}).")
+    except Exception as e:
+        logging.warning(f"[WLAN-BACKUP] A mentés törlése sikertelen: {e}")
