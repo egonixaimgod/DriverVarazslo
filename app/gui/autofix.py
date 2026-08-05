@@ -1547,8 +1547,15 @@ class GuiAutofixMixin:
             for r in out:
                 groups[r['group']] = groups.get(r['group'], 0) + 1
             logging.info(f"[PREVIEW] Törlési előnézet: {len(out)} csomag, csoportok: {groups}; "
-                         f"eszközhöz kötött: {sum(1 for r in out if r['devices'])}")
-            return {'drivers': out, 'wifi_adapter': wifi_state.get('adapter', '')}
+                         f"eszközhöz kötött: {sum(1 for r in out if r['devices'])}; "
+                         f"boot-lánc felderítve: {boot_detected}")
+            # A `boot_detected` a felületnek is kell: a 'boot' zárolásnak KÉT külön oka
+            # lehet, és nem mindegy, melyiket írjuk ki. Felderített láncnál a csomag
+            # tényleg a rendszerlemez útvonalán van; felderítetlennél viszont a fail-safe
+            # ág véd MINDEN tároló-osztályt (BOOT_FALLBACK_PROTECT_CLASSES), és ilyenkor
+            # a "a rendszerlemez útvonalán van" állítás túlmutatna a bizonyítékon.
+            return {'drivers': out, 'wifi_adapter': wifi_state.get('adapter', ''),
+                    'boot_detected': boot_detected}
         except Exception as e:
             logging.warning(f"[PREVIEW] A törlési előnézet összeállítása sikertelen: {e}")
             return {'drivers': [], 'wifi_adapter': '', 'error': str(e)}

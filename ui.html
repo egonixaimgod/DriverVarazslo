@@ -3442,10 +3442,18 @@ function showConfirm3(title, message, yesText, noText, cancelText, noClass) {
 // ---------------------------------------------------------------------------
 let delPreview = [];
 let delUnchecked = new Set();
+// A boot-védelemnek KÉT külön oka lehet, és nem mindegy, melyiket írjuk ki: sikeres
+// lánc-felderítésnél a csomag bizonyítottan a rendszerlemez útvonalán van, sikertelennél
+// viszont a fail-safe ág véd MINDEN tároló-osztályt. A második esetben a "az útvonalán
+// van" állítás túlmutatna a bizonyítékon - ugyanaz a hiba, mint a színprofilos ügyben.
+let delBootDetected = true;
 
 function delRowLock(d) {
   // Visszaadja, MIÉRT zárolt a sor (vagy '' ha szabadon állítható).
-  if (d.group === 'boot') return 'A rendszerlemez indítási útvonalán van – sosem töröljük';
+  if (d.group === 'boot')
+    return delBootDetected
+      ? 'A rendszerlemez indítási útvonalán van – sosem töröljük'
+      : 'Nem sikerült felderíteni a rendszerlemez útvonalát – biztonságból minden tároló-driver marad';
   if (d.group === 'wifi' && document.getElementById('mc-wifi-mode').checked)
     return 'Wi-Fi-s telepítés bekapcsolva – a kapcsolat drivere marad';
   if (d.group === 'printer' && document.getElementById('mc-skip-printers').checked)
@@ -3551,6 +3559,7 @@ function showAutoFixConfirm(title, message) {
     document.getElementById('mc-del-panel').style.display = 'block';
     document.getElementById('mc-del-search').value = '';
     delUnchecked = new Set();
+    delBootDetected = true;
     delPreview = (drivers || []).map(d => ({
       published: d.published, original: d.original, provider: d.provider,
       version: d.version, class: d.class, devices: [], group: 'normal'
@@ -3559,6 +3568,7 @@ function showAutoFixConfirm(title, message) {
     document.getElementById('mc-del-hint').textContent = 'Elemzés folyamatban: mi minek a drivere...';
     api().get_autofix_delete_preview().then(pv => {
       const list = ((pv || {}).drivers) || [];
+      delBootDetected = ((pv || {}).boot_detected) !== false;
       if (list.length) { delPreview = list; renderDeletePreview(); }
     }).catch(e => {
       api().js_log('WARN', '[UI] A törlési előnézet betöltése sikertelen: ' + e);
