@@ -2007,6 +2007,37 @@ def _wlan_backup_ssids():
     return out
 
 
+def wlan_connect(run_fn, ssid):
+    """Csatlakozási kísérlet egy MÁR MEGLÉVŐ profillal. Ez a gyors út: ha a Windows
+    csak nem kapcsolódott vissza magától (de a profil megvan és a jelszó a helyén),
+    ehhez semmit nem kell importálni. A teljes profil-visszatöltés csak akkor jön,
+    ha ez nem elég."""
+    if not ssid:
+        return False
+    res = run_fn(['netsh', 'wlan', 'connect', f'name={ssid}'], timeout=60)
+    ok = bool(res) and res.returncode == 0
+    logging.info(f"[WLAN] Csatlakozás a megjegyzett hálózathoz: '{ssid}' -> "
+                 f"{'parancs elfogadva' if ok else 'elutasítva'} (rc={getattr(res, 'returncode', '?')})")
+    return ok
+
+
+def wlan_set_autoconnect(run_fn, ssid):
+    """A megjegyzett hálózat AUTOMATIKUS csatlakozásra állítása.
+
+    MIÉRT KELL: az AutoFix 3-4 újraindítást csinál felügyelet nélkül. Ha az ügyfél
+    profilja kézi ("manual") csatlakozásra van állítva, a gép minden boot után
+    hálózat NÉLKÜL jön fel, és a lánc megáll - hiába van meg a jelszó. Ez a kapcsoló
+    a láncot teszi működőképessé; naplózzuk, mert az ügyfél beállítását módosítja."""
+    if not ssid:
+        return False
+    res = run_fn(['netsh', 'wlan', 'set', 'profileparameter', f'name={ssid}',
+                  'connectionmode=auto'], timeout=60)
+    ok = bool(res) and res.returncode == 0
+    logging.info(f"[WLAN] '{ssid}' automatikus csatlakozásra állítva (a lánc újraindításaihoz): "
+                 f"{'OK' if ok else 'nem sikerült'} (rc={getattr(res, 'returncode', '?')})")
+    return ok
+
+
 def restore_wlan_profiles(run_fn, prefer_ssid=''):
     """A mentett WLAN-profilok visszaimportálása és csatlakozási kísérlet.
 

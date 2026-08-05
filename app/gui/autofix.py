@@ -41,6 +41,8 @@ from app.wu_core import collect_wifi_protection
 from app.wu_core import is_wifi_protected
 from app.wu_core import export_wlan_profiles
 from app.wu_core import restore_wlan_profiles
+from app.wu_core import wlan_connect
+from app.wu_core import wlan_set_autoconnect
 from app.wu_core import clear_wlan_backup
 from app.wu_core import WU_MAX_CONSECUTIVE_FAILURES
 from app.wu_core import _filter_wu_older_duplicates
@@ -270,11 +272,26 @@ class GuiAutofixMixin:
         # törlünk" alapszabály alóli kivételt itt is a FELHASZNÁLÓ adja meg, ugyanúgy,
         # mint a nyomtató-checkboxnál (lásd CLAUDE.md: nem szabad automatikus,
         # felhasználó nélküli szelektív törlést bevezetni).
+        wifi_protected_pkgs = []
         if getattr(self, '_autofix_wifi_mode', False):
             wifi_infs, wifi_state = collect_wifi_protection(self._run)
             # Az aktív SSID-t eltesszük: a vész-újracsatlakozás ezt próbálja először.
+            # Az aktív SSID-t a LÁNC-ÁLLAPOTBA is elmentjük, nem csak a példányra: a
+            # további lábak külön processzek, ott a self-attribútum már üres lenne, és a
+            # vész-újracsatlakozás nem tudná, MELYIK hálózathoz kell visszatérni.
             self._autofix_wifi_ssid = wifi_state.get('ssid', '')
+            if self._autofix_wifi_ssid:
+                self._autofix_stats_set('wifi_ssid', self._autofix_wifi_ssid)
             wifi_skipped = [d for d in drivers if is_wifi_protected(d, wifi_infs)]
+            wifi_protected_pkgs = list(wifi_skipped)
+            # A megtartott csomag azonosítóit átvisszük a ZÁRÓ lábra (külön processz!):
+            # ott derül ki, hogy a lánc közben kapott-e az eszköz újabb Wi-Fi drivert, és
+            # ha igen, ez a régi már kivezethető (lásd _replace_old_wifi_driver).
+            if wifi_skipped:
+                self._autofix_stats_set('wifi_old_driver', [
+                    {'published': d.get('published', ''), 'original': d.get('original', ''),
+                     'provider': d.get('provider', ''), 'version': d.get('version', '')}
+                    for d in wifi_skipped])
             if wifi_skipped:
                 wifi_keys = {id(d) for d in wifi_skipped}
                 drivers = [d for d in drivers if id(d) not in wifi_keys]
@@ -294,7 +311,14 @@ class GuiAutofixMixin:
             saved = export_wlan_profiles(self._run)
             if saved:
                 logging.info(f"[WLAN-BACKUP] {len(saved)} Wi-Fi profil elmentve: {[s['ssid'] for s in saved]}")
-                self.emit('task_progress', {'task': task_id, 'log': f'🛟 {len(saved)} mentett Wi-Fi hálózat biztonsági mentése kész (a lánc végén törlődik).\n'})
+                self.emit('task_progress', {'task': task_id, 'log': f'🛟 {len(saved)} Wi-Fi hálózat (jelszóval együtt) megjegyezve a lánc idejére - a mentés a végén törlődik.\n'})
+            # A lánc 3-4 felügyelet nélküli újraindítást csinál: ha az ügyfél profilja
+            # KÉZI csatlakozásra van állítva, a gép minden boot után hálózat nélkül jön
+            # fel, és a lánc megáll - hiába van meg a jelszó. Ezért az aktív hálózatot
+            # automatikus csatlakozásra állítjuk.
+            if self._autofix_wifi_ssid:
+                if wlan_set_autoconnect(self._run, self._autofix_wifi_ssid):
+                    self.emit('task_progress', {'task': task_id, 'log': f'📶 A(z) "{self._autofix_wifi_ssid}" hálózat automatikus csatlakozásra állítva, hogy az újraindítások után magától visszakapcsolódjon.\n'})
 
         total = len(drivers)
         logging.info(f"[AUTOFIX-DELETE] Ténylegesen törlendő csomagok: {total} db.")
@@ -302,7 +326,12 @@ class GuiAutofixMixin:
             # 🛟 Hálózati mentőöv: a Net-driverek exportja törlés előtt - ha a lánc
             # folytatásánál nem lenne internet (a WU/beépített driver nem fedi le a
             # hálózati kártyát), ebből állítjuk vissza őket.
-            backed_up = _export_net_driver_backup(self._run, drivers)
+            # A VÉDETT Wi-Fi csomagot is exportáljuk, pedig nem töröljük: ez a
+            # visszaállási példány. Ha bármi mégis kilövi (vagy egy későbbi lépés
+            # lecseréli és rosszul sül el), csak akkor van honnan visszahozni, ha
+            # most elmentettük - a mentés pár másodperc, a hiánya viszont egy
+            # internet nélkül maradt ügyfélgép.
+            backed_up = _export_net_driver_backup(self._run, drivers + wifi_protected_pkgs)
             if backed_up:
                 self.emit('task_progress', {'task': task_id, 'log': f'🛟 {backed_up} db hálózati driver biztonsági mentése kész (vész-visszaállításhoz).\n'})
             self.emit('task_progress', {'task': task_id, 'log': f'{total} db third-party driver eltávolítása...\n'})
@@ -1398,8 +1427,11 @@ class GuiAutofixMixin:
             # mint a nyomtatóknál), és eltakarítjuk a WLAN-profil mentést, hogy ügyfélgépen
             # ne maradjon hátra hálózati profil-fájl.
             if getattr(self, '_autofix_wifi_mode', False):
-                self.emit('task_progress', {'task': task_id, 'log': '\n📶 Wi-Fi-s telepítés: a Wi-Fi kártya drivere szándékosan MEGMARADT, hogy a kapcsolat a lánc alatt ne szakadjon meg.'})
-                self.emit('task_progress', {'task': task_id, 'log': 'Ha a Wi-Fi drivert is cserélni akarod, tedd kábelre a gépet, és futtasd újra a fixet Wi-Fi mód nélkül.'})
+                if getattr(self, '_autofix_wifi_swapped', False):
+                    self.emit('task_progress', {'task': task_id, 'log': '\n📶 Wi-Fi-s telepítés: az eszköz ÚJABB Wi-Fi drivert kapott, és a régi csomagot a végén eltávolítottuk - így minden driver kicserélődött.'})
+                else:
+                    self.emit('task_progress', {'task': task_id, 'log': '\n📶 Wi-Fi-s telepítés: a Wi-Fi kártya drivere MEGMARADT, hogy a kapcsolat a lánc alatt ne szakadjon meg.'})
+                    self.emit('task_progress', {'task': task_id, 'log': 'A Windows Update és a katalógus sem kínált hozzá újabbat, tehát a jelenlegi a legfrissebb elérhető. Ha mindenképp tiszta újratelepítést akarsz, tedd kábelre a gépet, és futtasd újra a fixet Wi-Fi mód nélkül.'})
                 clear_wlan_backup()
             # A WU videokártya-driverei jellemzően hónapokkal a gyári kiadás mögött járnak,
             # az AutoFix pedig szándékosan CSAK a WU-ból dolgozik (a gyártói ellenőrzés a
@@ -1414,6 +1446,103 @@ class GuiAutofixMixin:
     # detect_wifi_state / collect_wifi_protection / export_wlan_profiles /
     # restore_wlan_profiles / clear_wlan_backup - ott van az indoklás is.
     # ------------------------------------------------------------------
+    def _replace_old_wifi_driver(self, task_id='autofix'):
+        """ZÁRÓ LÉPÉS Wi-Fi módban: a fölöslegessé vált RÉGI Wi-Fi driver kivezetése.
+
+        A sorrend szándékosan ez (explicit user decision, 2026-08-05), és ez a biztonságos
+        irány: a lánc alatt a Wi-Fi eszköz a többivel együtt megkapja a legújabb drivert
+        (a Wi-Fi mód CSAK a törlést hagyja ki, a keresést nem - az adapter végig benne van
+        a WU-egyeztetésben és a katalógus-zárókörben), és MOST, a legvégén nézzük meg, hogy
+        tényleg átvett-e újat. Ha igen és a kapcsolat működik, a régi csomag már csak
+        szemét a DriverStore-ban - az mehet. Így minden driver kicserélődik, DE egyetlen
+        pillanatra sincs a gép hálózat nélkül: nem előbb törlünk és utána reménykedünk,
+        hanem az új már fent van és bizonyítottan működik.
+
+        A "letöltöm előre, aztán törlök és cserélek" alternatívát pont ezért nem építettük
+        meg: ott van egy ablak, amikor a gép se régi, se új driverrel nem áll - ügyfélgépen
+        ez a rosszabb kimenetel.
+
+        Biztonsági szabályok (bármelyik sérül -> a régi MARAD, ez sosem hiba):
+          - csak akkor törlünk, ha az eszköz MÁS INF-en fut, mint a védett régi;
+          - csak akkor, ha van internet (a csere bizonyítottan működik);
+          - csak akkor, ha a régi csomag már nem szerepel az AKTÍV INF-ek közt
+            (get_active_published_infs; None -> nem törlünk);
+          - sima `pnputil /delete-driver`: se /uninstall, se /force. Ha bármi mégis
+            használja, a pnputil elutasítja és a csomag marad.
+
+        Megjegyzés: a záró duplikátum-takarítás (auto_cleanup_duplicates) az AZONOS eredeti
+        INF-nevű régi verziót amúgy is eltakarítja. Ez a lépés arra az esetre kell, amikor
+        a gyártó NEVET is váltott (pl. netwtw08.inf -> netwtw10.inf) - olyankor a két csomag
+        külön csoportba esik, és a régi különben örökre bent maradna."""
+        old_pkgs = self._autofix_stats_get('wifi_old_driver') or []
+        if not old_pkgs:
+            return
+        state = detect_wifi_state(self._run)
+        current_inf = (state.get('inf') or '').lower()
+        if not current_inf:
+            logging.info("[WIFI-SWAP] A Wi-Fi eszköz aktuális INF-je nem olvasható ki - a régi driver marad.")
+            return
+        present = {(d.get('published') or '').lower(): d for d in self._get_third_party_drivers()}
+        candidates = []
+        for p in old_pkgs:
+            pub = (p.get('published') or '').lower()
+            if pub == current_inf:
+                logging.info(f"[WIFI-SWAP] Az eszköz TOVÁBBRA IS a régi Wi-Fi driveren fut ({pub}) - "
+                             "nem kapott újabbat, marad.")
+                continue
+            if pub not in present:
+                logging.info(f"[WIFI-SWAP] A régi Wi-Fi csomag ({pub}) már nincs a DriverStore-ban "
+                             "(a duplikátum-takarítás elvitte) - nincs teendő.")
+                continue
+            if (present[pub].get('original') or '').lower() != (p.get('original') or '').lower():
+                logging.warning(f"[WIFI-SWAP] {pub} időközben MÁSIK csomagé lett "
+                                f"({present[pub].get('original')} != {p.get('original')}) - nem nyúlunk hozzá.")
+                continue
+            candidates.append(p)
+        if not candidates:
+            return
+        if not self._check_internet():
+            logging.warning("[WIFI-SWAP] Nincs internet a lánc végén - a régi Wi-Fi drivert biztonságból MEGTARTJUK.")
+            self.emit('task_progress', {'task': task_id, 'log': '⚠️ A régi Wi-Fi driver megmarad: a kapcsolat most nem ellenőrizhető.'})
+            return
+        active = dupdrivers_core.get_active_published_infs(self._run)
+        if active is None:
+            logging.warning("[WIFI-SWAP] Az aktív INF-lista nem kérdezhető le - a régi Wi-Fi driver marad.")
+            return
+        self.emit('task_progress', {'task': task_id, 'log': f'\n📶 A Wi-Fi eszköz újabb drivert kapott ({current_inf}) és a kapcsolat működik - a régi csomag kivezetése...'})
+        removed = []
+        for p in candidates:
+            pub = p['published']
+            if pub.lower() in active:
+                logging.info(f"[WIFI-SWAP] {pub} még AKTÍV (más eszköz használja) - marad.")
+                continue
+            logging.warning(f"[WIFI-SWAP] Régi Wi-Fi driver kivezetése: {pub} ({p.get('original')}) - "
+                            f"{p.get('provider')} {p.get('version')}")
+            res = self._run(['pnputil', '/delete-driver', pub], ok_codes=(0, 3010))
+            if res and res.returncode in (0, 3010):
+                removed.append(f"{p.get('original') or pub} ({p.get('version') or '?'})")
+            else:
+                logging.info(f"[WIFI-SWAP] A kivezetést a pnputil elutasította (marad): {pub}, "
+                             f"rc={getattr(res, 'returncode', '?')}")
+        if not removed:
+            return
+        self._autofix_wifi_swapped = True
+        # A törlés UTÁN is meg kell néznünk a kapcsolatot: ha bármi félresikerült, azt a
+        # technikusnak látnia kell, nem a következő ügyfélnek.
+        still_ok = self._wait_for_internet(60, task_id, 'a régi Wi-Fi driver kivezetése után')
+        # Ha mégis elment a kapcsolat, itt is a megjegyzett jelszóval próbálunk vissza -
+        # ugyanaz az út, mint az újraindítások után (a mentés még megvan, a lánc végi
+        # törlése csak az összefoglaló után jön).
+        if not still_ok:
+            still_ok = self._autofix_recover_wifi(task_id)
+        for r in removed:
+            self.emit('task_progress', {'task': task_id, 'log': f'   🗑 Régi Wi-Fi driver törölve: {r}'})
+        if still_ok:
+            self.emit('task_progress', {'task': task_id, 'log': '✅ A Wi-Fi az ÚJ driveren fut, a régi eltávolítva - így minden driver kicserélődött.\n'})
+        else:
+            logging.error("[WIFI-SWAP] A régi Wi-Fi driver törlése UTÁN megszűnt az internet!")
+            self.emit('task_progress', {'task': task_id, 'log': '⚠️ A régi Wi-Fi driver törlése után megszűnt a kapcsolat! Ha nem jön vissza magától, dugj a gépbe USB-RJ45 átalakítót, és futtass egy szkennelést a "Driver Keresés és Telepítés" menüben.\n'})
+
     def _net_wait_seconds(self):
         """Mennyit várjunk a hálózatra ebben a lábban. Wi-Fi módban lényegesen többet."""
         return AUTOFIX_NET_WAIT_WIFI if getattr(self, '_autofix_wifi_mode', False) else AUTOFIX_NET_WAIT_WIRED
@@ -1439,9 +1568,26 @@ class GuiAutofixMixin:
         csatlakozás, majd újabb várakozás. Csak akkor fut, ha a türelmes várakozás után
         SINCS internet - vagyis vagy a driver, vagy a profil, vagy a hálózat maga hiányzik.
         Visszatérés: lett-e internet."""
-        self.emit('task_progress', {'task': task_id, 'log': '📶 Nincs Wi-Fi kapcsolat - mentett hálózati profilok visszaállítása és újracsatlakozás...'})
+        # A megjegyzett hálózat neve a LÁNC-ÁLLAPOTBÓL jön: a lábak külön processzek, a
+        # példány-attribútum itt (a telepítő lábon) már üres - a nevet a törlési fázis
+        # tette el az autofix_stats.json-ba.
+        ssid = (getattr(self, '_autofix_wifi_ssid', '') or self._autofix_stats_get('wifi_ssid') or '')
+        # 1. GYORS ÚT: a profil és a jelszó jellemzően megvan, a Windows csak nem
+        #    kapcsolódott vissza magától. Ehhez semmit nem kell importálni.
+        if ssid:
+            self.emit('task_progress', {'task': task_id, 'log': f'📶 Újracsatlakozás a megjegyzett hálózathoz: "{ssid}"...'})
+            wlan_set_autoconnect(self._run, ssid)
+            if wlan_connect(self._run, ssid) and self._wait_for_internet(45, task_id, 'újracsatlakozás'):
+                self.emit('task_progress', {'task': task_id, 'log': '✅ Wi-Fi kapcsolat helyreállt (a megjegyzett jelszóval).\n'})
+                return True
+        # 2. TELJES ÚT: a profil elveszett (jellemzően azért, mert a driver újratelepítése
+        #    után az interfész új GUID-ot kapott, és a profilok árván maradtak) - a mentett
+        #    profilokat visszaimportáljuk a JELSZAVAKKAL együtt, és újra csatlakozunk.
+        self.emit('task_progress', {'task': task_id, 'log': '📶 A mentett Wi-Fi profilok (jelszavakkal) visszatöltése...'})
         try:
-            tried = restore_wlan_profiles(self._run, getattr(self, '_autofix_wifi_ssid', '') or '')
+            tried = restore_wlan_profiles(self._run, ssid)
+            if ssid:
+                wlan_set_autoconnect(self._run, ssid)
         except Exception as e:
             logging.warning(f"[WIFI] A WLAN-profilok visszaállítása elhasalt: {e}")
             tried = False
@@ -1815,6 +1961,17 @@ class GuiAutofixMixin:
                         self._run,
                         lambda m: self.emit('task_progress', {'task': 'autofix', 'log': m}),
                         self._get_third_party_drivers)
+
+                    # WI-FI ZÁRÓ CSERE: a törlésből védett RÉGI Wi-Fi driver kivezetése,
+                    # ha az eszköz időközben újabbat kapott és a kapcsolat működik. Csak
+                    # Wi-Fi módban van mit tennie, és szándékosan a duplikátum-takarítás
+                    # UTÁN fut: az az azonos eredeti INF-nevű régi verziót amúgy is elviszi,
+                    # ide már csak a gyártói NÉVVÁLTÁS esete marad (lásd a metódus doc-ját).
+                    if getattr(self, '_autofix_wifi_mode', False):
+                        try:
+                            self._replace_old_wifi_driver('autofix')
+                        except Exception as e:
+                            logging.warning(f"[WIFI-SWAP] A régi Wi-Fi driver kivezetése nem sikerült (nem kritikus): {e}")
 
                     # ZÁRÓ ÖSSZEFOGLALÓ: lánc-szintű telepítés-szám + vissza nem került
                     # csomagok + maradék hibakódos eszközök. A pre_packages-t a stats-fájl
