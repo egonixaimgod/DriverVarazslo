@@ -38,6 +38,9 @@ from app.wu_core import _export_net_driver_backup
 from app.wu_core import _restore_net_driver_backup
 from app.wu_core import detect_wifi_state
 from app.wu_core import collect_driver_usage
+from app.wu_core import _parse_driver_version
+from app.wu_core import STORAGE_RISK_CLASSES
+from app.wu_core import FIRMWARE_RISK_CLASSES
 from app.wu_core import collect_wifi_protection
 from app.wu_core import is_wifi_protected
 from app.wu_core import export_wlan_profiles
@@ -923,8 +926,12 @@ class GuiAutofixMixin:
                         s, _f, _c = self._install_catalog_sync(found, task_id=task_id)
                         total_installed_in_session += s
                         # Amit most nem vett át az eszköz, azt jegyezzük fel a következő lábnak.
+                        # A BUKÁS OKA is elmegy: a záró jelentés csak ebből tudja
+                        # megkülönböztetni a két, gyökeresen mást jelentő esetet -
+                        # "fel sem ment, mert nem ide való INF" vs. "felment, de az
+                        # eszköz nem vette át". Lásd _emit_catalog_no_bind.
                         fresh = [{'pnp': (d.get('pnp_id') or '').upper(), 'title': d.get('wu_title') or '',
-                                  'name': d.get('name') or ''}
+                                  'name': d.get('name') or '', 'reason': d.get('no_bind_reason') or ''}
                                  for d in (getattr(self, '_catalog_no_bind', None) or [])]
                         if fresh:
                             self._autofix_stats_set('catalog_no_bind', tried + fresh)
@@ -1378,18 +1385,30 @@ class GuiAutofixMixin:
         módosít, minden hibát elnyel."""
         try:
             inst_info = self._get_installed_driver_info()
-            worth, by_design = [], 0
+            # AMIT A FELHASZNÁLÓ KIPIPÁLT, AZT MEG SEM KERESTÜK - tehát nem állíthatjuk
+            # róla, hogy "nem találtunk hozzá gyári csomagot". Terep (Build 264,
+            # 2026-08-06): a tároló-jelölőnégyzet KI volt kapcsolva, a `Standard NVM
+            # Express Controller` így ki sem került a keresésbe - a záró jelentés mégis a
+            # "gyári driver jobb lenne, egyik forrás sem adott csomagot" listára tette.
+            # A szerelő ebből azt olvassa ki, hogy a program nem talált valamit, holott
+            # nem is kereste. Külön soron a helye, a valódi okkal.
+            gated = STORAGE_RISK_CLASSES if not getattr(self, '_autofix_allow_storage', False) else set()
+            gated_fw = FIRMWARE_RISK_CLASSES if not getattr(self, '_autofix_allow_firmware', False) else set()
+            worth, by_design, skipped_by_user = [], 0, []
             for dev in devices or []:
                 if dev.get('err_code'):
                     continue   # a hibakódosakat a másik szekció listázza
                 inst = inst_info.get((dev.get('pnp_id') or '').upper()) or {}
                 if not inst or not _is_inbox_driver(inst):
                     continue
-                if self._health_report_worth_listing(dev, inst):
+                pclass = (dev.get('pclass') or '').strip().upper()
+                if pclass in gated or pclass in gated_fw:
+                    skipped_by_user.append((dev, inst))
+                elif self._health_report_worth_listing(dev, inst):
                     worth.append((dev, inst))
                 else:
                     by_design += 1
-            if not worth and not by_design:
+            if not worth and not by_design and not skipped_by_user:
                 self.emit('task_progress', {'task': task_id, 'log': '✅ Nincs olyan eszköz, ami Windows-alapdriveren maradt.'})
                 return
             if worth:
@@ -1399,6 +1418,13 @@ class GuiAutofixMixin:
                     inf = inst.get('inf') or '?'
                     self.emit('task_progress', {'task': task_id, 'log': f"   • {dev['name']} [{dev.get('cat', '')}] - {inf} {ver}"})
                 self.emit('task_progress', {'task': task_id, 'log': '👉 Ezekhez sem a Windows Update, sem a Microsoft Update Catalog nem adott gyári csomagot. Alaplapi hang/LAN/chipset esetén az alaplap- vagy gépgyártó letöltőoldaláról pótolható (lásd a "Driver Keresés és Telepítés" menü gyártói kártyáit).'})
+            if skipped_by_user:
+                names = ', '.join(f"{d['name']}" for d, _i in skipped_by_user[:4])
+                more = f" (és további {len(skipped_by_user) - 4})" if len(skipped_by_user) > 4 else ''
+                logging.info(f"[AUTOFIX] A jelölőnégyzetek miatt ki sem keresett, alapdriveres eszközök: "
+                             f"{[d['name'] for d, _i in skipped_by_user]}")
+                self.emit('task_progress', {'task': task_id, 'log': f'\n🛡️ {len(skipped_by_user)} eszköz a Windows beépített driverén fut, de ezekre a fix indításakor NEM engedélyezted a keresést: {names}{more}.'})
+                self.emit('task_progress', {'task': task_id, 'log': '   Ez nem hiba: a tároló- és firmware-drivereket szándékosan hagyjuk békén (egy rossz csere itt visszafordíthatatlan). Ha mégis kellenek, indítsd újra a fixet a megfelelő jelölőnégyzettel.'})
             if by_design:
                 self.emit('task_progress', {'task': task_id, 'log': f'ℹ️ További {by_design} eszköz a Windows beépített driverén fut, és ez így HELYES: PCI-hidak, ACPI-csomópontok, USB-gyökérhubok, WAN Miniportok, billentyűzet/egér - ezekhez gyári driver nem is létezik, a gyártók ide szoftvert adnak, nem drivert.'})
         except Exception as e:
@@ -1478,16 +1504,70 @@ class GuiAutofixMixin:
         if not no_bind:
             return
         try:
-            names = []
+            # 1) AMI MÁR FENT VAN, AZT NEM JELENTJÜK HIÁNYZÓNAK.
+            # Terep (Build 264, 2026-08-06): a Creative csomag (1.16.4.26) a WU-n keresztül
+            # SIKERESEN felment és rá is kötött a Sound Blaster Play! 4-re (oem7.inf) - a
+            # katalógus-kör viszont ugyanezt a csomagot a szomszédos HID-csomópontra
+            # ("USB Input Device") is felajánlotta, ahol az INF jogosan nem illeszkedik, és
+            # ez a jelentésben "megtaláltuk, de az eszköz nem vette át"-ként jelent meg.
+            # Vagyis a szerelő azt olvasta, hogy hiányzik egy driver, ami valójában fent van
+            # és működik. A csomag AZONOSSÁGA a gyártó + verzió párosból látszik: a
+            # katalógus-cím mindkettőt tartalmazza ('Creative Technology Ltd. - MEDIA - 1.16.4.26').
+            installed = [d for d in (self._get_third_party_drivers() or []) if d.get('provider')]
+
+            def _already_installed(title):
+                ver = _parse_driver_version(title)
+                if ver is None:
+                    return None
+                t = (title or '').lower()
+                for d in installed:
+                    prov = (d.get('provider') or '').strip().lower()
+                    if not prov or _parse_driver_version(d.get('version') or '') != ver:
+                        continue
+                    # A cím a gyártó nevével kezdődik; elég az első pár szó egyezése
+                    # (a katalógus és a DISM másképp rövidít: "Creative Technology Ltd."
+                    # vs "Creative Technology Ltd").
+                    head = ' '.join(prov.replace(',', ' ').split()[:2])
+                    if head and head in t:
+                        return d
+                return None
+
+            fresh, already = [], []
             for nb in no_bind:
+                hit = _already_installed(nb.get('title') or '')
+                (already if hit else fresh).append((nb, hit))
+            for nb, hit in already:
+                logging.info(f"[AUTOFIX] NEM jelentjük hiányzónak ({nb.get('name')} - {nb.get('title')}): "
+                             f"a csomag már fent van a gépen ({hit.get('published')} / "
+                             f"{hit.get('original')} {hit.get('version')}), csak egy másik "
+                             f"eszközcsomópontra nem volt alkalmazható.")
+            if not fresh:
+                return
+
+            # 2) A KÉT ESET SZÉTVÁLASZTVA. A régi szöveg ("az eszköz végül NEM vette át")
+            # a kötési hibát írja le - az INF-vétónál viszont a csomag EL SEM INDULT, mert
+            # bizonyítottan más gépre való. Ugyanaz a mondat a két esetre félrevezető.
+            def _line(nb):
                 nm = (nb.get('name') or '?').strip()
                 ttl = (nb.get('title') or '').strip()
-                names.append(f"{nm} - {ttl}" if ttl else nm)
-            logging.info(f"[AUTOFIX] A katalógusban volt csomag, de az eszköz nem kapta meg: {names}")
-            self.emit('task_progress', {'task': task_id, 'log': f'\n📎 {len(names)} db csomagot megtaláltunk a Microsoft Update Catalogban, de az eszköz végül NEM vette át:'})
-            for n in names:
-                self.emit('task_progress', {'task': task_id, 'log': f'   • {n}'})
-            self.emit('task_progress', {'task': task_id, 'log': 'Ezek jellemzően más gépgyártóra szabott változatok, vagy a Windows egy nála pontosabban illeszkedő drivert részesített előnyben.'})
+                return f"   • {nm} - {ttl}" if ttl else f"   • {nm}"
+
+            wrong_pkg = [nb for nb, _h in fresh if 'nem alkalmazható' in (nb.get('reason') or '')]
+            not_bound = [nb for nb, _h in fresh if nb not in wrong_pkg]
+            logging.info(f"[AUTOFIX] Katalógus-csomag nem jutott el az eszközig - más gépre való: "
+                         f"{[nb.get('name') for nb in wrong_pkg]}; nem kötött rá: "
+                         f"{[nb.get('name') for nb in not_bound]}")
+
+            if wrong_pkg:
+                self.emit('task_progress', {'task': task_id, 'log': f'\n📎 {len(wrong_pkg)} eszközhöz volt ugyan csomag a Microsoft Update Catalogban, de az MÁS GÉPRE/ALAPLAPRA készült (nem telepítettük fel):'})
+                for nb in wrong_pkg:
+                    self.emit('task_progress', {'task': task_id, 'log': _line(nb)})
+                self.emit('task_progress', {'task': task_id, 'log': '   A katalógus ugyanarra a chipre a többi gépgyártó változatát is felkínálja; a program ellenőrizte az INF-eket, és ezek egyike sem ismeri ezt az eszközt. Ez nem hiba, csak ehhez a géphez nincs gyári csomag a katalógusban.'})
+            if not_bound:
+                self.emit('task_progress', {'task': task_id, 'log': f'\n📎 {len(not_bound)} csomag feltelepült, de az eszköz végül NEM vette át:'})
+                for nb in not_bound:
+                    self.emit('task_progress', {'task': task_id, 'log': _line(nb)})
+                self.emit('task_progress', {'task': task_id, 'log': '   A Windows egy nála pontosabban illeszkedő drivert részesített előnyben.'})
             self.emit('task_progress', {'task': task_id, 'log': '👉 TEENDŐ: videokártyánál a "Driver Keresés és Telepítés" menü gyártói (NVIDIA/AMD/Intel) kártyája adja a legfrissebb drivert; alaplapi eszköznél az alaplapgyártó letöltőoldala.'})
         except Exception as e:
             logging.warning(f"[AUTOFIX] A nem-kötő katalógus-csomagok jelentése hiba (nem kritikus): {e}")
