@@ -1222,6 +1222,20 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
           <span id="mc-wifi-hint" style="display:block;margin-top:5px;font-size:12px;font-weight:400;color:var(--text3);line-height:1.5">A gép Wi-Fin csatlakozik: a fix megtartja a Wi-Fi drivert, és minden újraindítás után megvárja az újracsatlakozást.</span>
         </span>
       </label>
+      <!-- Wi-Fi driver TELJES újraépítése. Alapból BE (explicit user decision, 2026-08-06):
+           a Wi-Fi mód megtartja a drivert a törlésnél, ezért az csak HELYBEN frissül, és az
+           adapter beállítás-kulcsa (energiatakarékos üzemmód, 802.11 mód, roaming) megmarad -
+           pedig a terepi panaszok egy része pont onnan jön. Vezetékes gépen a jelölőnégyzet
+           KISZÜRKÍTVE, bekapcsolva látszik: ott a Wi-Fi driver a normál törlési fázisban megy
+           el és a WU rakja vissza, tehát a teljes újraépítés külön lépés nélkül is megtörténik. -->
+      <label class="toggle" id="mc-rebuild-wifi-row" style="display:none;margin-top:10px;margin-left:16px" title="Alapból BE. A fix a Wi-Fi drivert nem csak frissíti, hanem le is szedi és a mentett példányból tisztán visszatelepíti - így az adapter beállításai (energiatakarékos üzemmód, 802.11 mód, roaming) is alaphelyzetbe állnak. A művelet alatt a Wi-Fi pár percre megszakadhat, a gép a mentett jelszavakkal magától visszacsatlakozik. Kikapcsolva a Wi-Fi driver csak akkor cserélődik, ha van nála újabb kiadás - és a kapcsolat egy pillanatra sem szakad meg.">
+        <input type="checkbox" id="mc-rebuild-wifi" checked>
+        <span class="toggle-track"></span>
+        <span style="display:block">
+          🔄 A Wi-Fi driver teljes újraépítése (törlés + tiszta újratelepítés)
+          <span id="mc-rebuild-wifi-hint" style="display:block;margin-top:3px;font-size:12px;font-weight:400;color:var(--text3);line-height:1.45">Az adapter beállításai is alaphelyzetbe állnak. A kapcsolat pár percre megszakadhat, utána magától visszajön.</span>
+        </span>
+      </label>
       <label class="toggle" id="mc-skip-printers-row" style="display:none;margin-top:14px" title="Bekapcsolva a meglévő nyomtató/szkenner driverek NEM törlődnek - ezek gyakran csak a gyári driverrel működnek jól, és egy multifunkciós készülék segéd-driverei több eszközosztályban szétszórva ülnek. FONTOS: ez csak a TÖRLÉSRE vonatkozik. Újabb nyomtató-drivert a program mindkét állásban keres és telepít, ha a Windows Update kínál.">
         <input type="checkbox" id="mc-skip-printers" checked>
         <span class="toggle-track"></span>
@@ -2591,6 +2605,8 @@ async function startAutoFix(skipConfirm = false) {
   let allowStorage = false;
   let allowFirmware = false;
   let wifiMode = false;
+  // Resume lábon a Python sys.argv-ből olvassa vissza; itt csak alapérték kell.
+  let rebuildWifi = true;
   let keepPackages = [];
   if (!ok) {
     const res = await showAutoFixConfirm('1 Kattintásos Driver Fix', 'Megerősíted a teljes automatikus javítás (visszaállítási pont, driver törlés és újratelepítés) indítását?');
@@ -2599,13 +2615,14 @@ async function startAutoFix(skipConfirm = false) {
     allowStorage = res.allowStorage;
     allowFirmware = res.allowFirmware;
     wifiMode = res.wifiMode;
+    rebuildWifi = res.rebuildWifi !== false;
     keepPackages = res.keepPackages || [];
   }
   if (ok) {
     document.getElementById('btn-autofix').disabled = true;
     document.getElementById('btn-autofix').textContent = '⏳ FOLYAMATBAN...';
     try {
-      await api().run_autofix(skipPrinters, allowStorage, allowFirmware, wifiMode, keepPackages);
+      await api().run_autofix(skipPrinters, allowStorage, allowFirmware, wifiMode, keepPackages, rebuildWifi);
     } catch (e) {
       toast('Autofix hiba: ' + e, 'error');
       document.getElementById('btn-autofix').disabled = false;
@@ -3523,18 +3540,22 @@ function showAutoFixConfirm(title, message) {
       const storage = document.getElementById('mc-allow-storage').checked;
       const firmware = document.getElementById('mc-allow-firmware').checked;
       const wifi = document.getElementById('mc-wifi-mode').checked;
+      // Vezetékesen a kapcsoló ki van szürkítve (mindig bejelölve) - a Python úgyis
+      // csak Wi-Fi módban veszi figyelembe, ott viszont a tech kikapcsolhatja.
+      const rebuildWifi = document.getElementById('mc-rebuild-wifi').checked;
       // Amit a tech kézzel kivett: csak a NEM zárolt sorok számítanak (a zároltakat
       // úgyis a Python védi, és a kettőt nem szabad összekeverni).
       const keep = delPreview
         .filter(d => !delRowLock(d) && delUnchecked.has((d.published || '').toLowerCase()))
         .map(d => ({ published: d.published, original: d.original }));
       document.getElementById('mc-wifi-mode-row').style.display = 'none';
+      document.getElementById('mc-rebuild-wifi-row').style.display = 'none';
       document.getElementById('mc-skip-printers-row').style.display = 'none';
       document.getElementById('mc-allow-storage-row').style.display = 'none';
       document.getElementById('mc-allow-firmware-row').style.display = 'none';
       document.getElementById('mc-del-panel').style.display = 'none';
       document.getElementById('mc-box').style.maxWidth = '480px';
-      resolve({ ok: val, skipPrinters: skip, allowStorage: storage, allowFirmware: firmware, wifiMode: wifi, keepPackages: keep });
+      resolve({ ok: val, skipPrinters: skip, allowStorage: storage, allowFirmware: firmware, wifiMode: wifi, rebuildWifi: rebuildWifi, keepPackages: keep });
     };
     document.getElementById('mc-title').textContent = title;
     document.getElementById('mc-message').textContent = message;
@@ -3580,13 +3601,32 @@ function showAutoFixConfirm(title, message) {
     wifiBox.checked = false;
     wifiHint.textContent = 'Hálózat felismerése...';
     document.getElementById('mc-wifi-mode-row').style.display = 'flex';
+    // A Wi-Fi driver újraépítése: alapból BE. Vezetékes gépen kiszürkítve marad
+    // bekapcsolva, mert ott a driver amúgy is a normál törlési fázisban cserélődik -
+    // a kapcsoló ilyenkor azt MUTATJA, ami történik, nem befolyásol semmit.
+    const rebuildRow = document.getElementById('mc-rebuild-wifi-row');
+    const rebuildBox = document.getElementById('mc-rebuild-wifi');
+    const rebuildHint = document.getElementById('mc-rebuild-wifi-hint');
+    function syncRebuildWifi() {
+      const onWifi = wifiBox.checked;
+      rebuildRow.style.display = 'flex';
+      rebuildBox.checked = true;
+      rebuildBox.disabled = !onWifi;
+      rebuildRow.style.opacity = onWifi ? '1' : '0.55';
+      rebuildRow.style.marginLeft = onWifi ? '16px' : '0';
+      rebuildHint.textContent = onWifi
+        ? 'Az adapter beállításai is alaphelyzetbe állnak. A kapcsolat pár percre megszakadhat, utána a mentett jelszavakkal magától visszajön. Kikapcsolva csak frissítés történik, megszakadás nélkül.'
+        : 'Vezetékes gépen ez automatikus: a Wi-Fi driver a többivel együtt törlődik és tisztán települ vissza.';
+    }
+    syncRebuildWifi();
     // A bal oldali kapcsolók állása azonnal átrajzolja a jobb oldali listát (zárolás).
-    wifiBox.onchange = renderDeletePreview;
+    wifiBox.onchange = () => { syncRebuildWifi(); renderDeletePreview(); };
     document.getElementById('mc-skip-printers').onchange = renderDeletePreview;
     api().get_autofix_net_state().then(st => {
       st = st || {};
       if (st.suggest) {
         wifiBox.checked = true;
+        syncRebuildWifi();
         renderDeletePreview();
         wifiHint.textContent = 'Felismerve: a gép Wi-Fin csatlakozik'
           + (st.ssid ? ' (' + st.ssid + ')' : '') + '. A fix megtartja a Wi-Fi drivert, és minden újraindítás után megvárja az újracsatlakozást.';

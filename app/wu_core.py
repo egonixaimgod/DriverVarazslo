@@ -2120,6 +2120,110 @@ def is_wifi_protected(drv, protected_infs):
             or (drv.get('original', '') or '').lower() in protected_infs)
 
 
+def _wifi_backup_dir():
+    """A Wi-Fi csomag KÜLÖN mentési helye - szándékosan nem a netdrv_backup gyökere.
+
+    A netdrv_backup a gép ÖSSZES Net-driverét tartalmazza (köztük a vezetékesét, amit a
+    lánc törölt és a WU fog visszarakni). Ha a Wi-Fi újraépítéskor onnan telepítenénk
+    vissza, a vezetékes régi csomagját is visszaraknánk - épp azt, aminek frissen kell
+    visszajönnie. Ezért a Wi-Fi csomag saját, egyértelmű mappát kap."""
+    return os.path.join(_net_backup_dir(), 'wifi')
+
+
+def export_wifi_driver_backup(run_fn, wifi_pkgs):
+    """A Wi-Fi csomag(ok) exportálása a saját mentési mappába (a teljes újraépítéshez).
+    Visszatérés: a sikeresen exportált csomagok száma."""
+    pkgs = [p for p in (wifi_pkgs or []) if p.get('published')]
+    if not pkgs:
+        return 0
+    dest = _wifi_backup_dir()
+    try:
+        shutil.rmtree(dest, ignore_errors=True)
+        os.makedirs(dest, exist_ok=True)
+    except Exception as e:
+        logging.warning(f"[WIFI-REBUILD] A mentési mappa előkészítése sikertelen: {e}")
+        return 0
+    exported = 0
+    for p in pkgs:
+        res = run_fn(['pnputil', '/export-driver', p['published'], dest], timeout=300)
+        if res and res.returncode == 0:
+            exported += 1
+            logging.info(f"[WIFI-REBUILD] Mentve az újraépítéshez: {p['published']} ({p.get('original')})")
+        else:
+            logging.warning(f"[WIFI-REBUILD] Export SIKERTELEN: {p.get('published')} - "
+                            f"enélkül nem építjük újra a drivert.")
+    return exported
+
+
+def wifi_backup_has_inf():
+    """Van-e egyáltalán visszatelepíthető INF a Wi-Fi mentésben? Az újraépítés CSAK
+    akkor indulhat el, ha van mit visszarakni - enélkül a törlés egyirányú utca lenne."""
+    src = _wifi_backup_dir()
+    if not os.path.isdir(src):
+        return False
+    for _root, _dirs, files in os.walk(src):
+        if any(f.lower().endswith('.inf') for f in files):
+            return True
+    return False
+
+
+def rebuild_wifi_driver(run_fn, wifi_pkgs):
+    """A Wi-Fi driver TELJES újraépítése: eltávolítás az eszközről, majd visszatelepítés
+    a mentett példányból.
+
+    MIÉRT KELL (explicit user decision, 2026-08-06): a Wi-Fi mód a törlésből hagyja ki az
+    adapter driverét, hogy a kapcsolat a lánc alatt ne szakadjon meg. Ennek viszont ára
+    van: a csomag csak akkor cserélődik, ha van NÁLA ÚJABB kiadás, és még olyankor is
+    csak HELYBEN frissül. Az adapter beállítás-kulcsa (Speciális fül: energiatakarékos
+    üzemmód, 802.11 mód, roaming) ilyenkor MEGMARAD - pedig a terepi panaszok egy része
+    (pl. "a hálózati nyomtatót folyton eldobja") pont egy elrontott beállításból jön, nem
+    a driverfájlokból. A `/uninstall` az, ami leválasztja a drivert az ESZKÖZRŐL, és
+    ettől épül újra a beállítás-kulcs alapértelmezettre - ugyanaz, amit a többi driver a
+    lánc alatt amúgy is megkap.
+
+    A sorrend (töröl -> visszarak ugyanabból a mentésből) alatt a gépnek pár percre
+    nincs Wi-Fije. Ezért fut ez a lépés a TÖRLÉSI fázis végén, közvetlenül az újraindítás
+    előtt: ha bármi félremegy, a reboot utáni lábon a MÁR MEGLÉVŐ mentőág
+    (_wait_for_internet -> _autofix_recover_wifi -> _restore_net_driver_backup)
+    magától helyreállítja a kapcsolatot.
+
+    Visszatérés: (sikerült-e a visszatelepítés, üzenet)."""
+    pkgs = [p for p in (wifi_pkgs or []) if p.get('published')]
+    if not pkgs:
+        return False, 'nincs azonosított Wi-Fi csomag'
+    if not wifi_backup_has_inf():
+        logging.warning("[WIFI-REBUILD] Nincs mentett példány - az újraépítés KIMARAD "
+                        "(törölni csak akkor szabad, ha van mit visszarakni).")
+        return False, 'nincs mentett példány, ezért nem nyúlunk hozzá'
+
+    removed = []
+    for p in pkgs:
+        res = run_fn(['pnputil', '/delete-driver', p['published'], '/uninstall', '/force'],
+                     timeout=300, ok_codes=(0, 3010))
+        ok = bool(res) and res.returncode in (0, 3010)
+        logging.warning(f"[WIFI-REBUILD] Eltávolítás az eszközről: {p['published']} "
+                        f"({p.get('original')}) rc={getattr(res, 'returncode', '?')} "
+                        f"-> {'OK' if ok else 'NEM SIKERÜLT'}")
+        if ok:
+            removed.append(p)
+    if not removed:
+        # Semmit nem sikerült leszedni: a driver a régi maradt, de a gép hálózata ép.
+        return False, 'az eltávolítás nem sikerült, a régi driver maradt'
+
+    src = _wifi_backup_dir()
+    res = run_fn(['pnputil', '/add-driver', os.path.join(src, '*.inf'), '/subdirs', '/install'],
+                 timeout=600, ok_codes=(0, 259, 3010))
+    ok = bool(res) and (res.returncode in (0, 259, 3010)
+                        or 'successfully' in (res.stdout or '').lower())
+    logging.info(f"[WIFI-REBUILD] Visszatelepítés innen: {src} rc={getattr(res, 'returncode', '?')} "
+                 f"-> {'OK' if ok else 'NEM SIKERÜLT'}")
+    run_fn(['pnputil', '/scan-devices'], timeout=180)
+    reboot = bool(res) and res.returncode == 3010
+    if not ok:
+        return False, 'a visszatelepítés nem sikerült'
+    return True, ('újraindítás után áll össze' if reboot else 'kész')
+
+
 def _wlan_backup_dir():
     return os.path.join(_app_data_dir(), 'wlan_backup')
 

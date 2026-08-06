@@ -43,6 +43,8 @@ from app.wu_core import STORAGE_RISK_CLASSES
 from app.wu_core import FIRMWARE_RISK_CLASSES
 from app.wu_core import collect_wifi_protection
 from app.wu_core import is_wifi_protected
+from app.wu_core import export_wifi_driver_backup
+from app.wu_core import rebuild_wifi_driver
 from app.wu_core import export_wlan_profiles
 from app.wu_core import restore_wlan_profiles
 from app.wu_core import wlan_connect
@@ -369,6 +371,11 @@ class GuiAutofixMixin:
             backed_up = _export_net_driver_backup(self._run, drivers + wifi_protected_pkgs)
             if backed_up:
                 self.emit('task_progress', {'task': task_id, 'log': f'🛟 {backed_up} db hálózati driver biztonsági mentése kész (vész-visszaállításhoz).\n'})
+            # A Wi-Fi csomag KÜLÖN mentése is megtörténik, ha az újraépítést kérték: a
+            # visszatelepítésnek egyértelmű forrás kell (a netdrv_backup gyökeréből a
+            # vezetékes régi csomagját is visszaraknánk - lásd _wifi_backup_dir).
+            if getattr(self, '_autofix_rebuild_wifi', False) and wifi_protected_pkgs:
+                export_wifi_driver_backup(self._run, wifi_protected_pkgs)
             self.emit('task_progress', {'task': task_id, 'log': f'{total} db third-party driver eltávolítása...\n'})
             # A törlésre kijelölt csomagok listája a lánc-állapotba: a záró láb ebből
             # tudja megmondani, MELYIK csomag nem került vissza a fix végére (a WU nem
@@ -490,8 +497,10 @@ class GuiAutofixMixin:
                 # Végigértünk, de maradt beragadt csomag - az újraindítás utáni láb söpri be.
                 self._autofix_stats_set('pending_deletes', deferred)
                 self.emit('task_progress', {'task': task_id, 'log': f'✅ Driverek eltávolítva ({len(deferred)} db az újraindítás után fejeződik be).\n'})
+                self._rebuild_wifi_driver_step(wifi_protected_pkgs, task_id)
                 return 'ok'
             self.emit('task_progress', {'task': task_id, 'log': '✅ Driverek eltávolítva.\n'})
+            self._rebuild_wifi_driver_step(wifi_protected_pkgs, task_id)
         else:
             self.emit('task_progress', {'task': task_id, 'log': '✅ Nincs third-party driver a rendszerben.\n'})
         return 'ok'
@@ -978,6 +987,8 @@ class GuiAutofixMixin:
             resume_flag += ' --allow-firmware'
         if getattr(self, '_autofix_wifi_mode', False) and '--wifi-mode' not in resume_flag:
             resume_flag += ' --wifi-mode'
+        if getattr(self, '_autofix_rebuild_wifi', False) and '--rebuild-wifi-driver' not in resume_flag:
+            resume_flag += ' --rebuild-wifi-driver'
         exe_path = _app_exe_path()
         temp_env = os.environ.get('TEMP', '!!').lower()
         # Ha temp mappából fut a program, a következő indulásig törlődhet alóla az exe -
@@ -1696,6 +1707,59 @@ class GuiAutofixMixin:
             logging.warning(f"[PREVIEW] A törlési előnézet összeállítása sikertelen: {e}")
             return {'drivers': [], 'wifi_adapter': '', 'error': str(e)}
 
+    def _rebuild_wifi_driver_step(self, wifi_pkgs, task_id='autofix'):
+        """A Wi-Fi driver TELJES újraépítése a törlési fázis végén (opcionális lépés).
+
+        A HELYE SZÁNDÉKOS: közvetlenül a törlési láb újraindítása ELŐTT. A művelet alatt
+        a gépnek pár percre nincs Wi-Fije (leszedjük a drivert, majd a mentett példányból
+        visszarakjuk), és épp az utána jövő reboot teszi ezt ártalmatlanná: a következő
+        lábon a MÁR MEGLÉVŐ mentőág (_wait_for_internet -> _autofix_recover_wifi ->
+        _restore_net_driver_backup) magától helyreállítja a kapcsolatot, ha bármi
+        félrement. A lánc VÉGÉRE ugyanez nem tehető: ott nincs több újraindítás, tehát
+        egy reboot-igényes driver net nélkül hagyná a gépet.
+
+        Miért nem fut vezetékes gépen: ott nincs Wi-Fi mód, tehát az adapter drivere a
+        NORMÁL törlési fázisban megy el a többivel együtt, és a WU rakja vissza - a teljes
+        újraépítés külön lépés nélkül is megtörténik. (A felületen ezért látszik a
+        jelölőnégyzet kiszürkítve, bekapcsolva: azt mutatja, ami amúgy is történik.)
+
+        Bármelyik hiba esetén a lánc MEGY TOVÁBB: a Wi-Fi driver állapota nem ér annyit,
+        hogy egy egyébként sikeres fixet megbuktasson."""
+        if not getattr(self, '_autofix_rebuild_wifi', False):
+            return
+        if not wifi_pkgs:
+            logging.info("[WIFI-REBUILD] Nincs védett Wi-Fi csomag - az újraépítés tárgytalan.")
+            return
+        try:
+            names = ', '.join(f"{p.get('original') or p.get('published')}" for p in wifi_pkgs)
+            self.emit('task_progress', {'task': task_id, 'log': f'\n📶 Wi-Fi driver TELJES újraépítése ({names})...'})
+            self.emit('task_progress', {'task': task_id, 'log': '   A kapcsolat pár percre megszakadhat - a gép a mentett jelszavakkal magától visszacsatlakozik.'})
+            ok, detail = rebuild_wifi_driver(self._run, wifi_pkgs)
+            if not ok:
+                # A régi driver ilyenkor a helyén maradt (vagy vissza sem került) - a
+                # reboot utáni mentőág a következő lábon úgyis lefut.
+                logging.warning(f"[WIFI-REBUILD] Az újraépítés nem ment végig: {detail}")
+                self.emit('task_progress', {'task': task_id, 'log': f'   ⚠️ Az újraépítés nem ment végig ({detail}). A folyamat megy tovább, az újraindítás után a program ellenőrzi és szükség esetén visszaállítja a kapcsolatot.\n'})
+                return
+            # Az adapter újraszámozódhatott -> a mentett WLAN-profilok árván maradhattak.
+            # A visszaimport + csatlakozás pontosan erre való (ugyanaz a mag, mint a
+            # reboot utáni vész-újracsatlakozásé).
+            restore_wlan_profiles(self._run, getattr(self, '_autofix_wifi_ssid', '')
+                                  or (self._autofix_stats_get('wifi_ssid') or ''))
+            if self._wait_for_internet(AUTOFIX_NET_WAIT_WIFI, task_id, 'a Wi-Fi driver újraépítése után'):
+                self.emit('task_progress', {'task': task_id, 'log': f'   ✅ A Wi-Fi újra működik, a driver tiszta állapotból indul ({detail}).\n'})
+                logging.info(f"[WIFI-REBUILD] Kész, a kapcsolat helyreállt ({detail}).")
+            else:
+                # Nincs net: a mentésből visszatöltjük, amit tudunk, a többit a reboot
+                # utáni mentőágra bízzuk. Ez nem a lánc bukása.
+                logging.warning("[WIFI-REBUILD] Az újraépítés után nincs internet - "
+                                "visszatöltjük a mentett hálózati drivereket.")
+                _restore_net_driver_backup(self._run)
+                self.emit('task_progress', {'task': task_id, 'log': '   ⚠️ Az újraépítés után nem jött vissza a net - visszaállítottuk a mentett hálózati drivert. Az újraindítás után a program újra megpróbálja a csatlakozást.\n'})
+        except Exception as e:
+            logging.warning(f"[WIFI-REBUILD] Az újraépítés hibára futott (a lánc megy tovább): {e}")
+            self.emit('task_progress', {'task': task_id, 'log': f'   ⚠️ A Wi-Fi driver újraépítése hibára futott ({e}) - a folyamat megy tovább.\n'})
+
     def _replace_old_wifi_driver(self, task_id='autofix'):
         """ZÁRÓ LÉPÉS Wi-Fi módban: a fölöslegessé vált RÉGI Wi-Fi driver kivezetése.
 
@@ -1851,10 +1915,11 @@ class GuiAutofixMixin:
         return ok
 
     def run_autofix(self, skip_printer_drivers=True, allow_storage_drivers=False, allow_firmware=False,
-                    wifi_mode=False, keep_packages=None):
+                    wifi_mode=False, keep_packages=None, rebuild_wifi_driver=True):
         logging.info(f"[API] run_autofix() indítása (skip_printer_drivers={skip_printer_drivers}, "
                      f"allow_storage_drivers={allow_storage_drivers}, allow_firmware={allow_firmware}, "
-                     f"wifi_mode={wifi_mode}, keep_packages={len(keep_packages or [])} db)")
+                     f"wifi_mode={wifi_mode}, rebuild_wifi_driver={rebuild_wifi_driver}, "
+                     f"keep_packages={len(keep_packages or [])} db)")
         if self.target_os_path:
             self.emit('toast', {'message': 'Az 1 kattintásos fix csak az Élő (jelenlegi) rendszeren futtatható le biztonságosan!', 'type': 'error'})
             return
@@ -1870,11 +1935,13 @@ class GuiAutofixMixin:
                 allow_storage = getattr(self, 'allow_storage_drivers', False)
                 allow_fw = getattr(self, 'allow_firmware_updates', False)
                 wifi = getattr(self, 'wifi_mode', False)
+                rebuild_wifi = getattr(self, 'rebuild_wifi_driver', False)
             else:
                 skip_printers = skip_printer_drivers
                 allow_storage = bool(allow_storage_drivers)
                 allow_fw = bool(allow_firmware)
                 wifi = bool(wifi_mode)
+                rebuild_wifi = bool(rebuild_wifi_driver)
             # A belépési log a JS-paramétert írja ki, ami a resume lábakon a frontend
             # ALAPÉRTÉKE (mindig True), nem a felhasználó választása - egy nyomtató-panasz
             # kivizsgálásánál pont ez a mező vinne félre. Ezért a FELOLDOTT értéket is
@@ -1890,10 +1957,17 @@ class GuiAutofixMixin:
                          f"(forrás: {'sys.argv --allow-firmware' if (is_resume_step1 or is_resume_mode) else 'GUI dialógus'})")
             logging.info(f"[AUTOFIX] Wi-Fi-s telepítés: {wifi} "
                          f"(forrás: {'sys.argv --wifi-mode' if (is_resume_step1 or is_resume_mode) else 'GUI dialógus'})")
+            # Csak Wi-Fi módban jelent bármit: vezetékesen az adapter drivere a normál
+            # törlési fázisban megy el és a WU rakja vissza, tehát ott a "teljes
+            # újraépítés" külön lépés nélkül is megtörténik.
+            logging.info(f"[AUTOFIX] Wi-Fi driver teljes újraépítése: {rebuild_wifi and wifi} "
+                         f"(kapcsoló={rebuild_wifi}, Wi-Fi mód={wifi}, forrás: "
+                         f"{'sys.argv --rebuild-wifi-driver' if (is_resume_step1 or is_resume_mode) else 'GUI dialógus'})")
             self._autofix_skip_printers = skip_printers
             self._autofix_allow_storage = allow_storage
             self._autofix_allow_firmware = allow_fw
             self._autofix_wifi_mode = wifi
+            self._autofix_rebuild_wifi = bool(rebuild_wifi) and wifi
 
             task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if (is_resume_mode or is_resume_step1) else '1 Kattintásos Driver Javítás és Frissítés'
             self.emit('task_start', {'task': 'autofix', 'title': task_title})

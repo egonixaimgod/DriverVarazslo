@@ -59,6 +59,10 @@ class GuiBaseMixin:
         # processzek, ezért a többi dialógus-választáshoz hasonlóan ez is CSAK az
         # ütemezett feladat argumentumában él tovább (lásd _schedule_autofix_resume).
         self.wifi_mode = '--wifi-mode' in sys.argv
+        # Wi-Fi driver TELJES újraépítése (törlés + visszatelepítés a mentett példányból).
+        # Csak Wi-Fi módban van értelme: vezetékesen az adapter drivere amúgy is a normál
+        # törlési fázisban megy el, és a WU rakja vissza. Lásd wu_core.rebuild_wifi_driver.
+        self.rebuild_wifi_driver = '--rebuild-wifi-driver' in sys.argv
         self._si = subprocess.STARTUPINFO()
         self._si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         self._nw = subprocess.CREATE_NO_WINDOW
