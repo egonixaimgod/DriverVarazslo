@@ -2029,20 +2029,34 @@ def _restore_net_driver_backup(run_fn):
 # lokalizált konzolkimenet parse-olásából (lásd delete_succeeded magyar pnputil-stemjei).
 _WIFI_DETECT_PS = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$out = @{ WifiUp = $false; WiredUp = $false; Adapter = ''; Alias = ''; Inf = ''; Ssid = ''; PnpId = '' }
+$out = @{ WifiUp = $false; WiredUp = $false; WifiPresent = $false; Adapter = ''; Alias = ''; Inf = ''; Ssid = ''; PnpId = '' }
 try {
-    foreach ($a in (Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' })) {
+    # MINDEN fizikai adaptert végignézünk, nem csak a felcsatlakozottakat (Status -eq 'Up').
+    # Miért: a technikus akkor is bekapcsolhatja a Wi-Fi-s módot, ha a gép ÉPP kábelen lóg
+    # (a fix alatt vált Wi-Fire) - ilyenkor a Wi-Fi adapter Status-a 'Disconnected', a régi
+    # szűrő pedig meg sem találta, tehát a driverét nem volt mit megvédeni, és a törlési
+    # előnézetben sem tudott 'wifi' csoportba kerülni egyetlen sor sem (terepen: a kapcsoló
+    # ki-be tologatása semmit nem változtatott a listán). A KAPCSOLAT ténye külön mező
+    # marad (WifiUp), a jelenlét külön (WifiPresent) - a kettőt nem szabad összemosni.
+    $wifiPick = $null
+    foreach ($a in (Get-NetAdapter -Physical -ErrorAction SilentlyContinue)) {
         # 9 = NdisPhysicalMediumNative802_11; a PhysicalMediaType szöveg a tartalék.
         if (($a.NdisPhysicalMedium -eq 9) -or ("$($a.PhysicalMediaType)" -like '*802.11*')) {
-            $out.WifiUp = $true
-            if (-not $out.Alias) {
-                $out.Alias = "$($a.Name)"
-                $out.Adapter = "$($a.InterfaceDescription)"
-                $out.PnpId = "$($a.PnPDeviceID)"
+            $out.WifiPresent = $true
+            if ($a.Status -eq 'Up') { $out.WifiUp = $true }
+            # Az AKTÍV adapter mindig nyer; egyébként az első megtalált (letiltottat csak
+            # végszükségből), hogy egy kikapcsolt kártya ne szorítsa ki a használhatót.
+            if (($null -eq $wifiPick) -or (($a.Status -eq 'Up') -and ($wifiPick.Status -ne 'Up'))) {
+                $wifiPick = $a
             }
-        } else {
+        } elseif ($a.Status -eq 'Up') {
             $out.WiredUp = $true
         }
+    }
+    if ($wifiPick) {
+        $out.Alias = "$($wifiPick.Name)"
+        $out.Adapter = "$($wifiPick.InterfaceDescription)"
+        $out.PnpId = "$($wifiPick.PnPDeviceID)"
     }
 } catch {}
 try {
@@ -2065,25 +2079,32 @@ def detect_wifi_state(run_fn):
     """A gép aktuális hálózati képe a Wi-Fi-s telepítéshez.
 
     Visszatérés (dict): `wifi` (van-e AKTÍV vezeték nélküli kapcsolat), `wired` (van-e
-    aktív vezetékes), `adapter` (a Wi-Fi kártya neve), `alias` (interfész-alias, pl.
+    aktív vezetékes), `present` (van-e egyáltalán Wi-Fi kártya a gépben, akár
+    csatlakozás nélkül), `adapter` (a Wi-Fi kártya neve), `alias` (interfész-alias, pl.
     'Wi-Fi'), `inf` (a Wi-Fi driver PUBLIKÁLT inf-neve, pl. 'oem24.inf'), `ssid`.
     Hiba esetén minden mező üres/False - olyankor a hívó úgy viselkedik, mintha nem
-    lenne Wi-Fi (a checkbox nem jelölődik be előre, védelem nincs)."""
-    state = {'wifi': False, 'wired': False, 'adapter': '', 'alias': '', 'inf': '', 'ssid': ''}
+    lenne Wi-Fi (a checkbox nem jelölődik be előre, védelem nincs).
+
+    A `wifi` és a `present` KÜLÖN mező, és nem cserélhetők fel: az előbbi dönti el, hogy
+    a felület magától bejelölje-e a Wi-Fi-s módot, az utóbbi azt, hogy VAN-E MIT védeni,
+    ha a technikus kézzel bekapcsolja (kábelen lógó laptop, ami a fix alatt vált Wi-Fire)."""
+    state = {'wifi': False, 'wired': False, 'present': False,
+             'adapter': '', 'alias': '', 'inf': '', 'ssid': ''}
     try:
         res = run_fn(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", _WIFI_DETECT_PS],
                      encoding='utf-8', timeout=90)
         data = json.loads(res.stdout) if res and (res.stdout or '').strip() else {}
         state['wifi'] = bool(data.get('WifiUp'))
         state['wired'] = bool(data.get('WiredUp'))
+        state['present'] = bool(data.get('WifiPresent'))
         state['adapter'] = str(data.get('Adapter') or '')
         state['alias'] = str(data.get('Alias') or '')
         state['ssid'] = str(data.get('Ssid') or '')
         inf = str(data.get('Inf') or '')
         state['inf'] = os.path.basename(inf).strip().lower() if inf else ''
         logging.info(f"[WIFI] Hálózati állapot: wifi={state['wifi']} vezetékes={state['wired']} "
-                     f"adapter='{state['adapter']}' alias='{state['alias']}' inf='{state['inf']}' "
-                     f"ssid='{state['ssid']}'")
+                     f"kártya jelen={state['present']} adapter='{state['adapter']}' "
+                     f"alias='{state['alias']}' inf='{state['inf']}' ssid='{state['ssid']}'")
     except Exception as e:
         logging.warning(f"[WIFI] A hálózati állapot lekérdezése sikertelen (Wi-Fi mód nélkül folytatjuk): {e}")
     return state
@@ -2092,20 +2113,27 @@ def detect_wifi_state(run_fn):
 def collect_wifi_protection(run_fn):
     """A törlésből kihagyandó Wi-Fi INF-nevek halmaza (kisbetűvel) + a felismert állapot.
 
-    Csak a TÉNYLEGESEN CSATLAKOZOTT Wi-Fi adapter saját driverét védi - se a gyártó
-    összes csomagját (az a nyomtatóknál indokolt, itt a vezetékes drivert is bevonná),
-    se a PROSet-féle kiegészítő Extension/SoftwareComponent csomagokat (azok a kezelő-
-    felületet adják, nem a kapcsolatot). Visszatérés: (védett INF-ek halmaza, állapot-dict)."""
+    A gép Wi-Fi kártyájának SAJÁT driverét védi - se a gyártó összes csomagját (az a
+    nyomtatóknál indokolt, itt a vezetékes drivert is bevonná), se a PROSet-féle
+    kiegészítő Extension/SoftwareComponent csomagokat (azok a kezelőfelületet adják, nem
+    a kapcsolatot). Visszatérés: (védett INF-ek halmaza, állapot-dict).
+
+    A hívó DÖNTI EL, hogy egyáltalán kell-e védelem: a törlési fázis csak Wi-Fi módban
+    hívja, az előnézet mindig (ott a felület kapcsolója dönt a zárolásról). Ezért a
+    kártyát akkor is felismerjük, ha éppen NINCS csatlakozva - egy kábelen lógó laptopnál
+    korábban semmit nem védett és az előnézetben egyetlen sor sem került 'wifi' csoportba,
+    így a Wi-Fi-s kapcsoló ki-be tologatása láthatóan nem csinált semmit (terep, 2026-08-07)."""
     state = detect_wifi_state(run_fn)
     protected = {state['inf']} if state.get('inf') else set()
-    if not state.get('wifi'):
-        logging.info("[WIFI-PROTECT] Nincs aktív Wi-Fi kapcsolat - nincs mit védeni.")
+    if not state.get('present'):
+        logging.info("[WIFI-PROTECT] Nincs Wi-Fi kártya a gépben - nincs mit védeni.")
     elif not protected:
-        logging.warning("[WIFI-PROTECT] Van aktív Wi-Fi kapcsolat, de a driver INF-je nem "
-                        "olvasható ki - a Wi-Fi driver NEM lesz védve a törléstől!")
+        logging.warning("[WIFI-PROTECT] Van Wi-Fi kártya, de a driver INF-je nem olvasható ki "
+                        f"(adapter: {state.get('adapter')!r}) - a Wi-Fi driver NEM lesz védve "
+                        "a törléstől, és az előnézetben sem lesz zárolható sor!")
     else:
         logging.info(f"[WIFI-PROTECT] Védett Wi-Fi INF: {sorted(protected)} "
-                     f"(adapter: {state.get('adapter')})")
+                     f"(adapter: {state.get('adapter')}, csatlakozva: {state.get('wifi')})")
     return protected, state
 
 

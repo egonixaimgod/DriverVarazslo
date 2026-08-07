@@ -8,6 +8,7 @@ import logging
 from app.common import CMD_TIMEOUT_RETURNCODE
 from app.common import CommandResult
 from app.common import spawn_failed
+from app.common import ps_force_utf8
 # === /AUTO-IMPORTS ===
 
 
@@ -27,6 +28,11 @@ class CliBaseMixin:
         számító) visszatérési kódok - lásd DriverToolApi._run azonos paraméterét."""
         cmd_str = cmd if isinstance(cmd, str) else ' '.join(str(c) for c in cmd)
         logging.debug(f"[CMD_CLI] Futtatás: {cmd_str[:300]}")
+        # PowerShell -Command: kimenet UTF-8-ra kényszerítve + UTF-8 dekódolás -
+        # lásd DriverToolApi._run azonos sorát és common.ps_force_utf8 magyarázatát.
+        cmd, want_utf8 = ps_force_utf8(cmd)
+        if want_utf8:
+            kwargs.setdefault('encoding', 'utf-8')
         # stdin alapból DEVNULL - lásd DriverToolApi._run azonos sorát (érvénytelenné vált
         # örökölt stdin handle elleni védelem; CLI-ben konzisztencia okán ugyanígy).
         kwargs.setdefault('stdin', subprocess.DEVNULL)

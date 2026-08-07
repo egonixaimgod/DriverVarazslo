@@ -11,6 +11,7 @@ import time
 import logging
 import shutil
 import json
+from concurrent.futures import ThreadPoolExecutor
 from app.common import _app_data_dir
 from app.common import _app_exe_path
 from app.common import _ps_quote
@@ -1643,7 +1644,7 @@ class GuiAutofixMixin:
     # detect_wifi_state / collect_wifi_protection / export_wlan_profiles /
     # restore_wlan_profiles / clear_wlan_backup - ott van az indoklás is.
     # ------------------------------------------------------------------
-    def get_autofix_delete_preview(self):
+    def get_autofix_delete_preview(self, known_drivers=None):
         """A megerősítő dialógus jobb oldali listája: MI FOG TÖRLŐDNI, és mi mihez tartozik.
 
         MIÉRT: eddig a tech vakon nyomott Igent egy "minden third-party driver törlődik"
@@ -1661,18 +1662,40 @@ class GuiAutofixMixin:
         függetlenül), 'printer', 'wifi', 'normal'. A felület ezek alapján szürkíti ki
         a sorokat a bal oldali kapcsolók állása szerint.
 
-        Lassú (több WMI-lekérdezés), ezért a JS aszinkron hívja: a lista a már betöltött
-        driver-adatokból AZONNAL megjelenik, ez a hívás csak kiegészíti."""
+        SEBESSÉG - ez a felület reakcióidejét szabja meg, ezért két külön dolgot teszünk
+        (terep, 2026-08-07: egy Dell laptopon ~2 PERCIG állt a lista, a technikus addig
+        hiába kapcsolgatta a bal oldali kapcsolókat, semmi nem szürkült ki):
+          - a driver-listát a HÍVÓTÓL is elfogadjuk (`known_drivers`), ha a Driverek
+            nézet már betöltötte - a `dism /Get-Drivers` önmagában 15-77 mp, és pontosan
+            ugyanazt adná vissza, amit a felület már kirajzolt;
+          - a négy felderítés (eszközhasználat / nyomtató / Wi-Fi / boot-lánc) FÜGGETLEN
+            egymástól, ezért párhuzamosan fut - így az összidő a leglassabbé, nem a
+            négy összege.
+        A JS ettől még aszinkron hívja, de a válaszra addig NEM lehet elindítani a fixet
+        (a csoportosítás nélkül a zárolások hazudnának)."""
         try:
-            drivers = self._get_third_party_drivers()
-            usage = collect_driver_usage(self._run)
-            printer_infs, printer_vendors = _collect_printer_protection(self._run)
-            wifi_infs, wifi_state = collect_wifi_protection(self._run)
-            # A boot-védelem HÁRMAST ad vissza, és a `detected=False` ág (nem sikerült
-            # felderíteni a rendszerlemez láncát) fail-safe módon az egész
-            # BOOT_FALLBACK_PROTECT_CLASSES-t védi - ezt a döntést nem szabad itt
-            # újraírni, ezért a törléssel KÖZÖS _is_boot_path_protected dönt.
-            boot_infs, _boot_chain, boot_detected = _collect_boot_path_protection(self._run)
+            drivers = [d for d in (known_drivers or []) if isinstance(d, dict) and d.get('published')]
+            if drivers:
+                logging.info(f"[PREVIEW] A driver-listát a felülettől kaptuk ({len(drivers)} csomag) - "
+                             f"a dism lekérdezés kihagyva.")
+            else:
+                drivers = self._get_third_party_drivers()
+                logging.info(f"[PREVIEW] A driver-lista frissen lekérdezve ({len(drivers)} csomag).")
+            # A négy felderítés párhuzamosan; mindegyik csak self._run-t használ (külön
+            # subprocess), közös állapotot nem írnak, ezért szálbiztos.
+            with ThreadPoolExecutor(max_workers=4, thread_name_prefix='preview') as pool:
+                f_usage = pool.submit(collect_driver_usage, self._run)
+                f_printer = pool.submit(_collect_printer_protection, self._run)
+                f_wifi = pool.submit(collect_wifi_protection, self._run)
+                f_boot = pool.submit(_collect_boot_path_protection, self._run)
+                usage = f_usage.result()
+                printer_infs, printer_vendors = f_printer.result()
+                wifi_infs, wifi_state = f_wifi.result()
+                # A boot-védelem HÁRMAST ad vissza, és a `detected=False` ág (nem sikerült
+                # felderíteni a rendszerlemez láncát) fail-safe módon az egész
+                # BOOT_FALLBACK_PROTECT_CLASSES-t védi - ezt a döntést nem szabad itt
+                # újraírni, ezért a törléssel KÖZÖS _is_boot_path_protected dönt.
+                boot_infs, _boot_chain, boot_detected = f_boot.result()
             out = []
             for d in drivers:
                 pub = (d.get('published') or '').lower()
@@ -1695,17 +1718,29 @@ class GuiAutofixMixin:
                 groups[r['group']] = groups.get(r['group'], 0) + 1
             logging.info(f"[PREVIEW] Törlési előnézet: {len(out)} csomag, csoportok: {groups}; "
                          f"eszközhöz kötött: {sum(1 for r in out if r['devices'])}; "
-                         f"boot-lánc felderítve: {boot_detected}")
+                         f"boot-lánc felderítve: {boot_detected}; "
+                         f"Wi-Fi kártya: jelen={wifi_state.get('present')} "
+                         f"csatlakozva={wifi_state.get('wifi')} inf={sorted(wifi_infs)}")
+            if wifi_state.get('present') and not groups.get('wifi'):
+                # Ezt KÜLÖN ki kell mondani: ilyenkor a felületen a Wi-Fi-s kapcsoló
+                # semmit nem fog zárolni, és a technikus joggal hiszi, hogy elromlott.
+                logging.warning("[PREVIEW] Van Wi-Fi kártya, de EGYETLEN third-party csomag sem "
+                                f"illeszkedik rá (védett INF-ek: {sorted(wifi_infs)}) - a Wi-Fi "
+                                "driver vagy a Windows sajátja, vagy az INF-je nem olvasható ki.")
             # A `boot_detected` a felületnek is kell: a 'boot' zárolásnak KÉT külön oka
             # lehet, és nem mindegy, melyiket írjuk ki. Felderített láncnál a csomag
             # tényleg a rendszerlemez útvonalán van; felderítetlennél viszont a fail-safe
             # ág véd MINDEN tároló-osztályt (BOOT_FALLBACK_PROTECT_CLASSES), és ilyenkor
             # a "a rendszerlemez útvonalán van" állítás túlmutatna a bizonyítékon.
             return {'drivers': out, 'wifi_adapter': wifi_state.get('adapter', ''),
+                    'wifi_present': bool(wifi_state.get('present')),
+                    'wifi_connected': bool(wifi_state.get('wifi')),
+                    'wifi_rows': groups.get('wifi', 0),
                     'boot_detected': boot_detected}
         except Exception as e:
-            logging.warning(f"[PREVIEW] A törlési előnézet összeállítása sikertelen: {e}")
-            return {'drivers': [], 'wifi_adapter': '', 'error': str(e)}
+            logging.warning(f"[PREVIEW] A törlési előnézet összeállítása sikertelen: {e}", exc_info=True)
+            return {'drivers': [], 'wifi_adapter': '', 'wifi_present': False,
+                    'wifi_connected': False, 'wifi_rows': 0, 'error': str(e)}
 
     def _rebuild_wifi_driver_step(self, wifi_pkgs, task_id='autofix'):
         """A Wi-Fi driver TELJES újraépítése a törlési fázis végén (opcionális lépés).

@@ -13,6 +13,7 @@ from app import common
 from app.common import CMD_TIMEOUT_RETURNCODE
 from app.common import CommandResult
 from app.common import spawn_failed
+from app.common import ps_force_utf8
 from app.common import _FOLDER_DIALOG
 from app.common import _OPEN_DIALOG
 from app.common import _app_data_dir
@@ -186,6 +187,15 @@ class GuiBaseMixin:
         # nem befolyásolja, csak a log-szintet.
         cmd_str = cmd if isinstance(cmd, str) else ' '.join(str(c) for c in cmd)
         logging.debug(f"[CMD] Futtatás: {cmd_str[:300]}")
+        # PowerShell -Command: a kimenet UTF-8-ra kényszerítése + UTF-8 dekódolás.
+        # Lásd common.ps_force_utf8 - enélkül a PS az OEM kódlappal (magyar Windowson
+        # cp852) ír a pipe-ra, és minden ékezetes visszaadott érték (nyomtatónév,
+        # eszköznév, SSID) U+FFFD-vel romlik el MÉG A MEMÓRIÁBAN. A logba szándékosan
+        # az EREDETI parancsot írjuk (fent): az előtag állandó és dokumentált, a 300
+        # karakteres levágásból viszont pont a lényeget enné el.
+        cmd, want_utf8 = ps_force_utf8(cmd)
+        if want_utf8:
+            kwargs.setdefault('encoding', 'utf-8')
         # stdin alapból DEVNULL: egyik parancsunk sem olvas stdin-t, VISZONT a stressz-teszt
         # automatizálás AttachConsole/FreeConsole hívásai után a folyamat örökölt stdin
         # handle-je érvénytelenné válik, és az örökölt-stdin + capture_output kombináció

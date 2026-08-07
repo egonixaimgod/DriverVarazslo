@@ -226,6 +226,65 @@ def spawn_failed(result):
     return getattr(result, 'returncode', None) == STATUS_DLL_INIT_FAILED
 
 
+# ============================================================================
+# POWERSHELL KIMENET KÓDOLÁSA - MINDEN -Command HÍVÁS ELÉ BEKERÜL (mindkét _run)
+# ============================================================================
+# TEREPEN BIZONYÍTVA (2026-08-07, bolti nyomtatás): a PowerShell 5.1 az átirányított
+# (pipe-ra kötött) stdout-ra az OEM kódlappal ír - magyar Windowson cp852 -, MI viszont
+# a hívások jó részét `encoding='utf-8'`-cal olvassuk. Az ékezetes karakterek így
+# U+FFFD-re cserélődnek MÉG A MEMÓRIÁBAN, nem csak a logban:
+#     Get-Printer ...  ->  'Microstore Bolti Nyomtat�'
+# és ezzel a névvel a SumatraPDF `-print-to` már nem talál nyomtatót -> 1-es kilépési
+# kód, semmi nem nyomtatódik ki, miközben a program sikert jelentett. Ez NEM logmegjelenítési
+# kérdés volt (a napló bájtszinten U+FFFD-t tartalmaz), és nem egyedi hiba: minden ékezetet
+# visszaadó PowerShell-hívást érint (nyomtatónevek, eszköznevek, SSID, felhasználónév).
+#
+# MÉRÉS (fejlesztőgép, CREATE_NO_WINDOW + capture_output, mint az appban):
+#     előtag nélkül:  b'Nyomtat\xa2'      (cp852)  -> utf-8 dekódolva 'Nyomtat�'
+#     előtaggal:      b'Nyomtat\xc3\xb3' (utf-8)  -> helyesen 'Nyomtató'
+# A konzol kódlapjától (65001 vagy 852) FÜGGETLENÜL működik, mert a .NET Console
+# kódolását állítja, nem a konzolét.
+#
+# Miért itt, a _run-ban, és nem a ~66 hívási helyen: a projekt egyik visszatérő hibaosztálya
+# épp az, hogy a duplikált logika egyik példánya lemarad (lásd a Build 192-es WU-ügyet).
+# Egy helyen javítva minden mostani ÉS jövőbeli hívás rendben van.
+#
+# BOM NÉLKÜLI UTF8Encoding kell: a `[System.Text.Encoding]::UTF8` BOM-os változat, és egy
+# beszivárgó BOM a kimenet elején minden .strip()-alapú parse-olást elrontana (pl. egy
+# INF-név elején lévő láthatatlan karakter).
+PS_UTF8_PREFIX = "[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding $false; "
+
+
+def ps_force_utf8(cmd):
+    """PowerShell `-Command` hívás esetén az elé illeszti a kimenet-kódolás beállítását,
+    és jelzi, hogy a kimenetet utf-8-ként kell dekódolni.
+
+    Visszatérés: (cmd, kell_utf8_dekódolás). A parancsot csak akkor módosítja, ha
+    tényleg egy powershell `-Command <script>` hívásról van szó - `-File`-t, más
+    programokat (dism/pnputil/reg: azok kimenetét szándékosan NEM piszkáljuk, lásd a
+    CLAUDE.md vonatkozó szabályát) és string-parancsokat érintetlenül hagy."""
+    if not isinstance(cmd, (list, tuple)) or len(cmd) < 2:
+        return cmd, False
+    exe = os.path.basename(str(cmd[0])).lower()
+    if exe not in ('powershell', 'powershell.exe', 'pwsh', 'pwsh.exe'):
+        return cmd, False
+    try:
+        idx = next(i for i, a in enumerate(cmd)
+                   if isinstance(a, str) and a.lower() in ('-command', '/command'))
+    except StopIteration:
+        return cmd, False
+    if idx + 1 >= len(cmd) or not isinstance(cmd[idx + 1], str):
+        return cmd, False
+    script = cmd[idx + 1]
+    if 'outputencoding' in script[:400].lower():
+        # A script maga már beállítja (pl. _WIFI_DETECT_PS, a riport WMI-lekérdezése) -
+        # ilyenkor csak a dekódolást jelezzük vissza, duplán nem állítjuk be.
+        return cmd, True
+    new_cmd = list(cmd)
+    new_cmd[idx + 1] = PS_UTF8_PREFIX + script
+    return new_cmd, True
+
+
 def _app_data_dir():
     """A DriverVarázsló saját adatmappája (debug log, HTML rendszer riportok) - a
     rendszerlemez gyökerében, NEM a program (exe) mellett. Így mindig ugyanott van (a

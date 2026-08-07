@@ -102,10 +102,24 @@ body::after{content:'';position:fixed;width:700px;height:700px;background:radial
 /* Toggle switch */
 .toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text2);user-select:none}
 .toggle input{display:none}
-.toggle-track{width:38px;height:22px;border-radius:11px;background:rgba(100,120,110,0.4);position:relative;transition:all var(--t);border:1px solid rgba(255,255,255,0.1)}
+/* flex:0 0 auto KÖTELEZŐ: enélkül a sín (flex-shrink alapból 1) hosszú felirat mellett
+   ÖSSZENYOMÓDIK 38 px alá, a gomb viszont abszolút pozíciójú (left:18px bekapcsolva) -
+   így a bekapcsolt kapcsoló gombja kilóg a sínből, rácsúszik a szövegre, és úgy néz ki,
+   mintha rossz irányba állna. Terepen pontosan így olvasta félre a technikus a Wi-Fi
+   újraépítés kapcsolóját (2026-08-07). */
+.toggle-track{width:38px;height:22px;border-radius:11px;background:rgba(100,120,110,0.4);position:relative;transition:all var(--t);border:1px solid rgba(255,255,255,0.1);flex:0 0 auto}
 .toggle-track::after{content:'';position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;top:2px;left:3px;transition:all var(--t);box-shadow:0 2px 4px rgba(0,0,0,0.3)}
 .toggle input:checked+.toggle-track{background:var(--accent);border-color:var(--accent)}
 .toggle input:checked+.toggle-track::after{left:18px}
+/* Letiltott kapcsoló: a puszta áttetszőség FÉLREÉRTHETŐ volt - terepen a bekapcsolt,
+   kiszürkített kapcsolót "rossz irányba mutat"-ként olvasta a technikus. Ezért a
+   letiltott állapot saját, egyértelmű képet kap: szaggatott keret + halványabb gomb,
+   és a szöveg elé a hívó 🔒-t tesz. Az irány (bal/jobb) így is látszik. */
+.toggle input:disabled+.toggle-track{opacity:0.65;cursor:not-allowed;border-style:dashed;border-color:rgba(255,255,255,0.35)}
+.toggle input:checked:disabled+.toggle-track{background:var(--accent);border-color:rgba(255,255,255,0.45)}
+/* Töltés-jelző a törlési előnézethez (a háttér-elemzés ideje alatt). */
+.dp-spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(212,136,255,0.3);border-top-color:var(--accent);border-radius:50%;animation:dp-spin 0.8s linear infinite;vertical-align:-2px;flex:0 0 auto}
+@keyframes dp-spin{to{transform:rotate(360deg)}}
 
 /* Table */
 .table-wrap{overflow-y:auto;max-height:430px;border-radius:var(--r-sm);border:1px solid var(--glass-border);scrollbar-width:thin;scrollbar-color:rgba(180,100,255,0.3) transparent;background:rgba(25,15,45,0.5)}
@@ -1228,14 +1242,21 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
            pedig a terepi panaszok egy része pont onnan jön. Vezetékes gépen a jelölőnégyzet
            KISZÜRKÍTVE, bekapcsolva látszik: ott a Wi-Fi driver a normál törlési fázisban megy
            el és a WU rakja vissza, tehát a teljes újraépítés külön lépés nélkül is megtörténik. -->
-      <label class="toggle" id="mc-rebuild-wifi-row" style="display:none;margin-top:10px;margin-left:16px" title="Alapból BE. A fix a Wi-Fi drivert nem csak frissíti, hanem le is szedi és a mentett példányból tisztán visszatelepíti - így az adapter beállításai (energiatakarékos üzemmód, 802.11 mód, roaming) is alaphelyzetbe állnak. A művelet alatt a Wi-Fi pár percre megszakadhat, a gép a mentett jelszavakkal magától visszacsatlakozik. Kikapcsolva a Wi-Fi driver csak akkor cserélődik, ha van nála újabb kiadás - és a kapcsolat egy pillanatra sem szakad meg.">
+      <label class="toggle" id="mc-rebuild-wifi-row" style="display:none;margin-top:10px;margin-left:16px;align-items:flex-start;gap:10px" title="Alapból BE. A fix a Wi-Fi drivert nem csak frissíti, hanem le is szedi és a mentett példányból tisztán visszatelepíti - így az adapter beállításai (energiatakarékos üzemmód, 802.11 mód, roaming) is alaphelyzetbe állnak. A művelet alatt a Wi-Fi pár percre megszakadhat, a gép a mentett jelszavakkal magától visszacsatlakozik. Kikapcsolva a Wi-Fi driver csak akkor cserélődik, ha van nála újabb kiadás - és a kapcsolat egy pillanatra sem szakad meg.">
         <input type="checkbox" id="mc-rebuild-wifi" checked>
-        <span class="toggle-track"></span>
+        <span class="toggle-track" style="margin-top:2px"></span>
         <span style="display:block">
           🔄 A Wi-Fi driver teljes újraépítése (törlés + tiszta újratelepítés)
           <span id="mc-rebuild-wifi-hint" style="display:block;margin-top:3px;font-size:12px;font-weight:400;color:var(--text3);line-height:1.45">Az adapter beállításai is alaphelyzetbe állnak. A kapcsolat pár percre megszakadhat, utána magától visszajön.</span>
         </span>
       </label>
+      <!-- Vezetékes gépen NEM kapcsolót mutatunk. Egy kiszürkített, bekapcsolt kapcsoló
+           azt sugallja, hogy dönteni lehet (és a terepen félre is olvasták az állását) -
+           holott ott nincs mit eldönteni: a Wi-Fi driver a többivel együtt törlődik. -->
+      <div id="mc-rebuild-wifi-info" style="display:none;margin-top:10px;padding:9px 12px;border-radius:var(--r-sm);border:1px dashed rgba(255,255,255,0.18);background:rgba(255,255,255,0.03);font-size:12px;color:var(--text3);line-height:1.5">
+        🔄 <b style="color:var(--text2)">A Wi-Fi driver is teljesen újraépül</b> – vezetékes gépen ez automatikus:
+        a Wi-Fi driver a többivel együtt törlődik, és tisztán települ vissza. Nincs mit beállítani.
+      </div>
       <label class="toggle" id="mc-skip-printers-row" style="display:none;margin-top:14px" title="Bekapcsolva a meglévő nyomtató/szkenner driverek NEM törlődnek - ezek gyakran csak a gyári driverrel működnek jól, és egy multifunkciós készülék segéd-driverei több eszközosztályban szétszórva ülnek. FONTOS: ez csak a TÖRLÉSRE vonatkozik. Újabb nyomtató-drivert a program mindkét állásban keres és telepít, ha a Windows Update kínál.">
         <input type="checkbox" id="mc-skip-printers" checked>
         <span class="toggle-track"></span>
@@ -1269,8 +1290,8 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
         <div style="display:flex;gap:8px;margin-bottom:8px">
           <input id="mc-del-search" type="text" placeholder="Szűrés név, gyártó vagy eszköz szerint..." oninput="renderDeletePreview()"
                  style="flex:1;padding:7px 10px;border-radius:var(--r-sm);border:1px solid var(--glass-border);background:rgba(20,12,38,0.6);color:var(--text);font:12px var(--font)">
-          <button class="btn" style="padding:6px 10px;font-size:12px" onclick="setAllDeletePreview(true)">Mind</button>
-          <button class="btn" style="padding:6px 10px;font-size:12px" onclick="setAllDeletePreview(false)">Egyik se</button>
+          <button class="btn" id="mc-del-all" style="padding:6px 10px;font-size:12px" onclick="setAllDeletePreview(true)">Mind</button>
+          <button class="btn" id="mc-del-none" style="padding:6px 10px;font-size:12px" onclick="setAllDeletePreview(false)">Egyik se</button>
         </div>
         <div id="mc-del-list" style="max-height:52vh;overflow-y:auto;border:1px solid var(--glass-border);border-radius:var(--r-sm);background:rgba(20,12,38,0.45)"></div>
         <div id="mc-del-hint" style="margin-top:7px;font-size:11px;color:var(--text3);line-height:1.5"></div>
@@ -3422,6 +3443,13 @@ function closeProgressModal() {
 function mcResetLayout() {
   document.getElementById('mc-del-panel').style.display = 'none';
   document.getElementById('mc-box').style.maxWidth = '480px';
+  // Az "Igen" gombot a fix-dialógus letilthatja az elemzés idejére; ha ott Mégse-vel
+  // léptek ki, a KÖVETKEZŐ (bármelyik) megerősítő ablak gombja is tiltva maradna.
+  const yes = document.getElementById('mc-yes');
+  yes.disabled = false;
+  yes.style.opacity = '';
+  yes.style.cursor = '';
+  delLoading = false;
 }
 function showConfirm(title, message) {
   return new Promise(resolve => {
@@ -3459,23 +3487,42 @@ function showConfirm3(title, message, yesText, noText, cancelText, noClass) {
 // ---------------------------------------------------------------------------
 let delPreview = [];
 let delUnchecked = new Set();
+// Fut-e még a háttér-elemzés (mi minek a drivere + védettségi csoportok). Amíg fut, a
+// sorok CSOPORTJA ismeretlen, tehát egyetlen zárolást sem lehet őszintén kirajzolni -
+// ezért ilyenkor a fix nem indítható. Terepen (2026-08-07) pont ez tűnt hibának: a
+// technikus be-kikapcsolgatta a bal oldali kapcsolókat, és két percig semmi nem történt.
+let delLoading = false;
 // A boot-védelemnek KÉT külön oka lehet, és nem mindegy, melyiket írjuk ki: sikeres
 // lánc-felderítésnél a csomag bizonyítottan a rendszerlemez útvonalán van, sikertelennél
 // viszont a fail-safe ág véd MINDEN tároló-osztályt. A második esetben a "az útvonalán
 // van" állítás túlmutatna a bizonyítékon - ugyanaz a hiba, mint a színprofilos ügyben.
 let delBootDetected = true;
+// A felismert Wi-Fi kártya neve - csak a "nincs mit zárolni" magyarázathoz kell.
+let delWifiAdapter = '';
 
-function delRowLock(d) {
-  // Visszaadja, MIÉRT zárolt a sor (vagy '' ha szabadon állítható).
+// Egy sor SORSA, ha nem a technikus dönti el. null = szabadon pipálható/kivehető.
+// { on: törlődik-e, why: miért nem dönthet róla a felhasználó }
+//
+// A Wi-Fi ág szándékosan KÉTFÉLE zárolást ad, mert a kapcsoló állása szerint két
+// ellentétes dolog történik a SAME sorral (explicit user decision, 2026-08-07):
+//   Wi-Fi mód BE + újraépítés BE  -> zárolt ÉS bepipálva  (törlődik, majd tisztán visszakerül)
+//   Wi-Fi mód BE + újraépítés KI  -> zárolt, pipa nélkül  (érintetlenül marad a kapcsolat drivere)
+//   Wi-Fi mód KI                  -> nincs zárolás, a többivel együtt törlődik
+// Korábban az újraépítés-kapcsoló egyáltalán nem hatott a listára, így a technikus
+// kivette a pipát és semmi nem változott a jobb oldalon.
+function delRowForce(d) {
   if (d.group === 'boot')
-    return delBootDetected
+    return { on: false, why: delBootDetected
       ? 'A rendszerlemez indítási útvonalán van – sosem töröljük'
-      : 'Nem sikerült felderíteni a rendszerlemez útvonalát – biztonságból minden tároló-driver marad';
-  if (d.group === 'wifi' && document.getElementById('mc-wifi-mode').checked)
-    return 'Wi-Fi-s telepítés bekapcsolva – a kapcsolat drivere marad';
+      : 'Nem sikerült felderíteni a rendszerlemez útvonalát – biztonságból minden tároló-driver marad' };
+  if (d.group === 'wifi' && document.getElementById('mc-wifi-mode').checked) {
+    return document.getElementById('mc-rebuild-wifi').checked
+      ? { on: true,  why: 'Wi-Fi újraépítés bekapcsolva – törlődik, majd azonnal, tisztán visszatelepül a mentett példányból' }
+      : { on: false, why: 'Wi-Fi-s telepítés, újraépítés nélkül – a kapcsolat drivere érintetlen marad' };
+  }
   if (d.group === 'printer' && document.getElementById('mc-skip-printers').checked)
-    return 'Nyomtató-megtartás bekapcsolva – ez a nyomtatóhoz/szkennerhez tartozik';
-  return '';
+    return { on: false, why: 'Nyomtató-megtartás bekapcsolva – ez a nyomtatóhoz/szkennerhez tartozik' };
+  return null;
 }
 
 function renderDeletePreview() {
@@ -3485,9 +3532,10 @@ function renderDeletePreview() {
   let willDelete = 0, locked = 0;
   const rows = [];
   delPreview.forEach((d, i) => {
-    const lock = delRowLock(d);
-    if (lock) locked++;
-    const on = !lock && !delUnchecked.has((d.published || '').toLowerCase());
+    const force = delRowForce(d);
+    const lock = force ? force.why : '';
+    if (force) locked++;
+    const on = force ? force.on : !delUnchecked.has((d.published || '').toLowerCase());
     if (on) willDelete++;
     const hay = [d.original, d.published, d.provider, d.class, (d.devices || []).join(' ')].join(' ').toLowerCase();
     if (q && hay.indexOf(q) === -1) return;
@@ -3499,9 +3547,10 @@ function renderDeletePreview() {
       : '<span style="color:var(--yellow)">⚠ Nincs jelen lévő eszköz – valószínűleg külön telepített program drivere</span>';
     rows.push(
       '<label style="display:flex;gap:9px;padding:8px 10px;border-bottom:1px solid rgba(180,100,255,0.12);align-items:flex-start;' +
-      (lock ? 'opacity:0.45;cursor:not-allowed' : 'cursor:pointer') + '"' +
+      (lock || delLoading ? 'opacity:0.45;cursor:not-allowed' : 'cursor:pointer') + '"' +
       (lock ? ' title="' + esc(lock) + '"' : '') + '>' +
-        '<input type="checkbox" style="margin-top:3px;flex:0 0 auto"' + (on ? ' checked' : '') + (lock ? ' disabled' : '') +
+        '<input type="checkbox" style="margin-top:3px;flex:0 0 auto"' + (on ? ' checked' : '') +
+          (lock || delLoading ? ' disabled' : '') +
           ' onchange="toggleDeletePreview(' + i + ', this.checked)">' +
         '<span style="min-width:0;flex:1">' +
           '<span style="display:block;font-size:12px;font-weight:600">' + esc(d.original || d.published) +
@@ -3512,12 +3561,60 @@ function renderDeletePreview() {
             (lock ? ' · 🔒 ' + esc(lock) : '') + '</span>' +
         '</span></label>');
   });
-  list.innerHTML = rows.length ? rows.join('') :
-    '<div style="padding:14px;font-size:12px;color:var(--text3)">Nincs a szűrésre illeszkedő driver.</div>';
-  document.getElementById('mc-del-count').textContent = willDelete + ' / ' + delPreview.length + ' törlődik';
-  document.getElementById('mc-del-hint').innerHTML = locked
-    ? '🔒 ' + locked + ' sor zárolva (a bal oldali kapcsolók vagy a boot-védelem miatt) – ezeket a program mindenképp megtartja.'
-    : 'Minden csomag törölhető. A kipipálás nélkül hagyottakat a fix meghagyja.';
+  // Töltő-sáv a lista TETEJÉN, nem a lista helyett: a technikus így már az első
+  // pillanatban látja, MI fog törlődni, csak azt nem, hogy mi lesz védve.
+  const banner = delLoading
+    ? '<div style="display:flex;gap:10px;align-items:center;padding:11px 12px;border-bottom:1px solid rgba(180,100,255,0.25);'
+      + 'background:rgba(184,85,255,0.12);position:sticky;top:0;z-index:1">'
+      + '<span class="dp-spin"></span><span style="font-size:12px;line-height:1.45">'
+      + '<b>Elemzés folyamatban...</b><br><span style="color:var(--text3)">Mi melyik eszközhöz tartozik, '
+      + 'és mit véd a nyomtató-/Wi-Fi-/boot-védelem. Amíg ez tart, a fix nem indítható.</span></span></div>'
+    : '';
+  list.innerHTML = banner + (rows.length ? rows.join('') :
+    '<div style="padding:14px;font-size:12px;color:var(--text3)">Nincs a szűrésre illeszkedő driver.</div>');
+  document.getElementById('mc-del-count').textContent =
+    delLoading ? 'elemzés...' : (willDelete + ' / ' + delPreview.length + ' törlődik');
+
+  // Amíg az elemzés fut, a csoportok (és így a zárolások) ismeretlenek. Ezt KI KELL
+  // MONDANI és le kell tiltani a döntéseket, különben a felület azt mutatja, hogy a
+  // kapcsolók nem csinálnak semmit - pedig csak még nincs mihez hozzányúlniuk.
+  const hint = document.getElementById('mc-del-hint');
+  if (delLoading) {
+    hint.innerHTML = '<span class="dp-spin"></span> <b style="color:var(--text2)">Elemzés folyamatban</b> – '
+      + 'a program most nézi meg, melyik driver melyik eszközhöz tartozik, és mit véd a '
+      + 'nyomtató-/Wi-Fi-/boot-védelem. A kapcsolók a lista elkészültekor lépnek életbe.';
+  } else if (locked) {
+    hint.innerHTML = '🔒 ' + locked + ' sor zárolva (a bal oldali kapcsolók vagy a boot-védelem miatt) – '
+      + 'ezekről nem a kipipálás dönt, hanem a bal oldali beállítás.';
+  } else {
+    hint.innerHTML = 'Minden csomag törölhető. A kipipálás nélkül hagyottakat a fix meghagyja.';
+  }
+  // A Wi-Fi-s mód be van kapcsolva, de egyetlen csomag sem tartozik a Wi-Fi kártyához:
+  // ilyenkor a kapcsoló tényleg nem zárol semmit, és ezt jobb kimondani, mint hagyni,
+  // hogy hibának tűnjön (terepi visszajelzés, 2026-08-07).
+  if (!delLoading && document.getElementById('mc-wifi-mode').checked
+      && !delPreview.some(d => d.group === 'wifi')) {
+    hint.innerHTML += '<br><span style="color:var(--yellow)">⚠ A Wi-Fi kártyához nem tartozik '
+      + 'külön telepített driver-csomag' + (delWifiAdapter ? ' (' + esc(delWifiAdapter) + ')' : '')
+      + ', ezért nincs mit zárolni – a Wi-Fi-s mód a többi részében (újracsatlakozás kivárása, '
+      + 'jelszó-mentés) ettől még működik.</span>';
+  }
+}
+
+// A dialógus vezérlőinek engedélyezése/tiltása az elemzés idejére.
+function delSetLoading(on) {
+  delLoading = on;
+  const ids = ['mc-wifi-mode', 'mc-rebuild-wifi', 'mc-skip-printers', 'mc-allow-storage',
+               'mc-allow-firmware', 'mc-del-search', 'mc-del-all', 'mc-del-none'];
+  ids.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = on; });
+  // A Wi-Fi újraépítés kapcsolója vezetékes gépen amúgy is tiltott marad - a
+  // syncRebuildWifi() dönt róla, ezért az elemzés végén ŐT kérdezzük újra, nem itt.
+  const yes = document.getElementById('mc-yes');
+  yes.disabled = on;
+  yes.style.opacity = on ? '0.5' : '';
+  yes.style.cursor = on ? 'not-allowed' : '';
+  yes.textContent = on ? '⏳ Elemzés folyamatban...' : 'Igen';
+  renderDeletePreview();
 }
 
 function toggleDeletePreview(i, on) {
@@ -3528,8 +3625,9 @@ function toggleDeletePreview(i, on) {
 }
 
 function setAllDeletePreview(on) {
+  if (delLoading) return;
   delUnchecked.clear();
-  if (!on) delPreview.forEach(d => { if (!delRowLock(d)) delUnchecked.add((d.published || '').toLowerCase()); });
+  if (!on) delPreview.forEach(d => { if (!delRowForce(d)) delUnchecked.add((d.published || '').toLowerCase()); });
   renderDeletePreview();
 }
 
@@ -3540,16 +3638,17 @@ function showAutoFixConfirm(title, message) {
       const storage = document.getElementById('mc-allow-storage').checked;
       const firmware = document.getElementById('mc-allow-firmware').checked;
       const wifi = document.getElementById('mc-wifi-mode').checked;
-      // Vezetékesen a kapcsoló ki van szürkítve (mindig bejelölve) - a Python úgyis
-      // csak Wi-Fi módban veszi figyelembe, ott viszont a tech kikapcsolhatja.
+      // Vezetékes gépen a kapcsoló nem is látszik (helyette magyarázó sor van), az
+      // értéke bekapcsolva marad - a Python úgyis csak Wi-Fi módban veszi figyelembe.
       const rebuildWifi = document.getElementById('mc-rebuild-wifi').checked;
       // Amit a tech kézzel kivett: csak a NEM zárolt sorok számítanak (a zároltakat
       // úgyis a Python védi, és a kettőt nem szabad összekeverni).
       const keep = delPreview
-        .filter(d => !delRowLock(d) && delUnchecked.has((d.published || '').toLowerCase()))
+        .filter(d => !delRowForce(d) && delUnchecked.has((d.published || '').toLowerCase()))
         .map(d => ({ published: d.published, original: d.original }));
       document.getElementById('mc-wifi-mode-row').style.display = 'none';
       document.getElementById('mc-rebuild-wifi-row').style.display = 'none';
+      document.getElementById('mc-rebuild-wifi-info').style.display = 'none';
       document.getElementById('mc-skip-printers-row').style.display = 'none';
       document.getElementById('mc-allow-storage-row').style.display = 'none';
       document.getElementById('mc-allow-firmware-row').style.display = 'none';
@@ -3581,19 +3680,30 @@ function showAutoFixConfirm(title, message) {
     document.getElementById('mc-del-search').value = '';
     delUnchecked = new Set();
     delBootDetected = true;
+    delWifiAdapter = '';
     delPreview = (drivers || []).map(d => ({
       published: d.published, original: d.original, provider: d.provider,
       version: d.version, class: d.class, devices: [], group: 'normal'
     }));
-    renderDeletePreview();
-    document.getElementById('mc-del-hint').textContent = 'Elemzés folyamatban: mi minek a drivere...';
-    api().get_autofix_delete_preview().then(pv => {
-      const list = ((pv || {}).drivers) || [];
-      delBootDetected = ((pv || {}).boot_detected) !== false;
-      if (list.length) { delPreview = list; renderDeletePreview(); }
+    delSetLoading(true);
+    // A MÁR BETÖLTÖTT driver-listát átadjuk: a Python így megspórolja a
+    // `dism /Get-Drivers` hívást (15-77 mp), ami eddig az elemzési idő zömét tette ki.
+    api().get_autofix_delete_preview(delPreview.map(d => ({
+      published: d.published, original: d.original, provider: d.provider,
+      version: d.version, class: d.class
+    }))).then(pv => {
+      pv = pv || {};
+      const list = pv.drivers || [];
+      delBootDetected = pv.boot_detected !== false;
+      delWifiAdapter = pv.wifi_adapter || '';
+      if (list.length) delPreview = list;
+      if (pv.error) api().js_log('WARN', '[UI] A törlési előnézet hibával tért vissza: ' + pv.error);
+      delSetLoading(false);
+      syncRebuildWifi();
     }).catch(e => {
       api().js_log('WARN', '[UI] A törlési előnézet betöltése sikertelen: ' + e);
-      renderDeletePreview();
+      delSetLoading(false);
+      syncRebuildWifi();
     });
 
     const wifiBox = document.getElementById('mc-wifi-mode');
@@ -3607,20 +3717,28 @@ function showAutoFixConfirm(title, message) {
     const rebuildRow = document.getElementById('mc-rebuild-wifi-row');
     const rebuildBox = document.getElementById('mc-rebuild-wifi');
     const rebuildHint = document.getElementById('mc-rebuild-wifi-hint');
+    const rebuildInfo = document.getElementById('mc-rebuild-wifi-info');
+    // Wi-Fi módban VALÓDI kapcsoló (van mit eldönteni), vezetékes gépen viszont csak egy
+    // magyarázó sor: ott a Wi-Fi driver úgyis a normál törlési fázisban cserélődik, és
+    // egy kiszürkített, bekapcsolt kapcsoló csak félreérthető (terepi visszajelzés).
     function syncRebuildWifi() {
       const onWifi = wifiBox.checked;
-      rebuildRow.style.display = 'flex';
-      rebuildBox.checked = true;
-      rebuildBox.disabled = !onWifi;
-      rebuildRow.style.opacity = onWifi ? '1' : '0.55';
-      rebuildRow.style.marginLeft = onWifi ? '16px' : '0';
-      rebuildHint.textContent = onWifi
-        ? 'Az adapter beállításai is alaphelyzetbe állnak. A kapcsolat pár percre megszakadhat, utána a mentett jelszavakkal magától visszajön. Kikapcsolva csak frissítés történik, megszakadás nélkül.'
-        : 'Vezetékes gépen ez automatikus: a Wi-Fi driver a többivel együtt törlődik és tisztán települ vissza.';
+      rebuildRow.style.display = onWifi ? 'flex' : 'none';
+      rebuildInfo.style.display = onWifi ? 'none' : 'block';
+      rebuildBox.disabled = delLoading;
+      rebuildRow.style.opacity = '1';
+      rebuildRow.style.marginLeft = '16px';
+      rebuildHint.textContent = rebuildBox.checked
+        ? 'Az adapter beállításai is alaphelyzetbe állnak. A kapcsolat pár percre megszakadhat, utána a mentett jelszavakkal magától visszajön.'
+        : 'Kikapcsolva: a Wi-Fi driver érintetlen marad (csak újabb kiadásra frissülhet), a kapcsolat egy pillanatra sem szakad meg.';
     }
+    rebuildBox.checked = true;
     syncRebuildWifi();
     // A bal oldali kapcsolók állása azonnal átrajzolja a jobb oldali listát (zárolás).
     wifiBox.onchange = () => { syncRebuildWifi(); renderDeletePreview(); };
+    // Az újraépítés-kapcsoló IS hat a listára: bekapcsolva a Wi-Fi sor zárolt ÉS
+    // bepipálva (törlődik, majd visszakerül), kikapcsolva zárolt, pipa nélkül.
+    rebuildBox.onchange = () => { syncRebuildWifi(); renderDeletePreview(); };
     document.getElementById('mc-skip-printers').onchange = renderDeletePreview;
     api().get_autofix_net_state().then(st => {
       st = st || {};

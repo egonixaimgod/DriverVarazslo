@@ -210,6 +210,18 @@ class GuiStorePrintMixin:
             stabilizálódására (a Chromium a gyerekfolyamatban fejezi be az írást),
           - a kilépési kód és a stderr logolva megy, hogy egy következő terepi hibánál
             ne kelljen találgatni.
+
+        AMIT AZ INDÍTOTT FOLYAMAT KILÉPÉSI KÓDJA NEM MOND MEG (mérés, 2026-08-07, ugyanez
+        a gép, ugyanez a riport-fájl): mivel a program EMELT JOGON fut, a Chromium az
+        elindított példányból AZONNAL kilép (0-s kóddal, üres stderr-rel, ~0,1 mp), és a
+        tényleges munkát egy általa újraindított, jogosultság-leadott folyamat végzi -
+        amit mi már nem látunk. Nem emelt jogon ugyanez a parancs 1,4-3,4 mp-ig fut és
+        maga írja ki a PDF-et. Vagyis a terepi naplóban látott "kód: 0, nincs stderr,
+        nincs fájl" hármas NEM a hiba oka, hanem annak a következménye, hogy rossz
+        folyamatot néztünk. Ezért kap minden próba `--enable-logging --log-file=...`-ot:
+        azt a naplót MÁR a valóban dolgozó folyamat írja, és sikertelenségkor a végét
+        beemeljük a debug logba - a következő terepi hibánál ez lesz az egyetlen érdemi
+        bizonyíték.
         Visszatérés: True, ha a végén tényleg ott a nem üres PDF."""
         # Egy korábbi futásból ottmaradt PDF-et takarítunk: enélkül egy elhasalt
         # konverzió után a régi (rossz gépről származó) riportot nyomtatnánk ki.
@@ -228,17 +240,23 @@ class GuiStorePrintMixin:
             attempts.append(('Edge (headless=new)', msedge, '--headless=new'))
         if chrome:
             attempts.append(('Chrome (headless)', chrome, '--headless'))
+            attempts.append(('Chrome (headless=new)', chrome, '--headless=new'))
         if not attempts:
             raise Exception("Nem található az Edge böngésző (msedge.exe) ezen a gépen - a PDF-generáláshoz szükséges.")
+        for exe in (msedge, chrome):
+            if exe:
+                self._log_browser_version(exe)
 
         for label, exe, headless_flag in attempts:
             profile_dir = tempfile.mkdtemp(prefix='dv_pdf_')
+            chromium_log = os.path.join(profile_dir, 'chromium.log')
             try:
                 self.emit('task_progress', {'task': 'store_print', 'log': f'🖨️ PDF előállítása: {label}...'})
                 res = self._run([
                     exe, headless_flag, '--disable-gpu', '--no-sandbox',
                     f'--user-data-dir={profile_dir}', '--no-first-run', '--no-default-browser-check',
                     '--disable-extensions', '--disable-background-networking',
+                    '--enable-logging', f'--log-file={chromium_log}', '--log-level=0',
                     f'--print-to-pdf={pdf_path}', '--no-pdf-header-footer',
                     '--run-all-compositor-stages-before-draw', '--virtual-time-budget=10000',
                     file_url,
@@ -265,6 +283,20 @@ class GuiStorePrintMixin:
                         last_size = size
                     time.sleep(0.5)
                 logging.warning(f"[STOREPRINT] {label}: a PDF nem jött létre ({pdf_path})")
+                # A böngésző SAJÁT naplója - lásd a docstring magyarázatát: emelt jogon az
+                # általunk indított folyamat kilépési kódja/stderr-je nem a dolgozó
+                # folyamaté, ez viszont igen. Csak sikertelenségkor emeljük be, és csak a
+                # végét (a fájl bőbeszédű, a log meg forgó 5 MB-os).
+                try:
+                    if os.path.exists(chromium_log):
+                        with open(chromium_log, 'r', encoding='utf-8', errors='replace') as fh:
+                            tail = fh.read()[-3000:]
+                        logging.warning(f"[STOREPRINT] {label} böngésző-napló vége:\n{tail}")
+                    else:
+                        logging.warning(f"[STOREPRINT] {label}: a böngésző még naplófájlt sem írt "
+                                        f"({chromium_log}) - a folyamat el sem jutott az indulásig.")
+                except Exception as e:
+                    logging.debug(f"[STOREPRINT] A böngésző-napló olvasása sikertelen: {e}")
             finally:
                 try:
                     shutil.rmtree(profile_dir, ignore_errors=True)
@@ -283,6 +315,38 @@ class GuiStorePrintMixin:
                 if file.lower() in SUMATRA_PDF_FILENAMES:
                     return os.path.join(root, file)
         return None
+
+    def _log_available_printers(self):
+        """A gép nyomtatóinak kilistázása a NAPLÓBA, ha a nyomtatás elhasalt.
+        Enélkül a "nem talált nyomtatót" hibára nem lehet megmondani, hogy rossz-e a név,
+        vagy tényleg nincs ott a nyomtató - a terepi logból ez az egyetlen válasz."""
+        try:
+            res = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+                             "Get-Printer | ForEach-Object { \"$($_.Name) | $($_.PortName) | $($_.DriverName)\" }"],
+                            timeout=60)
+            logging.warning(f"[STOREPRINT] A gépen lévő nyomtatók:\n{((res.stdout or '') if res else '').strip()[:2000]}")
+        except Exception as e:
+            logging.warning(f"[STOREPRINT] A nyomtatólista lekérdezése sem sikerült: {e}")
+
+    def _log_browser_version(self, exe):
+        """A böngésző verziójának naplózása. A PDF-generálás néma hibájánál (0-s kilépési
+        kód, nulla stderr, nincs fájl - terepen 2026-08-07) ez az első kérdés, amire
+        válaszolni kell, és utólag már nem kideríthető.
+
+        A verziót a FÁJLRENDSZERBŐL olvassuk, nem `--version`-nel: mérve (2026-08-07,
+        Edge 151 / Chrome 150) az `msedge.exe --version` NEM írt ki verziót és 30 mp-es
+        időtúllépéssel végződött, a Chrome pedig a futó példányba forwardolt
+        ("Megnyitás meglévő böngésző-munkamenetben") - vagyis egy diagnosztikai
+        segédhívás percekkel nyújtotta volna meg a nyomtatást. A Chromium az exe mellé
+        mindig verziószám-nevű alkönyvtárat rak, abból ingyen kiolvasható."""
+        try:
+            app_dir = os.path.dirname(exe)
+            vers = sorted(d for d in os.listdir(app_dir)
+                          if re.fullmatch(r'\d+\.\d+\.\d+\.\d+', d)
+                          and os.path.isdir(os.path.join(app_dir, d)))
+            logging.info(f"[STOREPRINT] Böngésző: {exe} -> verzió: {vers[-1] if vers else 'ismeretlen'}")
+        except Exception as e:
+            logging.debug(f"[STOREPRINT] A böngésző verziója nem olvasható ki: {e}")
 
     def print_via_store_printer(self):
         """A legutóbb generált Rendszer Riport kinyomtatása a Microstore bolti hálózati
@@ -388,7 +452,35 @@ class GuiStorePrintMixin:
                 if not sumatra:
                     raise Exception("A SumatraPDF nem található (a stresstools.zip-ben kell lennie) - néma nyomtatás nem lehetséges.")
 
-                self._run([sumatra, '-print-to', printer_name, '-silent', '-exit-on-print', pdf_path], timeout=60)
+                # A NYOMTATÓ NEVÉT ELLENŐRIZZÜK, MIELŐTT ODAADJUK A SUMATRÁNAK.
+                # Terepen bizonyítva (2026-08-07): a PowerShell OEM-kódlapos kimenete miatt
+                # a név 'Microstore Bolti Nyomtat�'-ként érkezett vissza, a SumatraPDF
+                # ezzel nem talált nyomtatót, 1-es kóddal kilépett - a program viszont
+                # "✅ Kinyomtatva"-t jelentett, és a technikus csak a nyomtatónál vette észre,
+                # hogy nem jött ki papír. A kódolást a _run azóta kikényszeríti
+                # (common.ps_force_utf8), ez a nadrágszíj öv mellé: ha egy nevet valaha
+                # mégis sérülten kapnánk, LÁTHATÓ hiba legyen, ne néma nem-nyomtatás.
+                if '�' in (printer_name or ''):
+                    raise Exception(
+                        f"A nyomtató neve sérülten érkezett a rendszerből ({printer_name!r}) - "
+                        f"így nem lehet rá nyomtatni. Ez program-hiba, kérlek küldd el a debug logot.")
+
+                res_print = self._run([sumatra, '-print-to', printer_name, '-silent',
+                                       '-exit-on-print', pdf_path], timeout=60)
+                # A SUMATRA VISSZATÉRÉSI KÓDJÁT KÖTELEZŐ NÉZNI: 0 = elküldve a sorba,
+                # bármi más = nem nyomtatott (leggyakrabban "nincs ilyen nevű nyomtató").
+                # Enélkül a lépés MINDIG sikert jelentett, akkor is, amikor egy lapot sem
+                # nyomtatott - ez a projekt legrosszabb hibaosztálya (néma hamis siker).
+                if not res_print or res_print.returncode != 0:
+                    rc = res_print.returncode if res_print else 'nincs eredmény'
+                    detail = ((res_print.stderr or res_print.stdout or '') if res_print else '').strip()
+                    logging.error(f"[STOREPRINT] A SumatraPDF nem nyomtatott (kód={rc}): {detail[:600]}")
+                    self._log_available_printers()
+                    raise Exception(
+                        f"A nyomtatási parancs hibával tért vissza (SumatraPDF kód: {rc}) - "
+                        f"a nyomtató valószínűleg nem érhető el ezen a néven: '{printer_name}'. "
+                        f"A PDF itt maradt, kézzel is kinyomtatható: {pdf_path}")
+                logging.info(f"[STOREPRINT] A nyomtatási feladat elküldve a sorba: {printer_name}")
                 try: os.remove(pdf_path)
                 except Exception as e: logging.debug(f"[STOREPRINT] Ideiglenes PDF törlése sikertelen: {e}")
 
