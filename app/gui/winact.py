@@ -196,57 +196,49 @@ class GuiWinActMixin:
         MIÉRT NEM FUT LE "MAGÁTÓL" A VÉGÉN AZ ELLENŐRZÉS, mint a Windows-aktiválásnál: az
         aktiváló script INTERAKTÍV (menüs, a technikus válaszol neki), és külön, önálló
         folyamatban fut - nem tudjuk, mikor végzett, és megvárni sem szabad (az ember
-        nélkül futó lánccal ellentétben itt épp ember ül a gép előtt). Ezért a záró üzenet
-        mondja meg, hogy a végén az "Állapot Frissítése" gombbal ellenőrizhető az
-        eredmény."""
+        nélkül futó lánccal ellentétben itt épp ember ül a gép előtt).
+
+        SEMMILYEN FELUGRÓ ABLAK NINCS - SE MEGERŐSÍTŐ, SE FOLYAMAT-MODÁL (explicit user
+        decision, 2026-09-14: *"nem kell ilyen felugro faszom ablak amikor ranyomok h
+        office aktivalasa es le kell okezni, ranyomok töltse le es inditsa el a bat filet a
+        zipbe ennyi"*). Az első változat a szokásos `task_start`/`task_complete` modált
+        használta, amit a végén le kellett OK-zni - egyetlen gombnyomásból így három lett.
+        Ez pontosan az a minta, amit az EGYENKÉNTI stresstool-indítás (`start_stress_tool`)
+        már 2026-07 óta követ, szintén explicit kérésre: a letöltés a NÉZETBE ÁGYAZOTT
+        sávon látszik (`stress_dl_progress`), az eredmény egy rövid toast, a részletes
+        szöveg pedig a gomb alatti dobozba kerül (`officeact_result`) - ott elolvasható,
+        de semmit nem kell lezárni. Ne tedd vissza a modált."""
         if self.target_os_path:
             self.emit('toast', {'message': '❌ Offline módban nem elérhető!', 'type': 'error'})
             return
 
         def worker():
-            task = 'officeact'
-            self.emit('task_start', {'task': task, 'title': 'Office aktiválása'})
+            plan = winact_core.office_activator_plan()
+            if not plan['ready']:
+                # Nincs beállítva a letöltési link - a teendőt EGY helyen írjuk le
+                # (a plan szövege), hogy a felület és a napló ne mondhasson mást.
+                self._officeact_msg(False, plan['text'])
+                return
             try:
-                plan = winact_core.office_activator_plan()
-                if not plan['ready']:
-                    # Nincs beállítva a letöltési link - a teendőt EGY helyen írjuk le
-                    # (a plan szövege), hogy a felület és a napló ne mondhasson mást.
-                    self.emit('task_progress', {'task': task, 'log': '⚙️ ' + plan['text']})
-                    self.emit('task_complete', {'task': task,
-                                                'status': '⚙️ Nincs beállítva a csomag linkje'})
-                    return
-
-                if plan['mode'] == 'list':
-                    self.emit('task_progress', {'task': task, 'log': 'ℹ️ ' + plan['text']})
-
-                # Letöltés + kicsomagolás. A folyamat-modál sávját a progress-callback
-                # hajtja: a letöltés bájtban, a kicsomagolás fájlban - a modál a
-                # current/total párból számol százalékot (lásd ui.html updateProgressModal).
-                def progress(phase, done, total):
-                    if phase == 'download':
-                        self.emit('task_progress', {
-                            'task': task,
-                            'status': (f'⬇ Csomag letöltése — {done / 1048576:.0f} / '
-                                       f'{total / 1048576:.0f} MB' if total else
-                                       f'⬇ Csomag letöltése — {done / 1048576:.0f} MB'),
-                            'current': done, 'total': total or 0,
-                            'indeterminate': not total})
-                    else:
-                        self.emit('task_progress', {
-                            'task': task, 'status': f'📦 Kicsomagolás — {done}/{total} fájl',
-                            'current': done, 'total': total or 0})
-
-                ext_dir, batches = winact_core.download_office_activator(
-                    self._run, progress=progress,
-                    log=lambda msg: self.emit('task_progress', {'task': task, 'log': msg}))
+                # A LETÖLTÉSI SÁV A STRESSTOOLS THROTTLINGOLT EMITTERÉT HASZNÁLJA: a két
+                # API-osztály ugyanazon a `self`-en osztozik, tehát ez nem duplikáció,
+                # hanem újrahasznosítás - és a callback alakja (fázis, kész, összes)
+                # pontosan egyezik azzal, amit a `download_office_activator` vár.
+                # A `finally`-ben lévő {'active': False} a hívó felelőssége (lásd a
+                # `_stress_dl_progress_emitter` docstringjét), enélkül a sáv ottragadna.
+                try:
+                    ext_dir, batches = winact_core.download_office_activator(
+                        self._run,
+                        progress=self._stress_dl_progress_emitter('Office aktiváló'))
+                finally:
+                    self.emit('stress_dl_progress', {'active': False})
 
                 # --- A .bat neve nincs beállítva: KIÍRJUK, mi van a csomagban.
                 # Ez nem hibaág, hanem a beállítás elvégzésének a módja: a felhasználó
                 # innen tudja meg, mit kell a konstansba írnia. Futtatni nem futtatunk.
                 if plan['mode'] == 'list':
-                    self._emit_batch_choices(task, ext_dir, batches)
-                    self.emit('task_complete', {'task': task,
-                                                'status': '📋 Válaszd ki az indítandó .bat fájlt'})
+                    self._officeact_msg(False, plan['text'] + '\n\n'
+                                        + self._batch_choices_text(ext_dir, batches))
                     return
 
                 bat = winact_core.find_activator_bat(ext_dir, plan['bat'])
@@ -257,52 +249,50 @@ class GuiWinActMixin:
                     # saját listáját naplózzuk, nem csak a hiányt).
                     logging.warning(f"[OFFICEACT] A megadott script nem található a csomagban: "
                                     f"'{plan['bat']}' (mappa: {ext_dir})")
-                    self.emit('task_progress', {'task': task, 'log':
-                              f"❌ A csomagban NINCS '{plan['bat']}' nevű fájl."})
-                    self._emit_batch_choices(task, ext_dir, batches)
-                    self.emit('task_complete', {'task': task,
-                                                'status': '❌ A megadott .bat nincs a csomagban'})
+                    self._officeact_msg(False, f"A csomagban NINCS '{plan['bat']}' nevű fájl.\n\n"
+                                        + self._batch_choices_text(ext_dir, batches))
                     return
 
-                self.emit('task_progress', {'task': task, 'log':
-                          f'🔧 Indítás: {os.path.basename(bat)}\n'
-                          f'   (mappa: {os.path.dirname(bat)})', 'indeterminate': True})
                 winact_core.launch_activator_bat(bat)
-
-                self.emit('task_progress', {'task': task, 'log':
-                          '\n✅ Az aktiváló script elindult egy KÜLÖN, fekete parancssori '
-                          'ablakban, rendszergazdaként.\n'
-                          '   👉 Ott folytasd: kövesd a script utasításait. Az ablak a végén '
-                          'nyitva marad, hogy lásd az eredményt - az X-szel bezárhatod.\n'
-                          '   👉 Ha kész, itt az „Állapot Frissítése” gombbal ellenőrizheted, '
-                          'hogy aktiválva lett-e az Office.\n'
-                          '   ℹ️ Ha az ablak azonnal eltűnik vagy a fájl „eltűnik”, azt a '
-                          'vírusirtó tette - lásd a naplót.'})
-                self.emit('task_complete', {'task': task, 'status': '✅ Az aktiváló script elindult'})
+                self._officeact_msg(True,
+                    f'Elindult: {os.path.basename(bat)} — egy külön, fekete parancssori '
+                    'ablakban, rendszergazdaként. Ott folytasd, kövesd a script utasításait. '
+                    'Az ablak a végén nyitva marad, hogy lásd az eredményt (X-szel bezárható). '
+                    'Ha kész, az „Állapot Frissítése” gombbal ellenőrizheted, aktiválva '
+                    'lett-e az Office.')
             except Exception as e:
                 logging.error(f"[OFFICEACT] Az Office-aktiválás hibára futott: {e}", exc_info=True)
-                self.emit('task_progress', {'task': task, 'log': f'❌ Hiba: {e}'})
-                self.emit('task_complete', {'task': task, 'status': '❌ Hiba'})
+                self._officeact_msg(False, str(e))
 
         self._safe_thread('officeact', worker)
 
-    def _emit_batch_choices(self, task, ext_dir, batches):
-        """A csomagban talált .bat/.cmd fájlok kiírása - ez a válasz arra, hogy "mit
+    def _officeact_msg(self, ok, text):
+        """Az Office-aktiválás eredménye: RÖVID toast + a részletes szöveg a nézetbe.
+
+        MIÉRT KETTŐ: a toast 3-4 másodpercig látszik és nem fér bele egy több soros
+        magyarázat (a hibák itt hosszúak: mit hova kell beírni, vírusirtó-kizárás,
+        a csomagban talált fájlok listája). A toast tehát csak azt mondja meg, hogy
+        SIKERÜLT-E, és hogy hol a részlet; a szöveg maga a gomb alatti dobozba megy, ahol
+        ott is marad, amíg el nem olvassák - lezárni viszont nem kell semmit."""
+        self.emit('officeact_result', {'ok': bool(ok), 'text': str(text or '')})
+        self.emit('toast', {
+            'message': ('✅ Az aktiváló elindult — folytasd a fekete ablakban!' if ok
+                        else '❌ Nem indult el — a részletek a gomb alatt olvashatók.'),
+            'type': 'success' if ok else 'error'})
+
+    def _batch_choices_text(self, ext_dir, batches):
+        """A csomagban talált .bat/.cmd fájlok felsorolása - ez a válasz arra, hogy "mit
         írjak be a konstansba?". Két helyről hívjuk (nincs beállított név; a beállított
         név nem található), mert mindkét esetben pontosan ugyanez a teendő - két külön
         szöveg előbb-utóbb eltérne egymástól."""
         if batches:
-            self.emit('task_progress', {'task': task, 'log':
-                      '\n📋 A csomagban ezek az indítható script-fájlok vannak:\n'
-                      + '\n'.join(f'   • {b}' for b in batches)
-                      + '\n\n👉 A megfelelő fájl NEVÉT (az esetleges almappa nélkül) írd be az\n'
-                        '   app/winact_core.py fájl OFFICE_ACTIVATOR_BAT sorába, pl.:\n'
-                        f"   OFFICE_ACTIVATOR_BAT = '{os.path.basename(batches[0])}'"})
-        else:
-            self.emit('task_progress', {'task': task, 'log':
-                      '\n⚠️ A csomagban EGYETLEN .bat/.cmd fájl sincs. Lehet, hogy .exe-t vagy '
-                      '.ps1-et tartalmaz - azt kézzel kell elindítani a mappából:\n'
-                      f'   {ext_dir}'})
+            return ('📋 A csomagban ezek az indítható script-fájlok vannak:\n'
+                    + '\n'.join(f'   • {b}' for b in batches)
+                    + '\n\n👉 A megfelelő fájl NEVÉT (az esetleges almappa nélkül) írd be az '
+                      'app/winact_core.py fájl OFFICE_ACTIVATOR_BAT sorába, pl.:\n'
+                      f"   OFFICE_ACTIVATOR_BAT = '{os.path.basename(batches[0])}'")
+        return ('⚠️ A csomagban EGYETLEN .bat/.cmd fájl sincs. Lehet, hogy .exe-t vagy .ps1-et '
+                f'tartalmaz - azt kézzel kell elindítani ebből a mappából:\n   {ext_dir}')
 
     def clear_kms_server(self):
         """A beállított KMS-kiszolgáló törlése (vissza a Microsoft alapértelmezettre).

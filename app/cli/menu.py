@@ -699,12 +699,26 @@ def _menu_winact(api):
             ui.err('Az Office-aktiváló csomag nincs beállítva — lásd a fenti üzenetet.')
             ui.pause()
             return
-        # Idegen script futtatása a gépen: ezt ki kell mondani, és rá kell kérdezni.
-        if oplan.get('mode') == 'run' and not ui.confirm(
-                f"A program letölti az aktiváló csomagot, és elindítja benne a(z) "
-                f"{oplan.get('bat')} fájlt egy külön ablakban. Indulhat?", True):
-            return
-        _run_screen(api, 'Office aktiválása', lambda: api.activate_office())
+        # NINCS külön megerősítés: a menüpont kiválasztása MAGA a megerősítés (a GUI-ban
+        # is a kattintás az - 2026-09-14, explicit user decision). A részletes eredményt
+        # viszont ki KELL írni: az `officeact_result` adat-esemény, amit a bridge csak
+        # eltárol (a GUI-ban a gomb alatti dobozba megy), tehát a toast önmagában csak
+        # annyit mondana, hogy "a részletek a gomb alatt" - ami itt nem létezik.
+        _header(api, 'Office aktiválása')
+        api._cli_reset_events()
+        try:
+            api._cli_sync(lambda: api.activate_office())
+        except KeyboardInterrupt:
+            ui.warn('Megszakítva.')
+        except Exception as e:
+            logging.error(f"[CLI] Az Office-aktiválás hibára futott: {e}", exc_info=True)
+            ui.err(f'Hiba: {e}')
+        res = api._cli_take('officeact_result') or {}
+        if res.get('text'):
+            ui.write('')
+            for line in str(res['text']).split('\n'):
+                (ui.ok if res.get('ok') else ui.warn)(line) if line.strip() else ui.write('')
+        ui.pause()
     elif c == '3':
         _run_screen(api, 'KMS törlése', lambda: api.clear_kms_server())
     elif c == '4':

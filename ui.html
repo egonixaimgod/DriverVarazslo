@@ -1631,6 +1631,13 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
           <div class="winact-btnrow" style="margin-top:16px">
             <button class="btn btn-big btn-primary" onclick="activateOffice()" id="btn-officeact">📄 Office Aktiválása</button>
           </div>
+          <!-- Letöltési folyamat-sáv. Ugyanaz a `stress_dl_progress` esemény hajtja, mint
+               a Stress és a Benchmark nézetét (onStressDlProgress) - így a letöltés
+               megjelenítése EGY helyen él, és nem kell felugró folyamat-modál. -->
+          <div class="glass stress-dl-box" id="stress-dl-office" style="display:none;margin-top:12px">
+            <div class="stress-dl-label" id="stress-dl-office-label">Letöltés...</div>
+            <div class="progress" id="stress-dl-office-prog"><div class="progress-fill" id="stress-dl-office-fill"></div></div>
+          </div>
           <!-- A gomb melletti magyarázat CSAK AKKOR jelenik meg, ha van mit mondani:
                nincs beállítva a csomag linkje (ilyenkor a gomb le is van tiltva), vagy
                nincs beállítva az indítandó .bat neve. Beállított csomagnál csend - egy
@@ -2108,6 +2115,9 @@ window.handlePyEvent = function(payload) {
       break;
     case 'stress_dl_progress':
       onStressDlProgress(data);
+      break;
+    case 'officeact_result':
+      onOfficeActResult(data);
       break;
     case 'machine_specs':
       renderMachineSpecs(data);
@@ -3925,22 +3935,35 @@ function renderActivationStatus(data) {
    A Python `clear_kms_server` metódus ÉL - a CLI aktiválás-menüje hívja. */
 
 async function activateOffice() {
-  // A csomagot a szerviz saját GitHub release-éből töltjük le, és egy .bat-ot indítunk
-  // el vele - ezt ki KELL mondani a kattintás előtt, mert a program egyébként soha nem
-  // futtat le idegen scriptet a gépen (a Net Blokkoló scriptet is csak letölti).
-  const p = (winActState && winActState.office_plan) || {};
-  if (!p.ready) { toast(p.text || 'Az Office-aktiváló csomag nincs beállítva.', 'warning'); return; }
-  if (p.mode === 'run' && !confirm(
-      'OFFICE AKTIVÁLÁSA\n\n'
-      + 'A program letölti az aktiváló csomagot, kicsomagolja, és elindítja benne ezt a fájlt:\n\n'
-      + '    ' + (p.bat || '') + '\n\n'
-      + 'A script egy KÜLÖN, fekete parancssori ablakban fut majd, rendszergazdaként — '
-      + 'ott kell folytatnod.\n\nIndulhat?')) return;
+  /* SZÁNDÉKOSAN NINCS MEGERŐSÍTŐ ABLAK ÉS NINCS FOLYAMAT-MODÁL (2026-09-14, explicit user
+     decision: *"nem kell ilyen felugro faszom ablak amikor ranyomok h office aktivalasa
+     es le kell okezni, ranyomok töltse le es inditsa el a bat filet a zipbe ennyi"*).
+     Egy kattintás = letöltés + indítás. A folyamatot a nézetbe ágyazott sáv mutatja
+     (`stress_dl_progress`), az eredményt egy toast + a gomb alatti doboz
+     (`officeact_result`) - ugyanaz a minta, mint az egyenkénti stresstool-indításnál.
+     A gomb a művelet idejére letiltva, hogy a türelmetlen dupla kattintás ne indítson
+     két párhuzamos letöltést (a `_safe_thread` amúgy is elutasítaná, de egy "már fut egy
+     másik művelet" toast itt csak zavar). */
+  const btn = document.getElementById('btn-officeact');
+  const box = document.getElementById('officeact-plan');
+  if (box) box.innerHTML = '';
+  if (btn) { btn.disabled = true; btn.dataset.busy = '1'; }
   try {
     await api().activate_office();
   } catch (e) {
     toast('Hiba: ' + e, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; delete btn.dataset.busy; }
   }
+}
+
+function onOfficeActResult(d) {
+  // A részletes eredmény/hibaszöveg a gomb alatti dobozba - NEM felugró ablakba.
+  const box = document.getElementById('officeact-plan');
+  if (!box) return;
+  const cls = (d && d.ok) ? 'winact-none' : 'winact-plan-bad';
+  box.innerHTML = '<div class="' + cls + '" style="margin:14px 0 0;white-space:pre-wrap">'
+    + ((d && d.ok) ? '✅ ' : '⚠️ ') + esc((d && d.text) || '') + '</div>';
 }
 
 async function activateWindows() {
@@ -4182,6 +4205,7 @@ function onStressDlProgress(d) {
   const bars = [
     {box:'stress-dl', label:'stress-dl-label', prog:'stress-dl-prog', fill:'stress-dl-fill'},
     {box:'stress-dl-bench', label:'stress-dl-bench-label', prog:'stress-dl-bench-prog', fill:'stress-dl-bench-fill'},
+    {box:'stress-dl-office', label:'stress-dl-office-label', prog:'stress-dl-office-prog', fill:'stress-dl-office-fill'},
   ];
   for (const b of bars) {
     const box = document.getElementById(b.box);

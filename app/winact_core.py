@@ -236,7 +236,7 @@ KMS_HOST = 'kms8.msguides.com'
 #  HA AZ URL ÜRES: a gomb le van tiltva, és a felület megmondja, hogy ide kell írni.
 # ===========================================================================
 OFFICE_ACTIVATOR_URL = 'https://github.com/egonixaimgod/DriverVarazslo/releases/download/mas.zip/mas.zip'
-OFFICE_ACTIVATOR_BAT = 'mas.bat'
+OFFICE_ACTIVATOR_BAT = 'mas.cmd'
 
 
 # Az `slmgr /ato` egy elérhetetlen KMS-hostra hosszan próbálkozik - időkorlát nélkül a
@@ -687,15 +687,38 @@ def find_activator_bat(root, name):
     Csak a FÁJLNEVET nézzük, kis/nagybetűtől függetlenül: a ZIP jellemzően egy
     gyökérmappát tartalmaz, aminek a neve kiadásonként változhat, tehát egy útvonalra
     illesztés a következő release-nél némán elhasalna. Kiterjesztés nélkül megadott névre
-    a .bat és a .cmd is jó."""
+    a .bat és a .cmd is jó.
+
+    A .bat ÉS A .cmd EGYMÁS HELYETT IS ELFOGADOTT - MÉRT ESET, nem elméleti kényelem
+    (2026-09-14): a felhasználó `OFFICE_ACTIVATOR_BAT = 'mas.bat'`-ot állított be, a
+    release ZIP-jében viszont **`mas.cmd`** van, tehát a pontos névre szorítkozó keresés
+    egy tökéletesen jó csomagra mondta volna azt, hogy "nincs benne ilyen fájl". A két
+    kiterjesztés a Windowson funkcionálisan azonos (mindkettőt a cmd.exe futtatja), a
+    névegyezés pedig elég erős jel ahhoz, hogy ugyanarról a scriptről legyen szó.
+
+    A KERESÉS KÉT MENETES, ÉS EZ SZÁMÍT: az első menet a PONTOS nevet keresi, a második
+    csak ezután a másik kiterjesztést. Egy ciklusban összevonva a fa bejárási sorrendje
+    döntene arról, hogy melyiket kapjuk - ha a csomagban mindkettő benne van (más-más
+    almappában), a technikus által megadott névnek kell nyernie."""
     want = os.path.basename(str(name or '').strip()).lower()
     if not want:
         return None
-    wants = [want] if os.path.splitext(want)[1] else [want + e for e in BATCH_EXTS]
-    for dirpath, _dirnames, filenames in os.walk(root):
-        for fn in filenames:
-            if fn.lower() in wants:
-                return os.path.join(dirpath, fn)
+    stem, ext = os.path.splitext(want)
+    rounds = [[want]] if ext else [[stem + e for e in BATCH_EXTS]]
+    if ext in BATCH_EXTS:
+        rounds.append([stem + e for e in BATCH_EXTS if e != ext])
+    for i, wants in enumerate(rounds):
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for fn in filenames:
+                if fn.lower() in wants:
+                    hit = os.path.join(dirpath, fn)
+                    if i:
+                        # Ki KELL mondani, ha nem azt találtuk, amit kértek: enélkül a
+                        # technikus azt hinné, a beállított fájl van a csomagban.
+                        logging.warning(
+                            f"[OFFICEACT] A beállított '{name}' nincs a csomagban, de a "
+                            f"'{fn}' igen (a .bat és a .cmd a Windowson ugyanaz) - ezt indítjuk.")
+                    return hit
     return None
 
 
