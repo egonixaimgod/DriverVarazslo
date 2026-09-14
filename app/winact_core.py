@@ -17,7 +17,13 @@ technikus adja meg - a programban nincs, és nem is lehet, előre beírt kiszolg
 import os
 import re
 import json
+import shutil
+import zipfile
 import logging
+import subprocess
+
+from app.common import _app_data_dir
+from app.common import download_with_cert_fallback
 
 # A Windows licenc-alkalmazás azonosítója a SoftwareLicensingProduct-ban (fix GUID,
 # minden Windowson ez). Enélkül a lekérdezés az összes terméket visszaadná (Office is).
@@ -53,13 +59,35 @@ WINDOWS_APP_ID = '55c92734-d682-4d71-983e-d6ec3f16059f'
 # szempontjából a kérdés kétállapotú, és a képernyőnek is annak kell lennie.
 #
 # A HATÁR: MŰKÖDIK-E MOST A TERMÉK, aktivált licenccel?
-#   'ok'    (zöld)  = 1 (Licensed) és 5 (Notification). Az 5-ös nem azt jelenti, hogy
-#                     nincs licenc: a termék licencelt és FUT, aktiváltnak is mutatja
-#                     magát (mérve, 2026-08-31: Office24ProPlus2024VL_MAK_AE1, ok
-#                     0xC004F009) - csak az aktiválás nem végleges. Zöld.
-#   'error' (piros) = minden más. A 2/6 (türelmi idő) itt szándékosan piros: ott a gép
-#                     tényleg NINCS aktiválva, csak még működik - és pont ez az az eset,
-#                     amit a technikusnak rendeznie kell, mielőtt kiadja a gépet.
+#   'ok'    (zöld)  = 1 (Licensed), 5 (Notification) és - 2026-09-14 óta - 2/6 (türelmi
+#                     idő). Az 5-ös nem azt jelenti, hogy nincs licenc: a termék licencelt
+#                     és FUT, aktiváltnak is mutatja magát (mérve, 2026-08-31:
+#                     Office24ProPlus2024VL_MAK_AE1, ok 0xC004F009) - csak az aktiválás
+#                     nem végleges. Zöld.
+#   'error' (piros) = minden más (0/3/4): ott a termék TÉNYLEG nem használható.
+#
+# A 2/6 (TÜRELMI IDŐ) 2026-09-14 ÓTA ZÖLD, "Aktív" felirattal - MAGYARÁZÓ ZÁRÓJEL NÉLKÜL
+# (explicit user decision, képernyőképpel: *"ha be van aktiválva az office akkor ne
+# pirossal írja már nekem ilyen faszságokat, írja ki azt h aktív és zöld legyen"*, majd a
+# zárójeles "(türelmi időben)" változatra: *"ne is legyen piros meg attol megh türelmi idő
+# van attól még aktív az aktiválás basszus - legyen zöld és aktív ha aktív"*). A terepi
+# eset: egy Office 2019 Retail két terméke `LicenseStatus=2`, ok `0x4004F00C` ("türelmi
+# időben, aktiválható") - a gépen az Office MŰKÖDIK és aktiváltnak mutatja magát, a nézet
+# viszont PIROSSAL, "Nincs aktiválva" felirattal írta ki.
+#
+# EZ A 2026-09-07-i SZABÁLY SZŰKÍTÉSE. A régi indoklás ténybeli része igaz marad, ezért
+# marad itt leírva: a 2/6 állapotban a termék szigorú értelemben NINCS aktiválva, csak
+# türelmi időben működik. A régi megoldás (piros + "Nincs aktiválva") viszont ezt az
+# árnyalatot úgy közölte, hogy közben egy MŰKÖDŐ terméket hibásnak mutatott - ugyanabba a
+# hibába esett, amiért a sárga "újraaktiválás ajánlott" szint megszűnt, csak a másik
+# irányból. A felhasználó döntése egyértelmű: a felületen a kérdés kétállapotú.
+#
+# AZ ÁRNYALAT NEM VÉSZ EL, CSAK NEM A JELVÉNYEN VAN - és ez az, ami miatt ez nem hazugság:
+# az `activated` mező (és vele az aktiválás sikerének verdiktje) VÁLTOZATLANUL `code == 1`,
+# a `LICENSE_STATUS_DETAIL` továbbra is "türelmi idő (2) – még nincs aktiválva"-ként írja
+# le, és ez megy a naplóba (Rule 0) meg az aktiválás utáni hibaüzenetbe is. Vagyis a
+# program soha nem fog SIKERT jelenteni egy türelmi idős aktiválásra - csak a felületen
+# nem riogat egy működő termék miatt.
 #
 # A 'warning' szint megszűnt. A RÉSZLETES OK NEM VÉSZ EL: a `LicenseStatusReason` továbbra
 # is kimegy (`reason_hex`/`reason_text`), a felület viszont CSAK a nem aktivált eseteknél
@@ -67,11 +95,11 @@ WINDOWS_APP_ID = '55c92734-d682-4d71-983e-d6ec3f16059f'
 LICENSE_STATUS = {
     0: ('Nincs aktiválva', 'error'),
     1: ('Aktiválva', 'ok'),
-    2: ('Nincs aktiválva (türelmi időben működik)', 'error'),
+    2: ('Aktív', 'ok'),
     3: ('Nincs aktiválva (lejárt türelmi idő)', 'error'),
     4: ('Nincs aktiválva (nem eredetinek jelölt)', 'error'),
     5: ('Aktiválva', 'ok'),
-    6: ('Nincs aktiválva (meghosszabbított türelmi idő)', 'error'),
+    6: ('Aktív', 'ok'),
 }
 
 # A MŰVELET-VERDIKTHEZ tartozó RÉSZLETES állapotszöveg - NEM a jelvényhez.
@@ -177,6 +205,38 @@ GVLK_KEYS = (
 #  hogy gyári kulcs nélküli gépet nem tud aktiválni.
 # ===========================================================================
 KMS_HOST = 'kms8.msguides.com'
+
+
+# ===========================================================================
+#  IDE ÍRD BE AZ OFFICE-AKTIVÁLÓ CSOMAG ADATAIT (2 SOR, ALUL)
+# ---------------------------------------------------------------------------
+#  MIT CSINÁL A GOMB (a nézet "Office aktiválása" gombja):
+#     1. letölti az alábbi URL-en lévő ZIP-et,
+#     2. kicsomagolja a C:\DriverVarazslo\office_aktivalo\csomag mappába,
+#     3. elindítja benne az alább megnevezett .bat fájlt, SAJÁT, LÁTHATÓ konzolablakban.
+#
+#  1) OFFICE_ACTIVATOR_URL - a GitHub release KÖZVETLEN letöltési linkje.
+#     Ezt a release oldalán a fájl nevére jobb klikk -> "Hivatkozás címének másolása"
+#     adja meg, és MINDIG a /releases/download/ alakú (nem a /releases/tag/ oldal!):
+#
+#         OFFICE_ACTIVATOR_URL = 'https://github.com/<fiók>/<repo>/releases/download/<tag>/<fájl>.zip'
+#
+#     Példa (a block.bat-nál már működő alak):
+#         'https://github.com/egonixaimgod/DriverVarazslo/releases/download/office/office.zip'
+#
+#  2) OFFICE_ACTIVATOR_BAT - a ZIP-en BELÜL lévő elindítandó fájl NEVE (csak a név,
+#     útvonal nélkül - almappában is megtaláljuk):
+#
+#         OFFICE_ACTIVATOR_BAT = 'aktival.bat'
+#
+#  HA NEM TUDOD, MI A BAT NEVE: hagyd üresen, és nyomd meg a gombot. A program
+#  letölti + kicsomagolja a ZIP-et, és KIÍRJA a benne talált .bat/.cmd fájlok nevét -
+#  onnan már csak be kell másolnod ide. Futtatni ilyenkor semmit nem futtat.
+#
+#  HA AZ URL ÜRES: a gomb le van tiltva, és a felület megmondja, hogy ide kell írni.
+# ===========================================================================
+OFFICE_ACTIVATOR_URL = 'https://github.com/egonixaimgod/DriverVarazslo/releases/tag/mas.zip'
+OFFICE_ACTIVATOR_BAT = 'mas.bat'
 
 
 # Az `slmgr /ato` egy elérhetetlen KMS-hostra hosszan próbálkozik - időkorlát nélkül a
@@ -529,3 +589,277 @@ def collect_office_activation(run):
                                  if p['reason_hex'] else '')
                               for p in out['products']) or 'nincs'))
     return out
+
+
+# ---------------------------------------------------------------------------
+# OFFICE-AKTIVÁLÓ CSOMAG: letöltés a GitHub release-ből -> kicsomagolás -> .bat indítása
+# ---------------------------------------------------------------------------
+#
+# A LETÖLTÉS UGYANAZ A BEVÁLT ÚT, AMIT A stresstools.zip HASZNÁL (explicit user decision,
+# 2026-09-14: *"a stresstools.zip nél hasonlo letöltés van, az jol mukodik olyan legyen
+# mint az ez is"*): `common.download_with_cert_fallback` -> `zipfile` kicsomagolás ->
+# fázisonkénti progress-callback. Konkrétan ezt jelenti, és ezért nem szabad "egyszerűbb"
+# urllib-hívásra cserélni: a friss-Windows tanúsítvány-fallback (Python OpenSSL ->
+# PowerShell schannel -> certutil) ott van beépítve, a régi gépeken pedig pontosan ez a
+# lánc az egyetlen, ami egyáltalán le tud tölteni (lásd CLAUDE.md, Régi Windows-támogatás).
+#
+# AMIBEN KÜLÖNBÖZIK A stresstools-tól, és mind a kettő szándékos:
+#   - NINCS CACHE. A stresstools egy stabil, saját kiadású programcsomag; ez viszont egy
+#     aktiváló script, amit a felhasználó bármikor frissíthet a release-ben. Minden
+#     kattintás friss letöltés - így mindig az megy, ami MOST a release-ben van.
+#   - A ZIP-et KICSOMAGOLÁS UTÁN IS MEGTARTJUK? Nem: törlünk, mint a stresstools.
+#   - Az adatmappába megy (`C:\DriverVarazslo\office_aktivalo`), nem a %TEMP%-be: a
+#     program saját temp-takarítója a %TEMP%-et üríti, és egy félbehagyott aktiválás
+#     közben nem szeretnénk kihúzni a script alól a mappát.
+OFFICE_ACTIVATOR_DIRNAME = 'office_aktivalo'   # az adatmappán belüli gyökér
+OFFICE_ACTIVATOR_SUBDIR = 'csomag'             # ide csomagolunk ki
+OFFICE_ACTIVATOR_ZIPNAME = 'csomag.zip'        # a letöltött ZIP ideiglenes neve
+BATCH_EXTS = ('.bat', '.cmd')                  # amit "indítható script"-nek tekintünk
+OFFICE_DL_TIMEOUT = 60                         # kapcsolat-időkorlát (Python ág)
+OFFICE_DL_PS_TIMEOUT = 900                     # a PowerShell/certutil tartalék ág kerete
+
+# A VÍRUSIRTÓ A LEGVALÓSZÍNŰBB BUKÁSI OK, ÉS EZT KI KELL MONDANI.
+# Az Office/Windows aktiváló scriptek gyakorlatilag kivétel nélkül fent vannak a Defender
+# listáján (HackTool:Win32/AutoKMS és társai), ezért a fájl eltűnhet MÁR A LETÖLTÉSKOR
+# vagy a kicsomagoláskor - a Windows ilyenkor `ERROR_VIRUS_INFECTED` (225) hibát ad.
+# E nélkül a magyarázat nélkül a technikus egy értelmezhetetlen "hozzáférés megtagadva"
+# hibát látna, és a programot hibáztatná.
+ANTIVIRUS_HINT = (
+    'Ezt szinte biztosan a VÍRUSIRTÓ (Windows Defender) tette: az aktiváló scripteket '
+    'kivétel nélkül kártékonynak jelöli, és már letöltés/kicsomagolás közben kiveszi a '
+    'fájlt. Teendő: a Defender beállításaiban vegyél fel kivételt a '
+    'C:\\DriverVarazslo\\office_aktivalo mappára (Vírus- és veszélyforrás-kezelés > '
+    'Beállítások kezelése > Kizárások), majd próbáld újra.')
+
+
+def office_activator_dir():
+    """Az Office-aktiváló csomag gyökérmappája az adatmappán belül."""
+    return os.path.join(_app_data_dir(), OFFICE_ACTIVATOR_DIRNAME)
+
+
+def office_activator_plan():
+    """MIT FOG CSINÁLNI az Office-aktiválás gomb - a felület ezt írja ki, és ebből dönti
+    el, hogy a gomb engedélyezett-e.
+
+    Három állapot van, és mind a háromnak SAJÁT üzenete van, mert a teendő is más:
+      ready=True,  mode='run'  -> URL és .bat név is megvan: letölt, kicsomagol, indít.
+      ready=True,  mode='list' -> URL megvan, .bat név nincs: letölt, kicsomagol, és
+                                  KIÍRJA a megtalált .bat/.cmd fájlok nevét. Ez nem
+                                  hibaállapot, hanem a beállítás elvégzésének a módja.
+      ready=False              -> nincs URL: nincs mit letölteni."""
+    url = (OFFICE_ACTIVATOR_URL or '').strip()
+    bat = (OFFICE_ACTIVATOR_BAT or '').strip()
+    if not url:
+        return {'ready': False, 'mode': 'unset', 'url': '', 'bat': bat, 'text': (
+            'Az Office-aktiváló csomag letöltési linkje nincs beállítva. A GitHub release '
+            'közvetlen ZIP-linkjét az app/winact_core.py fájl OFFICE_ACTIVATOR_URL sorába '
+            'kell beírni (az elindítandó .bat nevét pedig az alatta lévő '
+            'OFFICE_ACTIVATOR_BAT sorba).')}
+    if not bat:
+        return {'ready': True, 'mode': 'list', 'url': url, 'bat': '', 'text': (
+            'A csomag letöltési linkje megvan, de az elindítandó .bat neve nincs beállítva. '
+            'A gomb most letölti és kicsomagolja a csomagot, és kiírja, milyen .bat/.cmd '
+            'fájlok vannak benne - a megfelelőt az app/winact_core.py '
+            'OFFICE_ACTIVATOR_BAT sorába kell beírni. Futtatni addig semmit nem futtat.')}
+    return {'ready': True, 'mode': 'run', 'url': url, 'bat': bat, 'text': (
+        f'Letölti a csomagot, kicsomagolja, és elindítja benne a(z) {bat} fájlt egy '
+        'külön, látható parancssori ablakban.')}
+
+
+def virus_blocked(exc):
+    """Igaz, ha a hibát a vírusirtó okozta (a fájlt kivették a kezünk alól).
+
+    Elsősorban a Windows saját hibakódjából (`ERROR_VIRUS_INFECTED` = 225) dolgozunk, mert
+    az nyelvfüggetlen; a szöveges minták csak tartalékok, és MINDKÉT nyelven kellenek - a
+    magyar Windows üzenete ékezetes ('vírus'), ami az angol 'virus' mintára SOSEM
+    illeszkedne (ugyanaz a csapda, ami a projektben a magyar pnputil-kimenetnél már
+    egyszer hamis eredményt okozott)."""
+    if getattr(exc, 'winerror', None) == 225:
+        return True
+    low = str(exc).lower()
+    return any(m in low for m in ('virus', 'vírus', 'potentially unwanted',
+                                  'nemkívánatos', 'kártev', 'malware'))
+
+
+def find_activator_bat(root, name):
+    """A megnevezett .bat/.cmd megkeresése a kicsomagolt fában (almappákban is).
+
+    Csak a FÁJLNEVET nézzük, kis/nagybetűtől függetlenül: a ZIP jellemzően egy
+    gyökérmappát tartalmaz, aminek a neve kiadásonként változhat, tehát egy útvonalra
+    illesztés a következő release-nél némán elhasalna. Kiterjesztés nélkül megadott névre
+    a .bat és a .cmd is jó."""
+    want = os.path.basename(str(name or '').strip()).lower()
+    if not want:
+        return None
+    wants = [want] if os.path.splitext(want)[1] else [want + e for e in BATCH_EXTS]
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for fn in filenames:
+            if fn.lower() in wants:
+                return os.path.join(dirpath, fn)
+    return None
+
+
+def list_batch_files(root):
+    """A kicsomagolt fában talált összes .bat/.cmd, a gyökérhez képest relatív úttal.
+
+    Két helyen kell: a beállítatlan-név ágon ez MAGA a válasz a technikusnak (ezek közül
+    kell választania), a "nem találom a megadott fájlt" ágon pedig ez mondja meg, mi van
+    helyette - egy puszta "nem található" üzenetből nem derülne ki, hogy elgépelt nevet
+    írt-e be, vagy a ZIP tartalma más, mint amire számított."""
+    out = []
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for fn in filenames:
+            if fn.lower().endswith(BATCH_EXTS):
+                out.append(os.path.relpath(os.path.join(dirpath, fn), root))
+    return sorted(out)
+
+
+def download_office_activator(run_fn, progress=None, log=None):
+    """Letölti és kicsomagolja az Office-aktiváló csomagot. Hibánál KIVÉTELT dob.
+
+    progress: opcionális callback(fázis, kész, összes) - a fázis 'download' (bájtok, az
+    összes lehet None, ha a szerver nem küld Content-Length-et) vagy 'extract' (fájldarab),
+    pontosan úgy, mint a stresstools letöltésénél. log: opcionális callback(szöveg) a
+    felületre szánt sorokhoz.
+
+    Visszatérés: (kicsomagolt_mappa, talált_batch_fájlok_listája)."""
+    def say(msg):
+        logging.info(f"[OFFICEACT] {msg}")
+        if log:
+            try:
+                log(msg)
+            except Exception as e:
+                logging.debug(f"[OFFICEACT] A log-callback hibára futott: {e}")
+
+    plan = office_activator_plan()
+    if not plan['ready']:
+        raise RuntimeError(plan['text'])
+
+    root = office_activator_dir()
+    ext_dir = os.path.join(root, OFFICE_ACTIVATOR_SUBDIR)
+    zip_path = os.path.join(root, OFFICE_ACTIVATOR_ZIPNAME)
+    os.makedirs(root, exist_ok=True)
+
+    # A RÉGI KICSOMAGOLÁS TÖRLÉSE A LETÖLTÉS ELŐTT. Enélkül egy korábbi csomag fájljai
+    # összekeverednének az újakkal, és a .bat-keresés akár egy RÉGI, már nem létező
+    # scriptet találna meg - vagyis a technikus azt hinné, az új csomag futott le.
+    if os.path.exists(ext_dir):
+        say('🧹 Korábbi csomag törlése...')
+        shutil.rmtree(ext_dir, ignore_errors=True)
+
+    say(f'⬇ Letöltés: {plan["url"]}')
+    try:
+        dl_cb = (lambda done, total: progress('download', done, total)) if progress else None
+        download_with_cert_fallback(run_fn, plan['url'], zip_path,
+                                    timeout=OFFICE_DL_TIMEOUT, ps_timeout=OFFICE_DL_PS_TIMEOUT,
+                                    log_tag='OFFICEACT', progress_cb=dl_cb)
+    except Exception as e:
+        _cleanup_partial(zip_path)
+        if virus_blocked(e):
+            raise RuntimeError(f'A letöltés nem sikerült: {e}\n{ANTIVIRUS_HINT}') from e
+        raise
+
+    size = os.path.getsize(zip_path) if os.path.exists(zip_path) else 0
+    say(f'✅ Letöltve: {size / 1048576:.1f} MB')
+
+    # NEM ZIP? Két eset van, és külön kell kezelni őket, mert az egyik a felhasználó
+    # legvalószínűbb elgépelése: ha az URL közvetlenül egy .bat/.cmd fájlra mutat, azt
+    # simán elfogadjuk (nincs mit kicsomagolni). Minden más esetben viszont a letöltött
+    # fájl jellemzően egy HTML hibaoldal - a GitHub a rossz linkre is 200-at ad -, és
+    # erre a "nem sikerült kicsomagolni" üzenet félrevezető lenne.
+    if not zipfile.is_zipfile(zip_path):
+        url_low = plan['url'].lower()
+        if url_low.endswith(BATCH_EXTS):
+            os.makedirs(ext_dir, exist_ok=True)
+            direct = os.path.join(ext_dir, os.path.basename(plan['url'].split('?')[0]))
+            shutil.move(zip_path, direct)
+            say(f'ℹ️ A link közvetlenül egy script-fájlra mutat, nem ZIP-re: {os.path.basename(direct)}')
+            return ext_dir, list_batch_files(ext_dir)
+        _cleanup_partial(zip_path)
+        raise RuntimeError(
+            f'A letöltött fájl nem ZIP ({size / 1024:.0f} KB). Ellenőrizd a linket az '
+            'app/winact_core.py OFFICE_ACTIVATOR_URL sorában: a GitHub release oldalán a '
+            'fájl nevére jobb klikk -> "Hivatkozás címének másolása" adja a jó, '
+            '/releases/download/ alakú linket. A böngészőben megnyitható /releases/tag/ '
+            'oldal címe NEM jó - arra a szerver egy HTML oldalt ad vissza.')
+
+    say('📦 Kicsomagolás...')
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            members = zf.infolist()
+            for i, member in enumerate(members):
+                # A ZipFile.extract magától kiszűri az abszolút utat és a '..' elemeket
+                # (zip-slip), ezért nem kell külön ellenőrzés.
+                zf.extract(member, ext_dir)
+                if progress:
+                    try:
+                        progress('extract', i + 1, len(members))
+                    except Exception as cb_err:
+                        logging.debug(f"[OFFICEACT] extract progress hiba: {cb_err}")
+    except Exception as e:
+        if virus_blocked(e):
+            raise RuntimeError(f'A kicsomagolás nem sikerült: {e}\n{ANTIVIRUS_HINT}') from e
+        raise
+    finally:
+        _cleanup_partial(zip_path)
+
+    batches = list_batch_files(ext_dir)
+    say(f'✅ Kicsomagolva: {ext_dir} ({len(members)} fájl, ebből {len(batches)} db .bat/.cmd)')
+    if not batches:
+        # NEM dobunk kivételt: lehet, hogy a csomagban .exe/.ps1 van, és a technikusnak
+        # kézzel kell megnyitnia. A mappát viszont meg kell neveznünk, hogy odataláljon.
+        logging.warning("[OFFICEACT] A kicsomagolt csomagban EGYETLEN .bat/.cmd fájl sincs.")
+    return ext_dir, batches
+
+
+def _cleanup_partial(path):
+    """Fél-kész/már feldolgozott letöltés törlése. Nem dob: ez takarítás, nem művelet.
+    (A fél-kész ZIP törlése nem kozmetika: tele lemeznél pont a maradvány foglalná a
+    helyet a következő próbálkozás elől - terepen látott [Errno 28] a stresstools-nál.)"""
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError as e:
+        logging.debug(f"[OFFICEACT] Az ideiglenes fájl törlése sikertelen ({path}): {e}")
+
+
+def launch_activator_bat(path):
+    """Elindítja a .bat-ot SAJÁT, LÁTHATÓ konzolablakban, a saját mappájából. Hibánál dob.
+
+    HÁROM RÉSZLET, AMI NÉLKÜL NÉMÁN ROSSZUL MŰKÖDNE:
+
+    1. `cmd /c start` KÖZBEIKTATÁSA KÖTELEZŐ, nem körülményeskedés. A program kilépése
+       `cleanup_zombies()`-on át megy, ami `taskkill /F /T /PID <self>` - a TELJES
+       folyamatfát kilövi. Egy közvetlenül indított gyerek ennek a fának a része lenne,
+       tehát ha a technikus bezárja a DriverVarázslót, az AKTIVÁLÓ SCRIPT IS MEGHALNA -
+       akár az aktiválás közepén. A `start` maga indítja el a folyamatot, majd a `cmd`
+       azonnal kilép, így a script már nem tartozik a fánkba. (Ugyanaz az indoklás, mint
+       a CLI módra váltásnál - lásd app/gui/climode.py.)
+    2. A PARANCS SZTRINGKÉNT megy, nem listaként: listával a Python `list2cmdline`-ja
+       visszaperjelezi a belső idézőjeleket, és a `cmd` a `\\"`-t útvonal-kezdetnek veszi
+       (terepen ez a CLI-váltásnál "A hálózati elérési út nem található" hibát adott).
+    3. A MUNKAKÖNYVTÁR A SCRIPT SAJÁT MAPPÁJA (`start /D`), és így a bat neve útvonal
+       nélkül megy át: az aktiváló scriptek szinte mindig hivatkoznak a mellettük lévő
+       fájlokra, más könyvtárból indítva pedig csendben mást csinálnának. Mellékhaszon,
+       hogy így a szóközös útvonal sem tud elromlani a `cmd /k` idézőjel-szabályain.
+
+    A `cmd /k` (és nem `/c`): a script végén az ablak NYITVA MARAD, hogy a technikus
+    elolvashassa az eredményt - egy felvillanó és eltűnő ablak pont a lényeget vinné el.
+    Bezárni az X-szel vagy az `exit` paranccsal lehet."""
+    path = os.path.abspath(path)
+    folder = os.path.dirname(path)
+    name = os.path.basename(path)
+    cmd = f'cmd /c start "" /D "{folder}" cmd /k "{name}"'
+    logging.warning(f"[OFFICEACT] AKTIVÁLÓ SCRIPT INDÍTÁSA (külön ablak, rendszergazdaként): "
+                    f"{path} | parancs: {cmd}")
+    helper = subprocess.Popen(cmd, creationflags=subprocess.DETACHED_PROCESS,
+                              cwd=folder, close_fds=True)
+    # Megvárjuk a segéd `cmd` kilépését - a NAPLÓ miatt. A `start` után az azonnal végez
+    # (ezredmásodperc), cserébe naplózható a visszatérési kódja: a CLI-váltásnál kétszer
+    # is pont egy nem nulla kód árulta volna el azonnal, miért "nem indul el semmi".
+    try:
+        helper.wait(timeout=10)
+        logging.info(f"[OFFICEACT] A segéd cmd kilépett (kód={helper.returncode}) - az "
+                     f"aktiváló ablak innentől önálló folyamat.")
+    except Exception as e:
+        logging.warning(f"[OFFICEACT] A segéd cmd nem lépett ki 10 mp alatt ({e}).")

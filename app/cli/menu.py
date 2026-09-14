@@ -666,10 +666,22 @@ def _menu_winact(api):
     if not plan.get('ready'):
         ui.write('')
         ui.err(plan.get('text') or '')
+    # Az Office-aktiváló csomag beállítottsága (2026-09-14). Ugyanaz a szabály, mint
+    # fent: ha a művelet nem indulhat, az OKOT ki kell írni - a menüsor "jelenleg nem
+    # lehetséges" megjegyzéséből nem derülne ki, hogy mit hova kell beírni.
+    oplan = data.get('office_plan') or {}
+    if not oplan.get('ready'):
+        ui.write('')
+        ui.err(oplan.get('text') or '')
+    elif oplan.get('mode') == 'list':
+        ui.write('')
+        ui.warn(oplan.get('text') or '')
     c = ui.menu([
         ('1', 'Windows aktiválása', 'A fenti terv szerint' if plan.get('ready') else 'jelenleg nem lehetséges'),
-        ('2', 'Beállított KMS-kiszolgáló törlése', None),
-        ('3', 'Windows aktiválás-beállítások megnyitása', None),
+        ('2', 'Office aktiválása', 'Letöltött aktiváló script futtatása'
+            if oplan.get('ready') else 'jelenleg nem lehetséges'),
+        ('3', 'Beállított KMS-kiszolgáló törlése', None),
+        ('4', 'Windows aktiválás-beállítások megnyitása', None),
     ], back_label='Vissza a főmenübe')
     if c == '1':
         if not plan.get('ready'):
@@ -683,8 +695,19 @@ def _menu_winact(api):
             return
         _run_screen(api, 'Aktiválás', lambda: api.activate_windows())
     elif c == '2':
-        _run_screen(api, 'KMS törlése', lambda: api.clear_kms_server())
+        if not oplan.get('ready'):
+            ui.err('Az Office-aktiváló csomag nincs beállítva — lásd a fenti üzenetet.')
+            ui.pause()
+            return
+        # Idegen script futtatása a gépen: ezt ki kell mondani, és rá kell kérdezni.
+        if oplan.get('mode') == 'run' and not ui.confirm(
+                f"A program letölti az aktiváló csomagot, és elindítja benne a(z) "
+                f"{oplan.get('bat')} fájlt egy külön ablakban. Indulhat?", True):
+            return
+        _run_screen(api, 'Office aktiválása', lambda: api.activate_office())
     elif c == '3':
+        _run_screen(api, 'KMS törlése', lambda: api.clear_kms_server())
+    elif c == '4':
         api.open_activation_tool('settings')
 
 

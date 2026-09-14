@@ -1615,16 +1615,28 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
                AKADÁLY esetén jelenik meg (lásd renderWinAct): ha a gomb le van tiltva,
                az okot ki KELL írni, különben a technikus nem tudja, mi a teendő. -->
           <div id="winact-plan"></div>
+          <!-- A "KMS-kiszolgáló törlése" és a "Telefonos aktiválás" gomb KIVÉVE
+               (2026-09-14, explicit user decision). A mögöttük lévő Python-metódusok
+               ÉLNEK: a `clear_kms_server`-t a CLI aktiválás-menüje továbbra is kínálja,
+               az `open_activation_tool` 'phone' kulcsa pedig egy lookup-tábla sora -
+               egyik sem holt kód, ne töröld. -->
           <div class="winact-btnrow" style="margin-top:14px">
-            <button class="btn btn-sm" onclick="clearKmsServer()">🧹 KMS-kiszolgáló törlése</button>
             <button class="btn btn-sm" onclick="api().open_activation_tool('settings')">⚙️ Windows aktiválás-beállítások</button>
-            <button class="btn btn-sm" onclick="api().open_activation_tool('phone')">☎️ Telefonos aktiválás</button>
           </div>
         </div>
 
         <div class="panel glass">
           <div class="panel-title"><span class="emoji">📄</span> Office állapota</div>
           <div id="winact-office">Állapot lekérdezése...</div>
+          <div class="winact-btnrow" style="margin-top:16px">
+            <button class="btn btn-big btn-primary" onclick="activateOffice()" id="btn-officeact">📄 Office Aktiválása</button>
+          </div>
+          <!-- A gomb melletti magyarázat CSAK AKKOR jelenik meg, ha van mit mondani:
+               nincs beállítva a csomag linkje (ilyenkor a gomb le is van tiltva), vagy
+               nincs beállítva az indítandó .bat neve. Beállított csomagnál csend - egy
+               működő gomb mellé nem kell külön kártya (ugyanaz az elv, mint a Windows
+               oldali `winact-plan` doboznál). -->
+          <div id="officeact-plan"></div>
         </div>
       </div>
 
@@ -3889,11 +3901,46 @@ function renderActivationStatus(data) {
       + '</div>').join('')
       + (o.ospp ? '<div class="winact-note">Kézi beavatkozáshoz: <span class="winact-key">' + esc(o.ospp) + '</span></div>' : '');
   }
+
+  // --- Az Office-aktiváló gomb állapota. Három eset, három külön üzenettel (a szöveget
+  // a Python adja - winact_core.office_activator_plan -, hogy a felület és a napló ne
+  // mondhasson mást ugyanarról a beállításról):
+  //   nincs URL  -> a gomb TILTVA + piros doboz az okkal (mit hova kell beírni),
+  //   nincs .bat -> a gomb ÉL, de infó-doboz mondja, hogy most csak kilistázza a csomagot,
+  //   minden kész-> csend, csak a gomb.
+  const op = data.office_plan || {};
+  const opEl = document.getElementById('officeact-plan');
+  if (opEl) {
+    opEl.innerHTML = !op.ready
+      ? '<div class="winact-plan-bad" style="margin-top:14px">⚙️ ' + esc(op.text || '') + '</div>'
+      : (op.mode === 'list'
+          ? '<div class="winact-none" style="margin:14px 0 0">ℹ️ ' + esc(op.text || '') + '</div>'
+          : '');
+  }
+  const opBtn = document.getElementById('btn-officeact');
+  if (opBtn) opBtn.disabled = !op.ready;
 }
 
-async function clearKmsServer() {
-  if (!confirm('Törlöd a beállított KMS-kiszolgálót? Az aktiválás utána a Microsoft felé megy.')) return;
-  try { await api().clear_kms_server(); } catch (e) { toast('Hiba: ' + e, 'error'); }
+/* A `clearKmsServer()` TÖRÖLVE 2026-09-14-én a gombjával együtt (explicit user decision).
+   A Python `clear_kms_server` metódus ÉL - a CLI aktiválás-menüje hívja. */
+
+async function activateOffice() {
+  // A csomagot a szerviz saját GitHub release-éből töltjük le, és egy .bat-ot indítunk
+  // el vele - ezt ki KELL mondani a kattintás előtt, mert a program egyébként soha nem
+  // futtat le idegen scriptet a gépen (a Net Blokkoló scriptet is csak letölti).
+  const p = (winActState && winActState.office_plan) || {};
+  if (!p.ready) { toast(p.text || 'Az Office-aktiváló csomag nincs beállítva.', 'warning'); return; }
+  if (p.mode === 'run' && !confirm(
+      'OFFICE AKTIVÁLÁSA\n\n'
+      + 'A program letölti az aktiváló csomagot, kicsomagolja, és elindítja benne ezt a fájlt:\n\n'
+      + '    ' + (p.bat || '') + '\n\n'
+      + 'A script egy KÜLÖN, fekete parancssori ablakban fut majd, rendszergazdaként — '
+      + 'ott kell folytatnod.\n\nIndulhat?')) return;
+  try {
+    await api().activate_office();
+  } catch (e) {
+    toast('Hiba: ' + e, 'error');
+  }
 }
 
 async function activateWindows() {
