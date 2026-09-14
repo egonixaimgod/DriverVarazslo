@@ -235,7 +235,7 @@ KMS_HOST = 'kms8.msguides.com'
 #
 #  HA AZ URL ÜRES: a gomb le van tiltva, és a felület megmondja, hogy ide kell írni.
 # ===========================================================================
-OFFICE_ACTIVATOR_URL = 'https://github.com/egonixaimgod/DriverVarazslo/releases/tag/mas.zip'
+OFFICE_ACTIVATOR_URL = 'https://github.com/egonixaimgod/DriverVarazslo/releases/download/mas.zip/mas.zip'
 OFFICE_ACTIVATOR_BAT = 'mas.bat'
 
 
