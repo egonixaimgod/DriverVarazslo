@@ -159,16 +159,95 @@ def _drivers_list(api, all_drivers=False):
     return drivers
 
 
-def _drivers_table(drivers, printer_infs=None):
+def _drivers_usage(api, drivers):
+    """MELYIK CSOMAGOT HASZNÁLJA MOST A GÉP - ugyanaz a mag, mint a GUI-ban
+    (app/driverusage_core.py). A CLI 2026-08-29 óta teljes értékű felület, tehát a
+    technikus itt sem törölhet vakon: pont ezen a képernyőn tűnt el annak idején egy
+    távoli asztali program drivere úgy, hogy semmi nem szólt róla.
+
+    Hibánál üres dict - a táblázat ilyenkor '?'-et mutat, ami őszinte: az "ismeretlen"
+    nem ugyanaz, mint a "nem használt"."""
+    ui.info('Használat felderítése (eszközök, kernel-szolgáltatások, szűrő-driverek)...')
+    info = api.get_driver_usage(drivers) or {}
+    if info.get('offline'):
+        ui.dim('Offline mód: a futó rendszer állapota nem mond semmit a cél-lemez csomagjairól.')
+        return {}
+    if info.get('error'):
+        ui.warn(f"A használat-felderítés nem futott le: {info['error']}")
+        return {}
+    usage = info.get('usage') or {}
+    c = info.get('counts') or {}
+    if usage:
+        ui.ok(f"{c.get('active', 0)} csomagot használ MOST a gép · "
+              f"{c.get('standby', 0)} készenlétben · {c.get('unused', 0)} nem használt")
+    return usage
+
+
+# A három állapot CLI-jele. A GUI-val azonos jelentés, csak szűkebb helyen; ASCII
+# tartalékkal, mert a magyar OEM kódlapon a szín-emojik nincsenek meg.
+_USAGE_MARK = {
+    'active':  (ui.RED, '🔴 HASZNÁLJA', '[!] HASZNALJA'),
+    'standby': (ui.YELLOW, '🟡 készenlét', '[~] keszenlet'),
+    'unused':  (ui.DIM, '⚪ nem használt', '[ ] nem hasznalt'),
+    'unknown': (ui.DIM, '❔ ismeretlen', '[?] ismeretlen'),
+}
+
+
+def _usage_cell(usage, d):
+    st = ((usage or {}).get((d.get('published') or '').lower()) or {}).get('state', 'unknown')
+    color, uni, ascii_ = _USAGE_MARK.get(st, _USAGE_MARK['unknown'])
+    return color + (uni if ui.UNICODE else ascii_) + ui.RESET
+
+
+def _drivers_table(drivers, printer_infs=None, usage=None):
     rows = []
     for i, d in enumerate(drivers, 1):
         mark = ''
         if printer_infs and (d.get('published') or '').lower() in printer_infs:
             mark = ui.YELLOW + ('🖨 ' if ui.UNICODE else 'P ') + ui.RESET
-        rows.append([str(i), mark + (d.get('published') or ''), d.get('original') or '',
-                     d.get('provider') or '', d.get('class') or '', d.get('version') or ''])
-    ui.table(['#', 'Published', 'Eredeti INF', 'Gyártó', 'Osztály', 'Verzió'],
-             rows, widths=[4, 12, 22, 20, 14, 16])
+        row = [str(i), mark + (d.get('published') or ''), d.get('original') or '',
+               d.get('provider') or '', d.get('class') or '', d.get('version') or '']
+        if usage is not None:
+            row.insert(1, _usage_cell(usage, d))
+        rows.append(row)
+    if usage is not None:
+        ui.table(['#', 'Használat', 'Published', 'Eredeti INF', 'Gyártó', 'Osztály', 'Verzió'],
+                 rows, widths=[4, 15, 12, 20, 18, 12, 14])
+    else:
+        ui.table(['#', 'Published', 'Eredeti INF', 'Gyártó', 'Osztály', 'Verzió'],
+                 rows, widths=[4, 12, 22, 20, 14, 16])
+
+
+def _drivers_usage_screen(api):
+    """A "mi van használatban" képernyő: állapot szerint csoportosítva, INDOKKAL.
+
+    A GUI Driverek nézetének megfelelője. Az indoklás (melyik eszköz, melyik futó
+    szolgáltatás) itt is látszik, nem csak a verdikt - egy besorolás, aminek nem
+    látszik az oka, a technikus számára ugyanolyan vak, mint a puszta INF-név volt."""
+    drivers = _drivers_list(api, False)
+    if not drivers:
+        ui.warn('Nincs megjeleníthető driver.')
+        return
+    usage = _drivers_usage(api, drivers)
+    if not usage:
+        return
+    groups = [('active', 'HASZNÁLATBAN — a gép MOST használja', ui.RED),
+              ('standby', 'KÉSZENLÉTBEN — tartozik hozzá eszköz/szolgáltatás, de nem aktív', ui.YELLOW),
+              ('unused', 'NEM HASZNÁLT — semmi nem hivatkozik rá', ui.DIM)]
+    for state, title, color in groups:
+        items = [d for d in drivers
+                 if ((usage.get((d.get('published') or '').lower()) or {}).get('state')) == state]
+        if not items:
+            continue
+        lines = []
+        for d in items:
+            e = usage.get((d.get('published') or '').lower()) or {}
+            lines.append(f"{d.get('original') or d.get('published')}  ({d.get('provider') or '?'})")
+            # Az ok BEHÚZVA a csomag alá: ez a lényegi információ, nem a fájlnév.
+            for r in (e.get('reasons') or [])[:2]:
+                lines.append(f"    {r}")
+        ui.write('')
+        ui.panel(f"{title}  [{len(items)} db]", lines, color=color)
 
 
 def _menu_drivers(api):
@@ -183,6 +262,8 @@ def _menu_drivers(api):
             ('6', 'Driver-duplikátumok takarítása', 'DriverStore: a régi verziók eltávolítása'),
             ('7', 'Eszközök újrakötése a gyári driverre',
              'Ami a Windows alapdriverén ragadt — újraindítással fejeződik be'),
+            ('8', 'Mit használ MOST a gép?',
+             'Melyik csomag van használatban, és melyikre nem hivatkozik semmi'),
         ], back_label='Vissza a főmenübe')
         if c == '0':
             return
@@ -190,6 +271,8 @@ def _menu_drivers(api):
             _run_screen(api, 'Third-party driverek', lambda: _drivers_table(_drivers_list(api, False)))
         elif c == '2':
             _run_screen(api, 'Összes driver', lambda: _drivers_table(_drivers_list(api, True)))
+        elif c == '8':
+            _run_screen(api, 'Mit használ a gép', lambda: _drivers_usage_screen(api))
         elif c == '3':
             _run_screen(api, 'Driver törlése', lambda: _delete_drivers_flow(api))
         elif c == '4':
@@ -235,7 +318,16 @@ def _delete_drivers_flow(api):
             ui.warn('A szűrés után nem maradt törölhető driver.')
             return
 
-    _drivers_table(drivers)
+    # HASZNÁLAT SZERINTI SORREND: felül, amit a gép most is használ - ugyanaz a kép,
+    # mint a grafikus felületen (ott is ez az alapértelmezett rendezés).
+    usage = _drivers_usage(api, drivers)
+    if usage:
+        order = {'active': 0, 'standby': 1, 'unknown': 2, 'unused': 3}
+        drivers = sorted(drivers, key=lambda d: (
+            order.get(((usage.get((d.get('published') or '').lower()) or {}).get('state')), 9),
+            (d.get('class') or '').lower(), (d.get('published') or '').lower()))
+
+    _drivers_table(drivers, usage=usage if usage else None)
     idx = ui.pick_indices("Törlendő sorszámok (pl. 1,3,5-8 vagy 'mind')", len(drivers))
     if not idx:
         ui.dim('Nincs kijelölve semmi.')
@@ -244,6 +336,18 @@ def _delete_drivers_flow(api):
     ui.write('')
     ui.panel('TÖRLENDŐ CSOMAGOK', [f"{d.get('published')}  ({d.get('original')}, {d.get('provider')})"
                                    for d in to_delete], color=ui.RED)
+    # HASZNÁLATBAN LÉVŐ CSOMAGOK KÜLÖN, NEVESÍTVE. Nem tiltás (minden drivert lehessen
+    # törölni), de a technikusnak látnia kell, mit vesz el a géptől.
+    act = [d for d in to_delete
+           if ((usage.get((d.get('published') or '').lower()) or {}).get('state')) == 'active']
+    if act:
+        ui.write('')
+        ui.panel('FIGYELEM - EZEKET A GÉP MOST IS HASZNÁLJA',
+                 [f"{d.get('original') or d.get('published')}  ->  "
+                  f"{(usage.get((d.get('published') or '').lower()) or {}).get('summary', '')}"
+                  for d in act]
+                 + ['', 'A törlésükkel a hozzájuk tartozó eszköz vagy program működése megszűnhet.'],
+                 color=ui.RED)
     if not ui.confirm(f"Biztosan törlöd ezt a {len(to_delete)} csomagot?", False):
         ui.dim('Megszakítva.')
         return

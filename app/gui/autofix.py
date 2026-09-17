@@ -43,6 +43,7 @@ from app.wu_core import _export_net_driver_backup
 from app.wu_core import _restore_net_driver_backup
 from app.wu_core import detect_wifi_state
 from app.wu_core import collect_driver_usage
+from app.driverusage_core import collect_package_usage, summarize_counts, USAGE_UNKNOWN
 from app.wu_core import _parse_driver_version
 from app.wu_core import STORAGE_RISK_CLASSES
 from app.wu_core import FIRMWARE_RISK_CLASSES
@@ -2413,7 +2414,12 @@ class GuiAutofixMixin:
             # A négy felderítés párhuzamosan; mindegyik csak self._run-t használ (külön
             # subprocess), közös állapotot nem írnak, ezért szálbiztos.
             with ThreadPoolExecutor(max_workers=4, thread_name_prefix='preview') as pool:
-                f_usage = pool.submit(collect_driver_usage, self._run)
+                # UGYANAZ A MAG, amit a Driverek nézet "Használat" oszlopa használ
+                # (app/driverusage_core.py) - a két képernyő nem mondhat mást ugyanarról
+                # a csomagról. A gazdagabb alak kell: a puszta eszköznév-lista nem
+                # mutatná meg a futó kernel-szolgáltatásokat, azaz pont a ninja-eset
+                # (távoli asztal drivere, eszköz-csomópont nélkül) maradna láthatatlan.
+                f_usage = pool.submit(collect_package_usage, self._run, drivers)
                 f_printer = pool.submit(_collect_printer_protection, self._run)
                 f_wifi = pool.submit(collect_wifi_protection, self._run)
                 f_boot = pool.submit(_collect_boot_path_protection, self._run)
@@ -2436,16 +2442,24 @@ class GuiAutofixMixin:
                     group = 'printer'
                 else:
                     group = 'normal'
+                u = usage.get(pub) or {}
                 out.append({
                     'published': d.get('published', ''), 'original': d.get('original', ''),
                     'provider': d.get('provider', ''), 'version': d.get('version', ''),
                     'class': d.get('class', ''), 'date': d.get('date', ''),
-                    'devices': usage.get(pub, []), 'group': group,
+                    'devices': u.get('devices', []), 'group': group,
+                    # A használat-állapot: a technikus ebből látja, MIT vesz el a géptől,
+                    # ha bent hagyja a pipát. Nem zárol semmit - a döntés az övé.
+                    'usage': u.get('state', USAGE_UNKNOWN),
+                    'usage_text': u.get('summary', ''),
+                    'usage_reasons': u.get('reasons', []),
                 })
             groups = {}
             for r in out:
                 groups[r['group']] = groups.get(r['group'], 0) + 1
+            usage_counts = summarize_counts(usage)
             logging.info(f"[PREVIEW] Törlési előnézet: {len(out)} csomag, csoportok: {groups}; "
+                         f"használat: {usage_counts}; "
                          f"eszközhöz kötött: {sum(1 for r in out if r['devices'])}; "
                          f"boot-lánc felderítve: {boot_detected}; "
                          f"Wi-Fi kártya: jelen={wifi_state.get('present')} "
@@ -2465,7 +2479,8 @@ class GuiAutofixMixin:
                     'wifi_present': bool(wifi_state.get('present')),
                     'wifi_connected': bool(wifi_state.get('wifi')),
                     'wifi_rows': groups.get('wifi', 0),
-                    'boot_detected': boot_detected}
+                    'boot_detected': boot_detected,
+                    'usage_counts': usage_counts}
         except Exception as e:
             logging.warning(f"[PREVIEW] A törlési előnézet összeállítása sikertelen: {e}", exc_info=True)
             return {'drivers': [], 'wifi_adapter': '', 'wifi_present': False,

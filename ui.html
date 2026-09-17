@@ -365,6 +365,36 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .hw-selbar-info{flex:1;min-width:140px;font-size:12.5px;color:var(--text2);text-align:right}
 .hw-selbar-info b{color:var(--accent);font-weight:800}
 
+/* ===== DRIVEREK NÉZET: HASZNÁLAT-ÁLLAPOT =====================================
+   A technikus itt dönt arról, mit töröljön egy ügyfél gépén, és eddig VAKON tette.
+   A három állapot színe a jelentésüket kódolja, nem díszít: piros = a gép MOST
+   használja (ha törlöd, valami elromlik), sárga = tartozik hozzá valami, de épp nem
+   aktív (kihúzott nyomtató/telefon), szürke = semmi nem hivatkozik rá.
+   FIGYELEM: ez BESOROLÁS, NEM SZŰRŐ - egyetlen sort sem rejt el és nem tilt le
+   (lásd a CLAUDE.md "MINDEN DRIVERT LEHESSEN TÖRÖLNI" szabályát). */
+/* A CHIP SZÖVEGE NEM CSONKOLÓDHAT. Ez nem esztétika: a szöveg MAGA az indoklás
+   ("Realtek High Definition Audio + fut: IntcAzAudAddService"), és a projekt ezt a
+   hibát egyszer már elkövette a Driver Keresés nézet jelöléseinél - ott a nowrap +
+   ellipsis pont a döntés okát vágta le a képből. Ezért tördel, nem levág; a cella
+   szélessége korlátozott, hogy a többi oszlop ne szoruljon ki. */
+.usage-chip{display:inline-flex;align-items:flex-start;gap:6px;padding:4px 10px;border-radius:12px;
+  font-size:11.5px;font-weight:700;line-height:1.4;text-align:left;max-width:100%}
+.usage-chip .uc-why{font-weight:400;opacity:.9;white-space:normal;word-break:break-word}
+#driver-table-wrap td:nth-child(2){max-width:330px;white-space:normal}
+#driver-table-wrap th:nth-child(2){min-width:190px}
+.usage-active{background:rgba(255,90,90,0.16);border:1px solid rgba(255,107,91,0.45);color:#ffb3ab}
+.usage-standby{background:rgba(255,180,80,0.14);border:1px solid rgba(255,180,80,0.38);color:#ffd08a}
+.usage-unused{background:rgba(255,255,255,0.05);border:1px solid var(--glass-border);color:var(--text3)}
+.usage-unknown{background:rgba(255,255,255,0.04);border:1px dashed var(--glass-border);color:var(--text3)}
+/* Csoport-fejléc a táblázatban: "felül a használtak, alul a nem használtak". */
+tr.drv-group td{padding:11px 14px 7px;font-size:12px;font-weight:800;letter-spacing:.3px;
+  color:var(--text2);background:rgba(60,35,90,0.32);border-top:1px solid var(--glass-border)}
+tr.drv-group .dg-hint{font-weight:400;color:var(--text3);letter-spacing:0}
+/* A használatban lévő sor bal szélén piros csík - a táblázatban végigfutó szemnek ez
+   gyorsabb jel, mint a jobb oldali oszlop elolvasása. */
+tr.row-active td:first-child{box-shadow:inset 3px 0 0 rgba(255,107,91,0.75)}
+tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
+
 /* 5) ÜRES / HIBA ÁLLAPOT a szken előtt. */
 .hw-empty{padding:34px 22px;text-align:center}
 .hw-empty-icon{font-size:44px;opacity:0.35;margin-bottom:10px}
@@ -866,10 +896,24 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
               </div>
             </div>
           </div>
+          <!-- HASZNÁLAT-ÁLLAPOT SÁV. Addig rejtve, amíg a felderítés nem végzett: egy
+               üres vagy fél állapotsáv rosszabb, mint a semmi, mert a technikus azt
+               hinné, hogy a gép semmit nem használ. -->
+          <div class="hw-summary" id="drv-usage-summary" style="display:none">
+            <div class="hw-sum-main">
+              <span class="hw-sum-machine" id="drv-usage-title">Használat felderítése...</span>
+              <span class="hw-sum-meta" id="drv-usage-meta"></span>
+            </div>
+            <button class="btn btn-sm" id="btn-select-unused" onclick="selectUnusedDrivers()"
+                    title="Csak azokat pipálja ki, amikre semmi nem hivatkozik: nincs hozzájuk eszköz a gépben, és nem fut hozzájuk kernel-szolgáltatás. A használatban lévőket és a készenléti (kihúzott eszközhöz tartozó) csomagokat kihagyja - de bármikor kipipálhatod őket kézzel is.">⚪ Csak a nem használtak kijelölése</button>
+          </div>
+          <!-- SZŰRŐ-FÜLEK. Ugyanaz a minta, mint a Driver Keresés nézetben. -->
+          <div class="hw-tabs" id="drv-tabs" style="display:none"></div>
           <div class="table-wrap" id="driver-table-wrap">
             <table>
               <thead><tr>
                 <th style="width:30px"></th>
+                <th class="sortable" data-sort-key="usage" onclick="sortDriversBy('usage')">Használat<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort-key="published" onclick="sortDriversBy('published')">Published Name<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort-key="original" onclick="sortDriversBy('original')">Original Name<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort-key="provider" onclick="sortDriversBy('provider')">Provider<span class="sort-arrow"></span></th>
@@ -1848,10 +1892,42 @@ let drivers = [];
 let selectedDrivers = new Set();
 let listAll = false;  // Synced with toggle-all-drivers checkbox
 let driverFilterText = '';
-// Alapból Class szerint rendezve töltődik be a lista, hogy az azonos típusú driverek
-// (pl. az összes Printer) egymás mellett legyenek, ne összevissza.
-let driverSortKey = 'class';
+// Alapból HASZNÁLAT szerint rendezve töltődik be a lista (2026-09-17, explicit user
+// decision): felül, amit a gép most is használ, alul, amire semmi nem hivatkozik. Ez a
+// törlési döntés természetes sorrendje. Azonos állapoton belül a Class dönt, hogy az
+// egyforma típusúak (pl. az összes Printer) egymás mellett legyenek.
+let driverSortKey = 'usage';
 let driverSortDir = 'asc';
+// A használat-felderítés eredménye: {published_kisbetűvel: {state, summary, reasons...}}.
+// `null` = még fut vagy nem futott le. A KÜLÖNBSÉG LÉNYEGES: az "ismeretlen" nem
+// ugyanaz, mint a "nem használt" - egy elbukott lekérdezésre nem szabad törölni.
+let driverUsage = null;
+let driverUsageError = '';
+let driverUsageOffline = false;
+let drvTab = 'all';
+// A három állapot megjelenítése EGY helyen (a szöveg és a szín is innen jön), mert hat
+// helyen kellene különben - és a hetediknél biztosan elfelejtenénk az egyiket.
+const USAGE_META = {
+  active:   {icon: '🔴', label: 'Használatban', cls: 'usage-active',
+             hint: 'a gép MOST használja — ha törlöd, elromlik valami'},
+  standby:  {icon: '🟡', label: 'Készenlétben', cls: 'usage-standby',
+             hint: 'tartozik hozzá eszköz vagy szolgáltatás, de épp nem aktív (pl. kihúzott nyomtató)'},
+  unused:   {icon: '⚪', label: 'Nem használt', cls: 'usage-unused',
+             hint: 'semmi nem hivatkozik rá — ez a mazsolázható rész'},
+  unknown:  {icon: '❔', label: 'Ismeretlen', cls: 'usage-unknown',
+             hint: 'a felderítés nem futott le — ebből NE vonj le következtetést'}
+};
+const USAGE_ORDER = {active: 0, standby: 1, unknown: 2, unused: 3};
+/* Egy csomag használat-állapota. Felderítés nélkül MINDIG 'unknown' - sosem 'unused',
+   mert az azt állítaná, hogy bizonyítottan nem használja semmi. */
+function drvUsageOf(d) {
+  if (!driverUsage) return 'unknown';
+  const u = driverUsage[(d.published || '').toLowerCase()];
+  return (u && u.state) || 'unknown';
+}
+function drvUsageEntry(d) {
+  return (driverUsage && driverUsage[(d.published || '').toLowerCase()]) || null;
+}
 // Gyors vizuális ikon a Class oszlophoz - csak esztétikai segédlet, ismeretlen/új
 // Class értékekre a generikus 🧩-ra esik vissza, sosem hibázik/dob kivételt.
 const CLASS_ICONS = {
@@ -2046,10 +2122,14 @@ window.handlePyEvent = function(payload) {
       document.getElementById('driver-loading').style.display = 'none';
       drivers = data.drivers || [];
       selectedDrivers.clear();
+      // A friss lista mellé a régi használat-adat már nem érvényes (más gép, más
+      // csomagszámozás): a `null` az őszinte állapot, amíg az új felderítés le nem fut.
+      driverUsage = null; driverUsageError = ''; driverUsageOffline = false;
       renderDriverTable();
-      // A nyomtató-felderítés a lista MEGJELENÍTÉSE UTÁN indul, háttérben: néhány
+      // A két felderítés a lista MEGJELENÍTÉSE UTÁN indul, háttérben: néhány
       // PowerShell-hívás, és a táblázatnak nem kell rá várnia.
       loadPrinterDriverInfs();
+      loadDriverUsage();
       if (data.error) {
         document.getElementById('driver-status').innerHTML = '<span class="status-dot" style="background:#e74c3c"></span> ❌ Hiba a driverek betöltésekor: ' + esc(data.error);
         toast('❌ Hiba a driverek betöltésekor: ' + data.error, 'error');
@@ -2155,6 +2235,9 @@ function switchView(name) {
   // technikus mégis IDEJÖN, itt utólag lefuttatjuk - így a szűrő ugyanúgy működik, csak
   // nem fizetünk érte a láncban. Nulla ára van: ha már megvan, azonnal visszatér.
   if (name === 'drivers' && printerInfs === null) loadPrinterDriverInfs(true);
+  // Ugyanez a használat-felderítésre: a láncban kihagyjuk, itt viszont épp azért jött a
+  // technikus, hogy lássa, mi van használatban.
+  if (name === 'drivers' && driverUsage === null && !driverUsageError && !driverUsageOffline) loadDriverUsage(true);
   if (name === 'benchmark') loadBenchmarkView();
   if (name === 'display') loadDisplayView();
   if (name === 'logs') loadLogsViewInfo();
@@ -2682,8 +2765,26 @@ function getFilteredDriverIndices() {
   if (hideEl && hideEl.checked && printerInfs && printerInfs.size) {
     out = out.filter(i => !printerInfs.has((drivers[i].published || '').toLowerCase()));
   }
+  // HASZNÁLAT-FÜL. Csak akkor szűr, ha a felderítés lefutott - különben a "Nem használt"
+  // fül a teljes listát mutatná, ami néma hazugság lenne.
+  if (drvTab !== 'all' && driverUsage) {
+    out = out.filter(i => drvUsageOf(drivers[i]) === drvTab);
+  }
   const dir = driverSortDir === 'desc' ? -1 : 1;
   out.sort((a, b) => {
+    // A használat szerinti rendezés nem ábécé, hanem fontossági sorrend (aktív felül),
+    // és azonos állapoton belül a Class tagol tovább.
+    if (driverSortKey === 'usage') {
+      const oa = USAGE_ORDER[drvUsageOf(drivers[a])] ?? 9;
+      const ob = USAGE_ORDER[drvUsageOf(drivers[b])] ?? 9;
+      if (oa !== ob) return (oa - ob) * dir;
+      const ca = (drivers[a].class || '').toLowerCase();
+      const cb = (drivers[b].class || '').toLowerCase();
+      if (ca !== cb) return ca < cb ? -1 : 1;
+      const pa0 = (drivers[a].published || '').toLowerCase();
+      const pb0 = (drivers[b].published || '').toLowerCase();
+      return pa0 < pb0 ? -1 : pa0 > pb0 ? 1 : 0;
+    }
     const va = (drivers[a][driverSortKey] || '').toLowerCase();
     const vb = (drivers[b][driverSortKey] || '').toLowerCase();
     if (va < vb) return -1 * dir;
@@ -2772,30 +2873,160 @@ function updateSortHeaders() {
     if (arrow) arrow.textContent = active ? (driverSortDir === 'asc' ? '▲' : '▼') : '';
   });
 }
+/* Egy sor "Használat" cellája: állapot-chip + a KONKRÉT indok (melyik eszköz, melyik
+   futó szolgáltatás). A puszta "Használatban" felirat ugyanolyan vak lenne, mint a
+   régi INF-név volt - a technikusnak azt kell látnia, MIT vesz el a géptől. */
+function drvUsageCell(d) {
+  const st = drvUsageOf(d);
+  const m = USAGE_META[st] || USAGE_META.unknown;
+  const e = drvUsageEntry(d);
+  const why = (e && e.summary) ? e.summary : (st === 'unknown' ? 'felderítés folyamatban' : '');
+  const tip = e && e.reasons && e.reasons.length ? e.reasons.join('\n') : m.hint;
+  return '<td title="' + esc(tip) + '"><span class="usage-chip ' + m.cls + '">' + m.icon
+    + ' <span class="uc-why">' + esc(why || m.label) + '</span></span></td>';
+}
 function renderDriverTable() {
   const tbody = document.getElementById('driver-tbody');
   tbody.innerHTML = '';
   const indices = getFilteredDriverIndices();
+  // CSOPORT-FEJLÉCEK: csak akkor, ha tényleg használat szerint van rendezve és a
+  // felderítés lefutott - egy Provider szerint rendezett listában a csoport-sorok
+  // össze-vissza ugrálnának.
+  const grouped = driverSortKey === 'usage' && !!driverUsage && drvTab === 'all';
+  let lastState = null;
   indices.forEach(i => {
     const d = drivers[i];
+    const st = drvUsageOf(d);
+    if (grouped && st !== lastState) {
+      lastState = st;
+      const m = USAGE_META[st] || USAGE_META.unknown;
+      const n = indices.filter(j => drvUsageOf(drivers[j]) === st).length;
+      const gtr = document.createElement('tr');
+      gtr.className = 'drv-group';
+      gtr.innerHTML = '<td colspan="7">' + m.icon + ' ' + esc(m.label.toUpperCase())
+        + ' — ' + n + ' db <span class="dg-hint">· ' + esc(m.hint) + '</span></td>';
+      tbody.appendChild(gtr);
+    }
     const tr = document.createElement('tr');
     tr.onclick = () => toggleDriverSel(i);
     tr.innerHTML = '<td><input type="checkbox" '+(selectedDrivers.has(i)?'checked':'')+' onclick="event.stopPropagation();toggleDriverSel('+i+')"></td>'
+      + drvUsageCell(d)
       + '<td title="'+esc(d.published||'')+'">'+esc(d.published||'')+'</td>'
       + '<td title="'+esc(d.original||'')+'">'+esc(d.original||'')+'</td>'
       + '<td>'+esc(d.provider||'')+'</td>'
       + '<td><span class="class-chip">'+classIcon(d.class)+' '+esc(d.class||'')+'</span></td>'
       + '<td>'+esc(d.version||'')+'</td>';
+    if (st === 'active') tr.classList.add('row-active');
+    else if (st === 'standby') tr.classList.add('row-standby');
     if (selectedDrivers.has(i)) tr.classList.add('selected');
     tbody.appendChild(tr);
   });
   const badge = document.getElementById('driver-count-badge');
   if (badge) {
-    badge.textContent = driverFilterText
+    badge.textContent = (driverFilterText || drvTab !== 'all')
       ? indices.length + ' / ' + drivers.length + ' driver'
       : drivers.length + ' driver';
   }
+  renderDriverUsageBar();
   updateSortHeaders();
+}
+/* Az állapotsáv és a fülek. Mindkettő REJTVE marad, amíg nincs eredmény: egy üres
+   "0 használatban" felirat azt sugallná, hogy a gép semmit nem használ. */
+function renderDriverUsageBar() {
+  const bar = document.getElementById('drv-usage-summary');
+  const tabs = document.getElementById('drv-tabs');
+  const title = document.getElementById('drv-usage-title');
+  const meta = document.getElementById('drv-usage-meta');
+  const btn = document.getElementById('btn-select-unused');
+  if (!bar || !tabs) return;
+  if (!drivers.length) { bar.style.display = 'none'; tabs.style.display = 'none'; return; }
+
+  // 1) OFFLINE / HIBA / FUT - mindhárom más üzenet, mert más a teendő.
+  if (driverUsageOffline || driverUsageError || !driverUsage) {
+    bar.style.display = '';
+    tabs.style.display = 'none';
+    if (btn) btn.style.display = 'none';
+    if (driverUsageOffline) {
+      title.textContent = '💽 Offline mód — a használat nem állapítható meg';
+      meta.textContent = 'A felderítés a FUTÓ rendszer eszközeit és szolgáltatásait nézi, '
+        + 'ami semmit nem mond egy másik lemezen lévő Windows csomagjairól. A lista és a törlés változatlanul működik.';
+    } else if (driverUsageError) {
+      title.textContent = '❔ A használat-felderítés nem futott le';
+      meta.textContent = driverUsageError + ' — a sorok "ismeretlen" állapotban maradnak. '
+        + 'Ez NEM azt jelenti, hogy nincsenek használatban: a Frissítés gombbal újrapróbálható.';
+    } else {
+      title.innerHTML = '<div class="spinner" style="display:inline-block;vertical-align:-2px"></div> Használat felderítése...';
+      meta.textContent = 'Eszközök, kernel-szolgáltatások és szűrő-driverek átnézése (pár másodperc).';
+    }
+    return;
+  }
+
+  // 2) KÉSZ.
+  const counts = {active: 0, standby: 0, unused: 0, unknown: 0};
+  drivers.forEach(d => { counts[drvUsageOf(d)]++; });
+  bar.style.display = '';
+  if (btn) btn.style.display = counts.unused ? '' : 'none';
+  title.textContent = '🔎 ' + counts.active + ' csomagot használ MOST a gép, '
+    + counts.unused + ' csomagra semmi nem hivatkozik';
+  meta.textContent = counts.standby
+    ? counts.standby + ' további csomaghoz tartozik eszköz vagy szolgáltatás, de épp nem aktív '
+      + '(pl. kihúzott nyomtató/telefon) — ezeket érdemes végignézni, mielőtt törlöd.'
+    : 'A „Nem használt” csoport a szabadon mazsolázható rész.';
+
+  // 3) FÜLEK. Az üres fül nem jelenik meg - kivéve a "Használatban"-t, aminek a 0-ja
+  //    maga is információ (ugyanaz az elv, mint a Driver Keresés "Teendő" fülénél).
+  const defs = [
+    {key: 'active', cls: 'tab-bad', always: true},
+    {key: 'standby', cls: 'tab-todo'},
+    {key: 'unused', cls: 'tab-ok'},
+    {key: 'unknown', cls: ''}
+  ];
+  let html = '<div class="hw-tab' + (drvTab === 'all' ? ' active' : '') + '" onclick="setDrvTab(\'all\')">'
+    + '📦 Mind <span class="hw-tab-n">' + drivers.length + '</span></div>';
+  defs.forEach(t => {
+    if (!counts[t.key] && !t.always) return;
+    const m = USAGE_META[t.key];
+    html += '<div class="hw-tab ' + t.cls + (drvTab === t.key ? ' active' : '')
+      + '" title="' + esc(m.hint) + '" onclick="setDrvTab(\'' + t.key + '\')">'
+      + m.icon + ' ' + esc(m.label) + ' <span class="hw-tab-n">' + counts[t.key] + '</span></div>';
+  });
+  tabs.innerHTML = html;
+  tabs.style.display = '';
+}
+function setDrvTab(t) {
+  drvTab = t;
+  renderDriverTable();
+}
+/* Csak azt pipálja ki, amire semmi nem hivatkozik. NEM tiltás: a többi sor továbbra is
+   kézzel bármikor kijelölhető - ez csak a leggyakoribb művelet egy gombra téve. */
+function selectUnusedDrivers() {
+  if (!driverUsage) { toast('A használat-felderítés még nem végzett.', 'warning'); return; }
+  const idx = getFilteredDriverIndices().filter(i => drvUsageOf(drivers[i]) === 'unused');
+  if (!idx.length) { toast('Nincs olyan csomag, amire semmi nem hivatkozik.', 'info'); return; }
+  selectedDrivers.clear();
+  idx.forEach(i => selectedDrivers.add(i));
+  renderDriverTable();
+  updateDeleteBtn();
+  toast(idx.length + ' nem használt driver kijelölve', 'success');
+}
+/* A használat-felderítés elindítása. Ugyanaz a minta, mint a nyomtató-szűrőnél: a lista
+   MEGJELENÍTÉSE UTÁN fut, háttérben, és a táblázatnak nem kell rá várnia. AutoFix-lábon
+   kimarad (ember nélkül futó láncban senki nem nézi), de a nézetbe lépéskor pótoljuk. */
+async function loadDriverUsage(force) {
+  if (!drivers.length) return;
+  if (isResumeLeg && !force) { driverUsage = null; return; }
+  driverUsage = null; driverUsageError = ''; driverUsageOffline = false;
+  renderDriverUsageBar();
+  try {
+    const res = await api().get_driver_usage(drivers);
+    driverUsageOffline = !!(res && res.offline);
+    driverUsageError = (res && res.error) ? String(res.error) : '';
+    driverUsage = (res && res.usage && Object.keys(res.usage).length) ? res.usage : null;
+  } catch (e) {
+    driverUsage = null;
+    driverUsageError = String(e);
+  }
+  renderDriverTable();
 }
 function toggleDriverSel(i) {
   if (selectedDrivers.has(i)) selectedDrivers.delete(i); else selectedDrivers.add(i);
@@ -2829,7 +3060,28 @@ async function deleteSelected() {
     return;
   }
   const reboot = document.getElementById('reboot-after-delete').checked;
-  const msg = 'Biztosan törlöd a kiválasztott ' + names.length + ' drivert?' + (reboot ? '\n\n🔄 A gép ÚJRAINDUL a törlés után!' : '');
+  let msg = 'Biztosan törlöd a kiválasztott ' + names.length + ' drivert?';
+  // HASZNÁLATBAN LÉVŐ CSOMAGOK NEVESÍTVE. Ez NEM tiltás és nem is szűrő (a CLAUDE.md
+  // szabálya szerint minden drivert lehessen törölni) - de a technikusnak látnia kell,
+  // MIT vesz el a géptől. Pont ez hiányzott a terepi ninja-esetnél: a távoli asztal
+  // drivere úgy ment el, hogy semmi nem szólt róla.
+  const sel = [...selectedDrivers].map(i => drivers[i]).filter(Boolean);
+  const act = sel.filter(d => drvUsageOf(d) === 'active');
+  const sby = sel.filter(d => drvUsageOf(d) === 'standby');
+  if (act.length) {
+    msg += '\n\n🔴 EBBŐL ' + act.length + ' OLYAN, AMIT A GÉP MOST IS HASZNÁL:';
+    act.slice(0, 8).forEach(d => {
+      const e = drvUsageEntry(d);
+      msg += '\n   • ' + (d.original || d.published) + (e && e.summary ? '  →  ' + e.summary : '');
+    });
+    if (act.length > 8) msg += '\n   • ... és további ' + (act.length - 8) + ' db';
+    msg += '\n\nEzek törlésével a hozzájuk tartozó eszköz vagy program működése megszűnhet.';
+  }
+  if (sby.length) {
+    msg += '\n\n🟡 ' + sby.length + ' olyan, amihez tartozik eszköz vagy szolgáltatás, de most nem aktív '
+        + '(pl. kihúzott nyomtató/telefon) — a hiány csak a következő csatlakoztatáskor derülne ki.';
+  }
+  if (reboot) msg += '\n\n🔄 A gép ÚJRAINDUL a törlés után!';
   const ok = await showConfirm('Megerősítés', msg);
   if (!ok) return;
   try {
@@ -5017,12 +5269,25 @@ function renderDeletePreview() {
     if (on) willDelete++;
     const hay = [d.original, d.published, d.provider, d.class, (d.devices || []).join(' ')].join(' ').toLowerCase();
     if (q && hay.indexOf(q) === -1) return;
-    // "Mi ez?" - a jelen lévő eszköz NEVE a lényeg, nem az inf fájlnév. Ha nincs
-    // eszköz, azt is kimondjuk: jellemzően külön telepített program drivere.
+    // "Mi ez?" - a jelen lévő eszköz NEVE a lényeg, nem az inf fájlnév. A használat-
+    // állapot ugyanabból a magból jön, mint a Driverek nézet "Használat" oszlopa
+    // (app/driverusage_core.py). A régi szöveg az eszköz nélküli csomagra azt írta,
+    // hogy "valószínűleg külön telepített program drivere" - igaz volt, de elhallgatta
+    // a lényeget: hogy az a driver ÉPPEN FUT. Pont ez volt a terepi ninja-eset.
     const devs = (d.devices || []);
-    const what = devs.length
-      ? '🔌 ' + esc(devs.slice(0, 2).join(', ')) + (devs.length > 2 ? ' <span style="color:var(--text3)">+' + (devs.length - 2) + '</span>' : '')
-      : '<span style="color:var(--yellow)">⚠ Nincs jelen lévő eszköz – valószínűleg külön telepített program drivere</span>';
+    const um = USAGE_META[d.usage] || null;
+    let what;
+    if (um && d.usage === 'active') {
+      what = '<span style="color:#ffb3ab">🔴 HASZNÁLATBAN: ' + esc(d.usage_text || devs.join(', ')) + '</span>';
+    } else if (um && d.usage === 'standby') {
+      what = '<span style="color:var(--yellow)">🟡 ' + esc(d.usage_text || 'készenlétben') + '</span>';
+    } else if (um && d.usage === 'unused') {
+      what = '<span style="color:var(--text3)">⚪ semmi nem hivatkozik rá</span>';
+    } else if (devs.length) {
+      what = '🔌 ' + esc(devs.slice(0, 2).join(', ')) + (devs.length > 2 ? ' <span style="color:var(--text3)">+' + (devs.length - 2) + '</span>' : '');
+    } else {
+      what = '<span style="color:var(--text3)">❔ a használat még nincs felderítve</span>';
+    }
     rows.push(
       '<label style="display:flex;gap:9px;padding:8px 10px;border-bottom:1px solid rgba(180,100,255,0.12);align-items:flex-start;' +
       (lock || delLoading ? 'opacity:0.45;cursor:not-allowed' : 'cursor:pointer') + '"' +
@@ -5204,7 +5469,16 @@ function showAutoFixConfirm(title, message) {
       const list = pv.drivers || [];
       delBootDetected = pv.boot_detected !== false;
       delWifiAdapter = pv.wifi_adapter || '';
-      if (list.length) delPreview = list;
+      // HASZNÁLAT SZERINTI SORREND: felül, amit a gép most is használ. Ugyanaz a
+      // rendezés, mint a Driverek nézetben - a technikus ugyanazt a képet kapja ott is,
+      // itt is (ez a két képernyő közös magjának a lényege).
+      if (list.length) {
+        const ord = {active: 0, standby: 1, unknown: 2, unused: 3};
+        list.sort((a, b) => (ord[a.usage] ?? 9) - (ord[b.usage] ?? 9)
+          || String(a.class || '').localeCompare(String(b.class || ''))
+          || String(a.published || '').localeCompare(String(b.published || '')));
+        delPreview = list;
+      }
       if (pv.error) api().js_log('WARN', '[UI] A törlési előnézet hibával tért vissza: ' + pv.error);
       delSetLoading(false);
       syncRebuildWifi();

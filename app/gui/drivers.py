@@ -53,6 +53,49 @@ class GuiDriversMixin:
             logging.warning(f"[PRINTER-FILTER] A nyomtató-driverek felderítése sikertelen: {e}")
             return {'published': [], 'count': 0, 'error': str(e)}
 
+    def get_driver_usage(self, known_drivers=None):
+        """MELYIK CSOMAGOT HASZNÁLJA MOST A GÉP - a Driverek nézet csoportosításához.
+
+        MIÉRT (explicit user decision, 2026-09-17): a technikus eddig VAKON törölt. A
+        terepi eset, amiből ez lett: egy távoli asztali program ("ninja...") drivere
+        ment el, és ezzel a távoli elérés is - a listából semmi nem árulta el, hogy azt
+        a drivert a gép épp használja.
+
+        UGYANAZT A MAGOT hívja, amit az 1 kattintásos fix törlési előnézete
+        (`app/driverusage_core.py`) - ez a lényeg benne. Ha a két képernyő külön logikán
+        futna, a technikus itt kitörölne valamit, amit ott védettnek látott.
+
+        EZ NEM SZŰRŐ: semmit nem rejt el és nem tilt le, csak besorol és megindokol
+        (lásd a CLAUDE.md "MINDEN DRIVERT LEHESSEN TÖRÖLNI" szabályát). A törlés
+        változatlanul mindenre megy, amit a technikus kipipál.
+
+        OFFLINE MÓDBAN NEM FUT: a futó gép eszközei és szolgáltatásai semmit nem
+        mondanak egy MÁSIK lemezen lévő Windows csomagjairól - az ottani állapotot ide
+        kiírni néma hazugság lenne. Ilyenkor 'unknown' marad minden sor."""
+        logging.info(f"[API] get_driver_usage({len(known_drivers or [])} csomag)")
+        if self.target_os_path:
+            logging.info("[USAGE] Offline mód - a használat-felderítés kihagyva "
+                         f"(célpont: {self.target_os_path}).")
+            return {'usage': {}, 'counts': {}, 'offline': True}
+        try:
+            from app import driverusage_core as duc
+            # A csomaglistát a felülettől vesszük át, ha már betöltötte: a dism
+            # önmagában 15-77 mp, és pontosan ugyanazt adná, ami a képernyőn van
+            # (ugyanaz a fogás, mint a törlési előnézetnél).
+            pkgs = [d for d in (known_drivers or []) if isinstance(d, dict) and d.get('published')]
+            usage = duc.collect_package_usage(self._run, pkgs or None)
+            counts = duc.summarize_counts(usage)
+            if not usage:
+                # Megkülönböztetjük az "elbukott felderítést" a "minden használatlan"
+                # eredménytől: az előbbi alapján TILOS törlési döntést hozni.
+                logging.warning("[USAGE] A felderítés nem adott eredményt - a felület "
+                                "'ismeretlen' állapotot mutat, nem 'nem használt'-at.")
+                return {'usage': {}, 'counts': {}, 'error': 'A használat-felderítés nem futott le.'}
+            return {'usage': usage, 'counts': counts}
+        except Exception as e:
+            logging.warning(f"[USAGE] A használat-felderítés sikertelen: {e}", exc_info=True)
+            return {'usage': {}, 'counts': {}, 'error': str(e)}
+
     # ================================================================
     # DRIVER LISTING
     # ================================================================
