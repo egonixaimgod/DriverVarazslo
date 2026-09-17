@@ -6,14 +6,14 @@ import subprocess
 import time
 import logging
 from app import dupdrivers_core
-from app.wu_core import AUTOFIX_PRINTER_SKIP_CLASSES
 from app.wu_core import WU_MAX_CONSECUTIVE_FAILURES
 from app.wu_core import WuProcessAborted
 from app.wu_core import _install_abort_reason
 from app.wu_core import is_reboot_pending
 from app.wu_core import _build_wu_install_ps
-from app.wu_core import _collect_printer_protection
-from app.wu_core import _is_printer_protected
+from app.wu_core import collect_printer_packages
+from app.wu_core import export_drivers_backup
+from app.wu_core import _driver_backup_dir
 from app.wu_core import _collect_boot_path_protection
 from app.wu_core import _is_boot_path_protected
 from app.wu_core import _iter_process_lines
@@ -132,8 +132,9 @@ manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkenne
 
         # Nyomtató-védelem 2.0 (közös mag, mint a GUI AutoFixben): a jelenlévő nyomtatók/
         # szkennerek által használt INF-ek és a nyomtató-gyártók csomagjai nem törlődnek.
-        protected_infs, printing_vendors = _collect_printer_protection(self._run)
-        protected = [d for d in drivers if _is_printer_protected(d, protected_infs, printing_vendors, AUTOFIX_PRINTER_SKIP_CLASSES)]
+        # UGYANAZ AZ EGY FÜGGVÉNY, amit a GUI és a Driverek nézet lista-szűrője is hív.
+        printer_pkgs = collect_printer_packages(self._run, drivers)
+        protected = [d for d in drivers if (d.get('published') or '').lower() in printer_pkgs]
         protected_keys = {id(d) for d in protected}
         drivers = [d for d in drivers if id(d) not in protected_keys]
         if protected:
@@ -148,6 +149,17 @@ manuálisan kell majd újraszkennelni (Driverek kezelése > Hardver újraszkenne
             backed_up = _export_net_driver_backup(self._run, drivers)
             if backed_up:
                 print(f"🛟 {backed_up} db hálózati driver elmentve vész-visszaállításhoz.")
+            # 💾 Teljes mentés a törlés előtt - kézi mentsvár, NEM automatikus
+            # visszaállítás (lásd wu_core.export_drivers_backup).
+            print("💾 Biztonsági mentés a törlendő driverekről...")
+            saved, saved_mb, saved_sec = export_drivers_backup(self._run, drivers,
+                                                               log=lambda m: print(m))
+            if saved:
+                print(f"   ✅ {saved} csomag elmentve ({saved_mb} MB, {saved_sec:.0f} mp): "
+                      f"{_driver_backup_dir()}")
+                print("   ℹ️ A program ezt magától SOHA nem tölti vissza - az INFO.txt leírja, hogyan.")
+            else:
+                print("   ⚠️ A mentés nem készült el - a törlés folytatódik.")
             self.delete_drivers(drivers, reboot=False)
         else:
             print("Nincs third-party driver.")

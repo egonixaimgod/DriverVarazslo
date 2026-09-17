@@ -382,6 +382,12 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .usage-chip .uc-why{font-weight:400;opacity:.9;white-space:normal;word-break:break-word}
 #driver-table-wrap td:nth-child(2){max-width:330px;white-space:normal}
 #driver-table-wrap th:nth-child(2){min-width:190px}
+/* A DRIVER-TÁBLÁZAT MAGASABB A TÖBBINÉL (2026-09-17, explicit user decision: "kiférjen
+   még 2 db sor"). Az általános .table-wrap 430 px-e itt kevés: ez a nézet a program fő
+   munkaterülete, és a technikus ebben görgetve dönt a törlésről. A `min()` második fele
+   a védőháló: egy 1366x768-as laptopon a fix 580 px már kilógna a képernyőről, ott a
+   viewport szabja meg a méretet. Egy sor ~47 px, tehát a +150 px valóban ~3 sor. */
+#driver-table-wrap{max-height:min(580px, calc(100vh - 300px))}
 .usage-active{background:rgba(255,90,90,0.16);border:1px solid rgba(255,107,91,0.45);color:#ffb3ab}
 .usage-standby{background:rgba(255,180,80,0.14);border:1px solid rgba(255,180,80,0.38);color:#ffd08a}
 .usage-unused{background:rgba(255,255,255,0.05);border:1px solid var(--glass-border);color:var(--text3)}
@@ -866,7 +872,6 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
           <div class="toolbar">
             <button class="btn" onclick="loadDrivers()">🔄 Frissítés</button>
             <button class="btn btn-danger" onclick="deleteSelected()" id="btn-delete" disabled>🗑 Kijelöltek Törlése</button>
-            <button class="btn" onclick="selectAllDrivers()">☑ Mind Kijelölése</button>
             <label class="toggle" title="Törlés után automatikusan újraindítja a gépet">
               <input type="checkbox" id="reboot-after-delete">
               <span class="toggle-track"></span>
@@ -877,7 +882,7 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
                  felismerés a wu_core._collect_printer_protection-ből jön (ugyanaz, amit a fix
                  használ) - az osztály-alapú egyeztetés önmagában kevés lenne. -->
             <label class="toggle" id="lbl-hide-printers"
-                   title="Alapból bekapcsolva: a nyomtató-driverek nem jelennek meg a listában, így véletlenül sem törlöd ki őket. Ugyanaz a felismerés fut, mint az 1 kattintásos fix nyomtató-pipájánál - az osztály mellett a jelenlévő nyomtatók által ténylegesen használt INF-eket és a gyártót is nézi (a multifunkciós nyomtatók csomagjai USB/Ports/SYSTEM osztályban is szétszóródnak). Kapcsold ki, ha látni és törölni akarod őket.">
+                   title="Alapból bekapcsolva: a nyomtató-driverek nem jelennek meg a listában, így véletlenül sem törlöd ki őket. A felismerés magából a driverből dolgozik, NEM abból, hogy be van-e dugva a nyomtató (a szervizben lévő gép mellett úgysincs ott): nyomtató/szkenner osztály, az INF-ben lévő nyomtató-jelek (printer, laserjet, dot4, scanner…), illetve ha a csomag ugyanarra a fizikai eszközre (VID/PID) hivatkozik, mint egy másik nyomtató-driver — így a multifunkciós nyomtatók USB/Rendszereszköz osztályú kiszolgáló-csomagjai (dot4.inf, hpbuio*.inf, mvusbews.inf) is elrejtődnek. Kapcsold ki, ha látni és törölni akarod őket.">
               <input type="checkbox" id="hide-printer-drivers" checked onchange="togglePrinterFilter()">
               <span class="toggle-track"></span>
               🖨️ Nyomtató-driverek elrejtése
@@ -904,6 +909,11 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
               <span class="hw-sum-machine" id="drv-usage-title">Használat felderítése...</span>
               <span class="hw-sum-meta" id="drv-usage-meta"></span>
             </div>
+            <!-- A KÉT KIJELÖLŐ GOMB EGYMÁS MELLETT (2026-09-17, explicit user decision):
+                 ugyanaz a művelet két szűkítésben, tehát egy helyen a dolguk. A "Mind"
+                 korábban a felső eszköztárban, a Frissítés/Törlés mellett szorongott. -->
+            <button class="btn btn-sm" id="btn-select-all" onclick="selectAllDrivers()"
+                    title="A MOST LÁTHATÓ sorokat jelöli ki (a szűrők és a kiválasztott fül után). Újra rákattintva visszavonja a kijelölést.">☑ Mind kijelölése</button>
             <button class="btn btn-sm" id="btn-select-unused" onclick="selectUnusedDrivers()"
                     title="Csak azokat pipálja ki, amikre semmi nem hivatkozik: nincs hozzájuk eszköz a gépben, és nem fut hozzájuk kernel-szolgáltatás. A használatban lévőket és a készenléti (kihúzott eszközhöz tartozó) csomagokat kihagyja - de bármikor kipipálhatod őket kézzel is.">⚪ Csak a nem használtak kijelölése</button>
           </div>
@@ -2746,7 +2756,15 @@ async function loadDrivers() {
     toast('Driver lista betöltési hiba: ' + e, 'error');
   }
 }
-function getFilteredDriverIndices() {
+/* A LÁTHATÓ sorok a FÜL-szűrés ELŐTT (keresés + nyomtató-szűrő után).
+   MIÉRT KÜLÖN FÜGGVÉNY (2026-09-17, terepi hiba): a fülek és az állapotsáv korábban a
+   TELJES `drivers` tömbből számoltak, a csoport-fejlécek viszont a megszűrt listából -
+   így a "Nem használt" fül 100-at írt, alatta a csoport-fejléc meg 10-et UGYANARRÓL a
+   listáról. Egyik szám sem volt hibás, csak más halmazra vonatkoztak: a gépen 90 nem
+   használt csomag NYOMTATÓ-driver, amit a szűrő elrejtett. Két, egymásnak ellentmondó
+   szám egy képernyőn viszont rosszabb, mint a pontatlan - ezért MINDEN számláló innen
+   dolgozik, és az elrejtett darabszámot külön kimondjuk. */
+function getDriverIndicesBeforeTab() {
   let out;
   if (!driverFilterText) {
     out = drivers.map((_, i) => i);
@@ -2765,6 +2783,10 @@ function getFilteredDriverIndices() {
   if (hideEl && hideEl.checked && printerInfs && printerInfs.size) {
     out = out.filter(i => !printerInfs.has((drivers[i].published || '').toLowerCase()));
   }
+  return out;
+}
+function getFilteredDriverIndices() {
+  let out = getDriverIndicesBeforeTab();
   // HASZNÁLAT-FÜL. Csak akkor szűr, ha a felderítés lefutott - különben a "Nem használt"
   // fül a teljes listát mutatná, ami néma hazugság lenne.
   if (drvTab !== 'all' && driverUsage) {
@@ -2928,6 +2950,7 @@ function renderDriverTable() {
       : drivers.length + ' driver';
   }
   renderDriverUsageBar();
+  updateSelectAllBtn();
   updateSortHeaders();
 }
 /* Az állapotsáv és a fülek. Mindkettő REJTVE marad, amíg nincs eredmény: egy üres
@@ -2961,17 +2984,30 @@ function renderDriverUsageBar() {
     return;
   }
 
-  // 2) KÉSZ.
+  // 2) KÉSZ. MINDEN SZÁM A LÁTHATÓ HALMAZBÓL (a fül-szűrés előttiből) - lásd
+  //    getDriverIndicesBeforeTab: a fülek és a csoport-fejlécek különben más-más
+  //    listáról beszélnének ugyanazon a képernyőn.
+  const visible = getDriverIndicesBeforeTab();
   const counts = {active: 0, standby: 0, unused: 0, unknown: 0};
-  drivers.forEach(d => { counts[drvUsageOf(d)]++; });
+  visible.forEach(i => { counts[drvUsageOf(drivers[i])]++; });
+  const hidden = drivers.length - visible.length;
   bar.style.display = '';
   if (btn) btn.style.display = counts.unused ? '' : 'none';
   title.textContent = '🔎 ' + counts.active + ' csomagot használ MOST a gép, '
     + counts.unused + ' csomagra semmi nem hivatkozik';
-  meta.textContent = counts.standby
+  let metaText = counts.standby
     ? counts.standby + ' további csomaghoz tartozik eszköz vagy szolgáltatás, de épp nem aktív '
       + '(pl. kihúzott nyomtató/telefon) — ezeket érdemes végignézni, mielőtt törlöd.'
     : 'A „Nem használt” csoport a szabadon mazsolázható rész.';
+  // AZ ELREJTETT SOROKAT KI KELL MONDANI: e nélkül a fenti számok egy olyan listára
+  // vonatkoznának, amit a technikus nem lát teljesen - és pont ebből lett a
+  // "felül 100, alatta 10" ellentmondás.
+  if (hidden > 0) {
+    metaText += ' · A számok a MOST LÁTHATÓ ' + visible.length + ' csomagra vonatkoznak — '
+      + hidden + ' továbbit elrejt a szűrő'
+      + (driverFilterText ? ' vagy a keresés' : ' (nyomtató-driverek)') + '.';
+  }
+  meta.textContent = metaText;
 
   // 3) FÜLEK. Az üres fül nem jelenik meg - kivéve a "Használatban"-t, aminek a 0-ja
   //    maga is információ (ugyanaz az elv, mint a Driver Keresés "Teendő" fülénél).
@@ -2982,7 +3018,7 @@ function renderDriverUsageBar() {
     {key: 'unknown', cls: ''}
   ];
   let html = '<div class="hw-tab' + (drvTab === 'all' ? ' active' : '') + '" onclick="setDrvTab(\'all\')">'
-    + '📦 Mind <span class="hw-tab-n">' + drivers.length + '</span></div>';
+    + '📦 Mind <span class="hw-tab-n">' + visible.length + '</span></div>';
   defs.forEach(t => {
     if (!counts[t.key] && !t.always) return;
     const m = USAGE_META[t.key];
@@ -3033,10 +3069,30 @@ function toggleDriverSel(i) {
   renderDriverTable();
   updateDeleteBtn();
 }
+/* MIND KIJELÖLÉSE / KIJELÖLÉS VISSZAVONÁSA - ugyanaz a gomb (2026-09-17, explicit user
+   decision: "ha megint rányomok, nem vonja vissza a kijelölést"). A kapcsolás a MOST
+   LÁTHATÓ sorokra vonatkozik: ha azok mind ki vannak jelölve, a kattintás levesz,
+   különben kijelöl. Egy elrejtett sor kijelölését sosem bántja - azt a nyomtató-szűrő
+   saját szabálya intézi (togglePrinterFilter). */
 function selectAllDrivers() {
-  getFilteredDriverIndices().forEach(i => selectedDrivers.add(i));
+  const idx = getFilteredDriverIndices();
+  if (!idx.length) return;
+  const mindKijelolve = idx.every(i => selectedDrivers.has(i));
+  idx.forEach(i => mindKijelolve ? selectedDrivers.delete(i) : selectedDrivers.add(i));
   renderDriverTable();
   updateDeleteBtn();
+}
+/* A gomb felirata MINDIG azt mondja, mi történik a következő kattintásra - egy "Mind
+   kijelölése" feliratú gomb, ami levesz, pontosan az a fajta néma hazugság, amit ez a
+   projekt mindenhol üldöz. */
+function updateSelectAllBtn() {
+  const btn = document.getElementById('btn-select-all');
+  if (!btn) return;
+  const idx = getFilteredDriverIndices();
+  const mind = idx.length > 0 && idx.every(i => selectedDrivers.has(i));
+  btn.disabled = !idx.length;
+  btn.textContent = mind ? '☐ Kijelölés visszavonása (' + idx.length + ')'
+                         : '☑ Mind kijelölése (' + idx.length + ')';
 }
 function updateDeleteBtn() {
   const btn = document.getElementById('btn-delete');

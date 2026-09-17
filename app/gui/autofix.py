@@ -35,8 +35,9 @@ from app.wu_core import filter_autofix_risky_devices
 from app.wu_core import filter_firmware_updates
 from app.wu_core import _iter_process_lines
 from app.wu_core import _match_wu_updates_to_devices
-from app.wu_core import _collect_printer_protection
-from app.wu_core import _is_printer_protected
+from app.wu_core import collect_printer_packages
+from app.wu_core import export_drivers_backup
+from app.wu_core import _driver_backup_dir
 from app.wu_core import _collect_boot_path_protection
 from app.wu_core import _is_boot_path_protected
 from app.wu_core import _export_net_driver_backup
@@ -335,8 +336,12 @@ class GuiAutofixMixin:
             # a nyomtatóval jelen lévő gyártók összes csomagját is védjük - a multifunkciós
             # csomagok segéd-driverei (USB/Ports/SYSTEM osztály) különben törlődnének,
             # és az ügyfél nyomtatója/szkennere a fix után megsérülhetne.
-            protected_infs, printing_vendors = _collect_printer_protection(self._run)
-            skipped = [d for d in drivers if _is_printer_protected(d, protected_infs, printing_vendors, skip_classes)]
+            # UGYANAZ AZ EGY FÜGGVÉNY, amit a Driverek nézet lista-szűrője is hív
+            # (wu_core.collect_printer_packages): ha a felismerés változik, mindkét helyen
+            # egyszerre változik. A `skip_classes` innen már nem külön ág - a közös mag
+            # kezeli -, de a paraméter megmarad a hívási lánc kompatibilitása miatt.
+            printer_pkgs = collect_printer_packages(self._run, drivers)
+            skipped = [d for d in drivers if (d.get('published') or '').lower() in printer_pkgs]
             skipped_keys = {id(d) for d in skipped}
             drivers = [d for d in drivers if id(d) not in skipped_keys]
             if skipped:
@@ -449,6 +454,26 @@ class GuiAutofixMixin:
             backed_up = _export_net_driver_backup(self._run, drivers + wifi_protected_pkgs)
             if backed_up:
                 self.emit('task_progress', {'task': task_id, 'log': f'🛟 {backed_up} db hálózati driver biztonsági mentése kész (vész-visszaállításhoz).\n'})
+
+            # 💾 TELJES MENTÉS A TÖRLÉS ELŐTT (2026-09-17, explicit user decision).
+            # NEM automatikus visszaállításra: a fix ugyanúgy nulláról driverez újra
+            # (lásd export_drivers_backup docstringjét és a CLAUDE.md "re-driver from
+            # ZERO" szabályát). Ez kézi mentsvár a technikusnak - mérve ~233 MB/s, tehát
+            # a teljes készlet negyed perc, ami a fix 20-60 perces keretében semmi.
+            self.emit('task_progress', {'task': task_id, 'log': '💾 Biztonsági mentés a törlendő driverekről...'})
+            saved, saved_mb, saved_sec = export_drivers_backup(
+                self._run, drivers,
+                log=lambda m: self.emit('task_progress', {'task': task_id, 'log': m}))
+            if saved:
+                self.emit('task_progress', {'task': task_id, 'log':
+                          f'   ✅ {saved} csomag elmentve ({saved_mb} MB, {saved_sec:.0f} mp) ide: '
+                          f'{_driver_backup_dir()}'})
+                self.emit('task_progress', {'task': task_id, 'log':
+                          '   ℹ️ A program ezt magától SOHA nem tölti vissza - ha mégis kellene, '
+                          'a mappában lévő INFO.txt leírja, hogyan.\n'})
+            else:
+                self.emit('task_progress', {'task': task_id, 'log':
+                          '   ⚠️ A mentés nem készült el - a törlés ettől függetlenül folytatódik.\n'})
             # A Wi-Fi csomag KÜLÖN mentése is megtörténik, ha az újraépítést kérték: a
             # visszatelepítésnek egyértelmű forrás kell (a netdrv_backup gyökeréből a
             # vezetékes régi csomagját is visszaraknánk - lásd _wifi_backup_dir).
@@ -2384,7 +2409,7 @@ class GuiAutofixMixin:
         kipipálható/kivehető egyenként.
 
         A védettségeket SZÁNDÉKOSAN ugyanazok a függvények számolják, amiket a törlési
-        fázis is használ (_collect_printer_protection, collect_wifi_protection,
+        fázis is használ (collect_printer_packages, collect_wifi_protection,
         _collect_boot_path_protection) - ha az előnézet és a valóság külön logikán
         futna, az előbb-utóbb hazudna a technikusnak.
 
@@ -2420,11 +2445,11 @@ class GuiAutofixMixin:
                 # mutatná meg a futó kernel-szolgáltatásokat, azaz pont a ninja-eset
                 # (távoli asztal drivere, eszköz-csomópont nélkül) maradna láthatatlan.
                 f_usage = pool.submit(collect_package_usage, self._run, drivers)
-                f_printer = pool.submit(_collect_printer_protection, self._run)
+                f_printer = pool.submit(collect_printer_packages, self._run, drivers)
                 f_wifi = pool.submit(collect_wifi_protection, self._run)
                 f_boot = pool.submit(_collect_boot_path_protection, self._run)
                 usage = f_usage.result()
-                printer_infs, printer_vendors = f_printer.result()
+                printer_pkgs = f_printer.result()
                 wifi_infs, wifi_state = f_wifi.result()
                 # A boot-védelem HÁRMAST ad vissza, és a `detected=False` ág (nem sikerült
                 # felderíteni a rendszerlemez láncát) fail-safe módon az egész
@@ -2438,7 +2463,7 @@ class GuiAutofixMixin:
                     group = 'boot'
                 elif is_wifi_protected(d, wifi_infs):
                     group = 'wifi'
-                elif _is_printer_protected(d, printer_infs, printer_vendors, AUTOFIX_PRINTER_SKIP_CLASSES):
+                elif pub in printer_pkgs:
                     group = 'printer'
                 else:
                     group = 'normal'

@@ -29,23 +29,35 @@ class GuiDriversMixin:
         törlés-előnézeténél: egy friss `dism /Get-Drivers` 15-50 mp, és a felületnek pont
         ugyanaz az adat már a kezében van.
 
-        Visszatérés: {'published': [...], 'count': N} - a publikált (oemXX.inf) nevek, mert a
-        felület ezzel azonosítja a táblázat sorait."""
+        A FELISMERÉS MAGÁRÓL A CSOMAGRÓL DÖNT, NEM ARRÓL, HOGY BE VAN-E DUGVA A NYOMTATÓ
+        (2026-09-17, explicit user decision). A szervizben lévő laptop mellett soha nincs
+        ott az ügyfél nyomtatója, tehát a "melyik INF-et használja egy jelenlévő nyomtató"
+        jel alapesetben hiányzik - erre építeni azt jelentené, hogy a technikus kitörli a
+        behozott gép nyomtató-driverét CSAK AZÉRT, mert a nyomtató otthon maradt.
+        `wu_core.identify_printer_packages` ezért az INF-ből dolgozik (osztály, kulcsszó,
+        azonos fizikai eszköz) - a részletes indoklás és a mért számok ott.
+
+        MIÉRT NEM A `_is_printer_protected` FUT ITT (ami a fix törlés-védelme): annak van
+        egy negyedik ága is, a puszta GYÁRTÓNÉV-egyezés, és a gépen mérve abból 70 SAMSUNG
+        TELEFON-driver esett a "nyomtató" halmazba (ADB, modem, COM-port, hálókártya) -
+        csak mert van egy Samsung nyomtató is a gépen. A TÖRLÉSNÉL ez a túlvédés indokolt
+        és marad (egy elvesztett nyomtató-driver a nyomtató nélkül nem telepíthető vissza),
+        a LISTÁBAN viszont nem véd semmit, csak elveszi a technikustól a látványt."""
         logging.info(f"[API] get_printer_driver_infs({len(known_drivers or [])} csomag)")
         try:
-            from app.wu_core import (_collect_printer_protection, _is_printer_protected,
-                                     AUTOFIX_PRINTER_SKIP_CLASSES)
+            from app.wu_core import collect_printer_packages
             drivers = known_drivers or []
             if not drivers:
                 logging.info("[PRINTER-FILTER] Nincs betöltött driver-lista, nincs mit szűrni.")
                 return {'published': [], 'count': 0}
-            protected_infs, printing_vendors = _collect_printer_protection(self._run)
-            hits = [d for d in drivers
-                    if _is_printer_protected(d, protected_infs, printing_vendors,
-                                             AUTOFIX_PRINTER_SKIP_CLASSES)]
-            # Nevesítve: a "miért tűnt el a listáról ez a csomag?" kérdésre ez a válasz.
+            # UGYANAZ AZ EGY FÜGGVÉNY, amit az AutoFix törlés-védelme is hív - így a két
+            # képernyő szerkezetileg nem mondhat mást ugyanarról a csomagról.
+            found = collect_printer_packages(self._run, drivers)
+            hits = [d for d in drivers if (d.get('published') or '').lower() in found]
             logging.info(f"[PRINTER-FILTER] {len(hits)} nyomtató-driver a(z) {len(drivers)} "
-                         f"csomagból: {[d.get('published') for d in hits]}")
+                         f"csomagból elrejtve.")
+            logging.debug(f"[PRINTER-FILTER] Tételek: "
+                          f"{[d.get('original') or d.get('published') for d in hits]}")
             return {'published': [d.get('published', '') for d in hits], 'count': len(hits)}
         except Exception as e:
             # Fail-safe: hiba esetén NEM rejtünk el semmit. Egy néma szűrő, ami többet rejt

@@ -301,7 +301,7 @@ def _delete_drivers_flow(api):
         return
 
     # NYOMTATÓ-SZŰRŐ - ugyanaz a felismerés, mint a GUI-ban és az AutoFixben
-    # (wu_core._collect_printer_protection). Alapból BE: egy törölt nyomtató-driver a
+    # (wu_core.collect_printer_packages). Alapból BE: egy törölt nyomtató-driver a
     # nyomtató nélkül nem telepíthető vissza.
     hide = ui.confirm('Nyomtató-driverek elrejtése (hogy véletlenül se töröld őket)?', True)
     printer_infs = set()

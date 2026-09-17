@@ -1952,6 +1952,122 @@ PRINTER_VENDOR_KEYWORDS = [
     'bixolon', 'godex', 'tsc ', 'sagem', 'olivetti', 'toshiba tec', 'sharp',
 ]
 
+# ============================================================================
+# "EZ A CSOMAG NYOMTATÓ-DRIVER?" - A BEDUGOTTSÁGTÓL FÜGGETLENÜL (2026-09-17)
+# ============================================================================
+# EXPLICIT USER DECISION, és a hozzá tartozó forgatókönyv: *"elhozza a gépet az ember
+# szervizre, de mivel nincs bedugva a laptopja a nyomtatójába, én meg újradriverezem,
+# aztán letörli a nyomtató driverét, mert nem rejtette el, mert nem volt épp bedugva"*.
+# A szervizben lévő laptop mellett SOHA nincs ott az ügyfél nyomtatója - a "jelenlévő
+# nyomtató használja" jel tehát alapesetben hiányzik, és nem szabad rá támaszkodni.
+#
+# A KÉRDÉS EZÉRT MAGÁRÓL A CSOMAGRÓL DŐL EL, három jelből (mind mérve a fejlesztői gép
+# 144 csomagján, 2026-09-17):
+#   1) OSZTÁLY (27 db): az INF saját `Class=` sora nyomtató/szkenner osztály. A `Dot4`
+#      és `Dot4Print` (IEEE 1284.4) is ide tartozik - azok nélkül a multifunkciós
+#      nyomtatók fele kimaradna.
+#   2) KULCSSZÓ AZ INF-BEN (10 db): `printer`, `laserjet`, `deskjet`, `dot4`, `scanner`…
+#      Ez fogja meg a `dot4.inf`, `hpbuio160f.inf`, `hppscnd.inf`, `hpippstub.inf`
+#      csomagokat, amik USB/System osztályban ülnek, de nyomtatót szolgálnak ki.
+#      A **`fax` SZÁNDÉKOSAN NINCS A LISTÁN**: 14 Samsung MODEM INF-je tartalmazza
+#      (egy modem tud faxolni), tehát hamis pozitívot adna.
+#   3) AZONOS FIZIKAI ESZKÖZ (2 db): a csomag ugyanarra a `VID_xxxx&PID_yyyy` párra
+#      hivatkozik, mint egy már nyomtatónak minősített INF. Ez a legerősebb jel, mert
+#      eszköz-azonosság: a `mvusbews.inf`-ben egyetlen "printer" szó sincs, de a
+#      `USB\VID_03F0&PID_002A&MI_01` ugyanaz a HP LaserJet P1100, amit a `hp1100.inf`
+#      kiszolgál (csak a másik interfésze). Az `&MI_xx` interfész-szám ezért NEM része
+#      az összehasonlításnak.
+#
+# MIÉRT NEM ELÉG A GYÁRTÓNÉV (a `_is_printer_protected` 3. ága): a gépen mérve az
+# 102 védett csomagból 84 csak a gyártónév miatt volt az, és abból **70 SAMSUNG
+# TELEFON-driver** (ADB, modem, COM-port, hálózati kártya) - pusztán azért, mert van egy
+# Samsung nyomtató is a gépen. A fenti három jellel a 72 Samsung csomagból pontosan 2
+# minősül nyomtatónak (`ssa6m.inf`, `prnsacl1.inf` - mindkettő `Class=Printer`), és
+# NULLA telefon-driver csúszik be.
+PRINTER_INF_CLASSES = {'printer', 'printqueue', 'image', 'dot4', 'dot4print', 'printerupgrade'}
+_PRINTER_INF_KW_RE = re.compile(
+    r'\b(printer|printers|printing|nyomtat|scanner|dot4|deskjet|laserjet|officejet|'
+    r'pixma|imageclass|wsdprint|mopria|printqueue)\b', re.IGNORECASE)
+_INF_CLASS_RE = re.compile(r'^\s*Class\s*=\s*"?(\w+)', re.IGNORECASE | re.MULTILINE)
+# A KULCSSZÓ-ÁG CSAK EZEKBEN AZ OSZTÁLYOKBAN ÉRVÉNYES. MIÉRT (2026-09-17, a saját
+# ellenőrzésem fogta meg, mielőtt kiment volna): az ESET vírusirtó `eamonm.inf`-je
+# `Class=AntiVirus`, és a szövegében ott a "scanner" szó - a VÍRUS-scanner miatt.
+# Kulcsszó-alapon tehát a gép védelmi drivere tűnt volna el a listáról "nyomtatóként".
+# Nyomtató-kiszolgáló komponens a gyakorlatban USB/System/Ports osztályban ül (mérve:
+# dot4.inf, hpbuio*.inf = USB; hppscnd.inf = SYSTEM); egy AntiVirus/Net/Modem/Display
+# osztályú csomag sosem az. Az OSZTÁLY- és az ESZKÖZ-ág ettől függetlenül fut - azok
+# nem szövegre, hanem a csomag deklarált tulajdonságaira épülnek.
+_PRINTER_KW_ALLOWED_CLASSES = {'usb', 'usbdevice', 'system', 'ports', ''}
+# A FIZIKAI eszköz azonosítója: VID+PID, az interfész-szám (&MI_xx) NÉLKÜL.
+_INF_VIDPID_RE = re.compile(r'VID_([0-9A-F]{4})&PID_([0-9A-F]{4})', re.IGNORECASE)
+
+
+def _printer_inf_facts(published, inf_dir, reader):
+    """Egy published INF-ből: (osztály kisbetűvel, van-e nyomtató-kulcsszó, VID:PID halmaz)."""
+    text = reader(os.path.join(inf_dir, published))
+    if not text:
+        return '', False, set()
+    m = _INF_CLASS_RE.search(text)
+    cls = (m.group(1).lower() if m else '')
+    ids = {f'{a.upper()}:{b.upper()}' for a, b in _INF_VIDPID_RE.findall(text)}
+    return cls, bool(_PRINTER_INF_KW_RE.search(text)), ids
+
+
+def identify_printer_packages(drivers, protected_infs=None, inf_dir=None, reader=None):
+    """MELYIK CSOMAG NYOMTATÓ-DRIVER? -> {published_kisbetűvel: ok}
+
+    Az ok: 'osztaly' | 'kulcsszo' | 'hasznalja' | 'eszkoz'. A teljes indoklás és a mért
+    számok fentebb. A `protected_infs` (a jelenlévő nyomtatók által használt INF-ek)
+    opcionális kiegészítés - ha van, azt is elfogadjuk bizonyítéknak, de a felismerés
+    NEM támaszkodik rá: a szervizben a nyomtató nincs a gép mellett.
+
+    Két körben dolgozik: előbb a magától bizonyítható csomagok, majd azok FIZIKAI
+    eszközei (VID:PID) alapján a hozzájuk tartozó további komponensek."""
+    if reader is None:
+        reader = _read_text_best_effort
+    inf_dir = inf_dir or os.path.join(os.environ.get('WINDIR', r'C:\Windows'), 'INF')
+    protected_infs = protected_infs or set()
+
+    facts = {}
+    for d in drivers or []:
+        pub = (d.get('published') or '').strip().lower()
+        if pub:
+            facts[pub] = _printer_inf_facts(pub, inf_dir, reader)
+
+    found = {}
+    for d in drivers or []:
+        pub = (d.get('published') or '').strip().lower()
+        orig = (d.get('original') or '').strip().lower()
+        if not pub:
+            continue
+        cls, has_kw, _ids = facts.get(pub, ('', False, set()))
+        if cls in PRINTER_INF_CLASSES:
+            found[pub] = 'osztaly'
+        elif pub in protected_infs or orig in protected_infs:
+            found[pub] = 'hasznalja'
+        elif has_kw and cls in _PRINTER_KW_ALLOWED_CLASSES:
+            found[pub] = 'kulcsszo'
+
+    # 2. kör: ugyanaz a FIZIKAI eszköz (VID:PID), mint egy már felismert nyomtatóé.
+    printer_devices = set()
+    for pub in found:
+        printer_devices |= facts.get(pub, ('', False, set()))[2]
+    if printer_devices:
+        for d in drivers or []:
+            pub = (d.get('published') or '').strip().lower()
+            if not pub or pub in found:
+                continue
+            if facts.get(pub, ('', False, set()))[2] & printer_devices:
+                found[pub] = 'eszkoz'
+
+    counts = {}
+    for ok in found.values():
+        counts[ok] = counts.get(ok, 0) + 1
+    logging.info(f"[PRINTER-ID] {len(found)} nyomtató-csomag a(z) {len(drivers or [])} "
+                 f"csomagból (okok: {counts}).")
+    return found
+
+
 _PRINTER_PROTECT_PS = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $out = @{ Infs = @(); Providers = @() }
@@ -1976,13 +2092,22 @@ $out | ConvertTo-Json -Compress
 """
 
 
-def _collect_printer_protection(run_fn):
+def _collect_printer_protection(run_fn, drivers=None):
     """Összegyűjti, hogy a gépen JELENLÉVŐ nyomtatási/szkennelési komponensek ténylegesen
     melyik driver-csomagokat használják. Visszatérés: (védett INF-nevek halmaza kisbetűvel,
     pl. {'oem113.inf'}, érintett nyomtató-gyártó kulcsszavak halmaza). Forrás: minden felvett
     nyomtató drivere (Get-PrinterDriver InfPath) + minden jelenlévő Printer/PrintQueue/Image
     eszköz aktív INF-je és szolgáltatója. Hiba esetén üres halmazok - olyankor csak a
-    hagyományos osztály-alapú védelem él."""
+    hagyományos osztály-alapú védelem él.
+
+    `drivers`: ha a hívó átadja a csomaglistát, a védett halmazba bekerül minden csomag,
+    amit az `identify_printer_packages` NYOMTATÓNAK ismer fel (INF-osztály, nyomtató-jel
+    az INF-ben, azonos fizikai eszköz). MIÉRT KELL EZ (2026-09-17): e nélkül a
+    törlés-védelem SZŰKEBB lehetne, mint a Driverek nézet lista-szűrője - vagyis a
+    technikus nem látná a csomagot (mert a lista elrejti), a fix viszont kitörölné.
+    Mérve pontosan ez állt elő a `Dot4`/`Dot4Print` osztályú csomagokkal: az INF-jük
+    nyomtató-osztályú, de a dism által jelentett osztálynevük nem szerepel az
+    `AUTOFIX_PRINTER_SKIP_CLASSES`-ben. A védelem így SOSEM lehet szűkebb a listánál."""
     protected_infs = set()
     printing_vendors = set()
     try:
@@ -2007,25 +2132,55 @@ def _collect_printer_protection(run_fn):
         logging.info(f"[PRINTER-PROTECT] Védett INF-ek: {sorted(protected_infs)}, nyomtató-gyártók: {sorted(printing_vendors)}")
     except Exception as e:
         logging.warning(f"[PRINTER-PROTECT] Védett lista gyűjtése sikertelen (marad az osztály-alapú védelem): {e}")
+    # A CSOMAGBÓL FELISMERT nyomtatók (bedugott nyomtató nélkül is) - lásd a docstringet.
+    if drivers:
+        try:
+            found = identify_printer_packages(drivers, protected_infs)
+            uj = {p for p in found if p not in protected_infs}
+            if uj:
+                protected_infs |= uj
+                logging.info(f"[PRINTER-PROTECT] +{len(uj)} csomag a driverből felismerve "
+                             f"nyomtatóként (osztály/kulcsszó/fizikai eszköz): {sorted(uj)}")
+        except Exception as e:
+            logging.warning(f"[PRINTER-PROTECT] A csomag-alapú felismerés sikertelen: {e}")
     return protected_infs, printing_vendors
 
 
-def _is_printer_protected(drv, protected_infs, printing_vendors, skip_classes):
-    """Egy dism-listás third-party driver-bejegyzésről eldönti, hogy nyomtató-védelem alá
-    esik-e: (1) osztály szerint (a régi viselkedés), (2) a jelenlévő nyomtatási komponensek
-    által TÉNYLEGESEN használt INF-ek szerint, (3) a gépen nyomtatóval jelen lévő gyártó
-    minden csomagja szerint. Az INF-egyeztetés a publikált (oemXX.inf) ÉS az eredeti
-    (pl. hpc1320u.inf) névvel is fut: a Get-PrinterDriver InfPath-ja az EREDETI nevet
-    adja, a PnP-eszközök DriverInfPath-ja viszont a publikáltat - élesben mindkét forma
-    előfordul a védett halmazban."""
-    if drv.get('class', '') in (skip_classes or set()):
-        return True
-    if (drv.get('published', '') or '').lower() in protected_infs:
-        return True
-    if (drv.get('original', '') or '').lower() in protected_infs:
-        return True
-    prov = (drv.get('provider', '') or '').lower()
-    return any(kw in prov for kw in printing_vendors)
+def collect_printer_packages(run_fn, drivers):
+    """MELYIK CSOMAG NYOMTATÓ-DRIVER EZEN A GÉPEN -> a published nevek kisbetűs halmaza.
+
+    EZ AZ EGYETLEN FORRÁS, ÉS EZ A LÉNYEGE (2026-09-17, explicit user decision: *"az 1
+    katt fix is használja ugyanazt a core-t, mint a sima driver kezelő"*). Ugyanezt hívja
+    a Driverek nézet lista-szűrője (`get_printer_driver_infs`) és az AutoFix
+    törlés-védelme (mindkét út, plusz a törlési előnézet) - így a két képernyő
+    SZERKEZETILEG nem mondhat mást ugyanarról a csomagról, és a "38 vs 100" típusú
+    ellentmondás nem tud újra előállni.
+
+    Három jelből dolgozik, és egyik sem függ attól, hogy be van-e dugva a nyomtató:
+      - a dism által jelentett OSZTÁLY (`AUTOFIX_PRINTER_SKIP_CLASSES`),
+      - `identify_printer_packages`: az INF-ből (osztály, nyomtató-jel, azonos fizikai
+        eszköz) - ezt a `_collect_printer_protection` teszi a védett halmazba,
+      - a jelenlévő nyomtatók által ténylegesen használt INF-ek (ha épp van bedugva
+        nyomtató, az is bizonyíték - de nem feltétel).
+
+    A GYÁRTÓNÉV-ÁG KIKERÜLT A DÖNTÉSBŐL (2026-09-17). A `PRINTER_VENDOR_KEYWORDS`
+    megmarad, de már csak naplóz: azon az alapon védeni, hogy a csomag GYÁRTÓJÁNAK van
+    nyomtatója a gépen, mérve 70 fölösleges csomagot hozott (a teljes Samsung
+    telefon-driver készlet: modemek, ADB, hálókártyák, COM-portok, kamera, MTP), és
+    NULLA valódi nyomtató-komponenst - azokat mind a fenti három jel fogta meg."""
+    protected_infs, _printing_vendors = _collect_printer_protection(run_fn, drivers)
+    out = set()
+    for d in drivers or []:
+        pub = (d.get('published') or '').strip().lower()
+        orig = (d.get('original') or '').strip().lower()
+        if not pub:
+            continue
+        if d.get('class', '') in AUTOFIX_PRINTER_SKIP_CLASSES:
+            out.add(pub)
+        elif pub in protected_infs or orig in protected_infs:
+            out.add(pub)
+    logging.info(f"[PRINTER] {len(out)} nyomtató-csomag a(z) {len(drivers or [])} csomagból.")
+    return out
 
 
 # ============================================================================
@@ -2188,6 +2343,99 @@ def _is_boot_path_protected(drv, protected_infs, detected):
 
 def _net_backup_dir():
     return os.path.join(_app_data_dir(), 'netdrv_backup')
+
+
+def _driver_backup_dir():
+    """A törlés előtti teljes driver-mentés helye: `C:\\DriverVarazslo\\driver_backup`."""
+    return os.path.join(_app_data_dir(), 'driver_backup')
+
+
+# Ennyi szabad helyet követelünk meg a mentéshez. A mérés szerint a teljes DriverStore
+# 2,5 GB (807 mappa), egy grafikus csomag önmagában 1,2 GB - a 8 GB tehát bőven fedez egy
+# átlagos gépet, de egy majdnem tele lemezen inkább kihagyjuk a mentést, mint hogy a
+# fixet buktassuk el helyhiánnyal.
+DRIVER_BACKUP_MIN_FREE_GB = 8
+
+
+def export_drivers_backup(run_fn, drivers, log=None):
+    """A TÖRLENDŐ csomagok biztonsági mentése, a törlés ELŐTT.
+
+    EZ NEM A TILTOTT "MENTSD EL ÉS RAKD VISSZA" MINTA (CLAUDE.md: "re-driver from ZERO").
+    A lánc SOHA nem állítja vissza ezt automatikusan, és nem is épít rá: a fix ugyanúgy
+    nulláról driverezi újra a gépet. Ez kizárólag egy KÉZI mentsvár a technikusnak, ha
+    utólag kiderül, hogy egy csomagra mégis szükség volt (explicit user decision,
+    2026-09-17). Ha valaha automatikus visszaállítást írna rá valaki, az már a tiltott
+    minta - ne tedd.
+
+    MIÉRT FÉR BELE (mérve 2026-09-17): a `pnputil /export-driver` ~233 MB/s (egy 1212 MB-os
+    grafikus csomag 5,2 mp), a teljes DriverStore 2,5 GB - vagyis MINDEN driver mentése
+    nagyságrendileg negyed perc, nem óra. A fix 20-60 perces keretéhez képest elhanyagolható.
+
+    Visszatérés: (sikeres_db, összes_MB, eltelt_mp). Hibánál (0, 0, 0) - a mentés
+    SOHA nem akaszthatja meg a fixet."""
+    if not drivers:
+        return 0, 0, 0
+    dest = _driver_backup_dir()
+    t0 = time.monotonic()
+    try:
+        free_gb = shutil.disk_usage(os.path.dirname(dest) or 'C:\\').free / (1024 ** 3)
+        if free_gb < DRIVER_BACKUP_MIN_FREE_GB:
+            msg = (f"Kevés a szabad hely ({free_gb:.1f} GB), a driver-mentés kimarad "
+                   f"(legalább {DRIVER_BACKUP_MIN_FREE_GB} GB kellene).")
+            logging.warning(f"[DRV-BACKUP] {msg}")
+            if log:
+                log(f'   ⚠️ {msg}')
+            return 0, 0, 0
+        # Az ELŐZŐ mentés törlése: egy mentés 1-2,5 GB, és halmozódva megenné a lemezt.
+        # A technikusnak a LEGUTÓBBI fix mentése kell - egy archívumot senki nem kért.
+        shutil.rmtree(dest, ignore_errors=True)
+        os.makedirs(dest, exist_ok=True)
+    except Exception as e:
+        logging.warning(f"[DRV-BACKUP] A mentési mappa előkészítése sikertelen: {e}")
+        return 0, 0, 0
+
+    ok, total_bytes = 0, 0
+    for d in drivers:
+        pub = (d.get('published') or '').strip()
+        if not pub:
+            continue
+        sub = os.path.join(dest, os.path.splitext(pub)[0])
+        try:
+            os.makedirs(sub, exist_ok=True)
+            res = run_fn(['pnputil', '/export-driver', pub, sub], timeout=300)
+            if res and getattr(res, 'returncode', 1) == 0:
+                ok += 1
+                for root, _dirs, files in os.walk(sub):
+                    for f in files:
+                        try:
+                            total_bytes += os.path.getsize(os.path.join(root, f))
+                        except Exception:
+                            pass
+            else:
+                logging.warning(f"[DRV-BACKUP] {pub} mentése sikertelen "
+                                f"(rc={getattr(res, 'returncode', '?')}).")
+        except Exception as e:
+            logging.warning(f"[DRV-BACKUP] {pub} mentése kivétellel elszállt: {e}")
+    elapsed = time.monotonic() - t0
+    mb = round(total_bytes / (1024 * 1024), 1)
+    # A mentés mellé egy emberi olvasmány: mikor és miből készült. E nélkül egy fél év
+    # múlva talált mappáról senki nem tudja, melyik gép melyik fixéhez tartozott.
+    try:
+        with open(os.path.join(dest, 'INFO.txt'), 'w', encoding='utf-8') as f:
+            f.write("DriverVarázsló - driver-mentés az 1 kattintásos fix TÖRLÉSI fázisa előtt\n")
+            f.write(f"Készült: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Mentett csomagok: {ok} db, {mb} MB\n\n")
+            f.write("A program ezt AUTOMATIKUSAN SOHA nem állítja vissza - ez kézi mentsvár.\n")
+            f.write("Visszatöltés egy csomagra (rendszergazda parancssorból):\n")
+            f.write("   pnputil /add-driver \"<ide_az_inf_utvonala>\" /install\n\n")
+            for d in drivers:
+                f.write(f"{d.get('published', '?')}\t{d.get('original', '?')}\t"
+                        f"{d.get('provider', '?')}\t{d.get('class', '?')}\n")
+    except Exception as e:
+        logging.debug(f"[DRV-BACKUP] Az INFO.txt nem írható: {e}")
+    logging.info(f"[DRV-BACKUP] {ok}/{len(drivers)} csomag mentve ide: {dest} "
+                 f"({mb} MB, {elapsed:.1f} mp).")
+    return ok, mb, elapsed
 
 
 def _export_net_driver_backup(run_fn, drivers):
