@@ -21,6 +21,7 @@ from app.common import _app_exe_path
 from app.common import _webview_error
 from app.common import _webview_ready
 from app import drivers_core
+from app import update_core
 # === /AUTO-IMPORTS ===
 
 
@@ -99,6 +100,12 @@ class GuiBaseMixin:
         # módot, itt, a program (újra)indulásakor állítjuk vissza az akkor elmentett eredeti
         # energiagazdálkodási beállításokat (lásd _lock_power_for_stress/_restore_power_after_stress).
         self._restore_power_after_stress()
+
+        # A LEGUTÓBBI EXE-CSERE KIMENETELE A NAPLÓBA. A cserét egy külön .bat végzi a
+        # program kilépése UTÁN, tehát a fő napló eddig semmit nem tudott a
+        # legkritikusabb lépésről: lecserélődött-e egyáltalán az exe. Ha valaki azt
+        # jelenti, hogy "frissítettem, mégis a régi van fent", ez a pár sor a válasz.
+        update_core.read_update_report()
 
         # Ugyanez a logika a másik "ideiglenes rendszerállapot" esetre: ha egy AutoFix lánc
         # a telepítő lábon szakadt meg (BSOD/áramszünet), ott maradhat a NoAutoUpdate=1

@@ -11,9 +11,13 @@ class GuiUpdaterMixin:
     """In-app auto-updater: BUILD_NUMBER ellenőrzés GitHubról + exe csere. A DriverToolApi része (összerakás: app/gui/api.py)."""
 
     def check_for_updates(self):
-        """Update-ellenőrzés (a retry-logika és a CDN-cache magyarázat:
+        """Update-ellenőrzés (források, sorrend és a CDN-cache magyarázat:
         update_core.check_for_updates)."""
-        return update_core.check_for_updates()
+        info = update_core.check_for_updates()
+        # A kiadás exe-mellékletének címét eltesszük: így a rákövetkező perform_update
+        # nem kérdezi le újra az API-t (ami óránként 60 kérést enged IP-nként).
+        self._update_exe_url = (info or {}).get('exe_url')
+        return info
 
     def perform_update(self):
         logging.info("[UPDATE] perform_update indítása...")
@@ -21,7 +25,8 @@ class GuiUpdaterMixin:
             try:
                 self.emit('task_start', {'task': 'update', 'title': 'Program Frissítése'})
                 bat_path = update_core.stage_update(
-                    lambda msg: self.emit('task_progress', {'task': 'update', 'log': msg, 'indeterminate': True}))
+                    lambda msg: self.emit('task_progress', {'task': 'update', 'log': msg, 'indeterminate': True}),
+                    exe_url=getattr(self, '_update_exe_url', None))
                 import time
                 time.sleep(2)
                 update_core.launch_update_and_exit(bat_path)
