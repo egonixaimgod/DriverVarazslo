@@ -167,6 +167,12 @@ def _drivers_usage(api, drivers):
 
     Hibánál üres dict - a táblázat ilyenkor '?'-et mutat, ami őszinte: az "ismeretlen"
     nem ugyanaz, mint a "nem használt"."""
+    return _drivers_usage_info(api, drivers).get('usage') or {}
+
+
+def _drivers_usage_info(api, drivers):
+    """A teljes válasz: használat + GÉP-TÉRKÉP (`machine`), ugyanabból az egy hívásból,
+    mint a GUI-ban. Hibánál/offline üres dict."""
     ui.info('Használat felderítése (eszközök, kernel-szolgáltatások, szűrő-driverek)...')
     info = api.get_driver_usage(drivers) or {}
     if info.get('offline'):
@@ -180,7 +186,15 @@ def _drivers_usage(api, drivers):
     if usage:
         ui.ok(f"{c.get('active', 0)} csomagot használ MOST a gép · "
               f"{c.get('standby', 0)} készenlétben · {c.get('unused', 0)} nem használt")
-    return usage
+    if info.get('machine_error'):
+        ui.dim(f"A gép felépítése nem rajzolható ki: {info['machine_error']}")
+    return info
+
+
+def _machine_what(machine, d):
+    """A "Mire való" szöveg egy csomaghoz (a GUI oszlopának megfelelője)."""
+    mi = ((machine or {}).get('packages') or {}).get((d.get('published') or '').lower()) or {}
+    return mi.get('what') or d.get('class') or ''
 
 
 # A három állapot CLI-jele. A GUI-val azonos jelentés, csak szűkebb helyen; ASCII
@@ -199,20 +213,24 @@ def _usage_cell(usage, d):
     return color + (uni if ui.UNICODE else ascii_) + ui.RESET
 
 
-def _drivers_table(drivers, printer_infs=None, usage=None):
+def _drivers_table(drivers, printer_infs=None, usage=None, machine=None):
     rows = []
     for i, d in enumerate(drivers, 1):
         mark = ''
         if printer_infs and (d.get('published') or '').lower() in printer_infs:
             mark = ui.YELLOW + ('🖨 ' if ui.UNICODE else 'P ') + ui.RESET
+        # A gép-térkép megléte esetén az "Osztály" helyén a KONKRÉT eszköz / rendeltetés
+        # áll - a Windows-osztály a driver gyártójának besorolása, nem az alkatrészé.
+        what = _machine_what(machine, d) if machine else (d.get('class') or '')
         row = [str(i), mark + (d.get('published') or ''), d.get('original') or '',
-               d.get('provider') or '', d.get('class') or '', d.get('version') or '']
+               d.get('provider') or '', what, d.get('version') or '']
         if usage is not None:
             row.insert(1, _usage_cell(usage, d))
         rows.append(row)
     if usage is not None:
-        ui.table(['#', 'Használat', 'Published', 'Eredeti INF', 'Gyártó', 'Osztály', 'Verzió'],
-                 rows, widths=[4, 15, 12, 20, 18, 12, 14])
+        ui.table(['#', 'Használat', 'Published', 'Eredeti INF', 'Gyártó',
+                  'Mire való' if machine else 'Osztály', 'Verzió'],
+                 rows, widths=[4, 15, 12, 18, 16, 26 if machine else 12, 12])
     else:
         ui.table(['#', 'Published', 'Eredeti INF', 'Gyártó', 'Osztály', 'Verzió'],
                  rows, widths=[4, 12, 22, 20, 14, 16])
@@ -228,8 +246,13 @@ def _drivers_usage_screen(api):
     if not drivers:
         ui.warn('Nincs megjeleníthető driver.')
         return
-    usage = _drivers_usage(api, drivers)
+    info = _drivers_usage_info(api, drivers)
+    usage = info.get('usage') or {}
     if not usage:
+        return
+    machine = info.get('machine')
+    if machine:
+        _machine_screen(machine, drivers, usage)
         return
     groups = [('active', 'HASZNÁLATBAN — a gép MOST használja', ui.RED),
               ('standby', 'KÉSZENLÉTBEN — tartozik hozzá eszköz/szolgáltatás, de nem aktív', ui.YELLOW),
@@ -248,6 +271,63 @@ def _drivers_usage_screen(api):
                 lines.append(f"    {r}")
         ui.write('')
         ui.panel(f"{title}  [{len(items)} db]", lines, color=color)
+
+
+_MM_SECTION = {
+    'parts': 'A GÉP ALKATRÉSZEI',
+    'external': 'CSATLAKOZTATOTT ESZKÖZÖK',
+    'software': 'SZOFTVERES DRIVEREK — nincs fizikai eszközük',
+    'absent': 'A GÉP NYILVÁNTARTJA, DE MOST NINCS BENNE',
+    'nodev': 'NINCS HOZZÁ ESZKÖZ A GÉPBEN — a driver-fájl szerint ezekhez lennének',
+}
+
+
+def _machine_screen(machine, drivers, usage):
+    """A GÉP FELÉPÍTÉSE a konzolon: alkatrészenként a hozzá tartozó driverek - a GUI
+    gép-térképének megfelelője, UGYANABBÓL az adatból (get_driver_usage 'machine').
+
+    A beépített drivert futtató alkatrész (pl. a processzor) is megjelenik egy sorral:
+    a technikusnak/ügyfélnek a teljes gépet kell látnia, nem csak a gyári csomagokat."""
+    by_pub = {(d.get('published') or '').lower(): d for d in drivers}
+    pkgs = machine.get('packages') or {}
+    per_slot = {}
+    for pub, mi in pkgs.items():
+        if pub in by_pub:
+            per_slot.setdefault(mi.get('slot'), []).append(by_pub[pub])
+    kind = 'laptop' if machine.get('form') == 'laptop' else 'asztali gép'
+    ui.write('')
+    ui.panel(f"A GÉP FELÉPÍTÉSE — {machine.get('title') or '?'}",
+             [f"{kind} · {machine.get('cpu') or '?'}"
+              + (f" · alaplap: {machine['board']}" if machine.get('board') and machine.get('board') != machine.get('title') else ''),
+              f"(géptípus forrása: {machine.get('form_source') or '?'})"], color=ui.CYAN)
+    last_section = None
+    for s in machine.get('slots') or []:
+        if s.get('section') != last_section:
+            last_section = s.get('section')
+            ui.write('')
+            ui.write(ui.BOLD + '== ' + _MM_SECTION.get(last_section, last_section) + ' ==' + ui.RESET)
+        items = per_slot.get(s['key'], [])
+        head = f"{s.get('title')}" + (f": {s['name']}" if s.get('name') and s.get('section') not in ('nodev', 'absent') else '')
+        if s.get('badge'):
+            head += f" ({s['badge']})"
+        lines = []
+        if not items:
+            devs = s.get('devices') or []
+            if devs:
+                lines.append('Windows beépített driverrel működik: ' + ', '.join(
+                    f"{dv['name']} ({dv.get('inf') or '?'})" for dv in devs[:3]))
+        order = {'active': 0, 'standby': 1, 'unknown': 2, 'unused': 3}
+        items.sort(key=lambda d: (order.get(((usage.get((d.get('published') or '').lower()) or {}).get('state')), 9),
+                                  (d.get('published') or '').lower()))
+        for d in items:
+            pub = (d.get('published') or '').lower()
+            lines.append(f"{_usage_cell(usage, d)}  {d.get('published')}  {pkgs.get(pub, {}).get('what') or ''}"
+                         f"  ({d.get('provider') or '?'}, {d.get('version') or '?'})")
+        if not lines:
+            continue
+        ui.write('')
+        ui.panel(f"{head}  [{len(items)} driver]", lines,
+                 color=ui.DIM if not items else (ui.YELLOW if s.get('section') in ('nodev', 'absent') else ui.CYAN))
 
 
 def _menu_drivers(api):
@@ -320,14 +400,20 @@ def _delete_drivers_flow(api):
 
     # HASZNÁLAT SZERINTI SORREND: felül, amit a gép most is használ - ugyanaz a kép,
     # mint a grafikus felületen (ott is ez az alapértelmezett rendezés).
-    usage = _drivers_usage(api, drivers)
+    info = _drivers_usage_info(api, drivers)
+    usage = info.get('usage') or {}
+    machine = info.get('machine')
     if usage:
         order = {'active': 0, 'standby': 1, 'unknown': 2, 'unused': 3}
+        # Ha megvan a gép-térkép, elöl az alkatrész-sorrend (ugyanaz, mint a GUI
+        # alapértelmezett csoportosítása), azon belül a használat.
+        mpk = (machine or {}).get('packages') or {}
         drivers = sorted(drivers, key=lambda d: (
+            (mpk.get((d.get('published') or '').lower()) or {}).get('order', 9999),
             order.get(((usage.get((d.get('published') or '').lower()) or {}).get('state')), 9),
             (d.get('class') or '').lower(), (d.get('published') or '').lower()))
 
-    _drivers_table(drivers, usage=usage if usage else None)
+    _drivers_table(drivers, usage=usage if usage else None, machine=machine)
     idx = ui.pick_indices("Törlendő sorszámok (pl. 1,3,5-8 vagy 'mind')", len(drivers))
     if not idx:
         ui.dim('Nincs kijelölve semmi.')

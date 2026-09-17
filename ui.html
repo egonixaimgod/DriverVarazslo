@@ -401,6 +401,84 @@ tr.drv-group .dg-hint{font-weight:400;color:var(--text3);letter-spacing:0}
 tr.row-active td:first-child{box-shadow:inset 3px 0 0 rgba(255,107,91,0.75)}
 tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
 
+/* ===== DRIVEREK NÉZET: A GÉP FELÉPÍTÉSE (2026-09-17, explicit user decision) ==========
+   A technikus a Class oszlopból nem tudta megmondani, melyik driver MINEK a drivere (a
+   Class a driver gyártójának besorolása, nem az alkatrészé - lásd machinemap_core.py).
+   Itt a gép rajza + alkatrész-kártyák: a pontok és a kártyák UGYANAZT a halmazt mutatják,
+   egy kattintás a táblázatot annak az alkatrésznek a drivereire szűri. Ez BESOROLÁS, NEM
+   SZŰRŐ a törlés szempontjából: semmit nem rejt el véglegesen és semmit nem tilt le. */
+.mm-wrap{position:relative;overflow:hidden;margin-bottom:12px;border-radius:var(--r);
+  border:1px solid rgba(180,100,255,0.28);
+  background:linear-gradient(160deg,rgba(46,26,80,0.60),rgba(22,12,42,0.50))}
+.mm-wrap::after{content:attr(data-emoji);position:absolute;right:-14px;bottom:-46px;font-size:190px;
+  opacity:.045;pointer-events:none;line-height:1}
+.mm-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;cursor:pointer;
+  user-select:none;border-bottom:1px solid rgba(180,100,255,0.18)}
+.mm-wrap.collapsed .mm-head{border-bottom:0}
+.mm-head-icon{font-size:24px;line-height:1}
+.mm-head-main{flex:1;min-width:220px}
+.mm-head-title{font-size:15px;font-weight:800;color:var(--text);line-height:1.3}
+.mm-head-sub{font-size:11.5px;color:var(--text3);margin-top:2px;line-height:1.45}
+.mm-caret{font-size:12px;color:var(--text3);white-space:nowrap}
+/* Az ábra a nézet főszereplője ("mint a Tarkovban"): a szélesség ~45%-át kapja, nem egy
+   keskeny oszlopot - 430 px-en a kis pontok (USB, HANG, BIOS) felirata olvashatatlan volt. */
+.mm-body{display:grid;grid-template-columns:minmax(340px,0.85fr) minmax(0,1.15fr);gap:16px;padding:14px 16px 16px;
+  position:relative;z-index:1}
+.mm-wrap.collapsed .mm-body{display:none}
+@media (max-width:1150px){.mm-body{grid-template-columns:minmax(0,1fr)}}
+.mm-figure{border-radius:var(--r-sm);padding:6px;align-self:start;position:sticky;top:8px;
+  background:radial-gradient(ellipse at 50% 45%,rgba(212,136,255,0.11),transparent 70%);
+  border:1px solid rgba(180,100,255,0.14)}
+.mm-figure svg{width:100%;height:auto;display:block}
+.mm-line{fill:none;stroke:rgba(210,180,255,0.30);stroke-width:1.5}
+.mm-fill{fill:rgba(180,100,255,0.06);stroke:rgba(210,180,255,0.32);stroke-width:1.5}
+.mm-cap{fill:rgba(200,180,230,0.55);font-size:9px;font-weight:800;letter-spacing:.8px}
+.mm-hot{cursor:pointer}
+.mm-hot .hs{fill:rgba(255,255,255,0.02);stroke:rgba(210,180,255,0.20);stroke-width:1.4;transition:fill .2s,stroke .2s}
+.mm-hot text.hl{fill:rgba(220,200,255,0.42);font-weight:800;letter-spacing:.5px;text-anchor:middle;
+  dominant-baseline:central;pointer-events:none}
+.mm-hot.has .hs{stroke:rgba(212,136,255,0.62);fill:rgba(212,136,255,0.08)}
+.mm-hot.has text.hl{fill:rgba(240,225,255,0.88)}
+.mm-hot.pk .hs{stroke:#d488ff;fill:rgba(212,136,255,0.17);filter:drop-shadow(0 0 5px rgba(212,136,255,0.55))}
+.mm-hot.empty{opacity:.4}
+.mm-hot:hover .hs,.mm-hot.hover .hs{stroke:#fff;fill:rgba(212,136,255,0.30)}
+.mm-hot.sel .hs{stroke:#ffe066;fill:rgba(255,224,102,0.20);filter:drop-shadow(0 0 7px rgba(255,224,102,0.6))}
+.mm-badge{pointer-events:none}
+.mm-badge circle{fill:#b855ff;stroke:#1a0f2e;stroke-width:2}
+.mm-badge text{fill:#fff;font-size:9.5px;font-weight:800;text-anchor:middle;dominant-baseline:central}
+.mm-cards{display:flex;flex-direction:column;gap:10px;min-width:0}
+.mm-sec-title{font-size:11px;font-weight:800;letter-spacing:.6px;color:var(--text3);text-transform:uppercase;margin-top:2px}
+.mm-sec-title span{font-weight:400;text-transform:none;letter-spacing:0}
+.mm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.mm-card{padding:9px 11px;border-radius:10px;cursor:pointer;min-width:0;
+  background:rgba(60,35,90,0.38);border:1px solid rgba(180,100,255,0.20);transition:border-color .18s,background .18s}
+.mm-card:hover,.mm-card.hover{border-color:rgba(212,136,255,0.75);background:rgba(90,50,140,0.42)}
+.mm-card.sel{border-color:#ffe066;box-shadow:0 0 0 1px rgba(255,224,102,0.35),0 0 14px rgba(255,224,102,0.18)}
+.mm-card.inbox{background:rgba(40,25,65,0.30)}
+.mm-card-top{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;color:var(--text3);
+  letter-spacing:.3px;text-transform:uppercase}
+.mm-card-top .mm-ic{font-size:14px}
+.mm-card-top .mm-tag{margin-left:auto;text-transform:none;letter-spacing:0;font-size:10.5px;padding:1px 7px;
+  border-radius:999px;background:rgba(255,255,255,0.07);white-space:nowrap}
+.mm-card-name{font-size:13px;font-weight:700;color:var(--text);margin:4px 0 6px;line-height:1.3;word-break:break-word}
+.mm-card-drv{display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:11.5px;color:var(--text2)}
+.mm-dot{display:inline-flex;align-items:center;gap:2px;font-size:10.5px;padding:1px 6px;border-radius:999px;background:rgba(0,0,0,0.25)}
+.mm-inbox{color:var(--text3)}
+.mm-warn{color:#ffd08a}
+.mm-err{padding:10px 14px;font-size:12px;color:var(--text3)}
+/* "Mire való" oszlop: fent a konkrét eszköz/rendeltetés, alatta a bizonyíték fajtája és a
+   driver saját Windows-osztálya (ami eddig egyedül állt ott). A szöveg tördel, nem csonkol -
+   ugyanaz a szabály, mint a Használat-chipnél. */
+#driver-table-wrap td.what-cell{max-width:360px;white-space:normal}
+.what-main{font-weight:600;color:var(--text);line-height:1.35;word-break:break-word}
+.what-sub{font-size:11px;color:var(--text3);margin-top:2px}
+.drv-groupmode{margin-left:auto;display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text3)}
+.seg{display:inline-flex;border:1px solid rgba(180,100,255,0.3);border-radius:999px;overflow:hidden}
+.seg button{background:transparent;border:0;color:var(--text3);padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+.seg button.on{background:rgba(180,100,255,0.26);color:var(--text)}
+.hw-tab.tab-slot{border-color:#ffe066;color:#ffe9a0;background:rgba(255,224,102,0.12)}
+tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-space:normal}
+
 /* 5) ÜRES / HIBA ÁLLAPOT a szken előtt. */
 .hw-empty{padding:34px 22px;text-align:center}
 .hw-empty-icon{font-size:44px;opacity:0.35;margin-bottom:10px}
@@ -917,6 +995,23 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
             <button class="btn btn-sm" id="btn-select-unused" onclick="selectUnusedDrivers()"
                     title="Csak azokat pipálja ki, amikre semmi nem hivatkozik: nincs hozzájuk eszköz a gépben, és nem fut hozzájuk kernel-szolgáltatás. A használatban lévőket és a készenléti (kihúzott eszközhöz tartozó) csomagokat kihagyja - de bármikor kipipálhatod őket kézzel is.">⚪ Csak a nem használtak kijelölése</button>
           </div>
+          <!-- A GÉP FELÉPÍTÉSE (2026-09-17): a gép rajza + alkatrész-kártyák. A használat-
+               felderítéssel EGY hívásból érkezik (get_driver_usage 'machine' mezője), addig
+               rejtve. Egy kattintás a lenti táblázatot az alkatrész drivereire szűri. -->
+          <div class="mm-wrap" id="drv-machine" style="display:none" data-emoji="🖥️">
+            <div class="mm-head" onclick="toggleMachineMap()" id="mm-head">
+              <span class="mm-head-icon" id="mm-head-icon">🖥️</span>
+              <div class="mm-head-main">
+                <div class="mm-head-title" id="mm-head-title">A gép felépítése</div>
+                <div class="mm-head-sub" id="mm-head-sub"></div>
+              </div>
+              <span class="mm-caret" id="mm-caret">▾ összecsukás</span>
+            </div>
+            <div class="mm-body">
+              <div class="mm-figure" id="mm-figure"></div>
+              <div class="mm-cards" id="mm-cards"></div>
+            </div>
+          </div>
           <!-- SZŰRŐ-FÜLEK. Ugyanaz a minta, mint a Driver Keresés nézetben. -->
           <div class="hw-tabs" id="drv-tabs" style="display:none"></div>
           <div class="table-wrap" id="driver-table-wrap">
@@ -927,7 +1022,8 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
                 <th class="sortable" data-sort-key="published" onclick="sortDriversBy('published')">Published Name<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort-key="original" onclick="sortDriversBy('original')">Original Name<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort-key="provider" onclick="sortDriversBy('provider')">Provider<span class="sort-arrow"></span></th>
-                <th class="sortable" data-sort-key="class" onclick="sortDriversBy('class')">Class<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort-key="what" onclick="sortDriversBy('what')"
+                    title="A konkrét eszköz, amit a driver hajt (a Windows eszközfája szerint), vagy ha nincs hozzá eszköz, amire a driver-fájl szerint való. Alatta a driver saját Windows-osztálya (Class) - az a gyártó besorolása arról, milyen TÍPUSÚ Windows-eszközt telepít, nem arról, melyik alkatrészhez tartozik.">Mire való<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort-key="version" onclick="sortDriversBy('version')">Version<span class="sort-arrow"></span></th>
               </tr></thead>
               <tbody id="driver-tbody"></tbody>
@@ -1915,6 +2011,20 @@ let driverUsage = null;
 let driverUsageError = '';
 let driverUsageOffline = false;
 let drvTab = 'all';
+// A GÉP FELÉPÍTÉSE (2026-09-17). A térkép a használat-felderítéssel EGY hívásból jön
+// (get_driver_usage 'machine'). `null` = még nincs / nem készült el - ilyenkor a
+// táblázat a régi, használat szerinti csoportosításra esik vissza.
+let driverMachine = null;
+let driverMachineError = '';
+let mmSlotByKey = {};
+// Alapból ALKATRÉSZ szerint csoportosít (explicit user decision, 2026-09-17: "alapból
+// rendezze, csoportosítsa úgy, hogy videokártya, alaplapi hang, net, chipset..."). A
+// használat szerinti nézet egy kattintásra megmarad.
+let drvGroupMode = 'machine';
+// A kiválasztott alkatrész: egy kártya kulcsa, vagy 'hot:<pont>' az ábra egy pontjára.
+let drvSlotSel = null;
+let mmCollapsed = false;
+let mmFigureFor = null;
 // A három állapot megjelenítése EGY helyen (a szöveg és a szín is innen jön), mert hat
 // helyen kellene különben - és a hetediknél biztosan elfelejtenénk az egyiket.
 const USAGE_META = {
@@ -2135,6 +2245,7 @@ window.handlePyEvent = function(payload) {
       // A friss lista mellé a régi használat-adat már nem érvényes (más gép, más
       // csomagszámozás): a `null` az őszinte állapot, amíg az új felderítés le nem fut.
       driverUsage = null; driverUsageError = ''; driverUsageOffline = false;
+      driverMachine = null; driverMachineError = ''; mmSlotByKey = {}; drvSlotSel = null;
       renderDriverTable();
       // A két felderítés a lista MEGJELENÍTÉSE UTÁN indul, háttérben: néhány
       // PowerShell-hívás, és a táblázatnak nem kell rá várnia.
@@ -2765,6 +2876,20 @@ async function loadDrivers() {
    szám egy képernyőn viszont rosszabb, mint a pontatlan - ezért MINDEN számláló innen
    dolgozik, és az elrejtett darabszámot külön kimondjuk. */
 function getDriverIndicesBeforeTab() {
+  let out = getDriverIndicesBase();
+  // ALKATRÉSZ-VÁLASZTÁS (a gép-térkép egy kártyája vagy pontja). Ide tartozik, nem a fül
+  // mögé: a fülek számai is a kiválasztott alkatrészről szóljanak, különben a "Nem
+  // használt 73" fül alatt 2 sor lenne - pontosan a korábbi ellentmondás, új alakban.
+  if (drvSlotSel && driverMachine) {
+    const keys = mmSelKeys();
+    out = out.filter(i => keys.has(drvSlotOf(drivers[i])));
+  }
+  return out;
+}
+/* A keresés + nyomtató-szűrő utáni halmaz, alkatrész-választás NÉLKÜL. A gép-térkép
+   kártyái ebből számolnak: ha a választás itt is szűrne, egy kártyára kattintva az összes
+   többi kártya nullát mutatna. */
+function getDriverIndicesBase() {
   let out;
   if (!driverFilterText) {
     out = drivers.map((_, i) => i);
@@ -2772,7 +2897,10 @@ function getDriverIndicesBeforeTab() {
     const q = driverFilterText.toLowerCase();
     out = [];
     drivers.forEach((d, i) => {
-      const hay = [d.published, d.original, d.provider, d.class, d.version].join(' ').toLowerCase();
+      const mi = drvMachineInfo(d);
+      const hay = [d.published, d.original, d.provider, d.class, d.version,
+                   mi ? mi.what : '', mi && mmSlotByKey[mi.slot] ? mmSlotByKey[mi.slot].title + ' ' + mmSlotByKey[mi.slot].name : '']
+                  .join(' ').toLowerCase();
       if (hay.includes(q)) out.push(i);
     });
   }
@@ -2793,7 +2921,16 @@ function getFilteredDriverIndices() {
     out = out.filter(i => drvUsageOf(drivers[i]) === drvTab);
   }
   const dir = driverSortDir === 'desc' ? -1 : 1;
+  const byMachine = drvMachineGrouped();
   out.sort((a, b) => {
+    // ALKATRÉSZ SZERINTI CSOPORTOSÍTÁS: elöl a térkép sorrendje (videókártya, processzor,
+    // alaplap, külső eszközök, szoftveres, nincs hozzá eszköz), azon belül a választott
+    // oszlop szerinti rendezés.
+    if (byMachine) {
+      const ia = drvMachineInfo(drivers[a]), ib = drvMachineInfo(drivers[b]);
+      const oa = ia ? ia.order : 9999, ob = ib ? ib.order : 9999;
+      if (oa !== ob) return oa - ob;
+    }
     // A használat szerinti rendezés nem ábécé, hanem fontossági sorrend (aktív felül),
     // és azonos állapoton belül a Class tagol tovább.
     if (driverSortKey === 'usage') {
@@ -2807,8 +2944,8 @@ function getFilteredDriverIndices() {
       const pb0 = (drivers[b].published || '').toLowerCase();
       return pa0 < pb0 ? -1 : pa0 > pb0 ? 1 : 0;
     }
-    const va = (drivers[a][driverSortKey] || '').toLowerCase();
-    const vb = (drivers[b][driverSortKey] || '').toLowerCase();
+    const va = drvSortVal(drivers[a], driverSortKey);
+    const vb = drvSortVal(drivers[b], driverSortKey);
     if (va < vb) return -1 * dir;
     if (va > vb) return 1 * dir;
     // Másodlagos rendezés Published Name szerint - ha az elsődleges kulcs (pl. Class)
@@ -2911,15 +3048,28 @@ function renderDriverTable() {
   const tbody = document.getElementById('driver-tbody');
   tbody.innerHTML = '';
   const indices = getFilteredDriverIndices();
-  // CSOPORT-FEJLÉCEK: csak akkor, ha tényleg használat szerint van rendezve és a
-  // felderítés lefutott - egy Provider szerint rendezett listában a csoport-sorok
-  // össze-vissza ugrálnának.
-  const grouped = driverSortKey === 'usage' && !!driverUsage && drvTab === 'all';
+  // CSOPORT-FEJLÉCEK. Alkatrész szerint (alapértelmezés), vagy - ha a térkép nincs meg,
+  // vagy a technikus átkapcsolt - használat szerint, de az utóbbi csak használat szerinti
+  // rendezésnél: egy Provider szerint rendezett listában a csoport-sorok össze-vissza
+  // ugrálnának.
+  const byMachine = drvMachineGrouped();
+  const grouped = !byMachine && driverSortKey === 'usage' && !!driverUsage && drvTab === 'all';
   let lastState = null;
+  let lastSlot = undefined;
   indices.forEach(i => {
     const d = drivers[i];
     const st = drvUsageOf(d);
-    if (grouped && st !== lastState) {
+    if (byMachine) {
+      const slot = drvSlotOf(d) || '__none';
+      if (slot !== lastSlot) {
+        lastSlot = slot;
+        const n = indices.filter(j => (drvSlotOf(drivers[j]) || '__none') === slot).length;
+        const gtr = document.createElement('tr');
+        gtr.className = 'drv-group';
+        gtr.innerHTML = '<td colspan="7">' + mmGroupHeader(mmSlotByKey[slot], n) + '</td>';
+        tbody.appendChild(gtr);
+      }
+    } else if (grouped && st !== lastState) {
       lastState = st;
       const m = USAGE_META[st] || USAGE_META.unknown;
       const n = indices.filter(j => drvUsageOf(drivers[j]) === st).length;
@@ -2936,20 +3086,36 @@ function renderDriverTable() {
       + '<td title="'+esc(d.published||'')+'">'+esc(d.published||'')+'</td>'
       + '<td title="'+esc(d.original||'')+'">'+esc(d.original||'')+'</td>'
       + '<td>'+esc(d.provider||'')+'</td>'
-      + '<td><span class="class-chip">'+classIcon(d.class)+' '+esc(d.class||'')+'</span></td>'
+      + drvWhatCell(d)
       + '<td>'+esc(d.version||'')+'</td>';
     if (st === 'active') tr.classList.add('row-active');
     else if (st === 'standby') tr.classList.add('row-standby');
     if (selectedDrivers.has(i)) tr.classList.add('selected');
     tbody.appendChild(tr);
   });
+  // ÜRES ALKATRÉSZ: egy kártya, amihez nincs harmadik féltől származó csomag (pl. a
+  // processzor). Egy üres táblázat hibának látszana - kimondjuk, mivel működik.
+  if (!indices.length && drvSlotSel && driverMachine) {
+    const keys = [...mmSelKeys()];
+    const devs = [];
+    keys.forEach(k => ((mmSlotByKey[k] || {}).devices || []).forEach(dv => {
+      devs.push(dv.name + ' (' + (dv.vendor_driver ? 'gyári driver: ' : 'Windows beépített driver: ') + (dv.inf || '?') + ')');
+    }));
+    const tr = document.createElement('tr');
+    tr.className = 'drv-empty';
+    tr.innerHTML = '<td colspan="7">✓ Ehhez az alkatrészhez nincs harmadik féltől származó driver-csomag'
+      + (drvTab !== 'all' || driverFilterText ? ' ebben a nézetben (a fül vagy a keresés szűr)' : '')
+      + '.' + (devs.length ? '<br>A gépben: ' + esc(devs.slice(0, 6).join(' · ')) : '') + '</td>';
+    tbody.appendChild(tr);
+  }
   const badge = document.getElementById('driver-count-badge');
   if (badge) {
-    badge.textContent = (driverFilterText || drvTab !== 'all')
+    badge.textContent = (driverFilterText || drvTab !== 'all' || drvSlotSel)
       ? indices.length + ' / ' + drivers.length + ' driver'
       : drivers.length + ' driver';
   }
   renderDriverUsageBar();
+  renderMachineMap();
   updateSelectAllBtn();
   updateSortHeaders();
 }
@@ -3003,9 +3169,14 @@ function renderDriverUsageBar() {
   // vonatkoznának, amit a technikus nem lát teljesen - és pont ebből lett a
   // "felül 100, alatta 10" ellentmondás.
   if (hidden > 0) {
+    // Az OKOT is megnevezzük: alkatrész-választás, keresés vagy nyomtató-szűrő.
+    const why = [];
+    if (drvSlotSel && driverMachine) why.push('a kiválasztott alkatrész');
+    if (driverFilterText) why.push('a keresés');
+    const hideEl = document.getElementById('hide-printer-drivers');
+    if (hideEl && hideEl.checked && printerInfs && printerInfs.size) why.push('a nyomtató-szűrő');
     metaText += ' · A számok a MOST LÁTHATÓ ' + visible.length + ' csomagra vonatkoznak — '
-      + hidden + ' továbbit elrejt a szűrő'
-      + (driverFilterText ? ' vagy a keresés' : ' (nyomtató-driverek)') + '.';
+      + hidden + ' továbbit elrejt ' + (why.length ? why.join(', ') : 'a szűrő') + '.';
   }
   meta.textContent = metaText;
 
@@ -3017,7 +3188,14 @@ function renderDriverUsageBar() {
     {key: 'unused', cls: 'tab-ok'},
     {key: 'unknown', cls: ''}
   ];
-  let html = '<div class="hw-tab' + (drvTab === 'all' ? ' active' : '') + '" onclick="setDrvTab(\'all\')">'
+  let html = '';
+  // A KIVÁLASZTOTT ALKATRÉSZ látható, egy kattintással levehető "fül". E nélkül a
+  // technikus nem tudná, miért lett rövidebb a lista.
+  if (drvSlotSel && driverMachine) {
+    html += '<div class="hw-tab tab-slot active" title="Kattints a szűrés levételéhez" onclick="clearMachineSel()">'
+      + '📍 ' + esc(mmSelLabel()) + ' ✕</div>';
+  }
+  html += '<div class="hw-tab' + (drvTab === 'all' ? ' active' : '') + '" onclick="setDrvTab(\'all\')">'
     + '📦 Mind <span class="hw-tab-n">' + visible.length + '</span></div>';
   defs.forEach(t => {
     if (!counts[t.key] && !t.always) return;
@@ -3026,6 +3204,14 @@ function renderDriverUsageBar() {
       + '" title="' + esc(m.hint) + '" onclick="setDrvTab(\'' + t.key + '\')">'
       + m.icon + ' ' + esc(m.label) + ' <span class="hw-tab-n">' + counts[t.key] + '</span></div>';
   });
+  if (driverMachine) {
+    html += '<div class="drv-groupmode">Csoportosítás:<div class="seg">'
+      + '<button class="' + (drvGroupMode === 'machine' ? 'on' : '') + '" onclick="setDrvGroupMode(\'machine\')" '
+      + 'title="Alkatrészek szerint: videókártya, processzor, alaplap (hang, hálózat, chipset...), csatlakoztatott eszközök, szoftveres driverek, és a végén amihez nincs eszköz a gépben">🖥️ Alkatrész</button>'
+      + '<button class="' + (drvGroupMode === 'usage' ? 'on' : '') + '" onclick="setDrvGroupMode(\'usage\')" '
+      + 'title="Használat szerint: felül, amit a gép most használ, alul, amire semmi nem hivatkozik">🔎 Használat</button>'
+      + '</div></div>';
+  }
   tabs.innerHTML = html;
   tabs.style.display = '';
 }
@@ -3058,11 +3244,335 @@ async function loadDriverUsage(force) {
     driverUsageOffline = !!(res && res.offline);
     driverUsageError = (res && res.error) ? String(res.error) : '';
     driverUsage = (res && res.usage && Object.keys(res.usage).length) ? res.usage : null;
+    setDriverMachine(res && res.machine, res && res.machine_error);
   } catch (e) {
     driverUsage = null;
     driverUsageError = String(e);
+    setDriverMachine(null, '');
   }
   renderDriverTable();
+}
+
+/* ===================== A GÉP FELÉPÍTÉSE ===================== */
+function setDriverMachine(mm, err) {
+  driverMachine = (mm && mm.slots) ? mm : null;
+  driverMachineError = err ? String(err) : '';
+  mmSlotByKey = {};
+  if (driverMachine) driverMachine.slots.forEach(s => { mmSlotByKey[s.key] = s; });
+  // Egy korábbi választás, ami az új térképen nem létezik, ne szűrjön némán.
+  if (drvSlotSel && !drvSlotSel.startsWith('hot:') && !mmSlotByKey[drvSlotSel]) drvSlotSel = null;
+  if (driverMachineError) console.warn('[GEP-TERKEP] ' + driverMachineError);
+}
+function drvMachineInfo(d) {
+  return (driverMachine && driverMachine.packages
+          && driverMachine.packages[(d.published || '').toLowerCase()]) || null;
+}
+function drvSlotOf(d) { const i = drvMachineInfo(d); return i ? i.slot : null; }
+function drvMachineGrouped() { return drvGroupMode === 'machine' && !!driverMachine; }
+function drvSortVal(d, key) {
+  if (key === 'what') {
+    const i = drvMachineInfo(d);
+    return ((i && i.what) || d.class || '').toLowerCase();
+  }
+  return (d[key] || '').toLowerCase();
+}
+/* A "Mire való" cella. Fent a konkrét eszköz (a Windows eszközfája szerint), vagy ha
+   nincs, amire a driver-fájl szerint való; alatta a bizonyíték fajtája és a driver SAJÁT
+   Windows-osztálya (Class) - ami eddig egyedül állt ebben az oszlopban. */
+const WHAT_KIND = {
+  'device': '🔗 ezt az eszközt hajtja',
+  'absent-device': '🔌 nem csatlakoztatott eszközé',
+  'inf': '📄 a driver-fájl szerint',
+  'service': '⚙️ szoftveres driver'
+};
+function drvWhatCell(d) {
+  const i = drvMachineInfo(d);
+  const cls = d.class || '';
+  if (!i) {
+    return '<td class="what-cell"><span class="class-chip">' + classIcon(cls) + ' ' + esc(cls) + '</span></td>';
+  }
+  const tip = i.why + (cls ? '\n\nWindows-osztály (a driver gyártójának besorolása, NEM az alkatrész): ' + cls : '');
+  return '<td class="what-cell" title="' + esc(tip) + '"><div class="what-main">' + esc(i.what || '') + '</div>'
+    + '<div class="what-sub">' + (WHAT_KIND[i.what_kind] || '') + (cls ? ' · osztály: ' + esc(cls) : '') + '</div></td>';
+}
+const MM_SECTION_TITLE = {
+  parts: ['🔧 A gép alkatrészei', ''],
+  external: ['🔌 Csatlakoztatott eszközök', ''],
+  software: ['🧰 Szoftveres driverek', ' — nincs fizikai eszközük (vírusirtó, VPN, virtuális eszköz)'],
+  absent: ['💤 A gép nyilvántartja, de most nincs benne', ' — pl. egy korábbi alkatrész, vagy egy másik gépből áttett lemez emléke'],
+  nodev: ['❔ Nincs hozzá eszköz a gépben', ' — a driver-fájl szerint ezekhez lennének']
+};
+function mmGroupHeader(s, n) {
+  if (!s) return '🧩 BESOROLATLAN — ' + n + ' db <span class="dg-hint">· a térkép nem tudott róla</span>';
+  let hint = '';
+  if (s.section === 'nodev') hint = 'a gépben nincs hozzá tartozó eszköz — ezek a mazsolázható csomagok';
+  else if (s.section === 'absent') hint = 'a gép nyilvántartja, de most nincs benne';
+  else if (s.section === 'software') hint = 'nincs fizikai eszközük';
+  else if (s.badge === 'nincs csatlakoztatva') hint = 'most nincs csatlakoztatva';
+  const title = s.section === 'nodev' ? 'Nincs hozzá eszköz: ' + s.name
+    : s.section === 'absent' ? 'Már nincs a gépben: ' + s.name
+    : s.title + (s.name ? ' — ' + s.name : '');
+  return s.icon + ' ' + esc(title.toUpperCase()) + ' — ' + n + ' db'
+    + (hint ? ' <span class="dg-hint">· ' + esc(hint) + '</span>' : '');
+}
+/* Az ábra pontjai. A gép-térkép `hot` kulcsai közül azok, amiknek az adott ábrán nincs
+   saját pontja, egy közeli pontra esnek (pl. asztali gépen a Bluetooth a hálózati pontra).
+   Ha egyik sem illik, a kártya ábra-pont nélkül marad - de a kártya és a táblázat-csoport
+   akkor is megjelenik, tehát semmi nem vész el. */
+const MM_ALIAS = {
+  desktop: {bluetooth: 'network', security: 'firmware', camera: 'peripheral', biometric: 'peripheral',
+            cardreader: 'usb', sensor: 'chipset', other: 'chipset', monitor: 'ext-monitor', input: 'ext-input'},
+  laptop: {sensor: 'chipset', other: 'chipset'}
+};
+function mmHotOf(s) {
+  if (!s || !s.hot || !driverMachine) return null;
+  const al = MM_ALIAS[driverMachine.form] || {};
+  const h = (al[s.hot] !== undefined) ? al[s.hot] : s.hot;
+  const spec = MM_FIGURES[driverMachine.form] || MM_FIGURES.desktop;
+  return spec.hots.some(x => x.hot === h) ? h : null;
+}
+function mmSelKeys() {
+  if (!drvSlotSel || !driverMachine) return new Set();
+  if (drvSlotSel.startsWith('hot:')) {
+    const h = drvSlotSel.slice(4);
+    return new Set(driverMachine.slots.filter(s => mmHotOf(s) === h).map(s => s.key));
+  }
+  return new Set([drvSlotSel]);
+}
+function mmSelLabel() {
+  if (!drvSlotSel || !driverMachine) return '';
+  if (drvSlotSel.startsWith('hot:')) {
+    const h = drvSlotSel.slice(4);
+    const spec = (MM_FIGURES[driverMachine.form] || MM_FIGURES.desktop).hots.find(x => x.hot === h);
+    return (spec ? spec.title : h) + ' (' + mmSelKeys().size + ' alkatrész)';
+  }
+  const s = mmSlotByKey[drvSlotSel];
+  if (!s) return drvSlotSel;
+  return s.icon + ' ' + s.title + (s.name ? ': ' + s.name : '');
+}
+function selectMachineSlot(key) {
+  // Nem létező kulcsra NEM szűrünk: egy üres lista egy nyers azonosítóval a fülön
+  // hibának látszana (a render-teszt pontosan ezt mutatta egy elgépelt kulcsnál).
+  if (key && !mmSlotByKey[key]) return;
+  drvSlotSel = (drvSlotSel === key) ? null : key;
+  renderDriverTable();
+}
+function selectMachineHot(h) {
+  if (!driverMachine) return;
+  const keys = driverMachine.slots.filter(s => mmHotOf(s) === h).map(s => s.key);
+  if (!keys.length) { toast('Ehhez a ponthoz nincs eszköz ezen a gépen.', 'info'); return; }
+  if (keys.length === 1) { selectMachineSlot(keys[0]); return; }
+  drvSlotSel = (drvSlotSel === 'hot:' + h) ? null : 'hot:' + h;
+  renderDriverTable();
+}
+function clearMachineSel() { drvSlotSel = null; renderDriverTable(); }
+function setDrvGroupMode(m) { drvGroupMode = m; renderDriverTable(); }
+function toggleMachineMap() { mmCollapsed = !mmCollapsed; renderMachineMap(); }
+function mmHover(h, on) {
+  if (!h) return;
+  document.querySelectorAll('#mm-figure .mm-hot[data-hot="' + h + '"]').forEach(g => g.classList.toggle('hover', on));
+  document.querySelectorAll('#mm-cards .mm-card[data-hot="' + h + '"]').forEach(c => c.classList.toggle('hover', on));
+}
+
+/* A KÉT ÁBRA. Egyszerű vonalas rajz: a "hot" téglalapok a kattintható alkatrészek, a
+   többi díszítés. A koordináták fix viewBox-ban vannak, így a skálázás nem mozdít el
+   semmit. A felirat MAGYARUL, nagybetűvel - a pont maga mondja meg, mi az. */
+const MM_FIGURES = {
+  desktop: {
+    viewBox: '0 0 460 350',
+    deco: [
+      // gépház, oldalablak, alaplap, RAM-sínek, bekapcsoló
+      '<rect x="138" y="10" width="196" height="330" rx="14" class="mm-fill"/>',
+      '<rect x="148" y="24" width="176" height="302" rx="8" class="mm-line" stroke-dasharray="4 4"/>',
+      '<rect x="156" y="36" width="160" height="222" rx="4" class="mm-line"/>',
+      '<rect x="266" y="48" width="5" height="60" class="mm-line"/><rect x="276" y="48" width="5" height="60" class="mm-line"/>',
+      '<rect x="286" y="48" width="5" height="60" class="mm-line"/><rect x="296" y="48" width="5" height="60" class="mm-line"/>',
+      '<circle cx="324" cy="18" r="4" class="mm-line"/>',
+      // monitor-láb, nyomtató-papír, a videókártya ventilátorai, billentyűzet-sorok
+      '<path d="M68 118 L68 132 M44 136 L92 136" class="mm-line"/>',
+      '<path d="M362 36 L362 22 L434 22 L434 36 M366 100 L366 114 L430 114 L430 100" class="mm-line"/>',
+      '<circle cx="206" cy="178" r="12" class="mm-line"/><circle cx="264" cy="178" r="12" class="mm-line"/>',
+      '<path d="M16 276 H120 M16 286 H120 M16 296 H104" class="mm-line"/>',
+      // kábelek a perifériáktól a géphez
+      '<path d="M128 78 C136 78 132 62 138 62 M128 286 C136 286 132 244 138 244 M344 68 C338 68 340 90 334 90 M372 278 C352 278 348 250 334 250 M344 170 C338 170 340 160 334 160" class="mm-line" stroke-dasharray="3 4"/>'
+    ],
+    hots: [
+      {hot: 'usb', title: 'USB', x: 160, y: 44, w: 32, h: 32, label: 'USB', fs: 9},
+      {hot: 'network', title: 'Hálózat', x: 160, y: 80, w: 32, h: 28, label: 'NET', fs: 9},
+      {hot: 'audio', title: 'Hang', x: 160, y: 112, w: 32, h: 38, label: 'HANG', fs: 8.5},
+      {hot: 'cpu', title: 'Processzor', x: 200, y: 46, w: 58, h: 58, label: 'CPU', fs: 13},
+      {hot: 'gpu', title: 'Videókártya', x: 164, y: 158, w: 144, h: 40, label: 'VIDEÓKÁRTYA', fs: 11},
+      {hot: 'firmware', title: 'BIOS / TPM', x: 164, y: 212, w: 46, h: 24, label: 'BIOS', fs: 9},
+      {hot: 'chipset', title: 'Chipset', x: 240, y: 208, w: 68, h: 44, label: 'CHIPSET', fs: 10},
+      {hot: 'storage', title: 'Tároló', x: 164, y: 270, w: 144, h: 48, label: 'TÁROLÓ', fs: 11},
+      {hot: 'ext-monitor', title: 'Monitor', x: 8, y: 34, w: 120, h: 84, label: 'MONITOR', fs: 11},
+      {hot: 'ext-input', title: 'Beviteli eszközök', x: 8, y: 264, w: 120, h: 46, label: 'EGÉR · BILLENTYŰZET', fs: 8.5},
+      {hot: 'printer', title: 'Nyomtató', x: 344, y: 36, w: 108, h: 64, label: 'NYOMTATÓ', fs: 11},
+      {hot: 'peripheral', title: 'Külső eszközök', x: 344, y: 138, w: 108, h: 64, label: 'KÜLSŐ ESZKÖZ', fs: 10},
+      {hot: 'phone', title: 'Telefon', x: 372, y: 236, w: 50, h: 84, label: 'TELEFON', fs: 9}
+    ]
+  },
+  laptop: {
+    viewBox: '0 0 460 424',
+    deco: [
+      '<rect x="120" y="12" width="220" height="140" rx="10" class="mm-fill"/>',
+      '<path d="M104 156 L356 156 L388 246 Q390 256 378 256 L82 256 Q70 256 72 246 Z" class="mm-fill"/>',
+      '<rect x="200" y="226" width="60" height="22" rx="3" class="mm-line"/>',
+      '<rect x="60" y="280" width="340" height="136" rx="10" class="mm-line" stroke-dasharray="5 4"/>',
+      '<text x="72" y="296" class="mm-cap">BELSŐ ALKATRÉSZEK</text>',
+      '<path d="M230 256 L230 280" class="mm-line" stroke-dasharray="3 3"/>',
+      '<path d="M104 52 C112 52 112 60 120 60 M104 135 C112 135 112 180 100 190 M356 48 C348 48 348 60 340 60 M400 130 C380 130 380 150 368 170" class="mm-line" stroke-dasharray="3 4"/>'
+    ],
+    hots: [
+      {hot: 'monitor', title: 'Beépített kijelző', x: 132, y: 26, w: 196, h: 112, label: 'KIJELZŐ', fs: 11},
+      {hot: 'camera', title: 'Kamera', x: 216, y: 14, w: 28, h: 10, label: '', fs: 7},
+      {hot: 'input', title: 'Billentyűzet / touchpad', x: 128, y: 164, w: 204, h: 56, label: 'BILLENTYŰZET · TOUCHPAD', fs: 9},
+      {hot: 'cpu', title: 'Processzor', x: 74, y: 304, w: 56, h: 48, label: 'CPU', fs: 11},
+      {hot: 'gpu', title: 'Videókártya', x: 138, y: 304, w: 64, h: 48, label: 'GPU', fs: 11},
+      {hot: 'chipset', title: 'Chipset', x: 210, y: 304, w: 58, h: 48, label: 'CHIPSET', fs: 8},
+      {hot: 'network', title: 'Wi-Fi / LAN', x: 276, y: 304, w: 52, h: 22, label: 'WI-FI', fs: 8.5},
+      {hot: 'bluetooth', title: 'Bluetooth', x: 276, y: 330, w: 52, h: 22, label: 'BT', fs: 8.5},
+      {hot: 'audio', title: 'Hang', x: 336, y: 304, w: 52, h: 48, label: 'HANG', fs: 9},
+      {hot: 'storage', title: 'Tároló', x: 74, y: 360, w: 72, h: 44, label: 'TÁROLÓ', fs: 9},
+      {hot: 'usb', title: 'USB', x: 154, y: 360, w: 48, h: 44, label: 'USB', fs: 9},
+      {hot: 'firmware', title: 'BIOS', x: 210, y: 360, w: 34, h: 20, label: 'BIOS', fs: 7},
+      {hot: 'security', title: 'TPM', x: 210, y: 384, w: 34, h: 20, label: 'TPM', fs: 7},
+      {hot: 'battery', title: 'Akkumulátor', x: 252, y: 360, w: 72, h: 44, label: 'AKKU', fs: 9},
+      {hot: 'biometric', title: 'Ujjlenyomat-olvasó', x: 332, y: 360, w: 56, h: 20, label: 'UJJLENY.', fs: 7.5},
+      {hot: 'cardreader', title: 'Kártyaolvasó', x: 332, y: 384, w: 56, h: 20, label: 'KÁRTYA', fs: 7.5},
+      {hot: 'ext-monitor', title: 'Külső monitor', x: 8, y: 20, w: 96, h: 64, label: 'MONITOR', fs: 9},
+      {hot: 'ext-input', title: 'Egér / billentyűzet', x: 8, y: 104, w: 96, h: 46, label: 'EGÉR · BILL.', fs: 8},
+      {hot: 'peripheral', title: 'Külső eszközök', x: 8, y: 170, w: 84, h: 46, label: 'KÜLSŐ ESZK.', fs: 8},
+      {hot: 'printer', title: 'Nyomtató', x: 356, y: 20, w: 96, h: 56, label: 'NYOMTATÓ', fs: 9},
+      {hot: 'phone', title: 'Telefon', x: 404, y: 94, w: 44, h: 70, label: 'TEL.', fs: 8}
+    ]
+  }
+};
+function mmFigureSvg(form) {
+  const f = MM_FIGURES[form] || MM_FIGURES.desktop;
+  let s = '<svg viewBox="' + f.viewBox + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="A gép felépítése">';
+  s += f.deco.join('');
+  f.hots.forEach(h => {
+    s += '<g class="mm-hot" data-hot="' + h.hot + '" onclick="selectMachineHot(\'' + h.hot + '\')" '
+      + 'onmouseenter="mmHover(\'' + h.hot + '\',true)" onmouseleave="mmHover(\'' + h.hot + '\',false)">'
+      + '<title>' + esc(h.title) + '</title>'
+      + '<rect class="hs" x="' + h.x + '" y="' + h.y + '" width="' + h.w + '" height="' + h.h + '" rx="4"/>'
+      + (h.label ? '<text class="hl" x="' + (h.x + h.w / 2) + '" y="' + (h.y + h.h / 2) + '" font-size="' + h.fs + '">' + esc(h.label) + '</text>' : '')
+      + '</g>';
+  });
+  f.hots.forEach(h => {
+    s += '<g class="mm-badge" data-badge="' + h.hot + '" transform="translate(' + (h.x + h.w - 2) + ',' + (h.y + 2) + ')" style="display:none">'
+      + '<circle r="9"/><text>0</text></g>';
+  });
+  return s + '</svg>';
+}
+function renderMachineMap() {
+  const wrap = document.getElementById('drv-machine');
+  if (!wrap) return;
+  if (!driverMachine || !drivers.length) { wrap.style.display = 'none'; return; }
+  const mm = driverMachine;
+  wrap.style.display = '';
+  wrap.classList.toggle('collapsed', mmCollapsed);
+  const laptop = mm.form === 'laptop';
+  wrap.setAttribute('data-emoji', laptop ? '💻' : '🖥️');
+  document.getElementById('mm-head-icon').textContent = laptop ? '💻' : '🖥️';
+  document.getElementById('mm-head-title').textContent = 'A gép felépítése — ' + (mm.title || 'ismeretlen gép');
+  const bits = [laptop ? 'laptop' : 'asztali gép'];
+  if (mm.cpu) bits.push(mm.cpu);
+  if (mm.board && mm.board !== mm.title) bits.push('alaplap: ' + mm.board);
+  document.getElementById('mm-head-sub').textContent = bits.join(' · ')
+    + ' — kattints egy alkatrészre: a lenti lista csak annak a drivereit mutatja.';
+  document.getElementById('mm-head').title = 'Géptípus forrása: ' + (mm.form_source || '?');
+  document.getElementById('mm-caret').textContent = mmCollapsed ? '▸ kinyitás' : '▾ összecsukás';
+  if (mmCollapsed) return;
+
+  const fig = document.getElementById('mm-figure');
+  if (mmFigureFor !== mm.form || !fig.querySelector('svg')) {
+    fig.innerHTML = mmFigureSvg(mm.form);
+    mmFigureFor = mm.form;
+  }
+  // A kártyák és a pontok a keresés + nyomtató-szűrő utáni halmazból számolnak (az
+  // alkatrész-választás nélkül) - ugyanabból, amit a táblázat is lát.
+  const base = getDriverIndicesBase();
+  const per = {};
+  base.forEach(i => {
+    const k = drvSlotOf(drivers[i]);
+    if (!k) return;
+    const c = per[k] || (per[k] = {total: 0, active: 0, standby: 0, unused: 0, unknown: 0});
+    c.total++;
+    c[drvUsageOf(drivers[i])]++;
+  });
+  const hotState = {};
+  mm.slots.forEach(s => {
+    const h = mmHotOf(s);
+    if (!h) return;
+    const st = hotState[h] || (hotState[h] = {has: false, pk: 0, keys: []});
+    st.keys.push(s.key);
+    if (s.present || (s.packages && s.packages.length)) st.has = true;
+    st.pk += (per[s.key] || {}).total || 0;
+  });
+  fig.querySelectorAll('.mm-hot').forEach(g => {
+    const h = g.getAttribute('data-hot');
+    const st = hotState[h];
+    g.classList.toggle('has', !!(st && st.has));
+    g.classList.toggle('pk', !!(st && st.pk));
+    g.classList.toggle('empty', !st);
+    g.classList.toggle('sel', !!drvSlotSel && (drvSlotSel === 'hot:' + h || !!(st && st.keys.includes(drvSlotSel))));
+  });
+  fig.querySelectorAll('.mm-badge').forEach(b => {
+    const st = hotState[b.getAttribute('data-badge')];
+    if (st && st.pk) { b.style.display = ''; b.querySelector('text').textContent = st.pk; }
+    else b.style.display = 'none';
+  });
+
+  let html = '';
+  ['parts', 'external', 'software', 'absent', 'nodev'].forEach(sec => {
+    const items = mm.slots.filter(s => s.section === sec);
+    if (!items.length) return;
+    const t = MM_SECTION_TITLE[sec];
+    html += '<div class="mm-sec-title">' + t[0] + '<span>' + esc(t[1]) + '</span></div><div class="mm-grid">';
+    items.forEach(s => { html += mmCardHtml(s, per[s.key]); });
+    html += '</div>';
+  });
+  document.getElementById('mm-cards').innerHTML = html;
+}
+function mmCardHtml(s, c) {
+  c = c || {total: 0, active: 0, standby: 0, unused: 0, unknown: 0};
+  const h = mmHotOf(s);
+  const hidden = (s.packages || []).length - c.total;
+  let drv = '';
+  if (c.total) {
+    drv += '<span>📦 <b>' + c.total + '</b> driver</span>';
+    ['active', 'standby', 'unused', 'unknown'].forEach(k => {
+      if (c[k]) drv += '<span class="mm-dot" title="' + esc(USAGE_META[k].label) + '">' + USAGE_META[k].icon + c[k] + '</span>';
+    });
+  } else if ((s.packages || []).length) {
+    drv += '<span class="mm-inbox">📦 ' + s.packages.length + ' driver — a szűrő elrejti</span>';
+  } else if ((s.devices || []).length) {
+    drv += '<span class="mm-inbox">✓ Windows beépített driverrel működik</span>';
+  }
+  if (hidden > 0 && c.total) drv += '<span class="mm-inbox">(+' + hidden + ' rejtve)</span>';
+  if (s.problems) drv += '<span class="mm-warn">⚠️ ' + s.problems + ' hibakódos eszköz</span>';
+  const tipLines = [];
+  if (s.why) tipLines.push(s.why);
+  (s.devices || []).forEach(dv => tipLines.push('• ' + dv.name + ' — ' + (dv.vendor_driver ? 'gyári driver' : 'Windows beépített driver')
+    + (dv.inf ? ' (' + dv.inf + ')' : '') + (dv.present ? '' : ' [nincs csatlakoztatva]') + (dv.problem ? ' [hibakód ' + dv.problem + ']' : '')));
+  if (s.more_devices) tipLines.push('… és még ' + s.more_devices + ' eszköz');
+  // A "nincs hozzá eszköz" kártyán a név nem kell: a címke maga a rendeltetés, a szekció
+  // címe pedig kimondja, hogy nincs hozzá eszköz.
+  const noName = s.section === 'nodev' || s.section === 'absent';
+  const name = s.name || '';
+  const top = s.title;
+  const cls = 'mm-card' + (drvSlotSel === s.key || (drvSlotSel && drvSlotSel === 'hot:' + h) ? ' sel' : '')
+    + (!c.total && !(s.packages || []).length ? ' inbox' : '');
+  return '<div class="' + cls + '" data-key="' + esc(s.key) + '"' + (h ? ' data-hot="' + h + '"' : '')
+    + ' title="' + esc(tipLines.join('\n')) + '"'
+    + ' onclick="selectMachineSlot(' + esc(JSON.stringify(s.key)) + ')"'
+    + (h ? ' onmouseenter="mmHover(\'' + h + '\',true)" onmouseleave="mmHover(\'' + h + '\',false)"' : '') + '>'
+    + '<div class="mm-card-top"><span class="mm-ic">' + s.icon + '</span><span>' + esc(top) + '</span>'
+    + (s.badge ? '<span class="mm-tag">' + esc(s.badge) + '</span>' : '') + '</div>'
+    + (noName ? '<div style="height:6px"></div>' : '<div class="mm-card-name">' + esc(name || '—') + '</div>')
+    + '<div class="mm-card-drv">' + (drv || '<span class="mm-inbox">nincs driver-adat</span>') + '</div></div>';
 }
 function toggleDriverSel(i) {
   if (selectedDrivers.has(i)) selectedDrivers.delete(i); else selectedDrivers.add(i);

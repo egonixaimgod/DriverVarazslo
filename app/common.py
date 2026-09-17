@@ -876,6 +876,13 @@ _CALL_LOG_EXCLUDE = {
     '_catalog_find_driver', '_catalog_fetch_rows', '_catalog_rows_cache',
     '_catalog_detail_page', '_catalog_supported_hwids',
     '_autofix_stats_path',
+
+    # A gép-térkép építője (2026-09-17): a teljes eszközfát (146+ csomópont, ~15 mező
+    # mindegyiken) kapja és egy ~50 KB-os térképet ad vissza - a [CALL]-réteg ennek a
+    # repr-jét minden hívásnál felépítené. A döntés a saját soraiban megmarad: a
+    # `log_machine_map` INFO-n kártyánként, DEBUG-on csomagonként INDOKKAL naplóz, és a
+    # kivételt a metódus maga kapja el és naplózza WARNING-gal, teljes veremmel.
+    '_build_machine_map',
 }
 
 

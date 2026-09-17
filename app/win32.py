@@ -281,3 +281,212 @@ class _DISPLAY_DEVICEW(ctypes.Structure):
 
 DISPLAY_DEVICE_ATTACHED_TO_DESKTOP = 0x1
 DISPLAY_DEVICE_PRIMARY_DEVICE = 0x4
+
+
+# =============================================================================
+# ESZKÖZFA (cfgmgr32) - a "Gép felépítése" nézet és a használat-felderítés KÖZÖS forrása
+# =============================================================================
+# MIÉRT cfgmgr32 ÉS NEM PowerShell/WMI (mérve, 2026-09-17, HP EliteDesk 800 G2):
+#   - 0,23 mp a TELJES fa (146 eszköz-példány, a nem jelenlévők is), subprocess és admin
+#     jog nélkül - a registry-bejárós PowerShell ugyanerre 2,9 mp volt;
+#   - EGYEDÜL ez adja meg olcsón az eszköz SZÜLŐJÉT (a `Get-PnpDeviceProperty`
+#     eszközönként ~1,1 mp) és a CONTAINER ID-t, ami nélkül a gépet nem lehet
+#     alkatrészekre bontani: a Windows ugyanazzal a GUID-dal (`{00000000-0000-0000-
+#     FFFF-FFFFFFFFFFFF}`) jelöl minden eszközt, ami a SZÁMÍTÓGÉP RÉSZE, és külön
+#     container-t ad minden külső eszköznek (egér, nyomtató, monitor, telefon) - ez az
+#     "Eszközök és nyomtatók" ablak saját csoportosítása, nem a mi találgatásunk.
+# A PCI/USB OSZTÁLYKÓDOK (a kompatibilis azonosítókban: `PCI\CC_0403`, `USB\Class_0E`)
+# a HARDVER által jelentett adatok, nem a driver gyártójának besorolása - a "mi ez az
+# eszköz?" kérdésre ezek a legerősebb bizonyítékok.
+
+PC_CONTAINER_ID = '00000000-0000-0000-ffff-ffffffffffff'
+
+
+class _DEVPROPKEY(ctypes.Structure):
+    _fields_ = [('fmtid', ctypes.c_ubyte * 16), ('pid', ctypes.c_ulong)]
+
+
+def _devpkey(guid, pid):
+    import uuid
+    k = _DEVPROPKEY()
+    ctypes.memmove(k.fmtid, uuid.UUID(guid).bytes_le, 16)
+    k.pid = pid
+    return k
+
+
+_DEVPKEY_GUID_DEVICE = 'a45c254e-df1c-4efd-8020-67d146a850e0'
+_DEVPKEYS = {
+    'desc': (_DEVPKEY_GUID_DEVICE, 2),
+    'hwids': (_DEVPKEY_GUID_DEVICE, 3),
+    'compat': (_DEVPKEY_GUID_DEVICE, 4),
+    'service': (_DEVPKEY_GUID_DEVICE, 6),
+    'cls': (_DEVPKEY_GUID_DEVICE, 9),
+    'mfg': (_DEVPKEY_GUID_DEVICE, 13),
+    'friendly': (_DEVPKEY_GUID_DEVICE, 14),
+    'location': (_DEVPKEY_GUID_DEVICE, 15),
+    'upper_filters': (_DEVPKEY_GUID_DEVICE, 19),
+    'lower_filters': (_DEVPKEY_GUID_DEVICE, 20),
+    'busdesc': ('540b947e-8b40-45bc-a8a2-6a0b894cbda2', 4),
+    'parent': ('4340a6c5-93fa-4706-972c-7b648008a5a7', 8),
+    'container': ('8c7ed206-3f8a-4827-b3ab-ae9e1faefc6c', 2),
+    'inf': ('a8b865dd-2e3d-4094-ad97-e593a70c75d6', 5),
+}
+
+_CR_SUCCESS = 0
+_CM_LOCATE_DEVNODE_PHANTOM = 1
+_DN_HAS_PROBLEM = 0x400
+_DEVPROP_TYPE_STRING = 0x12
+_DEVPROP_TYPE_STRING_LIST = 0x2012
+_DEVPROP_TYPE_GUID = 0x0D
+
+
+def _devnode_prop(cfg, devinst, key):
+    """Egy eszköz-tulajdonság kiolvasása. Ismeretlen típusnál / hiánynál None."""
+    import uuid
+    ptype = ctypes.c_ulong(0)
+    size = ctypes.c_ulong(0)
+    cfg.CM_Get_DevNode_PropertyW(devinst, ctypes.byref(key), ctypes.byref(ptype),
+                                 None, ctypes.byref(size), 0)
+    if not size.value:
+        return None
+    buf = ctypes.create_string_buffer(size.value)
+    if cfg.CM_Get_DevNode_PropertyW(devinst, ctypes.byref(key), ctypes.byref(ptype),
+                                    buf, ctypes.byref(size), 0) != _CR_SUCCESS:
+        return None
+    raw = buf.raw[:size.value]
+    if ptype.value == _DEVPROP_TYPE_STRING:
+        return raw.decode('utf-16-le', 'replace').rstrip('\x00')
+    if ptype.value == _DEVPROP_TYPE_STRING_LIST:
+        return [s for s in raw.decode('utf-16-le', 'replace').split('\x00') if s]
+    if ptype.value == _DEVPROP_TYPE_GUID and len(raw) >= 16:
+        return str(uuid.UUID(bytes_le=raw[:16]))
+    return None
+
+
+def enumerate_device_nodes():
+    """A Windows TELJES eszközfája (jelenlévő + nem jelenlévő eszközök), egy lépésben.
+
+    Visszatérés: dict-ek listája - `id`, `present`, `problem` (hibakód vagy 0),
+    `parent`, `container`, `cls` (Windows-osztály), `desc`, `friendly`, `busdesc` (a
+    hardver saját neve, pl. 'HP USB Optical Mouse'), `inf` (a kötött INF), `hwids`,
+    `compat`, `service`, `mfg`, `location`, `upper_filters`, `lower_filters`.
+
+    Hiba esetén KIVÉTELT dob (nem üres listát): egy üres fa azt állítaná, hogy a gépben
+    nincs eszköz, és a hívó erre törlési döntést alapozhatna. A hívó dönti el, hogy
+    tartalék úton (PowerShell) próbálkozik-e."""
+    cfg = ctypes.WinDLL('cfgmgr32')
+    cfg.CM_Get_Device_ID_List_SizeW.argtypes = [ctypes.POINTER(ctypes.c_ulong), ctypes.c_wchar_p, ctypes.c_ulong]
+    cfg.CM_Get_Device_ID_ListW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong]
+    cfg.CM_Locate_DevNodeW.argtypes = [ctypes.POINTER(ctypes.c_ulong), ctypes.c_wchar_p, ctypes.c_ulong]
+    cfg.CM_Get_DevNode_PropertyW.argtypes = [ctypes.c_ulong, ctypes.POINTER(_DEVPROPKEY),
+                                             ctypes.POINTER(ctypes.c_ulong), ctypes.c_void_p,
+                                             ctypes.POINTER(ctypes.c_ulong), ctypes.c_ulong]
+    cfg.CM_Get_DevNode_Status.argtypes = [ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_ulong),
+                                          ctypes.c_ulong, ctypes.c_ulong]
+
+    size = ctypes.c_ulong(0)
+    cr = cfg.CM_Get_Device_ID_List_SizeW(ctypes.byref(size), None, 0)
+    if cr != _CR_SUCCESS or not size.value:
+        raise OSError(f"CM_Get_Device_ID_List_SizeW hiba (CR={cr})")
+    # Két hívás között új eszköz is megjelenhet (USB-bedugás): a puffer ezért tágabb.
+    buf_len = size.value + 4096
+    buf = ctypes.create_unicode_buffer(buf_len)
+    cr = cfg.CM_Get_Device_ID_ListW(None, buf, buf_len, 0)
+    if cr != _CR_SUCCESS:
+        raise OSError(f"CM_Get_Device_ID_ListW hiba (CR={cr})")
+    ids = [s for s in buf[:buf_len].split('\x00') if s]
+
+    keys = {name: _devpkey(g, p) for name, (g, p) in _DEVPKEYS.items()}
+    nodes = []
+    for dev_id in ids:
+        devinst = ctypes.c_ulong(0)
+        if cfg.CM_Locate_DevNodeW(ctypes.byref(devinst), dev_id, _CM_LOCATE_DEVNODE_PHANTOM) != _CR_SUCCESS:
+            continue
+        status = ctypes.c_ulong(0)
+        problem = ctypes.c_ulong(0)
+        present = cfg.CM_Get_DevNode_Status(ctypes.byref(status), ctypes.byref(problem),
+                                            devinst.value, 0) == _CR_SUCCESS
+        node = {'id': dev_id, 'present': present,
+                'problem': problem.value if (present and status.value & _DN_HAS_PROBLEM) else 0}
+        for name, key in keys.items():
+            node[name] = _devnode_prop(cfg, devinst.value, key)
+        nodes.append(node)
+    return nodes
+
+
+def read_class_filters():
+    """Az osztály-szintű szűrő-driverek (`Control\\Class\\{guid}` Upper/LowerFilters)
+    kisbetűs neveinek halmaza. Tiszta registry-olvasás; hibánál üres halmaz + napló."""
+    import winreg
+    import logging
+    out = set()
+    base = r'SYSTEM\CurrentControlSet\Control\Class'
+    try:
+        root = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, base)
+    except OSError as e:
+        logging.warning(f"[DEVTREE] Az osztály-szűrők nem olvashatók: {e}")
+        return out
+    with root:
+        i = 0
+        while True:
+            try:
+                guid = winreg.EnumKey(root, i)
+            except OSError:
+                break
+            i += 1
+            try:
+                with winreg.OpenKey(root, guid) as k:
+                    for vn in ('UpperFilters', 'LowerFilters'):
+                        try:
+                            val, _t = winreg.QueryValueEx(k, vn)
+                        except OSError:
+                            continue
+                        for f in (val if isinstance(val, list) else [val]):
+                            if f:
+                                out.add(str(f).strip().lower())
+            except OSError:
+                continue
+    return out
+
+
+def read_hardware_identity():
+    """A gép neve, alaplapja és processzora a registryből (`HARDWARE\\DESCRIPTION`).
+
+    Ugyanazt adja, mint a WMI `Win32_ComputerSystem`/`Win32_BaseBoard`/`Win32_Processor`
+    (a firmware SMBIOS-táblájából töltődik bootkor), csak subprocess nélkül, azonnal."""
+    import winreg
+    out = {}
+
+    def _read(path, names):
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as k:
+                for n in names:
+                    try:
+                        out[n] = str(winreg.QueryValueEx(k, n)[0]).strip()
+                    except OSError:
+                        out.setdefault(n, '')
+        except OSError:
+            for n in names:
+                out.setdefault(n, '')
+
+    _read(r'HARDWARE\DESCRIPTION\System\BIOS',
+          ('SystemManufacturer', 'SystemProductName', 'SystemFamily', 'SystemVersion',
+           'BaseBoardManufacturer', 'BaseBoardProduct'))
+    _read(r'HARDWARE\DESCRIPTION\System\CentralProcessor\0', ('ProcessorNameString',))
+    return out
+
+
+def platform_role():
+    """A firmware által bejelentett géptípus (`PowerDeterminePlatformRoleEx`).
+
+    1 = asztali, 2 = mobil (laptop), 3 = munkaállomás, 8 = tablet ("Slate"), 0 = nem
+    meghatározott. Az ACPI FADT "Preferred PM Profile" mezőjéből jön, tehát a gép
+    GYÁRTÓJA mondja meg, nem mi tippeljük. Hibánál None."""
+    try:
+        powrprof = ctypes.WinDLL('powrprof')
+        fn = powrprof.PowerDeterminePlatformRoleEx
+        fn.argtypes = [ctypes.c_ulong]
+        fn.restype = ctypes.c_int
+        return int(fn(2))  # POWER_PLATFORM_ROLE_V2
+    except Exception:
+        return None

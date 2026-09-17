@@ -101,9 +101,20 @@ def _inf_dir():
 
 
 # =============================================================================
-# 1) A RENDSZER ÁLLAPOTA - EGY POWERSHELL HÍVÁS
+# 1) A RENDSZER ÁLLAPOTA
 # =============================================================================
-# MIÉRT REGISTRYBŐL ÉS NEM `Win32_PnPSignedDriver`-BŐL (mérve, 2026-09-17):
+# 2026-09-17 ÓTA AZ ESZKÖZÖKET AZ ESZKÖZFÁBÓL OLVASSUK (`app/win32.py:
+# enumerate_device_nodes`, cfgmgr32), és a PowerShell már csak a kernel-szolgáltatásokat
+# kérdezi le (SERVICES_PS). MIÉRT: a "Gép felépítése" nézetnek kell az eszközök SZÜLŐJE
+# és CONTAINER ID-ja is, és ha a használat-felderítés meg a gép-térkép KÜLÖN
+# eszközlistán dolgozna, előbb-utóbb mást mondanának ugyanarról a csomagról (explicit
+# user decision: egy mag, ne húsz helyen ugyanaz kicsit másképp). Mérve a fejlesztői
+# gépen a két út EGYENÉRTÉKŰ: a 64 érintett INF-en 0 eltérés (jelenlévő és nem jelenlévő
+# eszközök, eszköznevek, szűrő-regisztrációk), 1,53 mp helyett 0,38 mp.
+# Az alábbi teljes PowerShell (DRIVER_USAGE_PS) TARTALÉK: akkor fut, ha az eszközfa
+# olvasása kivételt dob - egy ctypes-hiba miatt a használat-felderítés nem maradhat el.
+#
+# A TARTALÉK ÚT EREDETI INDOKLÁSA - MIÉRT REGISTRYBŐL ÉS NEM `Win32_PnPSignedDriver`-BŐL (mérve, 2026-09-17):
 #   - a jelenlévő eszközökre BIZONYÍTOTTAN ugyanazt adja: mindkét út pontosan ugyanazt
 #     a 64 INF-et hozta ki, 0 eltéréssel MINDKÉT irányban;
 #   - viszont a `Win32_PnPSignedDriver` CSAK a jelenlévő eszközöket ismeri, a registry
@@ -187,6 +198,51 @@ foreach ($s in (Get-WmiObject Win32_SystemDriver)) {
 } | ConvertTo-Json -Depth 4 -Compress
 """
 
+# Csak a kernel-szolgáltatások: az eszközök és a szűrők az eszközfából jönnek.
+SERVICES_PS = r"""
+$ErrorActionPreference = 'SilentlyContinue'
+$services = @()
+foreach ($s in (Get-WmiObject Win32_SystemDriver)) {
+  $file = ''
+  $repo = ''
+  if ($s.PathName) {
+    $file = [System.IO.Path]::GetFileName($s.PathName)
+    if ($s.PathName -match '(?i)FileRepository\\([^\\]+?\.inf)_') { $repo = $Matches[1] }
+  }
+  $services += [pscustomobject]@{ name = $s.Name; state = $s.State; start = $s.StartMode; file = $file; repo = $repo }
+}
+[pscustomobject]@{ services = $services } | ConvertTo-Json -Depth 4 -Compress
+"""
+
+
+def devices_from_nodes(nodes):
+    """Az eszközfa csomópontjaiból a használat-besorolás régi eszköz-alakja
+    ([{inf, name, present}]). TISZTA függvény.
+
+    A név a feloldott `FriendlyName`, ennek híján a `DeviceDesc` - ugyanaz, amit a
+    `Win32_PnPEntity.Name` ad (mérve: 0 eltérés). INF nélküli csomópont kimarad: ahhoz
+    nem tartozik driver-csomag."""
+    out = []
+    for n in nodes or []:
+        inf = (n.get('inf') or '').strip()
+        if not inf:
+            continue
+        out.append({'inf': inf.lower(), 'name': n.get('friendly') or n.get('desc') or '',
+                    'present': bool(n.get('present'))})
+    return out
+
+
+def filters_from_nodes(nodes, class_filters=None):
+    """Az eszköz-szintű (Upper/LowerFilters) és az osztály-szintű szűrők kisbetűs
+    halmaza. TISZTA függvény."""
+    out = {str(f).strip().lower() for f in (class_filters or []) if f}
+    for n in nodes or []:
+        for key in ('upper_filters', 'lower_filters'):
+            for f in (n.get(key) or []):
+                if f:
+                    out.add(str(f).strip().lower())
+    return out
+
 
 # =============================================================================
 # 2) TISZTA FÜGGVÉNYEK (offline tesztelhetők, subprocess nélkül)
@@ -199,13 +255,134 @@ foreach ($s in (Get-WmiObject Win32_SystemDriver)) {
 _ADD_SERVICE_RE = re.compile(r'^\s*AddService\s*=\s*([^,;\s]+)', re.IGNORECASE | re.MULTILINE)
 _STRING_DEF_RE = re.compile(r'^\s*([A-Za-z0-9_\-.]+)\s*=\s*"([^"]*)"', re.IGNORECASE | re.MULTILINE)
 _SYS_FILE_RE = re.compile(r'([A-Za-z0-9_\-.]+\.sys)', re.IGNORECASE)
+_SECTION_RE = re.compile(r'^\s*\[([^\]]+)\]', re.MULTILINE)
+_QUOTED_RE = re.compile(r'"([^"]*)"')
+_USB_VID_RE = re.compile(r'\bVID_([0-9A-F]{4})', re.IGNORECASE)
+_PCI_VEN_RE = re.compile(r'^PCI\\VEN_([0-9A-F]{4})', re.IGNORECASE)
+_HDAUDIO_VEN_RE = re.compile(r'^HDAUDIO\\.*?VEN_([0-9A-F]{4})', re.IGNORECASE)
+
+# Ennyi modell-leírást viszünk tovább csomagonként. Egy HP Universal Printing INF-ben
+# 2970 hardver-azonosító van - a leírásokból a technikusnak az első néhány is elég, a
+# teljes lista csak a memóriát és a felület adatforgalmát növelné.
+INF_DESCRIPTION_MAX = 8
+
+
+def _strip_inf_comment(line):
+    """A `;` utáni komment levágása, de csak IDÉZŐJELEN KÍVÜL (egy leírásban lehet `;`)."""
+    out, quoted = [], False
+    for ch in line:
+        if ch == '"':
+            quoted = not quoted
+        elif ch == ';' and not quoted:
+            break
+        out.append(ch)
+    return ''.join(out).strip()
+
+
+def _inf_sections(text):
+    """{szekciónév_kisbetűvel: [sorok]} - a kommentek levágva, az üres sorok nélkül."""
+    out = {}
+    cur = None
+    for raw in text.splitlines():
+        line = _strip_inf_comment(raw)
+        if not line:
+            continue
+        m = _SECTION_RE.match(line)
+        if m:
+            cur = m.group(1).strip().lower()
+            out.setdefault(cur, [])
+            continue
+        if cur is not None:
+            out[cur].append(line)
+    return out
+
+
+def _inf_value(raw, strings):
+    r"""Egy INF-érték feloldása: `%token%` a [Strings]-ből, és az idézőjeles szakaszok
+    összefűzése. Mérve (oem48.inf, Intel grafika): `"Intel(R) HD Graphics" "510"` alakban
+    áll a név - a puszta `.strip('"')` ebből `Intel(R) HD Graphics" "510`-et csinált."""
+    def _tok(m):
+        return strings.get(m.group(1).lower(), m.group(0))
+    val = re.sub(r'%([^%]+)%', _tok, raw.strip())
+    parts = _QUOTED_RE.findall(val)
+    if parts:
+        return ' '.join(p.strip() for p in parts if p.strip())
+    return val.strip()
+
+
+def parse_inf_models(text):
+    r"""Az INF [Manufacturer] -> modell-szekcióiból: a hardver-azonosítók és a
+    gyártó által adott eszköznevek ("Realtek High Definition Audio", "SAMSUNG Mobile
+    USB Modem"). TISZTA függvény.
+
+    MIÉRT KELL: a Windows-osztály (`Class=`) a driver GYÁRTÓJÁNAK besorolása arról, milyen
+    TÍPUSÚ Windows-eszközt telepít - nem arról, melyik alkatrészhez való. Mérve a
+    fejlesztői gép 144 csomagján: a `Camera` egy Samsung TELEFON kameramódja, a `Display`
+    egy virtuális monitor-szoftver, a `MEDIA` alatt az alaplapi Realtek hang ÉS a
+    processzor-grafika HDMI-hangja is ott van, a `Modem`/`Ports`/`Net`/`USB` sorok zöme
+    pedig telefon-driver. Egy csomag rendeltetését a modell-leírás és az azonosítók
+    (busz + gyártókód) mondják meg - ezek ugyanúgy magában a driver-fájlban vannak.
+
+    A lokalizált [Strings.XXXX] szekciók NEM írják felül az alap [Strings]-et: különben
+    egy német/arab fordítás kerülne a magyar felületre (a gép nyelvének megfelelő
+    szekció kiválasztása nem ér annyit, amennyi hibalehetőséget hoz)."""
+    secs = _inf_sections(text or '')
+    strings = {}
+    for name, lines in secs.items():
+        if not name.startswith('strings'):
+            continue
+        is_base = (name == 'strings')
+        for line in lines:
+            m = re.match(r'^([^=]+)=\s*(.*)$', line)
+            if not m:
+                continue
+            key = m.group(1).strip().lower()
+            if is_base or key not in strings:
+                parts = _QUOTED_RE.findall(m.group(2))
+                strings[key] = (' '.join(p.strip() for p in parts if p.strip())
+                                if parts else m.group(2).strip())
+    version = {}
+    for line in secs.get('version', []):
+        m = re.match(r'^([^=]+)=\s*(.*)$', line)
+        if m:
+            version[m.group(1).strip().lower()] = _inf_value(m.group(2), strings)
+    model_sections = []
+    for line in secs.get('manufacturer', []):
+        m = re.match(r'^([^=]+)=\s*(.*)$', line)
+        if not m:
+            continue
+        parts = [p.strip() for p in m.group(2).split(',')]
+        base = parts[0].lower()
+        if not base:
+            continue
+        model_sections.append(base)
+        model_sections.extend(f"{base}.{d.lower()}" for d in parts[1:] if d)
+    hwids, descs = [], []
+    seen_ids = set()
+    for sname in model_sections:
+        for line in secs.get(sname, []):
+            m = re.match(r'^([^=]+)=\s*(.*)$', line)
+            if not m:
+                continue
+            desc = _inf_value(m.group(1), strings)
+            parts = [p.strip().strip('"') for p in m.group(2).split(',')]
+            for hid in parts[1:]:
+                u = hid.upper()
+                if u and u not in seen_ids:
+                    seen_ids.add(u)
+                    hwids.append(u)
+            if desc and desc not in descs:
+                descs.append(desc)
+    return {'version': version, 'hwids': hwids, 'descriptions': descs}
 
 
 def parse_inf_facts(text):
     r"""Egy INF szövegéből: a telepített szolgáltatások nevei és a hozzá tartozó .sys
-    fájlnevek. TISZTA függvény - ez a modul offline tesztelhető magja.
+    fájlnevek, valamint a csomag RENDELTETÉSÉRE utaló tények. TISZTA függvény - ez a
+    modul offline tesztelhető magja.
 
-    Visszatérés: {'services': [...], 'sys_files': [...]}, mindkettő kisbetűsítve.
+    Visszatérés: {'services', 'sys_files'} (kisbetűsítve) + {'inf_class', 'provider',
+    'descriptions', 'hwid_count', 'buses', 'usb_vids', 'pci_vens', 'hdaudio_vens'}.
 
     A .sys fájlnevekre azért van szükség, mert a szolgáltatásnév ÖNMAGÁBAN TÉVES
     párosítást ad (mérve 2026-09-17): az `e1d.inf` és az `e1d68x64.inf` UGYANAZT az
@@ -213,8 +390,11 @@ def parse_inf_facts(text):
     "futónak" látszana, holott a futó szolgáltatás bináris útvonala
     (`...\FileRepository\e1d.inf_amd64_...\e1d.sys`) egyértelműen az egyiket nevezi meg.
     A 145 futó szolgáltatásból 143-nak EGYEDI a .sys fájlneve, tehát ez a jó horgony."""
+    empty = {'services': [], 'sys_files': [], 'inf_class': '', 'provider': '',
+             'descriptions': [], 'hwid_count': 0, 'buses': [], 'usb_vids': [],
+             'pci_vens': [], 'hdaudio_vens': []}
     if not text:
-        return {'services': [], 'sys_files': []}
+        return empty
     strings = {m.group(1).lower(): m.group(2) for m in _STRING_DEF_RE.finditer(text)}
     services = []
     for m in _ADD_SERVICE_RE.finditer(text):
@@ -229,7 +409,40 @@ def parse_inf_facts(text):
         f = m.group(1).lower()
         if f not in sys_files:
             sys_files.append(f)
-    return {'services': services, 'sys_files': sys_files}
+    out = dict(empty)
+    out['services'] = services
+    out['sys_files'] = sys_files
+    try:
+        models = parse_inf_models(text)
+    except Exception as e:
+        # Egy furcsa INF nem akaszthatja meg a használat-felderítést: a szolgáltatás-
+        # adatok ettől még helyesek, csak a rendeltetés marad ismeretlen.
+        logging.debug(f"[USAGE] INF modell-szekciók nem értelmezhetők: {e}")
+        return out
+    hwids = models['hwids']
+    buses, usb_vids, pci_vens, hda_vens = set(), set(), set(), set()
+    for h in hwids:
+        buses.add(h.split('\\', 1)[0] if '\\' in h else h)
+        m = _USB_VID_RE.search(h)
+        if m and (h.startswith('USB') or h.startswith('HID')):
+            usb_vids.add(m.group(1).upper())
+        m = _PCI_VEN_RE.match(h)
+        if m:
+            pci_vens.add(m.group(1).upper())
+        m = _HDAUDIO_VEN_RE.match(h)
+        if m:
+            hda_vens.add(m.group(1).upper())
+    out.update({
+        'inf_class': models['version'].get('class', ''),
+        'provider': models['version'].get('provider', ''),
+        'descriptions': models['descriptions'][:INF_DESCRIPTION_MAX],
+        'hwid_count': len(hwids),
+        'buses': sorted(buses),
+        'usb_vids': sorted(usb_vids),
+        'pci_vens': sorted(pci_vens),
+        'hdaudio_vens': sorted(hda_vens),
+    })
+    return out
 
 
 def _norm_inf(name):
@@ -457,32 +670,120 @@ def read_inf_facts(published_names=None, inf_dir=None, reader=None):
     return facts
 
 
-def collect_usage_raw(run_fn):
-    """A rendszer állapota egyetlen PowerShell hívásban. Hibánál None."""
-    try:
-        res = run_fn(["powershell", "-NoProfile", "-Command", DRIVER_USAGE_PS],
-                     encoding='utf-8', timeout=USAGE_QUERY_TIMEOUT)
-        text = (getattr(res, 'stdout', '') or '').strip()
-        if not text:
-            logging.warning("[USAGE] A rendszerállapot-lekérdezés üres kimenetet adott "
-                            f"(returncode={getattr(res, 'returncode', '?')}).")
-            return None
-        data = json.loads(text)
-        if not isinstance(data, dict):
-            logging.warning(f"[USAGE] Váratlan válasz-alak: {type(data).__name__}")
-            return None
-        # A ConvertTo-Json EGYETLEN elemű tömböt objektummá laposít - a lista-mezőket
-        # ezért vissza kell listásítani, különben egyetlen eszközös gépen elszállna.
-        for key in ('devices', 'services', 'filters'):
-            val = data.get(key)
-            if val is None:
-                data[key] = []
-            elif isinstance(val, dict):
-                data[key] = [val]
-        return data
-    except Exception as e:
-        logging.warning(f"[USAGE] A rendszerállapot lekérdezése sikertelen: {e}")
+def _run_ps_json(run_fn, script, list_keys):
+    """Egy PowerShell szkript JSON-kimenete dict-ként, vagy None (naplózva)."""
+    res = run_fn(["powershell", "-NoProfile", "-Command", script],
+                 encoding='utf-8', timeout=USAGE_QUERY_TIMEOUT)
+    text = (getattr(res, 'stdout', '') or '').strip()
+    if not text:
+        logging.warning("[USAGE] A rendszerállapot-lekérdezés üres kimenetet adott "
+                        f"(returncode={getattr(res, 'returncode', '?')}).")
         return None
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        logging.warning(f"[USAGE] Váratlan válasz-alak: {type(data).__name__}")
+        return None
+    # A ConvertTo-Json EGYETLEN elemű tömböt objektummá laposít - a lista-mezőket
+    # ezért vissza kell listásítani, különben egyetlen eszközös gépen elszállna.
+    for key in list_keys:
+        val = data.get(key)
+        if val is None:
+            data[key] = []
+        elif isinstance(val, dict):
+            data[key] = [val]
+    return data
+
+
+def collect_usage_raw(run_fn, node_fn=None, class_filter_fn=None):
+    """A rendszer állapota: eszközök + szűrők az eszközfából, kernel-szolgáltatások
+    PowerShellből. Hibánál None.
+
+    `node_fn` / `class_filter_fn`: az eszközfa- és osztályszűrő-olvasó (teszteléshez
+    cserélhető; alapból `app/win32.py`). A visszatérő dict `nodes` kulcsa a TELJES
+    eszközfa - a "Gép felépítése" nézet ezt használja, hogy ugyanabból az egy
+    felderítésből dolgozzon, mint a használat-besorolás.
+
+    Ha az eszközfa olvasása kivételt dob, a régi teljes PowerShell-út fut (WARNING-gal):
+    a használat-felderítés egy ctypes-hiba miatt nem maradhat el, csak a gép-térkép."""
+    try:
+        if node_fn is None or class_filter_fn is None:
+            from app import win32
+            node_fn = node_fn or win32.enumerate_device_nodes
+            class_filter_fn = class_filter_fn or win32.read_class_filters
+        nodes = node_fn()
+        class_filters = class_filter_fn()
+    except Exception as e:
+        logging.warning(f"[USAGE] Az eszközfa olvasása sikertelen ({e}) - tartalék: "
+                        f"a teljes PowerShell-felderítés fut, a gép-térkép kimarad.",
+                        exc_info=True)
+        try:
+            data = _run_ps_json(run_fn, DRIVER_USAGE_PS, ('devices', 'services', 'filters'))
+            if data is not None:
+                data['nodes'] = None
+            return data
+        except Exception as e2:
+            logging.warning(f"[USAGE] A rendszerállapot lekérdezése sikertelen: {e2}")
+            return None
+    try:
+        svc = _run_ps_json(run_fn, SERVICES_PS, ('services',))
+    except Exception as e:
+        logging.warning(f"[USAGE] A kernel-szolgáltatások lekérdezése sikertelen: {e}")
+        svc = None
+    if svc is None:
+        # A szolgáltatás-jel nélkül a futó, eszköz nélküli driverek (vírusirtó, távoli
+        # asztal) "nem használt"-nak látszanának - pontosan a ninja-eset. Ilyenkor
+        # inkább "ismeretlen" legyen minden, mint hamisan megnyugtató.
+        return None
+    return {
+        'devices': devices_from_nodes(nodes),
+        'services': svc.get('services') or [],
+        'filters': sorted(filters_from_nodes(nodes, class_filters)),
+        'nodes': nodes,
+    }
+
+
+def collect_usage_context(run_fn, packages=None, inf_dir=None, node_fn=None, class_filter_fn=None):
+    """A használat-besorolás ÉS a hozzá tartozó nyers adatok (eszközfa, INF-tények) -
+    a Driverek nézet ebből építi a gép-térképet is, EGY felderítésből.
+
+    Visszatérés: {'usage', 'raw', 'facts', 'published', 'originals'}, vagy None, ha a
+    felderítés nem futott le."""
+    published_names, originals = None, {}
+    if packages:
+        published_names = []
+        for p in packages:
+            if isinstance(p, dict):
+                pub = _norm_inf(p.get('published'))
+                if not pub:
+                    continue
+                published_names.append(pub)
+                if p.get('original'):
+                    originals[pub] = p['original']
+            elif p:
+                published_names.append(_norm_inf(p))
+    raw = collect_usage_raw(run_fn, node_fn, class_filter_fn)
+    if raw is None:
+        return None
+    facts = read_inf_facts(published_names, inf_dir)
+    names = published_names or list(facts.keys())
+    usage = build_usage(raw, facts, names, originals)
+    counts = summarize_counts(usage)
+    logging.info(
+        f"[USAGE] {len(usage)} csomag besorolva: "
+        f"{counts[USAGE_ACTIVE]} használatban, {counts[USAGE_STANDBY]} készenlétben, "
+        f"{counts[USAGE_UNUSED]} nem használt "
+        f"(forrás: {'eszközfa' if raw.get('nodes') is not None else 'PowerShell-tartalék'}, "
+        f"{len(raw.get('devices') or [])} kötött eszköz-példány, "
+        f"{len(raw.get('services') or [])} kernel-szolgáltatás, "
+        f"{len(raw.get('filters') or [])} szűrő-bejegyzés)")
+    # A "használatban" sorok NEVESÍTVE a naplóba: ha a technikus később arra panaszkodik,
+    # hogy egy törlés után elromlott valami, ez a sor mondja meg, mit tudott a program a
+    # törlés pillanatában.
+    for pub, entry in sorted(usage.items()):
+        if entry['state'] == USAGE_ACTIVE:
+            logging.debug(f"[USAGE] {pub}: HASZNÁLATBAN - {'; '.join(entry['reasons'])}")
+    return {'usage': usage, 'raw': raw, 'facts': facts, 'published': names,
+            'originals': originals}
 
 
 def collect_package_usage(run_fn, packages=None, inf_dir=None):
@@ -497,37 +798,9 @@ def collect_package_usage(run_fn, packages=None, inf_dir=None):
     reasons, summary, ...}}. A felderítés bukásakor ÜRES dict - a hívó ilyenkor
     `unknown` állapotot mutat, ami őszinte: az "ismeretlen" nem ugyanaz, mint a
     "nem használt", és egy törlési döntést nem szabad egy elbukott lekérdezésre
-    alapozni."""
-    published_names, originals = None, {}
-    if packages:
-        published_names = []
-        for p in packages:
-            if isinstance(p, dict):
-                pub = _norm_inf(p.get('published'))
-                if not pub:
-                    continue
-                published_names.append(pub)
-                if p.get('original'):
-                    originals[pub] = p['original']
-            elif p:
-                published_names.append(_norm_inf(p))
-    raw = collect_usage_raw(run_fn)
-    if raw is None:
-        return {}
-    facts = read_inf_facts(published_names, inf_dir)
-    usage = build_usage(raw, facts, published_names or list(facts.keys()), originals)
-    counts = summarize_counts(usage)
-    logging.info(
-        f"[USAGE] {len(usage)} csomag besorolva: "
-        f"{counts[USAGE_ACTIVE]} használatban, {counts[USAGE_STANDBY]} készenlétben, "
-        f"{counts[USAGE_UNUSED]} nem használt "
-        f"(forrás: {len(raw.get('devices') or [])} eszköz-példány, "
-        f"{len(raw.get('services') or [])} kernel-szolgáltatás, "
-        f"{len(raw.get('filters') or [])} szűrő-bejegyzés)")
-    # A "használatban" sorok NEVESÍTVE a naplóba: ha a technikus később arra panaszkodik,
-    # hogy egy törlés után elromlott valami, ez a sor mondja meg, mit tudott a program a
-    # törlés pillanatában.
-    for pub, entry in sorted(usage.items()):
-        if entry['state'] == USAGE_ACTIVE:
-            logging.debug(f"[USAGE] {pub}: HASZNÁLATBAN - {'; '.join(entry['reasons'])}")
-    return usage
+    alapozni.
+
+    Vékony réteg a `collect_usage_context` fölött - a lánc hívói (törlési előnézet,
+    "nem jött vissza" jelentés) csak a besorolást kérik, a gép-térképet nem."""
+    ctx = collect_usage_context(run_fn, packages, inf_dir)
+    return ctx['usage'] if ctx else {}

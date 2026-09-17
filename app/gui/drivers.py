@@ -95,7 +95,8 @@ class GuiDriversMixin:
             # önmagában 15-77 mp, és pontosan ugyanazt adná, ami a képernyőn van
             # (ugyanaz a fogás, mint a törlési előnézetnél).
             pkgs = [d for d in (known_drivers or []) if isinstance(d, dict) and d.get('published')]
-            usage = duc.collect_package_usage(self._run, pkgs or None)
+            ctx = duc.collect_usage_context(self._run, pkgs or None)
+            usage = ctx['usage'] if ctx else {}
             counts = duc.summarize_counts(usage)
             if not usage:
                 # Megkülönböztetjük az "elbukott felderítést" a "minden használatlan"
@@ -103,10 +104,40 @@ class GuiDriversMixin:
                 logging.warning("[USAGE] A felderítés nem adott eredményt - a felület "
                                 "'ismeretlen' állapotot mutat, nem 'nem használt'-at.")
                 return {'usage': {}, 'counts': {}, 'error': 'A használat-felderítés nem futott le.'}
-            return {'usage': usage, 'counts': counts}
+            out = {'usage': usage, 'counts': counts}
+            out.update(self._build_machine_map(ctx, pkgs))
+            return out
         except Exception as e:
             logging.warning(f"[USAGE] A használat-felderítés sikertelen: {e}", exc_info=True)
             return {'usage': {}, 'counts': {}, 'error': str(e)}
+
+    def _build_machine_map(self, ctx, pkgs):
+        """A GÉP FELÉPÍTÉSE: alkatrészek és a hozzájuk tartozó driverek
+        (`app/machinemap_core.py`). UGYANABBÓL az eszközfából és INF-tényekből dolgozik,
+        amiből a használat-besorolás készült - egy felderítés, két nézet.
+
+        A térkép hibája SOHA nem viheti el a használat-besorolást: ha itt valami elszáll,
+        a táblázat a régi (használat szerinti) csoportosítással működik tovább, és a
+        felület kimondja, hogy a térkép nem készült el."""
+        nodes = (ctx or {}).get('raw', {}).get('nodes')
+        if not nodes:
+            logging.warning("[MACHINEMAP] Nincs eszközfa (a használat-felderítés a "
+                            "PowerShell-tartalékon futott) - a gép-térkép kimarad.")
+            return {'machine': None, 'machine_error': 'Az eszközfa nem olvasható, a gép felépítése nem rajzolható ki.'}
+        try:
+            from app import machinemap_core as mmc
+            from app import win32
+            from app.wu_core import identify_printer_packages
+            printers = set(identify_printer_packages(pkgs)) if pkgs else set()
+            identity = win32.read_hardware_identity()
+            role = win32.platform_role()
+            mm = mmc.build_machine_map(nodes, pkgs, ctx.get('facts') or {}, ctx.get('usage') or {},
+                                       identity, role, printers)
+            mmc.log_machine_map(mm)
+            return {'machine': mm}
+        except Exception as e:
+            logging.warning(f"[MACHINEMAP] A gép-térkép nem készült el: {e}", exc_info=True)
+            return {'machine': None, 'machine_error': f'A gép felépítése nem rajzolható ki: {e}'}
 
     # ================================================================
     # DRIVER LISTING
