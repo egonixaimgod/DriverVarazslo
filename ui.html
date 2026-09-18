@@ -473,8 +473,27 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
 .mm-body{display:grid;grid-template-columns:minmax(360px,1fr) minmax(0,1fr);
   grid-template-rows:auto minmax(var(--mm-tablecol-min),1fr);gap:16px;padding:14px 16px 16px;
   position:relative;z-index:1}
+/* VALÓDI 2×2 RÁCS (2026-09-18, második kör, explicit user decision: *"a gép grafika
+   mellett jobb oldalt … az az egész oszlop legyen csak annyira magas, sűríts bele
+   mindent, legyen egymagas a grafikával! … bal alul a táblázat, jobb alul pedig az
+   elavult driver-duplikátumok, a szellemeszközök törlése és az eszközök újrakötése"*):
+
+     bal-fent: ábra          | jobb-fent: alkatrész-kártyák (az ábrával EGYMAGAS)
+     bal-lent: driver-lista  | jobb-lent: a három karbantartó panel
+
+   A kártya-hasáb korábban `grid-row:1 / span 2` volt, vagyis a teljes magasságot
+   elfoglalta, és 18 kártyával mélyen az ábra ALÁ lógott - a nézet emiatt "bezsúfolt"
+   volt. Most az ELSŐ sorban ül, és ugyanazzal a trükkel, mint a táblázat-hasáb: a
+   tartalma `position:absolute` belső rétegben van, tehát NEM ad magasságot a sornak -
+   az 1. sor magasságát kizárólag az ábra dönti el, a kártyák pedig belül gördülnek.
+   A `.drv-tools` a rács negyedik eleme lett (korábban a panel ALATT állt, teljes
+   szélességben). */
 .mm-figure{grid-column:1;grid-row:1}
-.mm-cards{grid-column:2;grid-row:1 / span 2}
+.mm-cards{grid-column:2;grid-row:1;position:relative;min-height:0}
+.mm-cards-inner{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding-right:4px;
+  scrollbar-width:thin;scrollbar-color:rgba(180,100,255,0.3) transparent}
+.mm-cards-inner::-webkit-scrollbar{width:6px}
+.mm-cards-inner::-webkit-scrollbar-thumb{background:rgba(180,100,255,0.3);border-radius:3px}
 /* A TÁBLÁZAT-HASÁB NEM NYÚLHAT TÚL A KÁRTYA-HASÁBON (2026-09-18, explicit user decision:
    *"maximum addig érjen amíg a képen a piros csík van, onnan legyen scrollable"*).
    A trükk a belső réteg `position:absolute;inset:0`-ja: abszolút pozícionált tartalom NEM
@@ -498,12 +517,14 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
                           TÖRDEL, és keskeny hasábban egy sor 200px fölé is mehet
      táblázat-fejléc    : 30-46px
      a hasáb fejrésze   : 144-195px (állapot-sáv + a két kijelölő gomb + fülek)
-   A 290px tehát "1 csoport-fejléc + 3 átlagos adatsor + fejléc" (33+3*70+46 = 289), a
-   hasáb padlója pedig ehhez a LEGNAGYOBB mért fejrészt adja (290+195 = 485 -> 490).
-   Mérés a javítás előtt/után ugyanazon a gépen: 1920x1040-en 2 sor -> 5 sor.
+   A 290px "1 csoport-fejléc + 3 átlagos adatsor + fejléc" volt (33+3*70+46 = 289) - ez
+   MÉG KEVÉS VOLT (2026-09-18, második kör, explicit user decision: *"a táblázat mehet
+   még két sorral lejjebb, lehessen látni a drivereket"*), ezért +160px (= 2 átlagos
+   adatsor) -> 450px. A hasáb padlója ehhez a LEGNAGYOBB mért fejrészt (195px) ÉS a
+   fejléc-csíkot (~30px) adja hozzá: 450+195+30 = 675 -> 680.
    A tördelést SZÁNDÉKOSAN nem csonkoljuk vissza: a chip szövege a besorolás INDOKA,
    és pont azt vágná le (ez a szabály a Driver Keresés nézetben már vérrel íródott). */
-:root{--drv-table-min:290px;--mm-tablecol-min:490px}
+:root{--drv-table-min:450px;--mm-tablecol-min:680px}
 .mm-tablecol{grid-column:1;grid-row:2;min-width:0;min-height:var(--mm-tablecol-min);position:relative}
 .mm-tablecol-inner{position:absolute;inset:0;display:flex;flex-direction:column;min-height:0}
 /* A HASZNÁLAT-ÁLLAPOT SÁV a táblázat FEJÉBEN ül (2026-09-18, explicit user decision:
@@ -514,17 +535,61 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
 /* A DRIVEREK NÉZET ALSÓ ESZKÖZ-PANELJEI: egy sor, három hasáb (2026-09-18). A panelek
    `margin-top`-ját a rács `gap`-je váltja, különben az első sor felett dupla hézag lenne.
    Keskeny képernyőn egy hasáb - három 1/3-os hasábban a magyarázó szöveg olvashatatlan. */
-.drv-tools{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:16px;
-  align-items:start}
+/* A HÁROM KARBANTARTÓ PANEL A RÁCS JOBB-ALSÓ CELLÁJÁBAN (2026-09-18, második kör).
+   Fél szélességen a 3 hasáb olvashatatlan lenne (a panelek hosszú magyarázó szöveget
+   hordoznak), ezért itt EGY hasáb, egymás alatt - a magasságuk pedig épp jól jön: ez
+   feszíti ki a 2. rács-sort, vagyis a bal alsó driver-táblázatot is. Egyhasábos módban
+   (`mm-nomap`/`collapsed`, illetve keskeny képernyő) visszaáll a 3 oszlopra, mert ott
+   teljes szélességben áll. */
+.drv-tools{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start;
+  grid-column:2;grid-row:2;min-width:0}
 .drv-tools > .panel{margin-bottom:0}
-@media (max-width:1150px){.drv-tools{grid-template-columns:minmax(0,1fr)}}
+.mm-wrap.collapsed .drv-tools,.mm-wrap.mm-nomap .drv-tools{grid-column:1;grid-row:auto;
+  grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+@media (max-width:1150px){.mm-wrap.collapsed .drv-tools,.mm-wrap.mm-nomap .drv-tools{
+  grid-template-columns:minmax(0,1fr)}}
 
 .mm-tablecol #drv-usage-summary{margin:0 0 10px;padding:10px 12px;gap:10px}
 .mm-tablecol .hw-sum-machine{font-size:13px}
 .mm-tablecol .hw-sum-meta{font-size:11px}
 /* A táblázat KITÖLTI a rendelkezésre álló magasságot (a saját 580px-es plafonja helyett),
    és belül gördül - ez teszi "egyvonalban"-ná a két hasábot. */
-.mm-tablecol #driver-table-wrap{flex:1 1 auto;max-height:none;min-height:var(--drv-table-min)}
+/* A TÁBLÁZAT LÁTHATÓAN KI VAN EMELVE (2026-09-18, explicit user decision). A közös
+   `.table-wrap` kerete (`--glass-border`) és háttere ezen a panelen belül gyakorlatilag
+   láthatatlan volt - a technikus nem látta, hogy ott egy önálló, MŰVELETI lista van.
+   Erősebb lila keret + sötétebb saját háttér + árnyék: a táblázat "kiemelkedik" a
+   panelből. A felső sarkok NEM kerekítettek, mert a fejléc-csík oda tapad. */
+.drv-table-cap{display:flex;align-items:center;gap:8px;padding:8px 12px;flex:0 0 auto;
+  font-size:11.5px;color:var(--text2);line-height:1.35;
+  background:rgba(48,26,80,0.9);border:1px solid rgba(180,100,255,0.45);border-bottom:0;
+  border-radius:var(--r-sm) var(--r-sm) 0 0}
+.drv-table-cap b{color:var(--text)}
+/* HOGY A TÁBLÁZAT TÁBLÁZATNAK IS NÉZZEN KI (2026-09-18, terepi visszajelzés: *"nem is
+   látom, hogy mi a driver-kezelés táblázat; nem egy táblázat, csak ott a semmiben áll
+   egy valami, ott vannak sorok, felette feliratok"*). Az ok konkrét és megfogható: a
+   közös `.table-wrap` stílusban **nincs OSZLOP-elválasztó vonal**, csak halvány sor
+   alatti csík - egy rács-vonalak nélküli lista pedig nem olvasódik táblázatként, akármi
+   van a fejlécében. Négy dolog együtt adja ki:
+     1) függőleges rács-vonalak minden cella között (az utolsó oszlop után nincs),
+     2) erősebb vízszintes vonalak,
+     3) láthatóbb zebra-csíkozás (0.02 -> 0.045 alfa),
+     4) markánsabb, dupla vonallal lezárt fejléc.
+   A csoport-fejléc sorok (`.drv-group`, colspan-osak) KIMARADNAK az oszlop-vonalakból:
+   ott egyetlen cella van, egy jobb oldali vonal csak zavarna. */
+#driver-table-wrap th,#driver-table-wrap td{border-right:1px solid rgba(180,100,255,0.14)}
+#driver-table-wrap th:last-child,#driver-table-wrap td:last-child{border-right:0}
+#driver-table-wrap tr.drv-group td{border-right:0}
+#driver-table-wrap td{border-bottom:1px solid rgba(180,100,255,0.2)}
+#driver-table-wrap tbody tr:nth-child(even) td{background:rgba(255,255,255,0.045)}
+#driver-table-wrap th{background:rgba(52,28,88,0.97);border-bottom:2px solid rgba(180,100,255,0.5)}
+.mm-tablecol #driver-table-wrap{flex:1 1 auto;max-height:none;min-height:var(--drv-table-min);
+  border-color:rgba(180,100,255,0.45);border-radius:0 0 var(--r-sm) var(--r-sm);
+  background:rgba(18,9,36,0.8);box-shadow:0 10px 30px rgba(0,0,0,0.35)}
+/* Egyhasábos módban (offline / összecsukott térkép) ugyanez a kiemelés jár - a csík ott
+   is a táblázat fölött áll, tehát a sarkok és a keret nem térhetnek el. */
+.mm-wrap.collapsed #driver-table-wrap,.mm-wrap.mm-nomap #driver-table-wrap{
+  border-color:rgba(180,100,255,0.45);border-radius:0 0 var(--r-sm) var(--r-sm);
+  background:rgba(18,9,36,0.8);box-shadow:0 10px 30px rgba(0,0,0,0.35)}
 /* A 7 OSZLOP FÉL SZÉLESSÉGEN: tömörebb szedés, hogy ne kelljen vízszintesen gördíteni.
    A `overflow-x:auto` a védőháló - a `.table-wrap` alapból CSAK `overflow-y`-t kap, ezért
    egy kilógó oszlop nem gördíthető, hanem ELÉRHETETLEN lenne (a headless render pontosan
@@ -623,22 +688,26 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
 .mm-badge{pointer-events:none}
 .mm-badge circle{fill:#b855ff;stroke:#1a0f2e;stroke-width:2}
 .mm-badge text{fill:#fff;font-size:9.5px;font-weight:800;text-anchor:middle;dominant-baseline:central}
-.mm-cards{display:flex;flex-direction:column;gap:10px;min-width:0}
+/* A KÁRTYÁK TÖMÖRÍTVE, hogy elférjenek az ábra magasságában (2026-09-18, *"sűríts bele
+   mindent"*): keskenyebb minimum-szélesség (210 -> 170px, tehát több oszlop fér el),
+   kisebb hézagok és padding. A görgetés a védőháló: ha egy gépben így sem fér el minden
+   kártya, a hasáb NEM nyúlik meg - belül gördül. */
+.mm-cards-inner{display:flex;flex-direction:column;gap:8px;min-width:0}
 .mm-sec-title{font-size:11px;font-weight:800;letter-spacing:.6px;color:var(--text3);text-transform:uppercase;margin-top:2px}
 .mm-sec-title span{font-weight:400;text-transform:none;letter-spacing:0}
-.mm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
-.mm-card{padding:9px 11px;border-radius:10px;cursor:pointer;min-width:0;
+.mm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:7px}
+.mm-card{padding:6px 8px;border-radius:9px;cursor:pointer;min-width:0;
   background:rgba(60,35,90,0.38);border:1px solid rgba(180,100,255,0.20);transition:border-color .18s,background .18s}
 .mm-card:hover,.mm-card.hover{border-color:rgba(212,136,255,0.75);background:rgba(90,50,140,0.42)}
 .mm-card.sel{border-color:#ffe066;box-shadow:0 0 0 1px rgba(255,224,102,0.35),0 0 14px rgba(255,224,102,0.18)}
 .mm-card.inbox{background:rgba(40,25,65,0.30)}
-.mm-card-top{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;color:var(--text3);
+.mm-card-top{display:flex;align-items:center;gap:5px;font-size:9.5px;font-weight:800;color:var(--text3);
   letter-spacing:.3px;text-transform:uppercase}
-.mm-card-top .mm-ic{font-size:14px}
-.mm-card-top .mm-tag{margin-left:auto;text-transform:none;letter-spacing:0;font-size:10.5px;padding:1px 7px;
+.mm-card-top .mm-ic{font-size:13px}
+.mm-card-top .mm-tag{margin-left:auto;text-transform:none;letter-spacing:0;font-size:9.5px;padding:1px 6px;
   border-radius:999px;background:rgba(255,255,255,0.07);white-space:nowrap}
-.mm-card-name{font-size:13px;font-weight:700;color:var(--text);margin:4px 0 6px;line-height:1.3;word-break:break-word}
-.mm-card-drv{display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:11.5px;color:var(--text2)}
+.mm-card-name{font-size:12px;font-weight:700;color:var(--text);margin:2px 0 3px;line-height:1.25;word-break:break-word}
+.mm-card-drv{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:10.5px;color:var(--text2)}
 .mm-dot{display:inline-flex;align-items:center;gap:2px;font-size:10.5px;padding:1px 6px;border-radius:999px;background:rgba(0,0,0,0.25)}
 .mm-inbox{color:var(--text3)}
 .mm-warn{color:#ffd08a}
@@ -1314,7 +1383,11 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             </div>
             <div class="mm-body">
               <div class="mm-figure" id="mm-figure"></div>
-              <div class="mm-cards" id="mm-cards"></div>
+              <!-- A KARTYA-HASAB ugyanazzal a trukkel all, mint a tablazat-hasab: a
+                   `position:absolute;inset:0` belso reteg NEM ad magassagot a racs soranak,
+                   tehat az 1. sor magassagat KIZAROLAG az abra dönti el - a kartyak pedig
+                   ezen belul gordulnek. Az `id` a BELSO retegen marad, mert a JS azt tolti. -->
+              <div class="mm-cards"><div class="mm-cards-inner" id="mm-cards"></div></div>
               <!-- A TÁBLÁZAT-HASÁB EGY ABSZOLÚT POZÍCIONÁLT BELSŐ RÉTEGBEN ÜL
                    (`.mm-tablecol-inner`), és ez NEM formaság: `position:absolute;inset:0`
                    mellett a tartalom NEM ad magasságot a rács sorának, tehát a táblázat
@@ -1344,6 +1417,17 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                   </div>
                 <!-- SZŰRŐ-FÜLEK. Ugyanaz a minta, mint a Driver Keresés nézetben. -->
                 <div class="hw-tabs" id="drv-tabs" style="display:none"></div>
+                <!-- FEJLÉC-CSÍK A TÁBLÁZAT FÖLÖTT (2026-09-18, explicit user decision:
+                     *"a táblázat legyen kiemelve, hogy lehessen látni, hogy ott egy
+                     táblázat, ott lehet drivereket törölni"*). A nézet fő munkaterülete
+                     addig vizuálisan egybefolyt a panellel: se kerete, se címe nem volt,
+                     amiből látszana, hogy ez egy MŰVELETI lista, nem csak kiírt adat.
+                     A csík a táblázathoz TAPAD (alul nincs kerete, a táblázat felül nincs
+                     lekerekítve), így a kettő egy dobozként olvasódik. -->
+                <div class="drv-table-cap">
+                  <span>🗑️</span>
+                  <span>Driver-lista — <b>pipáld ki, amit törölni szeretnél</b>, majd nyomd meg a <b>Kijelöltek Törlése</b> gombot</span>
+                </div>
                 <div class="table-wrap" id="driver-table-wrap">
                   <table>
                     <thead><tr>
@@ -1363,10 +1447,6 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                 <div id="driver-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
                </div>
               </div>
-            </div>
-          </div>
-        </div>
-
         <!-- A HÁROM ALSÓ PANEL EGY SORBAN, 3 OSZLOPBAN (2026-09-18, explicit user
              decision: *"ezek meg alul inkabb legyenek 1 sorban de 3 oszlopban ugy jobban
              nezne ki"*). Ez a korábbi, egymás alatti elrendezés szűkítése ugyanazon a
@@ -1429,6 +1509,10 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           </div>
         </div>
         </div>
+            </div>
+          </div>
+        </div>
+
 
       </div>
 
