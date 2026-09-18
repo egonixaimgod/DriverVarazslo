@@ -125,7 +125,6 @@ body::after{content:'';position:fixed;width:700px;height:700px;background:radial
 
 /* Toolbar */
 .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
-.toolbar-right{margin-left:auto;display:flex;gap:10px;align-items:center}
 
 /* Toggle switch */
 .toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text2);user-select:none}
@@ -255,10 +254,6 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .winact-note{margin-top:12px;font-size:12px;color:var(--text3);line-height:1.6}
 
 /* Danger-zone wrapper for the "list all/inbox drivers" toggle */
-.danger-zone{display:flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;background:rgba(255,100,90,0.1);border:1px solid rgba(255,100,90,0.3)}
-.danger-zone .toggle{color:#ffcfc9}
-.danger-zone .toggle-track{background:rgba(255,100,90,0.25);border-color:rgba(255,100,90,0.35)}
-.danger-zone .toggle input:checked+.toggle-track{background:var(--red);border-color:var(--red)}
 
 /* Welcome / intro banner on the Drivers landing view */
 .welcome-panel{padding:16px 22px}
@@ -471,7 +466,7 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
    ezért a `--drv-table-min` (a táblázat saját minimuma, lásd ott) és a fölötte lévő
    fejrész együtt adja. */
 .mm-body{display:grid;grid-template-columns:minmax(360px,1fr) minmax(0,1fr);
-  grid-template-rows:auto minmax(var(--mm-tablecol-min),1fr);gap:16px;padding:14px 16px 16px;
+  grid-template-rows:auto minmax(var(--mm-tablecol-min),1fr);gap:22px 16px;padding:14px 16px 16px;
   position:relative;z-index:1}
 /* VALÓDI 2×2 RÁCS (2026-09-18, második kör, explicit user decision: *"a gép grafika
    mellett jobb oldalt … az az egész oszlop legyen csak annyira magas, sűríts bele
@@ -524,9 +519,14 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
    fejléc-csíkot (~30px) adja hozzá: 450+195+30 = 675 -> 680.
    A tördelést SZÁNDÉKOSAN nem csonkoljuk vissza: a chip szövege a besorolás INDOKA,
    és pont azt vágná le (ez a szabály a Driver Keresés nézetben már vérrel íródott). */
-:root{--drv-table-min:450px;--mm-tablecol-min:680px}
+/* A hasáb padlója 680 -> 740: az eszköztár 2026-09-18-án a hasáb TETEJÉRE került (a panel
+   fejléce helyett), és ~60px-et vesz el a fejrészből. A gyakorlatban ez a padló ritkán
+   aktív - a 2. sor magasságát a jobb-alsó karbantartó panelek adják (684-820px mérve) -,
+   de ha azok rövidebbek lennének, a táblázat itt sem lapulhat össze. */
+:root{--drv-table-min:450px;--mm-tablecol-min:795px}
 .mm-tablecol{grid-column:1;grid-row:2;min-width:0;min-height:var(--mm-tablecol-min);position:relative}
-.mm-tablecol-inner{position:absolute;inset:0;display:flex;flex-direction:column;min-height:0}
+.mm-tablecol-inner{position:absolute;inset:0;display:flex;flex-direction:column;min-height:0;
+  box-sizing:border-box}
 /* A HASZNÁLAT-ÁLLAPOT SÁV a táblázat FEJÉBEN ül (2026-09-18, explicit user decision:
    *"a 1 csomagot használ a gép meg a minden kijelölése sor kerüljön át a táblázat
    tetejébe, ne itt legyen minden felett"*) - korábban a panel tetején, a gép-ábra FÖLÖTT
@@ -549,6 +549,37 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
 @media (max-width:1150px){.mm-wrap.collapsed .drv-tools,.mm-wrap.mm-nomap .drv-tools{
   grid-template-columns:minmax(0,1fr)}}
 
+/* A HÁROM NAGY RÉSZ LÁTHATÓAN KÜLÖN DOBOZBAN ÜL (2026-09-18, explicit user decision,
+   képpel megjelölve: *"nem tudom szétválasztani, hogy ez most 3 külön szekció… legyen
+   jól strukturált, modern, átlátható, hogy mi mihez tartozik"*):
+
+     1. A GÉP FELÉPÍTÉSE   - ábra + alkatrész-kártyák   (felül, végig)
+     2. DRIVER-LISTA        - eszköztár + fülek + táblázat (bal alul)
+     3. KARBANTARTÁS        - a három eszköz-panel        (jobb alul)
+
+   Eddig mindhárom ugyanazon a sima panel-háttéren feküdt, elválasztó nélkül, ezért
+   egyetlen zsúfolt felületnek látszottak. Mindegyik alsó szekció saját háttért, keretet
+   és CÍMET kap - a felső részt az `.mm-head` már eddig is megnevezte.
+   A padding az `.mm-tablecol-inner`-re kerül, NEM a `.mm-tablecol`-ra: az abszolút
+   pozícionált belső réteg (`inset:0`) a szülő PADDING-boxához igazodik, tehát a külső
+   padding hatástalan lenne. */
+.mm-sec-head{display:flex;align-items:center;gap:7px;flex:0 0 auto;margin:0 0 10px;
+  font-size:12.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--accent);
+  padding-bottom:8px;border-bottom:1px solid rgba(180,100,255,0.22)}
+.mm-sec-head span{font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3);font-size:11.5px}
+.mm-tablecol,.drv-tools{background:rgba(24,13,46,0.55);border:1px solid rgba(180,100,255,0.22);
+  border-radius:var(--r)}
+.mm-tablecol-inner{padding:12px}
+.drv-tools{padding:12px}
+.drv-tools .mm-sec-head{grid-column:1 / -1}
+/* AZ ESZKÖZTÁR A SZŰKEBB (fél szélességű) HASÁBBAN: tömörebb szedés és kisebb hézagok,
+   hogy a négy elem (Frissítés / Kijelöltek Törlése / nyomtató-szűrő / keresés) két sorban
+   elférjen. A keresőmező `flex:1 1 100%`-kal a SAJÁT sorába kerül - így a két gomb és a
+   kapcsoló egy sorban marad, a mező pedig teljes szélességű és használható marad. */
+.mm-tablecol .toolbar{gap:8px;margin-bottom:10px}
+.mm-tablecol .toolbar .btn{padding:8px 12px;font-size:12.5px}
+.mm-tablecol .toolbar .toggle{font-size:12px}
+.mm-tablecol .search-box{flex:1 1 100%;max-width:none;min-width:0}
 .mm-tablecol #drv-usage-summary{margin:0 0 10px;padding:10px 12px;gap:10px}
 .mm-tablecol .hw-sum-machine{font-size:13px}
 .mm-tablecol .hw-sum-meta{font-size:11px}
@@ -1315,38 +1346,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             <div class="panel-title"><span class="emoji">💿</span> Harmadik féltől származó driverek</div>
             <span class="count-badge" id="driver-count-badge">0 driver</span>
           </div>
-          <div class="toolbar">
-            <button class="btn" onclick="loadDrivers()">🔄 Frissítés</button>
-            <button class="btn btn-danger" onclick="deleteSelected()" id="btn-delete" disabled>🗑 Kijelöltek Törlése</button>
-            <label class="toggle" title="Törlés után automatikusan újraindítja a gépet">
-              <input type="checkbox" id="reboot-after-delete">
-              <span class="toggle-track"></span>
-              Újraindítás törlés után
-            </label>
-            <!-- NYOMTATÓ-SZŰRŐ: ugyanaz a védelem kézzel, mint az AutoFix pipája. Alapból BE,
-                 mert egy törölt nyomtató-driver a nyomtató nélkül nem telepíthető vissza. A
-                 felismerés a wu_core._collect_printer_protection-ből jön (ugyanaz, amit a fix
-                 használ) - az osztály-alapú egyeztetés önmagában kevés lenne. -->
-            <label class="toggle" id="lbl-hide-printers"
-                   title="Alapból bekapcsolva: a nyomtató-driverek nem jelennek meg a listában, így véletlenül sem törlöd ki őket. A felismerés magából a driverből dolgozik, NEM abból, hogy be van-e dugva a nyomtató (a szervizben lévő gép mellett úgysincs ott): nyomtató/szkenner osztály, az INF-ben lévő nyomtató-jelek (printer, laserjet, dot4, scanner…), illetve ha a csomag ugyanarra a fizikai eszközre (VID/PID) hivatkozik, mint egy másik nyomtató-driver — így a multifunkciós nyomtatók USB/Rendszereszköz osztályú kiszolgáló-csomagjai (dot4.inf, hpbuio*.inf, mvusbews.inf) is elrejtődnek. Kapcsold ki, ha látni és törölni akarod őket.">
-              <input type="checkbox" id="hide-printer-drivers" checked onchange="togglePrinterFilter()">
-              <span class="toggle-track"></span>
-              🖨️ Nyomtató-driverek elrejtése
-            </label>
-            <div class="search-box">
-              <span class="icon">🔎</span>
-              <input type="text" id="driver-search" placeholder="Keresés név/gyártó/típus szerint..." oninput="filterDrivers()">
-            </div>
-            <div class="toolbar-right">
-              <div class="danger-zone" title="FIGYELEM: Gyári driverek törlése tönkreteheti a rendszert!">
-                <label class="toggle">
-                  <input type="checkbox" id="toggle-all-drivers" onchange="toggleAllDrivers()">
-                  <span class="toggle-track"></span>
-                  ⚠️ Minden Driver (veszélyes!)
-                </label>
-              </div>
-            </div>
-          </div>
+
           <!-- A GÉP FELÉPÍTÉSE (2026-09-17): a gép rajza + alkatrész-kártyák. A használat-
                felderítéssel EGY hívásból érkezik (get_driver_usage 'machine' mezője), addig
                rejtve. Egy kattintás a lenti táblázatot az alkatrész drivereire szűri. -->
@@ -1399,7 +1399,34 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                    képen a piros csík van, onnan legyen scrollable"*). -->
               <div class="mm-tablecol">
                <div class="mm-tablecol-inner">
-          <!-- HASZNÁLAT-ÁLLAPOT SÁV. Addig rejtve, amíg a felderítés nem végzett: egy
+                <!-- 2. SZEKCIÓ CÍME. A három nagy rész mindegyike meg van nevezve, hogy
+                     egy pillantásból látszódjon, mi mihez tartozik (2026-09-18). -->
+                <div class="mm-sec-head">💿 Driver-lista <span>— a gép telepített driverei</span></div>
+                <!-- AZ ESZKÖZTÁR A TÁBLÁZAT FÖLÖTT ÁLL, NEM A PANEL TETEJÉN (2026-09-18,
+                     explicit user decision: *"rakd át bal alulra, mert most hülyén néz ki,
+                     hogy ez fent van, a táblázat meg bal alul, azt közben ahhoz van köze"*).
+                     A 2x2 rács óta a driver-lista a bal ALSÓ cellában van, az eszköztár
+                     viszont a panel tetején maradt - vagyis a Frissítés/Törlés/keresés egy
+                     képernyőnyire került attól, amire hat. -->
+                <div class="toolbar">
+                <button class="btn" onclick="loadDrivers()">🔄 Frissítés</button>
+                <button class="btn btn-danger" onclick="deleteSelected()" id="btn-delete" disabled>🗑 Kijelöltek Törlése</button>
+                <!-- NYOMTATÓ-SZŰRŐ: ugyanaz a védelem kézzel, mint az AutoFix pipája. Alapból BE,
+                mert egy törölt nyomtató-driver a nyomtató nélkül nem telepíthető vissza. A
+                felismerés a wu_core._collect_printer_protection-ből jön (ugyanaz, amit a fix
+                használ) - az osztály-alapú egyeztetés önmagában kevés lenne. -->
+                <label class="toggle" id="lbl-hide-printers"
+                title="Alapból bekapcsolva: a nyomtató-driverek nem jelennek meg a listában, így véletlenül sem törlöd ki őket. A felismerés magából a driverből dolgozik, NEM abból, hogy be van-e dugva a nyomtató (a szervizben lévő gép mellett úgysincs ott): nyomtató/szkenner osztály, az INF-ben lévő nyomtató-jelek (printer, laserjet, dot4, scanner…), illetve ha a csomag ugyanarra a fizikai eszközre (VID/PID) hivatkozik, mint egy másik nyomtató-driver — így a multifunkciós nyomtatók USB/Rendszereszköz osztályú kiszolgáló-csomagjai (dot4.inf, hpbuio*.inf, mvusbews.inf) is elrejtődnek. Kapcsold ki, ha látni és törölni akarod őket.">
+                <input type="checkbox" id="hide-printer-drivers" checked onchange="togglePrinterFilter()">
+                <span class="toggle-track"></span>
+                🖨️ Nyomtató-driverek elrejtése
+                </label>
+                  <div class="search-box">
+                    <span class="icon">🔎</span>
+                    <input type="text" id="driver-search" placeholder="Keresés név/gyártó/típus szerint..." oninput="filterDrivers()">
+                  </div>
+                </div>
+                <!-- HASZNÁLAT-ÁLLAPOT SÁV. Addig rejtve, amíg a felderítés nem végzett: egy
                        üres vagy fél állapotsáv rosszabb, mint a semmi, mert a technikus azt
                        hinné, hogy a gép semmit nem használ. -->
                   <div class="hw-summary" id="drv-usage-summary" style="display:none">
@@ -1455,6 +1482,10 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
              e nélkül a leghosszabb szöveg szétfeszítené a hasábot. Keskeny képernyőn
              (1150 px alatt) automatikusan egy hasábra esik vissza. -->
         <div class="drv-tools">
+        <!-- 3. SZEKCIÓ CÍME (2026-09-18). A `grid-column:1 / -1` miatt a cím a rács
+             teljes szélességét elfoglalja, akkor is, ha a panelek 3 oszlopba állnak
+             (egyhasábos / keskeny módban). -->
+        <div class="mm-sec-head">🧰 Karbantartás <span>— takarítás és eszköz-műveletek</span></div>
         <!-- Elavult driver-duplikátumok - a 2026-07-es átszervezésig a Driverek nézetben
              élt, de ez is lemez-takarítás, ide illik. Az id-k változatlanok, a JS
              (scanDupDrivers/onDupDriversLoaded/deleteDupDrivers) ugyanaz maradt. -->
@@ -2386,7 +2417,6 @@ let currentView = 'home';   // a program a rejtett kezdőlappal indul (lásd `go
 let appDataDir = '';
 let drivers = [];
 let selectedDrivers = new Set();
-let listAll = false;  // Synced with toggle-all-drivers checkbox
 let driverFilterText = '';
 // Alapból HASZNÁLAT szerint rendezve töltődik be a lista (2026-09-17, explicit user
 // decision): felül, amit a gép most is használ, alul, amire semmi nem hivatkozik. Ez a
@@ -3273,9 +3303,11 @@ async function resetTarget() {
 
 /* ========== DRIVER LIST ========== */
 async function loadDrivers() {
-  listAll = document.getElementById('toggle-all-drivers').checked;
   try {
-    await api().load_drivers(listAll);
+    // A `list_all` (a Windows gyári drivereinek listázása) a GUI-ból 2026-09-18-án
+    // kikerült (explicit user decision) - a CLI driver-menüjében továbbra is
+    // felkínáljuk, a Python paraméter ezért maradt a helyén.
+    await api().load_drivers(false);
   } catch (e) {
     document.getElementById('driver-loading').style.display = 'none';
     document.getElementById('driver-status').innerHTML = '<span class="status-dot" style="background:var(--red)"></span> ❌ Hiba: ' + esc(String(e));
@@ -4032,15 +4064,6 @@ function updateDeleteBtn() {
   btn.disabled = selectedDrivers.size === 0;
   btn.textContent = selectedDrivers.size > 0 ? '🗑 Törlés (' + selectedDrivers.size + ' db)' : '🗑 Kijelöltek Törlése';
 }
-async function toggleAllDrivers() {
-  const cb = document.getElementById('toggle-all-drivers');
-  if (cb.checked) {
-    const ok = await showConfirm('VESZÉLYES FUNKCIÓ', 'A Windows gyári / alapvető (inbox) drivereinek listázását választottad!\n\nHA EZEKET TÖRÖLGETJÜK, EL LEHET BASZARINTANI A GÉPET!\n(Pl. Kékhalál induláskor, nem működő egér/billentyűzet, USB portok halála)\n\nBiztosan bekapcsolod?');
-    if (!ok) { cb.checked = false; return; }
-  }
-  listAll = cb.checked;  // Sync listAll state
-  loadDrivers();
-}
 async function deleteSelected() {
   if (selectedDrivers.size === 0) return;
   const names = [...selectedDrivers].map(i => drivers[i]?.published).filter(Boolean);
@@ -4048,7 +4071,6 @@ async function deleteSelected() {
     toast('Nincs érvényes driver kijelölve!', 'error');
     return;
   }
-  const reboot = document.getElementById('reboot-after-delete').checked;
   let msg = 'Biztosan törlöd a kiválasztott ' + names.length + ' drivert?';
   // HASZNÁLATBAN LÉVŐ CSOMAGOK NEVESÍTVE. Ez NEM tiltás és nem is szűrő (a CLAUDE.md
   // szabálya szerint minden drivert lehessen törölni) - de a technikusnak látnia kell,
@@ -4074,7 +4096,7 @@ async function deleteSelected() {
   const ok = await showConfirm('Megerősítés', msg);
   if (!ok) return;
   try {
-    await api().delete_drivers(names, listAll, reboot);
+    await api().delete_drivers(names);
   } catch (e) {
     toast('Hiba a törlés során: ' + e, 'error');
   }
