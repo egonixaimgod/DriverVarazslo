@@ -57,6 +57,12 @@ body::after{content:'';position:fixed;width:700px;height:700px;background:radial
 .nav-btn:hover{background:rgba(180,100,255,0.12);color:var(--text);border-color:rgba(180,100,255,0.2)}
 .nav-btn.active{background:linear-gradient(135deg,rgba(180,100,255,0.3),rgba(160,80,255,0.2));color:#fff;box-shadow:0 0 25px rgba(180,100,255,0.2);border-color:rgba(180,100,255,0.4)}
 .nav-btn .icon{font-size:17px;width:24px;text-align:center;flex-shrink:0}
+/* WINDOWS 11 LOGÓ az "Operációs rendszer" menüponton (inline SVG, nem emoji - lásd az
+   ottani kommentet). A szín a Windows-kék világosabb, dark-mode-ra szánt változata:
+   a márka #0078d4-je ezen a sötétlila háttéren tompán olvasható. Az aktív/hover
+   menüpontban teljesen kifehéredik, mint a szöveg. */
+.nav-btn .winlogo{display:block;margin:0 auto;fill:#4cb2ff;transition:fill var(--t)}
+.nav-btn:hover .winlogo,.nav-btn.active .winlogo{fill:#7fd0ff}
 .sidebar-bottom{margin-top:auto;padding:10px 12px 4px;text-align:center;color:var(--green);font-size:11px;font-weight:600}
 .sidebar-datadir{padding:0 12px 12px;text-align:center;color:var(--text3);font-size:10.5px;cursor:pointer;transition:color var(--t)}
 .sidebar-datadir:hover{color:var(--accent)}
@@ -453,7 +459,7 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
    rövidebb, a bal hasáb túlnyúlik rajta - ez a vállalt irány: egy 99 px-es táblázat
    használhatatlan, egy kicsit lelógó viszont csak esztétikai. */
 .mm-body{display:grid;grid-template-columns:minmax(360px,1fr) minmax(0,1fr);
-  grid-template-rows:auto minmax(260px,1fr);gap:16px;padding:14px 16px 16px;
+  grid-template-rows:auto minmax(300px,1fr);gap:16px;padding:14px 16px 16px;
   position:relative;z-index:1}
 .mm-figure{grid-column:1;grid-row:1}
 .mm-cards{grid-column:2;grid-row:1 / span 2}
@@ -473,6 +479,14 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
    tetejébe, ne itt legyen minden felett"*) - korábban a panel tetején, a gép-ábra FÖLÖTT
    volt, ahol elszakadt attól a listától, amiről beszél. Szűkebb hasábban tömörebb
    szedéssel, de tördelve: a darabszám és a két gomb az információ, nem csonkolható. */
+/* A DRIVEREK NÉZET ALSÓ ESZKÖZ-PANELJEI: egy sor, három hasáb (2026-09-18). A panelek
+   `margin-top`-ját a rács `gap`-je váltja, különben az első sor felett dupla hézag lenne.
+   Keskeny képernyőn egy hasáb - három 1/3-os hasábban a magyarázó szöveg olvashatatlan. */
+.drv-tools{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:16px;
+  align-items:start}
+.drv-tools > .panel{margin-bottom:0}
+@media (max-width:1150px){.drv-tools{grid-template-columns:minmax(0,1fr)}}
+
 .mm-tablecol #drv-usage-summary{margin:0 0 10px;padding:10px 12px;gap:10px}
 .mm-tablecol .hw-sum-machine{font-size:13px}
 .mm-tablecol .hw-sum-meta{font-size:11px}
@@ -534,15 +548,28 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
   .mm-tablecol-inner{position:static}
   .mm-tablecol #driver-table-wrap{max-height:min(580px, calc(100vh - 300px));flex:0 1 auto}
 }
-/* AZ ÁBRÁNAK PLAFONJA VAN (2026-09-18, mérve): `width:100%` + `height:auto` mellett az
-   SVG a hasáb szélességével együtt MAGASODIK is, és 2560 px-en annyi helyet vett el,
-   hogy a táblázatnak 99 px maradt. A plafon fölött az ábra már nem nő, a maradék
-   magasság a táblázaté - a hasáb közepén marad, hogy ne lógjon félre. */
-.mm-figure{max-width:620px;margin:0 auto;
+/* AZ ÁBRA NAGY, DE VAN PLAFONJA (2026-09-18, két lépésben, mindkettő mérésből).
+   Először: `width:100%` + `height:auto` mellett az SVG a hasáb szélességével együtt
+   MAGASODIK, és 2560 px-en annyi helyet vett el, hogy a táblázatnak 99 px maradt -
+   ezért kapott 620 px-es szélesség-plafont. Az viszont TÚL KICSI lett ("alig látom az
+   ábrát"), ezért a plafon 900 px, és a magasságot a `svg{max-height}` fogja meg: így az
+   ábra a hasáb nagy részét kitölti, a táblázat pedig alacsonyabb, de használható marad -
+   ez a kért "balance". A magasság-plafon SZÁNDÉKOSAN vh-alapú: a rendelkezésre álló
+   hely a képernyő magasságától függ, nem a szélességétől. */
+/* `width:100%` + `justify-self:center` ÉS NEM `margin:0 auto` - ez itt nem stílus-kérdés:
+   egy rács-elemen az `auto` oldalmargó FELÜLÍRJA a `justify-self:stretch`-et, és az elem
+   a SAJÁT TARTALMÁRA zsugorodik. Mérve: `margin:0 auto`-val az ábra 300x228 px lett egy
+   1086 px-es hasábban (a viewBox belső mérete), vagyis a "plafon" helyett padlót
+   csináltam belőle - pontosan ez volt az "alig látom az ábrát" hiba. */
+.mm-figure{width:100%;max-width:680px;justify-self:center;
   border-radius:var(--r-sm);padding:6px;align-self:start;position:sticky;top:8px;
   background:radial-gradient(ellipse at 50% 45%,rgba(212,136,255,0.11),transparent 70%);
   border:1px solid rgba(180,100,255,0.14)}
-.mm-figure svg{width:100%;height:auto;display:block}
+/* A MAGASSÁG-PLAFON a viewport magasságához mér: a viewBox miatt az arány megmarad
+   (preserveAspectRatio), tehát az ábra "annyira nagy, amennyi belefér", és nem nyomja ki
+   a táblázatot a hasábból. A 620 px-es szélesség-plafon helyett ez a párosítás adja a
+   kért egyensúlyt (2026-09-18). */
+.mm-figure svg{width:100%;height:auto;max-height:46vh;display:block}
 .mm-line{fill:none;stroke:rgba(210,180,255,0.30);stroke-width:1.5}
 .mm-fill{fill:rgba(180,100,255,0.06);stroke:rgba(210,180,255,0.32);stroke-width:1.5}
 .mm-cap{fill:rgba(200,180,230,0.55);font-size:9px;font-weight:800;letter-spacing:.8px}
@@ -1019,14 +1046,16 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
          takarításon túl már nem csak temp fájlokról szól. -->
     <button class="nav-btn" onclick="switchView('drivers')" data-view="drivers"><span class="icon">💿</span>Driverek kezelése</button>
     <button class="nav-btn" onclick="switchView('hw')" data-view="hw"><span class="icon">🖥️</span>Driver Keresés és Telepítés</button>
-    <!-- AZ IKON A RÉGI "Windows & Office" MENÜPONTÉ (🎫), explicit user decision
-         (2026-09-18): *"az az ikon legyen ott ami eddig volt a windows & office fülnek,
-         régen az megfelelt nekem"*. A fogaskerék azért esett ki, mert a felhasználó
-         szavaival "az operációs rendszert a windowssal párosítjuk össze agyban".
-         MELLÉKES, DE MÉRT TÉNY (hátha kell még): a 🪟 (U+1FA9F) VALÓDI WebView2-ben
-         hibátlanul megjelenik - a CLAUDE.md korábbi "üres téglalap" állítása csak a
-         gép-ábra SVG <text> elemére igaz, ahol nincs emoji-font. -->
-    <button class="nav-btn" onclick="switchView('os')" data-view="os"><span class="icon">🎫</span>Operációs rendszer</button>
+    <!-- AZ IKON A WINDOWS 11 LOGÓ, INLINE SVG-KÉNT (2026-09-18, explicit user decision
+         képpel megjelölve: a négy kék négyzet). SZÁNDÉKOSAN NEM EMOJI, és ez a lényeg:
+         egy SVG-nek nincs betűkészlet-függése, tehát a "tofu" (üres téglalap) kockázat
+         nulla - se régi Windowson, se más emoji-fontnál. Emiatt itt az egyetlen helyes
+         forma; a `viewBox` miatt bármilyen méretben éles marad.
+         Az út ide három elvetett jelölt volt: fogaskerék (nem windowsos), a régi
+         Windows & Office 🎫 (a felhasználó kérte, majd látva elvetette), és a 🪟 emoji
+         (valódi WebView2-ben MŰKÖDIK - mérve -, de nem a kért logó).
+         A 17px a `.nav-btn .icon` betűméretével egyezik, így a sor magassága nem változik. -->
+    <button class="nav-btn" onclick="switchView('os')" data-view="os"><span class="icon"><svg class="winlogo" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1"/><rect x="13" y="1" width="10" height="10" rx="1"/><rect x="1" y="13" width="10" height="10" rx="1"/><rect x="13" y="13" width="10" height="10" rx="1"/></svg></span>Operációs rendszer</button>
     <button class="nav-btn" onclick="switchView('backup')" data-view="backup"><span class="icon">💾</span>Mentés és Visszaállítás</button>
     <button class="nav-btn" onclick="switchView('tempclean')" data-view="tempclean"><span class="icon">🧹</span>Rendszer karbantartás</button>
     <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Driver Fix</button>
@@ -1301,10 +1330,18 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           </div>
         </div>
 
+        <!-- A HÁROM ALSÓ PANEL EGY SORBAN, 3 OSZLOPBAN (2026-09-18, explicit user
+             decision: *"ezek meg alul inkabb legyenek 1 sorban de 3 oszlopban ugy jobban
+             nezne ki"*). Ez a korábbi, egymás alatti elrendezés szűkítése ugyanazon a
+             napon: a három panel rövid (cím + magyarázat + egy gomb), egymás alatt
+             viszont három képernyőt tolt le. A `minmax(0,1fr)` a lényeg a `1fr` helyett:
+             e nélkül a leghosszabb szöveg szétfeszítené a hasábot. Keskeny képernyőn
+             (1150 px alatt) automatikusan egy hasábra esik vissza. -->
+        <div class="drv-tools">
         <!-- Elavult driver-duplikátumok - a 2026-07-es átszervezésig a Driverek nézetben
              élt, de ez is lemez-takarítás, ide illik. Az id-k változatlanok, a JS
              (scanDupDrivers/onDupDriversLoaded/deleteDupDrivers) ugyanaz maradt. -->
-        <div class="panel glass" style="margin-top:16px">
+        <div class="panel glass">
           <div class="panel-header-row">
             <div class="panel-title"><span class="emoji">🧹</span> Elavult driver-duplikátumok (DriverStore takarítás)</div>
             <span class="count-badge" id="dup-count-badge" style="display:none">0</span>
@@ -1338,7 +1375,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
              kétoszlopos `.cards` rács két keskeny hasábba tördelte a magyarázó szöveget,
              ami ezeknél hosszú - és a nézet így három különböző kártya-szélességet
              mutatott egymás alatt. -->
-        <div class="panel glass" style="margin-top:16px">
+        <div class="panel glass">
           <div class="panel-title"><span class="emoji">👻</span> Szellem- és Fantomeszközök Törlése</div>
           <p style="margin-bottom:12px;color:var(--text3)">Eltávolítja a Registry-ből és az Eszközkezelőből mindazokat a hardvereket, amelyek korábban csatlakoztatva voltak, de fizikailag már nincsenek a gépben — klónozott vagy sokat szerelt rendszereknél akár több száz ilyen bejegyzés is felgyűlhet. <b style="color:var(--text2)">Csak a NEM jelenlévő eszközöket bántja</b>, tehát amit most használ a gép, az érintetlen marad.</p>
           <div class="toolbar">
@@ -1346,13 +1383,14 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           </div>
         </div>
 
-        <div class="panel glass" style="margin-top:16px">
+        <div class="panel glass">
           <div class="panel-title"><span class="emoji">🔄</span> Eszközök újrakötése a gyári driverre</div>
           <p style="margin-bottom:12px;color:var(--text3)">Nem keres és nem tölt le semmit: azokat az eszközöket kötteti újra, amik a Windows alapdriverén ragadtak, pedig van hozzájuk gyári csomag a gépen. Akkor kell, ha egy driver felment, de az eszköz nem indult el rajta — ilyenkor a Windows némán visszaesik a sajátjára, hibakód nélkül (tipikus tünet: szaggató tapipad, nem működő extra gombok). A tárolót, a firmware-t és a rendszerlemez eszközláncát nem érinti. <b style="color:var(--text2)">A végén a gép automatikusan újraindul.</b></p>
           <div class="toolbar">
             <button class="btn btn-primary" onclick="rebindDrivers()" id="btn-rebind"
                     title="Nem tölt le semmit. MINDEN Windows-alapdriveren futó eszközt újra felderíttet a Windowszal (újratelepítés, majd ha kell, az eszköz újraenumerálása) - kivéve a tárolóvezérlőket, a lemezt, a firmware-t és a rendszerlemez eszközláncát. Ha van a gépen hozzá gyári csomag, azt kapja meg; ha nincs, ugyanazt kapja vissza, rosszabb nem lesz. A kör az USB-vezérlőt is érintheti, ezért a végén a gép automatikusan újraindul.">🔄 Újrakötés indítása</button>
           </div>
+        </div>
         </div>
 
       </div>
