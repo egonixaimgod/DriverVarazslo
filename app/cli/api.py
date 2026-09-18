@@ -46,7 +46,6 @@ from app.gui.bitlocker import GuiBitlockerMixin
 from app.gui.report import GuiReportMixin
 from app.gui.storeprint import GuiStorePrintMixin
 from app.gui.blockscript import GuiBlockScriptMixin
-from app.gui.oemdrivers import GuiOemDriversMixin
 from app.gui.display import GuiDisplayMixin
 from app.gui.winact import GuiWinActMixin
 from app.gui.logs import GuiLogsMixin
@@ -77,7 +76,7 @@ class CliApi(CliBridgeMixin, CliBaseMixin, GuiBaseMixin,
              GuiAutofixMixin, GuiRebindMixin,
              GuiBitlockerMixin, GuiReportMixin, GuiStorePrintMixin,
              GuiBlockScriptMixin,
-             GuiOemDriversMixin, GuiDisplayMixin, GuiWinActMixin, GuiLogsMixin,
+             GuiDisplayMixin, GuiWinActMixin, GuiLogsMixin,
              GuiStressMixin, GuiStressAutomationMixin, GuiToolsInstallMixin,
              GuiBenchmarkMixin, GuiUpdaterMixin,
              # CLI-specifikus (nem duplikátum): a konzolos frissítés-ellenőrzés

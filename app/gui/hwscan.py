@@ -840,13 +840,26 @@ class GuiHwScanMixin:
                 # RTX 3060 -> 610.74) - NVIDIA-s gépen mostantól a WU/katalógus verziója
                 # marad. Az Intel-ág amúgy is halott volt: az intel.com 403 Forbidden-t
                 # ad minden úton (mérve 2026-09-02, PowerShell-fallbackkel is).
-                # Az `open_vendor_driver_page` NEM veszett el: átkerült az oemdrivers.py-ba,
-                # mert a gép/alaplap-gyártói link-kártya is azt hívja.
+                # ...ÉS 2026-09-18-ÁN A GÉP/ALAPLAP-GYÁRTÓI LINK-KÁRTYA IS KIKERÜLT
+                # (explicit user decision): *"az a gomb nem kell teljesen feleslegesen van
+                # ott, szedd ki, nem kell semmilyen alaplapnak se h elvigyen a gyartoi
+                # oldalra, a program megtalal minden frissítést a géphez"*. Törölve
+                # `app/gui/oemdrivers.py` (vele az `open_vendor_driver_page`, ami
+                # 2026-09-02-kor épp azért költözött ide a vendorgpu.py-ból), a mixin
+                # mindkét API-osztályból, a CLI menüpontja, és a felület három eleme
+                # (gomb, `openVendorPage`, `renderOemCard`).
                 #
-                # OEM (Dell/Lenovo/HP) gépre szabott driver-oldal kártya (link-out) - MARAD:
-                # ez nem videokártya, hanem a gép/alaplap gyártójának letöltőoldala, és a
-                # záró jelentés is erre hivatkozik, ha egy eszköznek nincs máshonnan drivere.
-                self._check_oem_driver_page()
+                # AMIT EZZEL TUDVA ELENGEDTÜNK: a gyártói oldalon lévő csomag néha
+                # frissebb a katalógusénál, van hozzá vezérlőpult/segédszoftver, és marad
+                # pár eszköz (BIOS-segédek, RGB/ventilátor-vezérlés), amire tényleg nincs
+                # katalógus-csomag - azokhoz mostantól kézzel kell a gyártó oldalára menni.
+                # A felhasználó ezt ismerve döntött így: ugyanezen a gépen (ASRock B450M)
+                # a lánc 2026-09-04 óta megtalálja és fel is rakja a gyári hang- és
+                # LAN-drivert, tehát a link a gyakorlatban már nem az egyetlen forrás.
+                # Nyereség: eggyel kevesebb WMI-lekérdezés minden szken végén.
+                #
+                # A záró jelentés `no_source` ága TOVÁBBRA IS a gyártó driver-oldalára
+                # irányít - az szöveg, nem link, és ott valóban az a teendő.
             except Exception as e:
                 logging.error(f"hw_scan crash: {e}")
                 logging.error(traceback.format_exc())
@@ -2449,26 +2462,39 @@ try {
             # (`_autofix_closing_rebind`), a kézi úton viszont eddig a technikusnak kellett
             # kitalálnia, hogy ez a dolga - pedig a program pontosan tudja, hogy kellene.
             #
-            # AZ ABLAK MINDEN BEFEJEZETT TELEPÍTÉS VÉGÉN FELJÖN (2026-09-03, terepen
-            # mérve). A feltétel `success > 0 or nobind` volt, és pont a jelentett
-            # futásban egyik sem teljesült:
+            # CSAK AKKOR AJÁNLJUK FEL, HA TÉNYLEG FELMENT VALAMI (2026-09-18, explicit
+            # user decision): *"most pl nem sikerült telepiteni egyet se, ha 0 sikeres
+            # akkor feleslegesen dobja fel h kössem ujra a drivereket... csak akkor
+            # fusson le ha sikeresen felrakott bármi drivert, ha nem akkor feleslegesen
+            # akarja újrakötni"*.
             #
-            #   --- Katalógus: Sikeres: 0, Sikertelen: 0, Kihagyott: 3 ---
-            #   Tételes mérleg: [('nosource', ...), ('nosource', ...), ('nosource', ...)]
+            # EZ A 2026-09-03-I SZABÁLY VISSZAVONÁSA, és a régi szöveget azért hagyom itt,
+            # mert a "miért NEM úgy csináljuk" ugyanolyan értékes: akkor az ablak azért
+            # kezdett MINDEN befejezett telepítés végén feljönni, mert egy terepi futásban
+            # mind a három találatot az INF-vétó fogta meg (`success=0`, `nobind=[]`), az
+            # esemény el sem sült, és a technikus azt látta, hogy "még mindig nem dobja
+            # fel". A mostani döntés ugyanarra a helyzetre az ELLENKEZŐ választ adja, és
+            # jó okkal: ha egyetlen csomag sem került a gépre, akkor a Windowsnak nincs
+            # MIBŐL jobb drivert választania az újrafelderítéskor - garantáltan ugyanazt
+            # kötné vissza, az ára pedig egy teljes ÚJRAINDÍTÁS. Vagyis a régi viselkedés
+            # egy fölösleges reboot felajánlása volt egy olyan műveletért, ami bizonyítottan
+            # nem tud változtatni semmin. (Ugyanez az érv szűkítette 2026-09-01-én a lánc
+            # végi újrakötés-kört a `REBIND_ONLY_WITH_PACKAGE`-dzsel.)
             #
-            # Mind a hármat az INF-vétó fogta meg, tehát `success=0` és `nobind=[]` -> az
-            # esemény el sem sült, és a technikus jogosan mondta, hogy "még mindig nem
-            # dobja fel". A helyes szabály nem a darabszám: a felajánlás azért kell, mert
-            # a TELEPÍTÉS LEFUTOTT, és utána mindig érdemes egy újrafelderítés (új eszközök
-            # bukkanhatnak elő, a kötés a bootnál dől el). Ha semmi nem változott, az
-            # ablak szövege ezt ki is mondja - lásd showRescanOffer.
+            # A `nobind` ág MARAD a feltételben, és ez nem következetlenség: ott a csomag
+            # FELKERÜLT a gépre, csak az eszköz nem vette át - pontosan az az eset, amit az
+            # újrakötés + újraindítás megold. Az `installed == 0 and nobind` kombináció
+            # tehát valódi teendő, nem üresjárat.
             #
             # Megszakításnál NEM ajánljuk fel: ott a technikus épp leállította a műveletet,
             # egy azonnali "újraindítsam?" kérdés a szándéka ellen menne.
             nobind = list(getattr(self, '_catalog_staged_nobind', None) or [])
-            if not self.target_os_path:
-                self.emit('offer_rescan', {'installed': success, 'rebind_devices': nobind,
-                                           'nothing_changed': (success == 0 and not nobind)})
+            if not self.target_os_path and (success > 0 or nobind):
+                self.emit('offer_rescan', {'installed': success, 'rebind_devices': nobind})
+            elif not self.target_os_path:
+                logging.info("[WU_INSTALL] Újrakötés-felajánlás kihagyva: 0 sikeres "
+                             "telepítés és nincs kötés nélkül maradt csomag - nincs mit "
+                             "újrakötni, egy újraindítás itt tiszta veszteség lenne.")
 
         self._safe_thread('wu_install', worker)
 

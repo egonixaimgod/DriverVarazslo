@@ -37,7 +37,16 @@ body::after{content:'';position:fixed;width:700px;height:700px;background:radial
 .sidebar::-webkit-scrollbar{width:6px}
 .sidebar::-webkit-scrollbar-thumb{background:rgba(180,100,255,0.3);border-radius:3px}
 .sidebar>*{flex-shrink:0}
-.sidebar-title{font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:var(--accent);padding:8px 12px 16px;text-align:center;text-shadow:0 0 15px rgba(212,136,255,0.5)}
+.sidebar-title{font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:var(--accent);padding:8px 12px 16px;text-align:center;text-shadow:0 0 15px rgba(212,136,255,0.5);
+  border-radius:var(--r-sm);transition:background var(--t),text-shadow var(--t)}
+/* A LOGÓ UGYANÚGY NÉZ KI, MINT EDDIG - csak egy halk kiemelést kap, amikor épp a
+   kezdőlapon állunk (2026-09-18, explicit user decision: *"maradjon ugyanugy a logo...
+   max annyit hogy kicsit legyen ki highlightolva h azert lathato legyen h eppen azon a
+   menüponton vagyok de a stilusa most tetszik, ne legyen abbol is egy faszo sidebar
+   elem"*). SZÁNDÉKOSAN NEM a `.nav-btn.active` kinézete: nincs gomb-keret, nincs
+   gradiens, nincs bal-szélű sáv - csak egy alig látható háttér és erősebb ragyogás. */
+.sidebar-title.on-home{background:rgba(180,100,255,0.10);text-shadow:0 0 22px rgba(212,136,255,0.9)}
+.sidebar-title:hover{background:rgba(180,100,255,0.07)}
 .sidebar-title span{display:block;font-size:14px;letter-spacing:0;text-transform:none;color:var(--text);margin-top:4px}
 
 .nav-btn{
@@ -367,9 +376,13 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 
 /* ===== DRIVEREK NÉZET: HASZNÁLAT-ÁLLAPOT =====================================
    A technikus itt dönt arról, mit töröljön egy ügyfél gépén, és eddig VAKON tette.
-   A három állapot színe a jelentésüket kódolja, nem díszít: piros = a gép MOST
-   használja (ha törlöd, valami elromlik), sárga = tartozik hozzá valami, de épp nem
-   aktív (kihúzott nyomtató/telefon), szürke = semmi nem hivatkozik rá.
+   A három állapot színe a jelentésüket kódolja, nem díszít: ZÖLD = a gép MOST használja
+   (ez a normális, jó állapot - ha törlöd, valami elromlik), sárga = tartozik hozzá
+   valami, de épp nem aktív (kihúzott nyomtató/telefon), semleges/fehér = semmi nem
+   hivatkozik rá, ez a mazsolázható rész.
+   A "használatban" 2026-09-18-ig PIROS volt (explicit user decision cserélte zöldre):
+   a piros ebben a programban mindenhol hibát vagy veszélyt jelent, itt viszont épp a
+   HELYES állapotot jelölte - a technikus joggal olvasta úgy, hogy baj van vele.
    FIGYELEM: ez BESOROLÁS, NEM SZŰRŐ - egyetlen sort sem rejt el és nem tilt le
    (lásd a CLAUDE.md "MINDEN DRIVERT LEHESSEN TÖRÖLNI" szabályát). */
 /* A CHIP SZÖVEGE NEM CSONKOLÓDHAT. Ez nem esztétika: a szöveg MAGA az indoklás
@@ -388,7 +401,13 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
    a védőháló: egy 1366x768-as laptopon a fix 580 px már kilógna a képernyőről, ott a
    viewport szabja meg a méretet. Egy sor ~47 px, tehát a +150 px valóban ~3 sor. */
 #driver-table-wrap{max-height:min(580px, calc(100vh - 300px))}
-.usage-active{background:rgba(255,90,90,0.16);border:1px solid rgba(255,107,91,0.45);color:#ffb3ab}
+/* A "HASZNÁLATBAN" ZÖLD, NEM PIROS (2026-09-18, explicit user decision: *"nemtom h miert
+   piros, az legyen inkább zöld"*). Igaza van: a piros ebben a programban mindenhol hibát
+   vagy veszélyt jelent, márpedig egy használatban lévő driver a NORMÁLIS, jó állapot -
+   a piros itt azt sugallta, hogy valami baj van vele. A "készenlétben" marad sárga (van
+   hozzá eszköz, de épp nem aktív - ez tényleg egy "figyelj rá" állapot), a "nem használt"
+   pedig semleges/fehér: az a mazsolázható rész, nem hiba. */
+.usage-active{background:rgba(110,230,160,0.14);border:1px solid rgba(46,224,138,0.42);color:#a7f0cb}
 .usage-standby{background:rgba(255,180,80,0.14);border:1px solid rgba(255,180,80,0.38);color:#ffd08a}
 .usage-unused{background:rgba(255,255,255,0.05);border:1px solid var(--glass-border);color:var(--text3)}
 .usage-unknown{background:rgba(255,255,255,0.04);border:1px dashed var(--glass-border);color:var(--text3)}
@@ -422,11 +441,105 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
 .mm-caret{font-size:12px;color:var(--text3);white-space:nowrap}
 /* Az ábra a nézet főszereplője ("mint a Tarkovban"): a szélesség ~45%-át kapja, nem egy
    keskeny oszlopot - 430 px-en a kis pontok (USB, HANG, BIOS) felirata olvashatatlan volt. */
-.mm-body{display:grid;grid-template-columns:minmax(340px,0.85fr) minmax(0,1.15fr);gap:16px;padding:14px 16px 16px;
+/* 2×2 RÁCS: bal-fent az ábra, bal-lent a driver-táblázat, jobbra a kártyák MINDKÉT
+   soron átnyúlva. Így a kártya-hasáb magassága feszíti ki a bal alsó cellát, vagyis a
+   táblázat alja MAGÁTÓL egy vonalba kerül a kártyák aljával (2026-09-18, explicit user
+   decision) - korábban az ábra alatt egy képernyő-magas üres folt volt, a táblázat meg
+   az egész alá csúszott. */
+/* A 2. SOR MINIMUMA 260px, NEM 0 (2026-09-18, mérve): a `minmax(0,1fr)` explicit 0-ás
+   minimuma FELÜLÍRTA a `.mm-tablecol` `min-height`-jét, ezért széles képernyőn a táblázat
+   99 px-re lapult (2560 px-en mérve) - a kártya-hasáb ott rövidebb, az ábra viszont a
+   hasáb szélességével együtt magasodik, és elvitte a helyet. Ha a kártya-hasáb ennél is
+   rövidebb, a bal hasáb túlnyúlik rajta - ez a vállalt irány: egy 99 px-es táblázat
+   használhatatlan, egy kicsit lelógó viszont csak esztétikai. */
+.mm-body{display:grid;grid-template-columns:minmax(360px,1fr) minmax(0,1fr);
+  grid-template-rows:auto minmax(260px,1fr);gap:16px;padding:14px 16px 16px;
   position:relative;z-index:1}
-.mm-wrap.collapsed .mm-body{display:none}
-@media (max-width:1150px){.mm-body{grid-template-columns:minmax(0,1fr)}}
-.mm-figure{border-radius:var(--r-sm);padding:6px;align-self:start;position:sticky;top:8px;
+.mm-figure{grid-column:1;grid-row:1}
+.mm-cards{grid-column:2;grid-row:1 / span 2}
+/* A TÁBLÁZAT-HASÁB NEM NYÚLHAT TÚL A KÁRTYA-HASÁBON (2026-09-18, explicit user decision:
+   *"maximum addig érjen amíg a képen a piros csík van, onnan legyen scrollable"*).
+   A trükk a belső réteg `position:absolute;inset:0`-ja: abszolút pozícionált tartalom NEM
+   ad magasságot a rács sorának, tehát a sor magasságát KIZÁRÓLAG a `1fr` és a két soron
+   átnyúló kártya-hasáb dönti el - a táblázat pedig ezen belül gördül. Enélkül a
+   `max-height:none` miatt a táblázat a saját tartalmához nőtt, és lelógott a kártyák alá
+   (a headless mérés ezt `bal_hasab_alja > kartya_hasab_alja`-ként mutatta ki).
+   A `min-height` a padló: ha a kártya-hasáb rövid (kevés alkatrész), a táblázat akkor se
+   szoruljon össze olvashatatlanra. */
+.mm-tablecol{grid-column:1;grid-row:2;min-width:0;min-height:260px;position:relative}
+.mm-tablecol-inner{position:absolute;inset:0;display:flex;flex-direction:column;min-height:0}
+/* A HASZNÁLAT-ÁLLAPOT SÁV a táblázat FEJÉBEN ül (2026-09-18, explicit user decision:
+   *"a 1 csomagot használ a gép meg a minden kijelölése sor kerüljön át a táblázat
+   tetejébe, ne itt legyen minden felett"*) - korábban a panel tetején, a gép-ábra FÖLÖTT
+   volt, ahol elszakadt attól a listától, amiről beszél. Szűkebb hasábban tömörebb
+   szedéssel, de tördelve: a darabszám és a két gomb az információ, nem csonkolható. */
+.mm-tablecol #drv-usage-summary{margin:0 0 10px;padding:10px 12px;gap:10px}
+.mm-tablecol .hw-sum-machine{font-size:13px}
+.mm-tablecol .hw-sum-meta{font-size:11px}
+/* A táblázat KITÖLTI a rendelkezésre álló magasságot (a saját 580px-es plafonja helyett),
+   és belül gördül - ez teszi "egyvonalban"-ná a két hasábot. */
+.mm-tablecol #driver-table-wrap{flex:1 1 auto;max-height:none;min-height:0}
+/* A 7 OSZLOP FÉL SZÉLESSÉGEN: tömörebb szedés, hogy ne kelljen vízszintesen gördíteni.
+   A `overflow-x:auto` a védőháló - a `.table-wrap` alapból CSAK `overflow-y`-t kap, ezért
+   egy kilógó oszlop nem gördíthető, hanem ELÉRHETETLEN lenne (a headless render pontosan
+   ezt mutatta: a "Mire való" és a "Version" a hasáb szélén elvágva). */
+.mm-tablecol #driver-table-wrap{overflow-x:auto}
+.mm-tablecol #driver-table-wrap table{font-size:11.5px}
+.mm-tablecol #driver-table-wrap th,.mm-tablecol #driver-table-wrap td{padding:7px 8px}
+.mm-tablecol #driver-table-wrap th{font-size:10.5px;letter-spacing:0}
+.mm-tablecol #driver-table-wrap th:nth-child(2){min-width:130px}
+.mm-tablecol #driver-table-wrap td:nth-child(2){max-width:190px}
+.mm-tablecol #driver-table-wrap td.what-cell{max-width:180px}
+.mm-tablecol #driver-table-wrap td:nth-child(3),
+.mm-tablecol #driver-table-wrap td:nth-child(4),
+.mm-tablecol #driver-table-wrap td:nth-child(5){word-break:break-word;white-space:normal}
+/* A fülek a szűkebb hasábban tördelnek - nem csonkolnak, mert a darabszám az információ. */
+.mm-tablecol .hw-tabs{gap:6px}
+.mm-tablecol .hw-tab{padding:6px 11px;font-size:11.5px}
+
+/* ÖSSZECSUKVA / NINCS TÉRKÉP-ADAT: az ábra és a kártyák eltűnnek, A TÁBLÁZAT MARAD.
+   Ez nem kényelmi kérdés: a táblázat 2026-09-18 óta a térkép wrapperén BELÜL van (hogy
+   a rács összefűzhesse a két hasábot), tehát ha ezek az állapotok a régi módon az egész
+   `.mm-body`-t rejtenék el, a driver-lista tűnne el a nézetből - offline módban és
+   minden térkép-hibánál. A CLAUDE.md szabálya: "a térkép hibája nem viheti el a
+   táblázatot". Egyhasábos módban visszakapja a saját magasság-plafonját, különben egy
+   100+ soros lista végtelen hosszúra nyújtaná a lapot. */
+.mm-wrap.collapsed .mm-figure,.mm-wrap.collapsed .mm-cards,
+.mm-wrap.mm-nomap .mm-figure,.mm-wrap.mm-nomap .mm-cards,
+.mm-wrap.mm-nomap .mm-head{display:none}
+.mm-wrap.collapsed .mm-body,.mm-wrap.mm-nomap .mm-body{grid-template-columns:minmax(0,1fr);
+  grid-template-rows:auto}
+.mm-wrap.collapsed .mm-tablecol,.mm-wrap.mm-nomap .mm-tablecol{grid-column:1;grid-row:1;
+  min-height:0;position:static}
+/* EGYHASÁBOS MÓDBAN A BELSŐ RÉTEG VISSZATÉR A NORMÁL FOLYAMBA: nincs kártya-hasáb, ami
+   kifeszítse a sort, tehát egy `absolute;inset:0` réteg 0 magas szülőre feszülne, és a
+   táblázat ELTŰNNE. A `position:static` + a saját magasság-plafon a régi, bevált
+   viselkedést adja vissza. */
+.mm-wrap.collapsed .mm-tablecol-inner,.mm-wrap.mm-nomap .mm-tablecol-inner{position:static}
+.mm-wrap.collapsed #driver-table-wrap,
+.mm-wrap.mm-nomap #driver-table-wrap{max-height:min(580px, calc(100vh - 300px));flex:0 1 auto}
+/* Térkép-adat nélkül a wrapper LÁTHATATLAN: nincs keret, háttér, vízjel, belső margó -
+   a nézet pontosan úgy néz ki, mint a térkép bevezetése előtt. */
+.mm-wrap.mm-nomap{border:0;background:none;margin-bottom:0}
+.mm-wrap.mm-nomap::after{content:none}
+.mm-wrap.mm-nomap .mm-body{padding:0}
+
+@media (max-width:1150px){
+  /* Keskeny képernyőn egy hasáb, DOM-sorrendben: ábra -> kártyák -> táblázat. Itt sincs
+     mellette kártya-hasáb, ezért a belső réteg is a normál folyamba tér vissza (lásd az
+     egyhasábos mód indoklását fentebb). */
+  .mm-body{grid-template-columns:minmax(0,1fr);grid-template-rows:auto}
+  .mm-figure,.mm-cards,.mm-tablecol{grid-column:1;grid-row:auto}
+  .mm-tablecol{min-height:0;position:static}
+  .mm-tablecol-inner{position:static}
+  .mm-tablecol #driver-table-wrap{max-height:min(580px, calc(100vh - 300px));flex:0 1 auto}
+}
+/* AZ ÁBRÁNAK PLAFONJA VAN (2026-09-18, mérve): `width:100%` + `height:auto` mellett az
+   SVG a hasáb szélességével együtt MAGASODIK is, és 2560 px-en annyi helyet vett el,
+   hogy a táblázatnak 99 px maradt. A plafon fölött az ábra már nem nő, a maradék
+   magasság a táblázaté - a hasáb közepén marad, hogy ne lógjon félre. */
+.mm-figure{max-width:620px;margin:0 auto;
+  border-radius:var(--r-sm);padding:6px;align-self:start;position:sticky;top:8px;
   background:radial-gradient(ellipse at 50% 45%,rgba(212,136,255,0.11),transparent 70%);
   border:1px solid rgba(180,100,255,0.14)}
 .mm-figure svg{width:100%;height:auto;display:block}
@@ -472,7 +585,6 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
 #driver-table-wrap td.what-cell{max-width:360px;white-space:normal}
 .what-main{font-weight:600;color:var(--text);line-height:1.35;word-break:break-word}
 .what-sub{font-size:11px;color:var(--text3);margin-top:2px}
-.drv-groupmode{margin-left:auto;display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text3)}
 .seg{display:inline-flex;border:1px solid rgba(180,100,255,0.3);border-radius:999px;overflow:hidden}
 .seg button{background:transparent;border:0;color:var(--text3);padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
 .seg button.on{background:rgba(180,100,255,0.26);color:var(--text)}
@@ -887,22 +999,44 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 <div class="app">
   <!-- Sidebar -->
   <nav class="sidebar">
-    <div class="sidebar-title" onclick="checkForUpdatesManual()" style="cursor: pointer;">🧙‍♂️ DRIVERVARÁZSLÓ<span>🖥️ Tiszta rendszer</span></div>
-    <button class="nav-btn active" onclick="switchView('drivers')" data-view="drivers"><span class="icon">💿</span>Driverek kezelése</button>
-    <button class="nav-btn" onclick="switchView('backup')" data-view="backup"><span class="icon">💾</span>Mentés és Visszaállítás</button>
-    <button class="nav-btn" onclick="switchView('wu')" data-view="wu"><span class="icon">🔄</span>Windows Update</button>
+    <!-- A CÍM KÉT DOLGOT CSINÁL, ÉS MINDKETTŐ SZÁNDÉKOS (lásd `goHome`): visszavisz a
+         kezdőlapra (2026-09-18, explicit user decision - ez az EGYETLEN út oda), és
+         közben lefuttatja a rejtett, kézi frissítés-ellenőrzést is. A kettő nem zavarja
+         egymást: a frissítés-ellenőrzés naprakész verziónál teljesen néma. -->
+    <div class="sidebar-title" onclick="goHome()" style="cursor: pointer;"
+         title="Vissza a kezdőlapra (üdvözlő + 1 kattintásos fix)">🧙‍♂️ DRIVERVARÁZSLÓ<span>🖥️ Tiszta rendszer</span></div>
+    <!-- AZ OLDALSÁV 15 ELEMRŐL 10-RE RÖVIDÜLT (2026-09-18, explicit user decision:
+         *"most annyi sidebar elem van amiket össze lehetne vonni h halal"*). A sorrend
+         is kérés szerinti: legfelül a két driver-menüpont, utána az operációs rendszer.
+         Ami kikerült, és HOVA (egyik funkció sem szűkült, az azonosítók változatlanok):
+           👻 Szellemeszközök      -> Driverek kezelése (karbantartó kártya)
+           🔄 Windows Update       -> Operációs rendszer (1. szakasz)
+           🎫 Windows & Office     -> Operációs rendszer (2. szakasz)
+           🔒 BitLocker Kezelő     -> Operációs rendszer (3. szakasz)
+           📊 Rendszer Riport      -> kezdőlap (a logóra kattintva)
+           📥 Naplók letöltése     -> kezdőlap (a logóra kattintva)
+         A "Temp Fájlok Törlése" pedig "Rendszer karbantartás" lett, mert a lemez-
+         takarításon túl már nem csak temp fájlokról szól. -->
+    <button class="nav-btn" onclick="switchView('drivers')" data-view="drivers"><span class="icon">💿</span>Driverek kezelése</button>
     <button class="nav-btn" onclick="switchView('hw')" data-view="hw"><span class="icon">🖥️</span>Driver Keresés és Telepítés</button>
-    <button class="nav-btn" onclick="switchView('ghost')" data-view="ghost"><span class="icon">👻</span>Szellemeszközök</button>
-    <button class="nav-btn" onclick="switchView('tempclean')" data-view="tempclean"><span class="icon">🧹</span>Temp Fájlok Törlése</button>
-    <button class="nav-btn" onclick="switchView('bitlocker')" data-view="bitlocker"><span class="icon">🔒</span>BitLocker Kezelő</button>
+    <!-- AZ IKON A RÉGI "Windows & Office" MENÜPONTÉ (🎫), explicit user decision
+         (2026-09-18): *"az az ikon legyen ott ami eddig volt a windows & office fülnek,
+         régen az megfelelt nekem"*. A fogaskerék azért esett ki, mert a felhasználó
+         szavaival "az operációs rendszert a windowssal párosítjuk össze agyban".
+         MELLÉKES, DE MÉRT TÉNY (hátha kell még): a 🪟 (U+1FA9F) VALÓDI WebView2-ben
+         hibátlanul megjelenik - a CLAUDE.md korábbi "üres téglalap" állítása csak a
+         gép-ábra SVG <text> elemére igaz, ahol nincs emoji-font. -->
+    <button class="nav-btn" onclick="switchView('os')" data-view="os"><span class="icon">🎫</span>Operációs rendszer</button>
+    <button class="nav-btn" onclick="switchView('backup')" data-view="backup"><span class="icon">💾</span>Mentés és Visszaállítás</button>
+    <button class="nav-btn" onclick="switchView('tempclean')" data-view="tempclean"><span class="icon">🧹</span>Rendszer karbantartás</button>
     <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Driver Fix</button>
     <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stress Teszt &amp; Szervíz Programok</button>
     <button class="nav-btn" onclick="switchView('benchmark')" data-view="benchmark"><span class="icon">🏆</span>Benchmark</button>
     <button class="nav-btn" onclick="switchView('display')" data-view="display"><span class="icon">🎨</span>Kijelző &amp; Színkezelés</button>
-    <button class="nav-btn" onclick="switchView('report')" data-view="report"><span class="icon">📊</span>Rendszer Riport (PDF)</button>
-    <button class="nav-btn" onclick="switchView('blockscript')" data-view="blockscript"><span class="icon">🚫</span>Net Blokkoló Script</button>
-    <button class="nav-btn" onclick="switchView('winact')" data-view="winact"><span class="icon">🎫</span>Windows &amp; Office</button>
-    <button class="nav-btn" onclick="switchView('logs')" data-view="logs"><span class="icon">📥</span>Naplók letöltése</button>
+    <!-- A NET BLOKKOLO SCRIPT MENUPONTJA KIKERULT (2026-09-18, explicit user decision:
+         *"a net blokkoló script is átmehetne az operációs rendszerbe, felesleges külön
+         menüpont"*) - a kartya a "Operacios rendszer" nezet 4. szakasza. Ez is a
+         Windows sajat szolgaltatasa (tuzfal-szabalyok), nem driver. -->
     <div class="sidebar-bottom" id="build-label">Build ---</div>
     <div class="sidebar-clearlog" id="clear-log-label" title="Törli a gép saját debug-naplóit (DriverVarázsló_debug.log és a rotált másai), hogy a következő futás tisztán olvasható legyen. A Naplók nézetbe letöltött, MÁS gépekről származó naplókat nem bántja." onclick="clearDebugLogs()">🧹 napló törlése</div>
     <div class="sidebar-datadir" id="data-dir-label" title="Ide menti a program a debug naplót és a Rendszer Riport HTML fájlokat - kattints a megnyitáshoz" onclick="openAppDataDir()">📁 ...</div>
@@ -922,9 +1056,23 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
     </div>
 
     <div class="content">
-      <!-- VIEW: Drivers -->
-      <div class="view active" id="view-drivers">
-        <!-- Üdvözlő hero - a program "kirakata", mindig legfelül -->
+      <!-- ===== VIEW: KEZDŐLAP (rejtett fül) =====================================
+           2026-09-18, explicit user decision: *"Amikor megnyitod a programot akkor
+           legyen egy kulon ful, ahol csak az üdvözöllek a driver varazsloban legyen es
+           alatta az 1 katt autofix is mert azt sokat hasznalom, ez egy ilyen hidden
+           page legyen, ezzel induljon a program és csak akkor lehessen ide visszamenni
+           ha bal felülre a drivervarázsló tiszta rendszerre kattintok."*
+
+           A két kártya korábban a "Driverek kezelése" nézet TETEJÉN és ALJÁN ült, közé
+           szorítva a driver-táblázatot és a gép-ábrát - vagyis a nézet fő munkaterülete
+           két, hozzá nem tartozó kártya közt szorongott. Itt a program indulóképe lett
+           belőlük: a szervizelés tipikusan a fix indításával kezdődik.
+
+           NINCS HOZZÁ MENÜPONT, és ez nem hiba: a `goHome()` (az oldalsáv címe) az
+           egyetlen út ide. Ezért `switchView` elnézi, ha egy nézethez nincs nav-gomb -
+           e nélkül a `querySelector(...).classList` némán kivételt dobna, és a
+           nézetváltás fele lefutva állna meg (a `.view` már átváltott volna). -->
+      <div class="view active" id="view-home">
         <div class="view-hero" data-emoji="🧙‍♂️">
           <div class="vh-text">
             <div class="vh-title">🧙‍♂️ Üdvözöllek a DriverVarázslóban!</div>
@@ -939,6 +1087,91 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             <div class="welcome-feature"><span class="fi">🔥</span><span><b>Stress Teszt & Szervíz Programok</b> — automata 4-in-1 teszt, portable vagy telepíthető eszközök</span></div>
             <div class="welcome-feature"><span class="fi">📊</span><span><b>Rendszer Riport</b> — S.M.A.R.T. és hőfok-adatokkal, egy kattintásos bolti nyomtatással</span></div>
             <div class="welcome-feature"><span class="fi">🔧</span><span><b>BitLocker kezelő</b>, <b>Net Blokkoló</b> és <b>BootFixer</b> — ha a Windows nem indul</span></div>
+          </div>
+        </div>
+
+        <!-- 1 Kattintásos Driver Fix gyorsindító: a szervizelés tipikusan ezzel kezdődik,
+             ezért a kezdőlapról azonnal indítható (a sidebar menüpont természetesen
+             megmarad - ez ugyanazt a startAutoFix()-et hívja, ugyanazzal a megerősítő
+             ablakkal és nyomtató-kihagyás opcióval). -->
+        <div class="autofix-hero">
+          <div class="autofix-hero-text">
+            <div class="autofix-hero-title">🚀 1 Kattintásos Driver Fix</div>
+            <div class="autofix-hero-sub">A teljes driver-rendberakás egyetlen gombbal: visszaállítási pont, a Windows Update driver-frissítéseinek letiltása, szellemeszközök és MINDEN third-party driver törlése — a hálózati drivert is beleértve (csak a nyomtató-driverek hagyhatók ki a pipával) —, majd a legfrissebb driverek automatikus telepítése a Windows Update-ről és a Microsoft Update Catalogból, újraindítás-lánccal, felügyelet nélkül. Ha a fix után mégsem lenne internet, a törlés előtt lementett hálózati driver automatikusan visszakerül, hogy a lánc ne ragadjon meg. A végén a DriverStore-t is kitakarítja.</div>
+            <div class="stress-hero-chips">
+              <span class="autofix-chip">🛟 Visszaállítási pont</span>
+              <span class="autofix-chip">👻 Szellemeszköz-törlés</span>
+              <span class="autofix-chip">🖨️ Nyomtató-védelem</span>
+              <span class="autofix-chip">🌐 WU + Catalog telepítés</span>
+              <span class="autofix-chip">🧹 DriverStore-takarítás</span>
+            </div>
+          </div>
+          <div class="stress-hero-actions">
+            <button class="btn-autofix-hero" onclick="startAutoFix()">🚀 FIX INDÍTÁSA</button>
+            <!-- AZ ESZKÖZ-ÚJRAKÖTÉS GOMBJA INNEN ÁTKERÜLT a "Driverek kezelése" nézet
+                 karbantartó kártyáira (2026-09-18, explicit user decision) - ott egy
+                 helyen van a szellemeszköz-törléssel, és a magyarázata is kifér. Ez a
+                 kártya az AUTOMATA fixről szól; egy kézi karbantartó művelet a gombjai
+                 közt pont azt sugallta, hogy a fix része. -->
+            <button class="btn btn-sm" onclick="switchView('autofix')" style="justify-content:center" title="A teljes leírás és a Windows Defender figyelmeztetés a menüpont oldalán">ℹ️ Részletek + Defender-figyelmeztetés</button>
+          </div>
+        </div>
+
+        <!-- ===== RENDSZER RIPORT (a korábbi `view-report`) ========================
+             2026-09-18, explicit user decision: *"a rendszer riport is kerülhet a
+             főoldalra... annak is felesleges egy teljes sidebar menü"*. Egy gomb volt az
+             egész nézet, itt a kezdőlap harmadik kártyája. A `btn-report` azonosító és a
+             `generateSystemReport()` hívás változatlan. -->
+        <div class="view-hero vh-teal" data-emoji="📊">
+          <div class="vh-text">
+            <div class="vh-title">📊 Rendszer Riport (HTML Gépkönyv)</div>
+            <div class="vh-sub">Igényes, nyomtatható HTML gépkönyvet generál a számítógép hardveréről: CPU, memória, videokártya (valódi VRAM-mérettel), és a háttértárak S.M.A.R.T. egészség-adatai hőmérséklettel. A böngészőben megnyitva PDF-be menthető vagy egy kattintással a bolti nyomtatóra küldhető. A fájl a <code>C:\DriverVarazslo</code> mappába kerül.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">💾 S.M.A.R.T. + hőfok</span>
+              <span class="hero-chip">🎮 Valódi VRAM-méret</span>
+              <span class="hero-chip">📝 Megjegyzés-sor a vevőnek</span>
+              <span class="hero-chip">🖨️ Bolti nyomtatás</span>
+            </div>
+          </div>
+          <div class="vh-actions">
+            <button class="btn btn-big btn-success" onclick="generateSystemReport()" id="btn-report">📄 HTML Riport Generálása</button>
+          </div>
+        </div>
+
+        <!-- ===== NAPLÓK LETÖLTÉSE (a korábbi `view-logs`) =========================
+             2026-09-18, explicit user decision: *"a naplók letöltésének is felesleges egy
+             teljesen uj menü, az is mehet a főoldalra"*. Minden azonosító változatlan
+             (logs-password, btn-logs-dl, logs-dest) - a `loadLogsViewInfo()` a
+             switchView('home')-ban fut le. -->
+        <div class="view-hero vh-blue" data-emoji="📥">
+          <div class="vh-text">
+            <div class="vh-title">📥 Naplók letöltése a szerviz Drive-járól</div>
+            <div class="vh-sub">Minden lefuttatott 1 kattintásos fix a végén feltölti a saját debug naplóját a bolt Google Drive-jára, gépenként külön mappába (gépnév + típus + dátum). Ez a gomb egy kattintásra visszahozza őket <b>kicsomagolva</b> erre a gépre, hogy elemezni lehessen. Ami már megvan helyben, azt átugorja — az ismételt kattintás csak az újakat hozza le. A letöltött naplók helye: <code id="logs-dest">C:\DriverVarazslo\letoltott_naplok</code> — futásonként egy almappa (gépnév + típus + dátum), benne a napló <code>.log</code> kiterjesztéssel.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">🔑 Jelszóval védve</span>
+              <span class="hero-chip">📦 Kicsomagolva menti</span>
+              <span class="hero-chip">⏭️ Csak az újakat tölti le</span>
+            </div>
+          </div>
+          <div class="vh-actions">
+            <input type="password" id="logs-password" class="pw-input" placeholder="Jelszó" onkeydown="if(event.key==='Enter')downloadUploadedLogs()">
+            <button class="btn btn-big btn-primary" onclick="downloadUploadedLogs()" id="btn-logs-dl">📥 Naplók Letöltése</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW: Drivers -->
+      <div class="view" id="view-drivers">
+        <div class="view-hero" data-emoji="💿">
+          <div class="vh-text">
+            <div class="vh-title">💿 Driverek kezelése</div>
+            <div class="vh-sub">A gép teljes driver-készlete egy táblázatban: mi minek a drivere, mit használ most a gép, és mi törölhető szabadon. Fent a gép felépítése alkatrészenként — egy kattintás a kártyára az adott alkatrész drivereire szűri a listát. Offline (WinPE) módban egy másik lemezen lévő Windows driverei is kezelhetők.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">🖥️ A gép felépítése</span>
+              <span class="hero-chip">🔍 Mit használ most a gép</span>
+              <span class="hero-chip">🗑 Erőszakos törlés</span>
+              <span class="hero-chip">🖨️ Nyomtató-védelem</span>
+            </div>
           </div>
         </div>
 
@@ -979,26 +1212,32 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
               </div>
             </div>
           </div>
-          <!-- HASZNÁLAT-ÁLLAPOT SÁV. Addig rejtve, amíg a felderítés nem végzett: egy
-               üres vagy fél állapotsáv rosszabb, mint a semmi, mert a technikus azt
-               hinné, hogy a gép semmit nem használ. -->
-          <div class="hw-summary" id="drv-usage-summary" style="display:none">
-            <div class="hw-sum-main">
-              <span class="hw-sum-machine" id="drv-usage-title">Használat felderítése...</span>
-              <span class="hw-sum-meta" id="drv-usage-meta"></span>
-            </div>
-            <!-- A KÉT KIJELÖLŐ GOMB EGYMÁS MELLETT (2026-09-17, explicit user decision):
-                 ugyanaz a művelet két szűkítésben, tehát egy helyen a dolguk. A "Mind"
-                 korábban a felső eszköztárban, a Frissítés/Törlés mellett szorongott. -->
-            <button class="btn btn-sm" id="btn-select-all" onclick="selectAllDrivers()"
-                    title="A MOST LÁTHATÓ sorokat jelöli ki (a szűrők és a kiválasztott fül után). Újra rákattintva visszavonja a kijelölést.">☑ Mind kijelölése</button>
-            <button class="btn btn-sm" id="btn-select-unused" onclick="selectUnusedDrivers()"
-                    title="Csak azokat pipálja ki, amikre semmi nem hivatkozik: nincs hozzájuk eszköz a gépben, és nem fut hozzájuk kernel-szolgáltatás. A használatban lévőket és a készenléti (kihúzott eszközhöz tartozó) csomagokat kihagyja - de bármikor kipipálhatod őket kézzel is.">⚪ Csak a nem használtak kijelölése</button>
-          </div>
           <!-- A GÉP FELÉPÍTÉSE (2026-09-17): a gép rajza + alkatrész-kártyák. A használat-
                felderítéssel EGY hívásból érkezik (get_driver_usage 'machine' mezője), addig
                rejtve. Egy kattintás a lenti táblázatot az alkatrész drivereire szűri. -->
-          <div class="mm-wrap" id="drv-machine" style="display:none" data-emoji="🖥️">
+          <!-- A TÁBLÁZAT A GÉP-ÁBRA ALÁ KERÜLT, A KÁRTYA-HASÁBBAL EGY VONALBA
+               (2026-09-18, explicit user decision): *"ott a gep grafika es mellette
+               jobbra pedig a driverek, a gep grafika alatt van egy nagy üres tér, ez
+               [a fülek + táblázat] legyen alatta, és mindig legyen annyira nyitott
+               amennyire lemennek a gépes driverek... legyen egyvonalban"*.
+
+               Az alkatrész-kártyák hasábja jellemzően 3-4× magasabb, mint az ábra, ezért
+               az ábra alatt egy képernyő-magas üres folt keletkezett, a táblázat meg
+               lecsúszott az egész alá. Most a `.mm-body` egy 2×2-es rács: bal-fent az
+               ábra, bal-lent a táblázat, jobbra a kártyák MINDKÉT soron átnyúlva - így a
+               két hasáb alja magától egy vonalban van, és a táblázat pont a korábbi üres
+               teret kapja meg.
+
+               EZÉRT A TÁBLÁZAT MOST A `#drv-machine`-en BELÜL VAN, ami két
+               következménnyel jár, és mindkettőt kezelni KELL (lásd a CSS-t és a
+               `renderMachineMap`-et): a nézet nem tűnhet el, ha (a) nincs térkép-adat
+               (offline mód, ctypes-hiba - a CLAUDE.md szabálya: "a térkép hibája nem
+               viheti el a táblázatot"), vagy (b) a technikus összecsukja a térképet.
+               Mindkét esetben a `mm-nomap` / `collapsed` osztály CSAK az ábrát, a
+               fejlécet és a kártyákat rejti el, a táblázatot soha - és a rács
+               egyhasábosra vált. A wrapper ezért indul `mm-nomap`-pal `display:none`
+               helyett. -->
+          <div class="mm-wrap mm-nomap" id="drv-machine" data-emoji="🖥️">
             <div class="mm-head" onclick="toggleMachineMap()" id="mm-head">
               <span class="mm-head-icon" id="mm-head-icon">🖥️</span>
               <div class="mm-head-main">
@@ -1010,54 +1249,109 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             <div class="mm-body">
               <div class="mm-figure" id="mm-figure"></div>
               <div class="mm-cards" id="mm-cards"></div>
+              <!-- A TÁBLÁZAT-HASÁB EGY ABSZOLÚT POZÍCIONÁLT BELSŐ RÉTEGBEN ÜL
+                   (`.mm-tablecol-inner`), és ez NEM formaság: `position:absolute;inset:0`
+                   mellett a tartalom NEM ad magasságot a rács sorának, tehát a táblázat
+                   nem tudja lejjebb nyújtani a bal hasábot, mint ameddig a kártya-hasáb
+                   tart - a sor magasságát a `1fr` és a két soron átnyúló kártya-hasáb
+                   dönti el, a táblázat pedig BELÜL gördül. Enélkül a `max-height:none`
+                   miatt a táblázat a tartalmához nőtt, és túlfutott a kártyákon
+                   (2026-09-18, explicit user decision: *"maximum addig érjen amíg a
+                   képen a piros csík van, onnan legyen scrollable"*). -->
+              <div class="mm-tablecol">
+               <div class="mm-tablecol-inner">
+          <!-- HASZNÁLAT-ÁLLAPOT SÁV. Addig rejtve, amíg a felderítés nem végzett: egy
+                       üres vagy fél állapotsáv rosszabb, mint a semmi, mert a technikus azt
+                       hinné, hogy a gép semmit nem használ. -->
+                  <div class="hw-summary" id="drv-usage-summary" style="display:none">
+                    <div class="hw-sum-main">
+                      <span class="hw-sum-machine" id="drv-usage-title">Használat felderítése...</span>
+                      <span class="hw-sum-meta" id="drv-usage-meta"></span>
+                    </div>
+                    <!-- A KÉT KIJELÖLŐ GOMB EGYMÁS MELLETT (2026-09-17, explicit user decision):
+                         ugyanaz a művelet két szűkítésben, tehát egy helyen a dolguk. A "Mind"
+                         korábban a felső eszköztárban, a Frissítés/Törlés mellett szorongott. -->
+                    <button class="btn btn-sm" id="btn-select-all" onclick="selectAllDrivers()"
+                            title="A MOST LÁTHATÓ sorokat jelöli ki (a szűrők és a kiválasztott fül után). Újra rákattintva visszavonja a kijelölést.">☑ Mind kijelölése</button>
+                    <button class="btn btn-sm" id="btn-select-unused" onclick="selectUnusedDrivers()"
+                            title="Csak azokat pipálja ki, amikre semmi nem hivatkozik: nincs hozzájuk eszköz a gépben, és nem fut hozzájuk kernel-szolgáltatás. A használatban lévőket és a készenléti (kihúzott eszközhöz tartozó) csomagokat kihagyja - de bármikor kipipálhatod őket kézzel is.">⚪ Csak a nem használtak kijelölése</button>
+                  </div>
+                <!-- SZŰRŐ-FÜLEK. Ugyanaz a minta, mint a Driver Keresés nézetben. -->
+                <div class="hw-tabs" id="drv-tabs" style="display:none"></div>
+                <div class="table-wrap" id="driver-table-wrap">
+                  <table>
+                    <thead><tr>
+                      <th style="width:30px"></th>
+                      <th class="sortable" data-sort-key="usage" onclick="sortDriversBy('usage')">Használat<span class="sort-arrow"></span></th>
+                      <th class="sortable" data-sort-key="published" onclick="sortDriversBy('published')">Published Name<span class="sort-arrow"></span></th>
+                      <th class="sortable" data-sort-key="original" onclick="sortDriversBy('original')">Original Name<span class="sort-arrow"></span></th>
+                      <th class="sortable" data-sort-key="provider" onclick="sortDriversBy('provider')">Provider<span class="sort-arrow"></span></th>
+                      <th class="sortable" data-sort-key="what" onclick="sortDriversBy('what')"
+                          title="A konkrét eszköz, amit a driver hajt (a Windows eszközfája szerint), vagy ha nincs hozzá eszköz, amire a driver-fájl szerint való. Alatta a driver saját Windows-osztálya (Class) - az a gyártó besorolása arról, milyen TÍPUSÚ Windows-eszközt telepít, nem arról, melyik alkatrészhez tartozik.">Mire való<span class="sort-arrow"></span></th>
+                      <th class="sortable" data-sort-key="version" onclick="sortDriversBy('version')">Version<span class="sort-arrow"></span></th>
+                    </tr></thead>
+                    <tbody id="driver-tbody"></tbody>
+                  </table>
+                </div>
+                <div class="status-bar" id="driver-status"><span class="status-dot"></span> Kattints a Frissítés gombra a driverek betöltéséhez.</div>
+                <div id="driver-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
+               </div>
+              </div>
             </div>
           </div>
-          <!-- SZŰRŐ-FÜLEK. Ugyanaz a minta, mint a Driver Keresés nézetben. -->
-          <div class="hw-tabs" id="drv-tabs" style="display:none"></div>
-          <div class="table-wrap" id="driver-table-wrap">
-            <table>
-              <thead><tr>
-                <th style="width:30px"></th>
-                <th class="sortable" data-sort-key="usage" onclick="sortDriversBy('usage')">Használat<span class="sort-arrow"></span></th>
-                <th class="sortable" data-sort-key="published" onclick="sortDriversBy('published')">Published Name<span class="sort-arrow"></span></th>
-                <th class="sortable" data-sort-key="original" onclick="sortDriversBy('original')">Original Name<span class="sort-arrow"></span></th>
-                <th class="sortable" data-sort-key="provider" onclick="sortDriversBy('provider')">Provider<span class="sort-arrow"></span></th>
-                <th class="sortable" data-sort-key="what" onclick="sortDriversBy('what')"
-                    title="A konkrét eszköz, amit a driver hajt (a Windows eszközfája szerint), vagy ha nincs hozzá eszköz, amire a driver-fájl szerint való. Alatta a driver saját Windows-osztálya (Class) - az a gyártó besorolása arról, milyen TÍPUSÚ Windows-eszközt telepít, nem arról, melyik alkatrészhez tartozik.">Mire való<span class="sort-arrow"></span></th>
-                <th class="sortable" data-sort-key="version" onclick="sortDriversBy('version')">Version<span class="sort-arrow"></span></th>
-              </tr></thead>
-              <tbody id="driver-tbody"></tbody>
-            </table>
-          </div>
-          <div class="status-bar" id="driver-status"><span class="status-dot"></span> Kattints a Frissítés gombra a driverek betöltéséhez.</div>
-          <div id="driver-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
         </div>
 
-        <!-- 1 Kattintásos Driver Fix gyorsindító: a szervizelés tipikusan ezzel kezdődik,
-             ezért a főnézetből is azonnal indítható (a sidebar menüpont természetesen
-             megmarad - ez ugyanazt a startAutoFix()-et hívja, ugyanazzal a megerősítő
-             ablakkal és nyomtató-kihagyás opcióval). -->
-        <div class="autofix-hero">
-          <div class="autofix-hero-text">
-            <div class="autofix-hero-title">🚀 1 Kattintásos Driver Fix</div>
-            <div class="autofix-hero-sub">A teljes driver-rendberakás egyetlen gombbal: visszaállítási pont, a Windows Update driver-frissítéseinek letiltása, szellemeszközök és MINDEN third-party driver törlése — a hálózati drivert is beleértve (csak a nyomtató-driverek hagyhatók ki a pipával) —, majd a legfrissebb driverek automatikus telepítése a Windows Update-ről és a Microsoft Update Catalogból, újraindítás-lánccal, felügyelet nélkül. Ha a fix után mégsem lenne internet, a törlés előtt lementett hálózati driver automatikusan visszakerül, hogy a lánc ne ragadjon meg. A végén a DriverStore-t is kitakarítja.</div>
-            <div class="stress-hero-chips">
-              <span class="autofix-chip">🛟 Visszaállítási pont</span>
-              <span class="autofix-chip">👻 Szellemeszköz-törlés</span>
-              <span class="autofix-chip">🖨️ Nyomtató-védelem</span>
-              <span class="autofix-chip">🌐 WU + Catalog telepítés</span>
-              <span class="autofix-chip">🧹 DriverStore-takarítás</span>
-            </div>
+        <!-- Elavult driver-duplikátumok - a 2026-07-es átszervezésig a Driverek nézetben
+             élt, de ez is lemez-takarítás, ide illik. Az id-k változatlanok, a JS
+             (scanDupDrivers/onDupDriversLoaded/deleteDupDrivers) ugyanaz maradt. -->
+        <div class="panel glass" style="margin-top:16px">
+          <div class="panel-header-row">
+            <div class="panel-title"><span class="emoji">🧹</span> Elavult driver-duplikátumok (DriverStore takarítás)</div>
+            <span class="count-badge" id="dup-count-badge" style="display:none">0</span>
           </div>
-          <div class="stress-hero-actions">
-            <button class="btn-autofix-hero" onclick="startAutoFix()">🚀 FIX INDÍTÁSA</button>
-            <!-- Ugyanaz a művelet, mint a "Driver Keresés és Telepítés" nézetben lévő gomb
-                 (közös backend: app/gui/rebind.py). Azért van itt is, mert a technikus a
-                 fix után ITT áll, és a tünet (szaggató tapipad, nem működő gombok) ilyenkor
-                 derül ki - ne kelljen másik menüpontot keresnie hozzá. -->
-            <button class="btn btn-sm" onclick="rebindDrivers()" style="justify-content:center"
-                    title="Nem tölt le semmit. MINDEN eszközt újra felderíttet a Windowszal, ami a Windows általános driverén fut - kivéve a tárolót, a firmware-t és a rendszerlemez eszközláncát. Ha van a gépen hozzá gyári csomag, azt kapja meg; ha nincs, ugyanazt kapja vissza. Erre akkor van szükség, ha egy driver felment, de az eszköz nem indult el rajta - ilyenkor a Windows némán visszaesik a sajátjára, hibakód nélkül. Tipikus tünet: szaggató/ugráló tapipad, nem működő extra gombok. A végén a gép automatikusan újraindul.">🔄 Eszközök újrakötése a gyári driverre</button>
-            <button class="btn btn-sm" onclick="switchView('autofix')" style="justify-content:center" title="A teljes leírás és a Windows Defender figyelmeztetés a menüpont oldalán">ℹ️ Részletek + Defender-figyelmeztetés</button>
+          <p style="margin-bottom:12px;color:var(--text3)">Ugyanabból a driverből minden frissítés után ottmarad a régi verzió is a DriverStore-ban - ezek csak a helyet foglalják. A keresés a legújabb verziót mindig megtartja, és az épp használatban lévő drivereket SOHA nem törli. <b style="color:var(--text2)">A driver-telepítések végén (manuális telepítés és 1 Kattintásos Fix) ez a takarítás automatikusan is lefut</b> - ez a panel a kézi, ellenőrzött futtatáshoz van.</p>
+          <div class="toolbar">
+            <button class="btn btn-primary" onclick="scanDupDrivers()" id="btn-dup-scan">🔍 Duplikátumok keresése</button>
+            <button class="btn btn-danger" onclick="deleteDupDrivers()" id="btn-dup-delete" disabled style="display:none">🗑 Kijelölt régi verziók törlése</button>
+          </div>
+          <div id="dup-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
+          <div id="dup-results"></div>
+        </div>
+
+        <!-- ===== KÉZI ESZKÖZ-KARBANTARTÁS ==========================================
+             2026-09-18, explicit user decision: *"ez a gomb innen amugymeg tunjon el
+             errol a driver keresés és telepítés fülről és kerüljön a driverek kezelése
+             menüpontba! és a szellemeszköz menüpont is tűnjön el bal oldalrol teljesen,
+             az is kerüljön át a driverek kezelése menüpontba"*.
+
+             Mindkettő ESZKÖZ-műveletet végez a driver-listán túl, és egyik sem keres
+             vagy telepít semmit - ezért itt van a helyük, nem a keresés-nézetben (ott a
+             szken beállításai közé ékelődött, ahol semmi köze nem volt hozzájuk) és nem
+             a kezdőlap automata-fix kártyáján (ott azt sugallta, hogy a fix része).
+             A backend változatlan: `deleteGhostDevices()` -> app/gui/ghost.py,
+             `rebindDrivers()` -> app/gui/rebind.py; ugyanazok a megerősítő ablakok.
+
+             TELJES SZÉLESSÉGŰ, EGYMÁS ALATTI PANELEK - ugyanaz a forma, mint a fenti
+             duplikátum-panelé (2026-09-18, explicit user decision: *"ezek is legyenek egy
+             sorban ugyanugy ahogy az elavult driver duplikátumok kártya, legyen ugyan
+             olyan a másik 2 kártya is, alatta ne egymás mellett legyenek"*). A korábbi
+             kétoszlopos `.cards` rács két keskeny hasábba tördelte a magyarázó szöveget,
+             ami ezeknél hosszú - és a nézet így három különböző kártya-szélességet
+             mutatott egymás alatt. -->
+        <div class="panel glass" style="margin-top:16px">
+          <div class="panel-title"><span class="emoji">👻</span> Szellem- és Fantomeszközök Törlése</div>
+          <p style="margin-bottom:12px;color:var(--text3)">Eltávolítja a Registry-ből és az Eszközkezelőből mindazokat a hardvereket, amelyek korábban csatlakoztatva voltak, de fizikailag már nincsenek a gépben — klónozott vagy sokat szerelt rendszereknél akár több száz ilyen bejegyzés is felgyűlhet. <b style="color:var(--text2)">Csak a NEM jelenlévő eszközöket bántja</b>, tehát amit most használ a gép, az érintetlen marad.</p>
+          <div class="toolbar">
+            <button class="btn btn-primary" onclick="deleteGhostDevices()" id="btn-ghost">👻 Szellemeszközök Törlése</button>
+          </div>
+        </div>
+
+        <div class="panel glass" style="margin-top:16px">
+          <div class="panel-title"><span class="emoji">🔄</span> Eszközök újrakötése a gyári driverre</div>
+          <p style="margin-bottom:12px;color:var(--text3)">Nem keres és nem tölt le semmit: azokat az eszközöket kötteti újra, amik a Windows alapdriverén ragadtak, pedig van hozzájuk gyári csomag a gépen. Akkor kell, ha egy driver felment, de az eszköz nem indult el rajta — ilyenkor a Windows némán visszaesik a sajátjára, hibakód nélkül (tipikus tünet: szaggató tapipad, nem működő extra gombok). A tárolót, a firmware-t és a rendszerlemez eszközláncát nem érinti. <b style="color:var(--text2)">A végén a gép automatikusan újraindul.</b></p>
+          <div class="toolbar">
+            <button class="btn btn-primary" onclick="rebindDrivers()" id="btn-rebind"
+                    title="Nem tölt le semmit. MINDEN Windows-alapdriveren futó eszközt újra felderíttet a Windowszal (újratelepítés, majd ha kell, az eszköz újraenumerálása) - kivéve a tárolóvezérlőket, a lemezt, a firmware-t és a rendszerlemez eszközláncát. Ha van a gépen hozzá gyári csomag, azt kapja meg; ha nincs, ugyanazt kapja vissza, rosszabb nem lesz. A kör az USB-vezérlőt is érintheti, ezért a végén a gép automatikusan újraindul.">🔄 Újrakötés indítása</button>
           </div>
         </div>
 
@@ -1113,22 +1407,35 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
       </div>
 
       <!-- VIEW: Windows Update -->
-      <div class="view" id="view-wu">
-        <div class="view-hero vh-blue" data-emoji="🔄">
+      <!-- ===== VIEW: OPERÁCIÓS RENDSZER (Windows Update + aktiválás) ==============
+           2026-09-18, explicit user decision: *"utána jöhet egy operációs rendszer
+           menüpont (windows update, windows office aktiválás menüpont ahova rakd bele)
+           ... és akkor így tudjuk szűkíteni a programot mert most annyi sidebar elem van
+           amiket össze lehetne vonni h halal"*. A két korábbi nézet (`view-wu`,
+           `view-winact`) tartalma VÁLTOZATLANUL került ide, két szakaszként - minden
+           elem-azonosító a régi, mert a JS azokra hivatkozik (wu-status, winact-windows,
+           winact-office, btn-winact, btn-officeact, stress-dl-office*, officeact-plan).
+           Az oldalsáv így 15 helyett 13 elem.
+
+           SZÁNDÉKOSAN EGYMÁS ALATT, NEM AL-FÜLEKEN: négy rövid panelről van szó, és egy
+           új fül-mechanizmus csak új hibalehetőség lenne. A nézetbe lépés MINDKÉT
+           állapotot betölti (switchView: checkWuStatus + loadWinActView). -->
+      <div class="view" id="view-os">
+        <div class="view-hero vh-blue" data-emoji="⚙️">
           <div class="vh-text">
-            <div class="vh-title">🔄 Windows Update Felügyelet</div>
-            <div class="vh-sub">Teljes kontroll a Windows Update felett: a driver-frissítések végleges letiltása, hogy a WU ne írja felül a kézzel telepített drivereket — vagy az egész Windows Update szüneteltetése akár 10 évre. Bármelyik egyetlen gombbal visszakapcsolható, adat nem vész el.</div>
+            <div class="vh-title">⚙️ Operációs rendszer</div>
+            <div class="vh-sub">A Windows saját beállításai egy helyen: a Windows Update felügyelete (a driver-frissítések letiltása, hogy a WU ne írja felül a most telepített drivereket — vagy az egész WU szüneteltetése akár 10 évre), alatta pedig a Windows és az Office aktiválása, a BIOS-ból kiolvasott gyári kulccsal. Minden lépés visszafordítható, adat nem vész el.</div>
             <div class="vh-chips">
               <span class="hero-chip">⛔ Driver-frissítés letiltás</span>
-              <span class="hero-chip">⏳ Halmozható +1 hét szünet</span>
-              <span class="hero-chip">🛑 10 év szünet</span>
-              <span class="hero-chip">▶️ Egy gombos visszakapcsolás</span>
+              <span class="hero-chip">🛑 10 év WU-szünet</span>
+              <span class="hero-chip">🔑 Gyári kulcs a BIOS-ból</span>
+              <span class="hero-chip">✅ Ellenőrzött aktiválás</span>
             </div>
           </div>
         </div>
 
         <div class="panel glass">
-          <div class="panel-title"><span class="emoji">⚙️</span> Driver-frissítések állapota és kapcsolói</div>
+          <div class="panel-title"><span class="emoji">🔄</span> Windows Update — driver-frissítések állapota és kapcsolói</div>
           <div class="wu-status unknown" id="wu-status">Állapot: Ismeretlen</div>
           <div class="wu-actions">
             <button class="btn btn-danger" onclick="disableWu()">⛔ WU Driver Letiltás</button>
@@ -1144,6 +1451,73 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             <button class="btn btn-primary" onclick="pauseWu(7)">⏳ +1 Hét Szünet</button>
             <button class="btn btn-danger" onclick="pauseWu(3650)">🛑 10 Év Szünet (Végleges)</button>
             <button class="btn btn-success" onclick="resumeWu()">▶️ Szünetelés Feloldása</button>
+          </div>
+        </div>
+
+        <!-- ===== AKTIVÁLÁS (a korábbi `view-winact` tartalma) ===================== -->
+        <div class="panel glass" style="margin-top:16px">
+          <div class="panel-header-row">
+            <div class="panel-title"><span class="emoji">💻</span> Windows aktiválás állapota</div>
+            <button class="btn btn-sm" onclick="loadWinActView()">🔄 Állapot Frissítése</button>
+          </div>
+          <p style="margin-bottom:14px;color:var(--text3)">Megmutatja, aktiválva van-e a gép, milyen licenccel (OEM / Retail / Volume), és kiolvassa a <b style="color:var(--text2)">gyári kulcsot a BIOS-ból</b> — újratelepítés után jellemzően ez a válasz arra, hogy miért nem aktivált magától. Az aktiválás három lépése (kulcs telepítése → KMS-kiszolgáló → aktiválás) egy gombbal lefut, a végén pedig a program <b style="color:var(--text2)">leellenőrzi a rendszer licenc-állapotát</b>, és csak akkor írja ki, hogy kész, ha tényleg aktív.</p>
+          <div id="winact-windows">Állapot lekérdezése...</div>
+          <!-- A "Mit fog csinálni a gomb" kártya TÖRÖLVE (2026-09-07, explicit user
+               decision: "kurva felesleges az egész"). A `winact-plan` doboz csak AKADÁLY
+               esetén jelenik meg (lásd renderWinAct): ha a gomb le van tiltva, az okot ki
+               KELL írni, különben a technikus nem tudja, mi a teendő. -->
+          <div id="winact-plan"></div>
+          <!-- A "KMS-kiszolgáló törlése" és a "Telefonos aktiválás" gomb KIVÉVE
+               (2026-09-14, explicit user decision). A mögöttük lévő Python-metódusok
+               ÉLNEK: a `clear_kms_server`-t a CLI aktiválás-menüje továbbra is kínálja,
+               az `open_activation_tool` 'phone' kulcsa pedig egy lookup-tábla sora -
+               egyik sem holt kód, ne töröld. -->
+          <div class="winact-btnrow" style="margin-top:14px">
+            <button class="btn btn-big btn-primary" onclick="activateWindows()" id="btn-winact">🔓 Windows Aktiválása</button>
+            <button class="btn btn-sm" onclick="api().open_activation_tool('settings')">⚙️ Windows aktiválás-beállítások</button>
+          </div>
+        </div>
+
+        <div class="panel glass" style="margin-top:16px">
+          <div class="panel-title"><span class="emoji">📄</span> Office állapota</div>
+          <div id="winact-office">Állapot lekérdezése...</div>
+          <div class="winact-btnrow" style="margin-top:16px">
+            <button class="btn btn-big btn-primary" onclick="activateOffice()" id="btn-officeact">📄 Office Aktiválása</button>
+          </div>
+          <!-- Letöltési folyamat-sáv. Ugyanaz a `stress_dl_progress` esemény hajtja, mint
+               a Stress és a Benchmark nézetét (onStressDlProgress) - így a letöltés
+               megjelenítése EGY helyen él, és nem kell felugró folyamat-modál. -->
+          <div class="glass stress-dl-box" id="stress-dl-office" style="display:none;margin-top:12px">
+            <div class="stress-dl-label" id="stress-dl-office-label">Letöltés...</div>
+            <div class="progress" id="stress-dl-office-prog"><div class="progress-fill" id="stress-dl-office-fill"></div></div>
+          </div>
+          <!-- A gomb melletti magyarázat CSAK AKKOR jelenik meg, ha van mit mondani:
+               nincs beállítva a csomag linkje (ilyenkor a gomb le is van tiltva), vagy
+               nincs beállítva az indítandó .bat neve. Beállított csomagnál csend. -->
+          <div id="officeact-plan"></div>
+        </div>
+
+        <!-- ===== BITLOCKER (a korábbi `view-bitlocker` tartalma) =================
+             2026-09-18, explicit user decision: *"bele mehet ebbe a menüpontba is a
+             bitlocker kezelő is"*. Ez is a Windows saját szolgáltatása, nem driver. -->
+        <div class="panel glass" style="margin-top:16px">
+          <div class="panel-header-row">
+            <div class="panel-title"><span class="emoji">🔒</span> BitLocker (rendszermeghajtó titkosítás)</div>
+            <button class="btn btn-sm" onclick="checkBitlockerStatus()">🔄 Állapot Frissítése</button>
+          </div>
+          <p style="margin-bottom:14px;color:var(--text3)">A rendszermeghajtó BitLocker-titkosításának állapota és végleges kikapcsolása (dekódolás). A dekódolás a meghajtó méretétől és sebességétől függően akár <b style="color:var(--text2)">órákig</b> is eltarthat a háttérben — a gép közben használható, csak lassabb lehet.</p>
+          <div class="wu-status unknown" id="bl-status">Állapot lekérdezése...</div>
+          <div class="winact-btnrow" style="margin-top:14px">
+            <button class="btn btn-big btn-danger" onclick="disableBitlocker()" id="btn-bitlocker">🔓 BitLocker Kikapcsolása</button>
+          </div>
+        </div>
+
+        <!-- ===== NET BLOKKOLO SCRIPT (a korabbi `view-blockscript`) ================ -->
+        <div class="panel glass" style="margin-top:16px">
+          <div class="panel-title"><span class="emoji">🚫</span> Net Blokkoló Script (block.bat)</div>
+          <p style="margin-bottom:12px;color:var(--text3)">Letölti a <code>block.bat</code> scriptet a <code>C:\DriverVarazslo</code> mappába. A script — ha később futtatod — a saját mappájában (és az összes almappájában) található minden <code>.exe</code> kimenő internet-elérését letiltja a Windows tűzfalban. A gomb <b>csak letölti</b> a fájlt, nem futtatja: másold abba a mappába, amit blokkolni akarsz, és dupla kattintással indítsd — az admin jogot magától kéri (UAC).</p>
+          <div class="toolbar">
+            <button class="btn btn-big btn-primary" onclick="downloadBlockScript()" id="btn-blockscript">⬇️ block.bat Letöltése</button>
           </div>
         </div>
       </div>
@@ -1223,16 +1597,13 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           <button class="btn btn-big btn-success hw-install-big" onclick="installSelectedHw()"
                   id="btn-install-hw" disabled style="display:none">🚀 Kijelöltek Telepítése</button>
           </div>
-          <!-- ESZKÖZ-ÚJRAKÖTÉS: nem keres és nem tölt le semmit - azokat az eszközöket
-               köti vissza a MÁR FENT LÉVŐ gyári driverre, amik a Windows alapdriverén
-               ragadtak. Terepen (T580) pont ez az eset okozta a szaggató tapipadot. -->
-          <div class="hw-setup-foot">
-            <button class="btn btn-sm" onclick="rebindDrivers()" id="btn-rebind"
-                    title="Nem tölt le semmit. MINDEN Windows-alapdriveren futó eszközt újra felderíttet a Windowszal (újratelepítés, majd ha kell, az eszköz újraenumerálása) - kivéve a tárolóvezérlőket, a lemezt, a firmware-t és a rendszerlemez eszközláncát. Ha van a gépen hozzá gyári csomag, azt kapja meg; ha nincs, ugyanazt kapja vissza, rosszabb nem lesz. Erre akkor van szükség, ha egy driver felment, de az eszköz nem indult el rajta: ilyenkor a Windows némán visszaesik a saját driverére, hibakód nélkül. Tipikus tünet: szaggató/ugráló tapipad, nem működő extra gombok. A kör az USB-vezérlőt is érintheti, ezért a végén a gép automatikusan újraindul.">
-              🔄 Eszközök újrakötése a gyári driverre
-            </button>
-            <span class="hw-setup-foot-hint">ha egy eszköz a Windows alapdriverén ragadt, pedig van hozzá gyári csomag a gépen</span>
-          </div>
+          <!-- AZ ESZKÖZ-ÚJRAKÖTÉS GOMBJA INNEN ÁTKERÜLT a "Driverek kezelése" nézetbe
+               (2026-09-18, explicit user decision: *"ez a gomb innen amugymeg tunjon el
+               errol a driver keresés és telepítés fülről"*). Ez a nézet a KERESÉSRŐL és
+               a TELEPÍTÉSRŐL szól, az újrakötés viszont se nem keres, se nem telepít -
+               a szken beállításai alá ékelve azt sugallta, hogy a keresés része.
+               A telepítés UTÁN a program továbbra is magától felajánlja (`offer_rescan`),
+               de MOSTANTÓL CSAK AKKOR, ha tényleg felment valami - lásd hwscan.py. -->
         </div>
 
         <!-- ===== 2. ÉLŐ FOLYAMATJELZŐ ================================================
@@ -1295,34 +1666,27 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
       </div>
 
       <!-- VIEW: Ghost Devices -->
-      <div class="view" id="view-ghost">
-        <div class="view-hero" data-emoji="👻">
-          <div class="vh-text">
-            <div class="vh-title">👻 Szellem- és Fantomeszközök Törlése</div>
-            <div class="vh-sub">Eltávolítja a Registry-ből és az Eszközkezelőből mindazokat a hardvereket, amelyek korábban csatlakoztatva voltak, de fizikailag már nincsenek a gépben — klónozott vagy sokat szerelt rendszereknél akár több száz ilyen bejegyzés is felgyűlhet. Tisztább lesz tőle a Windows, és gyorsulhat a rendszerindítás.</div>
-            <div class="vh-chips">
-              <span class="hero-chip">🧹 Registry-tisztítás</span>
-              <span class="hero-chip">🔒 Csak nem jelenlévő eszközök</span>
-              <span class="hero-chip">⚡ Klónozott gépek kedvence</span>
-            </div>
-          </div>
-          <div class="vh-actions">
-            <button class="btn btn-big btn-primary" onclick="deleteGhostDevices()" id="btn-ghost">👻 Szellemeszközök Törlése</button>
-          </div>
-        </div>
-      </div>
+      <!-- A SZELLEMESZKÖZ NÉZET (`view-ghost`) INNEN TELJESEN KIKERÜLT (2026-09-18,
+           explicit user decision) - a művelet a "Driverek kezelése" nézet karbantartó
+           kártyáin él tovább, a `btn-ghost` azonosítóval együtt (arra a JS hivatkozik).
+           Egy egész nézet egyetlen gombért csak hosszabbította az oldalsávot. -->
 
-      <!-- VIEW: Temp Fájlok Törlése -->
+      <!-- VIEW: Rendszer karbantartás (az azonosító marad `view-tempclean`) -->
       <div class="view" id="view-tempclean">
         <div class="view-hero" data-emoji="🧹">
           <div class="vh-text">
-            <div class="vh-title">🧹 Temp Fájlok Törlése</div>
-            <div class="vh-sub">Kitakarítja a Windows ideiglenes fájljait és gyorsítótárait, hogy helyet szabadítson fel a meghajtón. A zárolt (épp használatban lévő) fájlokat automatikusan kihagyja — egyetlen beragadt fájl miatt sem áll le a törlés. Lentebb a DriverStore elavult driver-verzióit is kitakaríthatod.</div>
+            <!-- A NÉZET NEVE "Rendszer karbantartás" (2026-09-18, explicit user
+                 decision). A `view-tempclean` AZONOSÍTÓ szándékosan a régi: a JS és a
+                 `switchView('tempclean')` hívások arra épülnek, átnevezése nulla haszon
+                 mellett hívási helyek tucatját érintené. A DriverStore-takarítás chip
+                 KIKERÜLT, mert a duplikátum-panel átment a Driverek kezelése nézetbe. -->
+            <div class="vh-title">🧹 Rendszer karbantartás</div>
+            <div class="vh-sub">Kitakarítja a Windows ideiglenes fájljait és gyorsítótárait, hogy helyet szabadítson fel a meghajtón. A zárolt (épp használatban lévő) fájlokat automatikusan kihagyja — egyetlen beragadt fájl miatt sem áll le a törlés.</div>
             <div class="vh-chips">
               <span class="hero-chip">👤 TEMP mappák</span>
               <span class="hero-chip">🔄 WU gyorsítótár</span>
               <span class="hero-chip">🎨 Színprofil-szemét (HP!)</span>
-              <span class="hero-chip">🧹 DriverStore-takarítás</span>
+              <span class="hero-chip">🗑️ Lomtár</span>
             </div>
           </div>
         </div>
@@ -1399,44 +1763,11 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           <button class="btn btn-big btn-primary" onclick="cleanTempFiles()" id="btn-tempclean">🧹 Kiválasztott Kategóriák Törlése</button>
         </div>
 
-        <!-- Elavult driver-duplikátumok - a 2026-07-es átszervezésig a Driverek nézetben
-             élt, de ez is lemez-takarítás, ide illik. Az id-k változatlanok, a JS
-             (scanDupDrivers/onDupDriversLoaded/deleteDupDrivers) ugyanaz maradt. -->
-        <div class="panel glass" style="margin-top:16px">
-          <div class="panel-header-row">
-            <div class="panel-title"><span class="emoji">🧹</span> Elavult driver-duplikátumok (DriverStore takarítás)</div>
-            <span class="count-badge" id="dup-count-badge" style="display:none">0</span>
-          </div>
-          <p style="margin-bottom:12px;color:var(--text3)">Ugyanabból a driverből minden frissítés után ottmarad a régi verzió is a DriverStore-ban - ezek csak a helyet foglalják. A keresés a legújabb verziót mindig megtartja, és az épp használatban lévő drivereket SOHA nem törli. <b style="color:var(--text2)">A driver-telepítések végén (manuális telepítés és 1 Kattintásos Fix) ez a takarítás automatikusan is lefut</b> - ez a panel a kézi, ellenőrzött futtatáshoz van.</p>
-          <div class="toolbar">
-            <button class="btn btn-primary" onclick="scanDupDrivers()" id="btn-dup-scan">🔍 Duplikátumok keresése</button>
-            <button class="btn btn-danger" onclick="deleteDupDrivers()" id="btn-dup-delete" disabled style="display:none">🗑 Kijelölt régi verziók törlése</button>
-          </div>
-          <div id="dup-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
-          <div id="dup-results"></div>
-        </div>
-      </div>
-
-      <!-- VIEW: BitLocker -->
-      <div class="view" id="view-bitlocker">
-        <div class="view-hero vh-red" data-emoji="🔒">
-          <div class="vh-text">
-            <div class="vh-title">🔒 BitLocker Kezelő</div>
-            <div class="vh-sub">A rendszermeghajtó BitLocker-titkosításának állapota és végleges kikapcsolása (dekódolás). A dekódolás a meghajtó méretétől és sebességétől függően akár órákig is eltarthat a háttérben — a gép közben használható, csak lassabb lehet.</div>
-            <div class="vh-chips">
-              <span class="hero-chip">🔍 Állapot egy pillantásra</span>
-              <span class="hero-chip">🔓 Végleges dekódolás</span>
-              <span class="hero-chip">⏱️ Háttérben fut</span>
-            </div>
-          </div>
-          <div class="vh-actions">
-            <button class="btn btn-big btn-danger" onclick="disableBitlocker()" id="btn-bitlocker">🔓 BitLocker Kikapcsolása</button>
-            <button class="btn btn-sm" onclick="checkBitlockerStatus()" style="justify-content:center">🔄 Állapot Frissítése</button>
-          </div>
-        </div>
-        <div class="panel glass">
-          <div class="wu-status unknown" id="bl-status">Állapot lekérdezése...</div>
-        </div>
+        <!-- AZ ELAVULT DRIVER-DUPLIKATUMOK PANELJE INNEN ATKERULT a "Driverek kezelese"
+             nezetbe (2026-09-18, explicit user decision: *"a benne lévő driver
+             duplikatum törléses cucc kerüljön a driverek kezelése menüpontba"*). Ez a
+             nezet a LEMEZ takaritasarol szol, az pedig a DRIVEREKROL - es a technikus
+             ott all, amikor a driver-listat nezi. Minden azonosito valtozatlan. -->
       </div>
 
       <!-- VIEW: AutoFix -->
@@ -1702,124 +2033,24 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
         </div>
       </div>
 
-      <div class="view" id="view-report">
-        <div class="view-hero vh-teal" data-emoji="📊">
-          <div class="vh-text">
-            <div class="vh-title">📊 Rendszer Riport (HTML Gépkönyv)</div>
-            <div class="vh-sub">Igényes, nyomtatható HTML gépkönyvet generál a számítógép hardveréről: CPU, memória, videokártya (valódi VRAM-mérettel), és a háttértárak S.M.A.R.T. egészség-adatai hőmérséklettel. A böngészőben megnyitva PDF-be menthető vagy egy kattintással a bolti nyomtatóra küldhető. A fájl a <code>C:\DriverVarazslo</code> mappába kerül.</div>
-            <div class="vh-chips">
-              <span class="hero-chip">💾 S.M.A.R.T. + hőfok</span>
-              <span class="hero-chip">🎮 Valódi VRAM-méret</span>
-              <span class="hero-chip">📝 Megjegyzés-sor a vevőnek</span>
-              <span class="hero-chip">🖨️ Bolti nyomtatás</span>
-            </div>
-          </div>
-          <div class="vh-actions">
-            <button class="btn btn-big btn-success" onclick="generateSystemReport()" id="btn-report">📄 HTML Riport Generálása</button>
-          </div>
-        </div>
-      </div>
+      <!-- A `view-report` (Rendszer Riport) INNEN KIKERULT (2026-09-18, explicit
+           user decision: *"a rendszer riport is kerülhet a főoldalra... annak is
+           felesleges egy teljes sidebar menü"*) - a kartya valtozatlanul a kezdolapon
+           (`view-home`) el, a `btn-report` azonositoval egyutt. -->
 
-      <div class="view" id="view-blockscript">
-        <div class="view-hero vh-red" data-emoji="🚫">
-          <div class="vh-text">
-            <div class="vh-title">🚫 Net Blokkoló Script (block.bat)</div>
-            <div class="vh-sub">Letölti a <code>block.bat</code> scriptet a <code>C:\DriverVarazslo</code> mappába. A script — ha később futtatod — a saját mappájában (és az összes almappájában) található minden <code>.exe</code> kimenő internet-elérését letiltja a Windows tűzfalban. A gomb <b>csak letölti</b> a fájlt, nem futtatja: másold abba a mappába, amit blokkolni akarsz, és dupla kattintással indítsd — az admin jogot magától kéri (UAC).</div>
-            <div class="vh-chips">
-              <span class="hero-chip">⬇️ Csak letöltés, futtatás soha</span>
-              <span class="hero-chip">🧱 Windows tűzfal szabályok</span>
-              <span class="hero-chip">📁 Mappa + almappák</span>
-            </div>
-          </div>
-          <div class="vh-actions">
-            <button class="btn btn-big btn-primary" onclick="downloadBlockScript()" id="btn-blockscript">⬇️ block.bat Letöltése</button>
-          </div>
-        </div>
-      </div>
+      <!-- A `view-blockscript` INNEN KIKERULT (2026-09-18): a tartalma a `view-os`
+           ("Operacios rendszer") nezet 4. szakasza lett, valtozatlan azonositokkal
+           (btn-blockscript). -->
 
-      <div class="view" id="view-winact">
-        <div class="view-hero vh-blue" data-emoji="🎫">
-          <div class="vh-text">
-            <div class="vh-title">🎫 Windows &amp; Office aktiválás</div>
-            <div class="vh-sub">Megmutatja, aktiválva van-e a gép, milyen licenccel (OEM / Retail / Volume), és kiolvassa a <b>gyári kulcsot a BIOS-ból</b> — újratelepítés után jellemzően ez a válasz arra, hogy miért nem aktivált magától. Az aktiválás három lépése (kulcs telepítése → KMS-kiszolgáló → aktiválás) egy gombbal lefut, a végén pedig a program <b>leellenőrzi a rendszer licenc-állapotát</b>, és csak akkor írja ki, hogy kész, ha tényleg aktív.</div>
-            <div class="vh-chips">
-              <span class="hero-chip">🔑 Gyári kulcs a BIOS-ból</span>
-              <span class="hero-chip">🏷️ Licenc-csatorna</span>
-              <span class="hero-chip">✅ Ellenőrzött eredmény</span>
-              <span class="hero-chip">📄 Office állapot</span>
-            </div>
-          </div>
-          <div class="vh-actions">
-            <button class="btn btn-big btn-primary" onclick="activateWindows()" id="btn-winact">🔓 Windows Aktiválása</button>
-            <button class="btn btn-sm" onclick="loadWinActView()" style="justify-content:center">🔄 Állapot Frissítése</button>
-          </div>
-        </div>
+      <!-- A `view-winact` (Windows & Office aktivalas) ES a `view-bitlocker` INNEN
+           KIKERULT (2026-09-18, explicit user decision): mindketto tartalma valtozatlan
+           elem-azonositokkal a `view-os` ("Operacios rendszer") nezetbe olvadt, es az
+           oldalsavbol is kikerultek. A `loadWinActView()`/`checkBitlockerStatus()` hivas
+           a switchView('os')-ban tortenik. -->
 
-        <div class="panel glass">
-          <div class="panel-title"><span class="emoji">💻</span> Windows állapota</div>
-          <div id="winact-windows">Állapot lekérdezése...</div>
-          <!-- A "Mit fog csinálni a gomb" kártya TÖRÖLVE (2026-09-07, explicit user
-               decision: "kurva felesleges az egész"). A benne lévő HÁROM GOMB viszont
-               külön eszköz, nem a magyarázat része, ezért ide költözött - a kártyával
-               együtt kidobva funkciót veszítettünk volna. A `winact-plan` doboz csak
-               AKADÁLY esetén jelenik meg (lásd renderWinAct): ha a gomb le van tiltva,
-               az okot ki KELL írni, különben a technikus nem tudja, mi a teendő. -->
-          <div id="winact-plan"></div>
-          <!-- A "KMS-kiszolgáló törlése" és a "Telefonos aktiválás" gomb KIVÉVE
-               (2026-09-14, explicit user decision). A mögöttük lévő Python-metódusok
-               ÉLNEK: a `clear_kms_server`-t a CLI aktiválás-menüje továbbra is kínálja,
-               az `open_activation_tool` 'phone' kulcsa pedig egy lookup-tábla sora -
-               egyik sem holt kód, ne töröld. -->
-          <div class="winact-btnrow" style="margin-top:14px">
-            <button class="btn btn-sm" onclick="api().open_activation_tool('settings')">⚙️ Windows aktiválás-beállítások</button>
-          </div>
-        </div>
-
-        <div class="panel glass">
-          <div class="panel-title"><span class="emoji">📄</span> Office állapota</div>
-          <div id="winact-office">Állapot lekérdezése...</div>
-          <div class="winact-btnrow" style="margin-top:16px">
-            <button class="btn btn-big btn-primary" onclick="activateOffice()" id="btn-officeact">📄 Office Aktiválása</button>
-          </div>
-          <!-- Letöltési folyamat-sáv. Ugyanaz a `stress_dl_progress` esemény hajtja, mint
-               a Stress és a Benchmark nézetét (onStressDlProgress) - így a letöltés
-               megjelenítése EGY helyen él, és nem kell felugró folyamat-modál. -->
-          <div class="glass stress-dl-box" id="stress-dl-office" style="display:none;margin-top:12px">
-            <div class="stress-dl-label" id="stress-dl-office-label">Letöltés...</div>
-            <div class="progress" id="stress-dl-office-prog"><div class="progress-fill" id="stress-dl-office-fill"></div></div>
-          </div>
-          <!-- A gomb melletti magyarázat CSAK AKKOR jelenik meg, ha van mit mondani:
-               nincs beállítva a csomag linkje (ilyenkor a gomb le is van tiltva), vagy
-               nincs beállítva az indítandó .bat neve. Beállított csomagnál csend - egy
-               működő gomb mellé nem kell külön kártya (ugyanaz az elv, mint a Windows
-               oldali `winact-plan` doboznál). -->
-          <div id="officeact-plan"></div>
-        </div>
-      </div>
-
-      <div class="view" id="view-logs">
-        <div class="view-hero vh-blue" data-emoji="📥">
-          <div class="vh-text">
-            <div class="vh-title">📥 Naplók letöltése a szerviz Drive-járól</div>
-            <div class="vh-sub">Minden lefuttatott 1 kattintásos fix a végén feltölti a saját debug naplóját a bolt Google Drive-jára, gépenként külön mappába (gépnév + típus + dátum). Ez a gomb egy kattintásra visszahozza őket <b>kicsomagolva</b> erre a gépre, hogy elemezni lehessen. Ami már megvan helyben, azt átugorja — az ismételt kattintás csak az újakat hozza le.</div>
-            <div class="vh-chips">
-              <span class="hero-chip">🔑 Jelszóval védve</span>
-              <span class="hero-chip">📦 Kicsomagolva menti</span>
-              <span class="hero-chip">⏭️ Csak az újakat tölti le</span>
-            </div>
-          </div>
-          <div class="vh-actions">
-            <input type="password" id="logs-password" class="pw-input" placeholder="Jelszó" onkeydown="if(event.key==='Enter')downloadUploadedLogs()">
-            <button class="btn btn-big btn-primary" onclick="downloadUploadedLogs()" id="btn-logs-dl">📥 Naplók Letöltése</button>
-          </div>
-        </div>
-        <div class="panel glass">
-          <div class="panel-title"><span class="emoji">📁</span> Hova kerülnek a naplók</div>
-          <p>A letöltött naplók helye: <code id="logs-dest">C:\DriverVarazslo\letoltott_naplok</code></p>
-          <p style="opacity:.75;margin-top:8px">Futásonként egy almappa (gépnév + típus + dátum), benne a napló <code>.log</code> kiterjesztéssel — Jegyzettömbbel is megnyitható.</p>
-          <p style="opacity:.75;margin-top:8px"><b>A jelszó</b> szándékosan nincs beleégetve a programba: a Google Apps Script <code>LOG_READ_PASSWORD</code> sora tartalmazza, és ott is írható át. Azért kell, mert a feltöltési cím minden kiadott exe-ben benne van — enélkül bárki lehúzhatná az ügyfélgépek naplóit.</p>
-        </div>
-      </div>
+      <!-- A `view-logs` INNEN KIKERULT (2026-09-18, explicit user decision): a naplo-
+           letoltes kartyaja a kezdolapra (`view-home`) kerult, minden azonositoval
+           egyutt. Az oldalsavbol is kikerult. -->
 
 <!-- Progress Modal -->
 <div class="modal-overlay" id="modal-progress">
@@ -1992,7 +2223,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 
 <script>
 /* ========== STATE ========== */
-let currentView = 'drivers';
+let currentView = 'home';   // a program a rejtett kezdőlappal indul (lásd `goHome`)
 let appDataDir = '';
 let drivers = [];
 let selectedDrivers = new Set();
@@ -2017,10 +2248,6 @@ let drvTab = 'all';
 let driverMachine = null;
 let driverMachineError = '';
 let mmSlotByKey = {};
-// Alapból ALKATRÉSZ szerint csoportosít (explicit user decision, 2026-09-17: "alapból
-// rendezze, csoportosítsa úgy, hogy videokártya, alaplapi hang, net, chipset..."). A
-// használat szerinti nézet egy kattintásra megmarad.
-let drvGroupMode = 'machine';
 // A kiválasztott alkatrész: egy kártya kulcsa, vagy 'hot:<pont>' az ábra egy pontjára.
 let drvSlotSel = null;
 let mmCollapsed = false;
@@ -2028,7 +2255,7 @@ let mmFigureFor = null;
 // A három állapot megjelenítése EGY helyen (a szöveg és a szín is innen jön), mert hat
 // helyen kellene különben - és a hetediknél biztosan elfelejtenénk az egyiket.
 const USAGE_META = {
-  active:   {icon: '🔴', label: 'Használatban', cls: 'usage-active',
+  active:   {icon: '🟢', label: 'Használatban', cls: 'usage-active',
              hint: 'a gép MOST használja — ha törlöd, elromlik valami'},
   standby:  {icon: '🟡', label: 'Készenlétben', cls: 'usage-standby',
              hint: 'tartozik hozzá eszköz vagy szolgáltatás, de épp nem aktív (pl. kihúzott nyomtató)'},
@@ -2065,7 +2292,6 @@ let hwInstalled = [];
 let hwSelectedIndices = new Set();
 let hwProblems = [];  // a legutóbbi szken problémás (hibakódos) eszközei - a gyorsjavítás gombokhoz
 let hwScanMeta = null;  // a legutóbbi hw_scan_result (gépnév, eszközszám, mód, idő, gyors mód / WU-hiba jelzők)
-let hwOemInfo = null;   // gyártói driver-oldal (oem_driver_info) - a szken UTÁN, aszinkron érkezik
 let hwTab = 'todo';     // aktív szűrő-fül: todo | bad | dead | ok | all
 /* A kategória-sorrend MODUL-SZINTŰ, mert két render-függvény is olvassa. Amíg a
    `renderHwTree`-n belüli `const` volt, a Build 288-ban külön függvénybe emelt
@@ -2190,6 +2416,12 @@ window.addEventListener('pywebviewready', async () => {
     updateTargetLabel(data.target_os, data.sys_drive);
     loadDrivers();
     refreshServiceTools();
+    /* A KEZDŐLAP AKTÍV MÁR AZ ELSŐ KÉPKOCKÁN (a `.view active` a HTML-ben van), tehát a
+       `switchView('home')` NEM fut le induláskor - a benne lévő naplók-kártya útvonalát
+       ezért itt kell egyszer kitölteni. E nélkül a lapon a HTML-be írt alapértelmezett
+       útvonal állna, ami egy nem szokványos rendszerlemeznél (vagy WinPE-ben) HAZUDNA. */
+    loadLogsViewInfo();
+    document.querySelector('.sidebar-title').classList.add('on-home');
     
     if (data.resume_mode || data.resume_step1) {
       setTimeout(() => {
@@ -2287,9 +2519,6 @@ window.handlePyEvent = function(payload) {
     case 'hw_scan_result':
       onHwScanResult(data);
       break;
-    case 'oem_driver_info':
-      renderOemCard(data);
-      break;
     case 'bitlocker_status':
       const blEl = document.getElementById('bl-status');
       if (blEl) {
@@ -2345,11 +2574,34 @@ window.handlePyEvent = function(payload) {
 };
 
 /* ========== NAVIGATION ========== */
+/* A KEZDŐLAP (`view-home`) REJTETT FÜL: nincs hozzá menüpont, és az oldalsáv címére
+   kattintva az EGYETLEN út vissza (2026-09-18, explicit user decision: *"ez egy ilyen
+   hidden page legyen, ezzel induljon a program és csak akkor lehessen ide visszamenni ha
+   bal felülre a drivervarázsló tiszta rendszerre kattintok"*).
+
+   A cím kattintása KÉT dolgot csinál, és a második nem esett ki: a rejtett, kézi
+   frissítés-ellenőrzés (`checkForUpdatesManual`) hosszú ideje ehhez a kattintáshoz van
+   kötve, és naprakész verziónál teljesen néma, tehát nem zavarja a navigációt. Ha ez a
+   sor kiesne, egy dokumentált, szándékosan rejtett funkció veszne el észrevétlenül. */
+function goHome() {
+  switchView('home');
+  try { checkForUpdatesManual(); } catch (e) { /* a navigáció nem bukhat el rajta */ }
+}
+
 function switchView(name) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('view-' + name).classList.add('active');
-  document.querySelector('.nav-btn[data-view="'+name+'"]').classList.add('active');
+  // A kezdőlaphoz SZÁNDÉKOSAN nincs nav-gomb, ezért a lekérdezés `null`-t adhat. E nélkül
+  // a `.classList` itt kivételt dobna, és a nézetváltás FÉLBEN állna meg: a `.view` már
+  // átváltott volna, a menü-kijelölés és az alatta lévő betöltő-hívások viszont nem
+  // futnának le - vagyis a hiba nem üzenetként, hanem "fél nézetként" jelentkezne.
+  const navBtn = document.querySelector('.nav-btn[data-view="'+name+'"]');
+  if (navBtn) navBtn.classList.add('active');
+  // A kezdőlapnak nincs menüpontja, ezért a LOGÓ jelzi, hogy ott vagyunk (halk kiemelés,
+  // nem gomb-kinézet - lásd a `.sidebar-title.on-home` CSS-t).
+  const logo = document.querySelector('.sidebar-title');
+  if (logo) logo.classList.toggle('on-home', name === 'home');
   currentView = name;
   if (name === 'stress') refreshServiceTools();
   // AutoFix-lábon a nyomtató-felderítés kimarad (senki nem nézi a felületet), de ha a
@@ -2361,9 +2613,10 @@ function switchView(name) {
   if (name === 'drivers' && driverUsage === null && !driverUsageError && !driverUsageOffline) loadDriverUsage(true);
   if (name === 'benchmark') loadBenchmarkView();
   if (name === 'display') loadDisplayView();
-  if (name === 'logs') loadLogsViewInfo();
-  if (name === 'winact') loadWinActView();
-  
+  // A KEZDŐLAP a naplók-kártyát is tartalmazza (2026-09-18), ezért itt fut a letöltési
+  // mappa útvonalának kiírása. Nem drága: egy szinkron API-hívás.
+  if (name === 'home') loadLogsViewInfo();
+
   const targetBar = document.querySelector('.target-bar');
   if (targetBar) {
     if (name === 'drivers' || name === 'backup') {
@@ -2373,8 +2626,11 @@ function switchView(name) {
     }
   }
   
-  if (name === 'wu') checkWuStatus();
-  if (name === 'bitlocker') checkBitlockerStatus();
+  /* AZ "OPERÁCIÓS RENDSZER" NÉZET HÁROM KORÁBBI NÉZETET FOG ÖSSZE (2026-09-18), ezért
+     belépéskor MIND A HÁROM állapotát be kell olvasni - ha egy kimaradna, a hozzá
+     tartozó panel az előző gép adatait vagy egy "Állapot lekérdezése..." szöveget
+     mutatna, ami hibának néz ki. Mindhárom aszinkron és egymástól független. */
+  if (name === 'os') { checkWuStatus(); loadWinActView(); checkBitlockerStatus(); }
   // (A tároló/firmware kapcsolók 2026-09-02-én eltűntek a nézetből - nincs mit
   //  visszaállítani belépéskor, a program soha nem keres rájuk.)
   // A keresési-mód kártyák feliratát/színét be kell állítani a nézetbe lépéskor: a
@@ -3182,10 +3438,14 @@ function renderDriverUsageBar() {
 
   // 3) FÜLEK. Az üres fül nem jelenik meg - kivéve a "Használatban"-t, aminek a 0-ja
   //    maga is információ (ugyanaz az elv, mint a Driver Keresés "Teendő" fülénél).
+  // A FÜL SZÍNE = AZ ÁLLAPOT SZÍNE (2026-09-18): használatban ZÖLD (normális, jó
+  // állapot), készenlétben SÁRGA, nem használt SEMLEGES. Korábban a "Használatban" volt
+  // piros, ami ebben a programban mindenhol hibát/veszélyt jelent - lásd a `.usage-active`
+  // CSS-nél. A fülek és a sor-chipek szándékosan ugyanazt a színkódot használják.
   const defs = [
-    {key: 'active', cls: 'tab-bad', always: true},
+    {key: 'active', cls: 'tab-ok', always: true},
     {key: 'standby', cls: 'tab-todo'},
-    {key: 'unused', cls: 'tab-ok'},
+    {key: 'unused', cls: ''},
     {key: 'unknown', cls: ''}
   ];
   let html = '';
@@ -3204,14 +3464,13 @@ function renderDriverUsageBar() {
       + '" title="' + esc(m.hint) + '" onclick="setDrvTab(\'' + t.key + '\')">'
       + m.icon + ' ' + esc(m.label) + ' <span class="hw-tab-n">' + counts[t.key] + '</span></div>';
   });
-  if (driverMachine) {
-    html += '<div class="drv-groupmode">Csoportosítás:<div class="seg">'
-      + '<button class="' + (drvGroupMode === 'machine' ? 'on' : '') + '" onclick="setDrvGroupMode(\'machine\')" '
-      + 'title="Alkatrészek szerint: videókártya, processzor, alaplap (hang, hálózat, chipset...), csatlakoztatott eszközök, szoftveres driverek, és a végén amihez nincs eszköz a gépben">🖥️ Alkatrész</button>'
-      + '<button class="' + (drvGroupMode === 'usage' ? 'on' : '') + '" onclick="setDrvGroupMode(\'usage\')" '
-      + 'title="Használat szerint: felül, amit a gép most használ, alul, amire semmi nem hivatkozik">🔎 Használat</button>'
-      + '</div></div>';
-  }
+  /* A "Csoportosítás: Alkatrész | Használat" VÁLTÓ TÖRÖLVE (2026-09-18, explicit user
+     decision: *"hasznalat szerint felesleges csoportositani, azt meg lehet tenni ha a
+     hasznalatban fulet bejelolom, akkor csak azokat jeleniti meg"*). Igaza van: a
+     használat szerinti CSOPORTOSÍTÁS ugyanazt a kérdést válaszolta meg, amit a fülek
+     SZŰRÉSE - két mechanizmus egy dologra. A csoportosítás mostantól mindig alkatrész
+     szerinti; használat szerintire CSAK akkor esik vissza, ha nincs térkép-adat (lásd
+     `drvMachineGrouped` és a `grouped` feltétel). */
   tabs.innerHTML = html;
   tabs.style.display = '';
 }
@@ -3268,7 +3527,9 @@ function drvMachineInfo(d) {
           && driverMachine.packages[(d.published || '').toLowerCase()]) || null;
 }
 function drvSlotOf(d) { const i = drvMachineInfo(d); return i ? i.slot : null; }
-function drvMachineGrouped() { return drvGroupMode === 'machine' && !!driverMachine; }
+// Ha van térkép-adat, MINDIG alkatrész szerint csoportosítunk (a kézi váltó 2026-09-18-án
+// kikerült). Térkép-adat nélkül a hívó a használat szerinti csoportosításra esik vissza.
+function drvMachineGrouped() { return !!driverMachine; }
 function drvSortVal(d, key) {
   if (key === 'what') {
     const i = drvMachineInfo(d);
@@ -3366,7 +3627,6 @@ function selectMachineHot(h) {
   renderDriverTable();
 }
 function clearMachineSel() { drvSlotSel = null; renderDriverTable(); }
-function setDrvGroupMode(m) { drvGroupMode = m; renderDriverTable(); }
 function toggleMachineMap() { mmCollapsed = !mmCollapsed; renderMachineMap(); }
 function mmHover(h, on) {
   if (!h) return;
@@ -3469,9 +3729,13 @@ function mmFigureSvg(form) {
 function renderMachineMap() {
   const wrap = document.getElementById('drv-machine');
   if (!wrap) return;
-  if (!driverMachine || !drivers.length) { wrap.style.display = 'none'; return; }
+  /* NINCS TÉRKÉP-ADAT: `mm-nomap`, NEM `display:none`. A wrapper 2026-09-18 óta a
+     driver-táblázatot IS tartalmazza (a rács fűzi össze a két hasábot), tehát elrejtve
+     a lista is eltűnne - offline módban és minden térkép-hibánál. A `mm-nomap` csak a
+     fejlécet, az ábrát és a kártyákat rejti el, és láthatatlanná teszi a keretet. */
+  if (!driverMachine || !drivers.length) { wrap.classList.add('mm-nomap'); return; }
   const mm = driverMachine;
-  wrap.style.display = '';
+  wrap.classList.remove('mm-nomap');
   wrap.classList.toggle('collapsed', mmCollapsed);
   const laptop = mm.form === 'laptop';
   wrap.setAttribute('data-emoji', laptop ? '💻' : '🖥️');
@@ -3785,7 +4049,7 @@ function hwShowEmpty(html) {
 
 async function startHwScan() {
   hwPool = []; hwInstalled = []; hwSelectedIndices.clear(); hwProblems = [];
-  hwOemInfo = null; hwScanMeta = null; hwTab = 'todo';
+  hwScanMeta = null; hwTab = 'todo';
   document.getElementById('hw-tree').innerHTML = '';
   document.getElementById('hw-tabs').innerHTML = '';
   document.getElementById('hw-summary').innerHTML = '';
@@ -3916,10 +4180,17 @@ function onHwScanResult(data) {
   updateHwButtons();
 }
 
-/* ÖSSZEFOGLALÓ CSÍK. Ide olvadt be a gépnév (ami korábban KÉTSZER szerepelt: a
-   fejlécben `sys-info`-ként és a gyártói kártyán is) és a gyártói driver-oldal gombja.
-   A gyártói adat aszinkron, a szken UTÁN érkezik (`oem_driver_info`), ezért a
-   renderelés `hwOemInfo`-ból dolgozik, és az esemény újrarajzoltatja a csíkot. */
+/* ÖSSZEFOGLALÓ CSÍK. Ide olvadt be a gépnév, ami korábban KÉTSZER szerepelt: a
+   fejlécben `sys-info`-ként és a gyártói kártyán is.
+
+   A GYÁRTÓI DRIVER-OLDAL GOMBJA ("🌐 ASRock driver-oldal") INNEN KIKERÜLT (2026-09-18,
+   explicit user decision): *"az a gomb nem kell teljesen feleslegesen van ott, szedd ki,
+   nem kell semmilyen alaplapnak se h elvigyen a gyartoi oldalra, a program megtalal
+   minden frissítést a géphez"*. A teljes ág (Python-oldal is) törölve - lásd a
+   CLAUDE.md `Vendor-site driver sources` szekcióját. Amit ezzel tudva elengedtünk: a
+   gyártói oldalon lévő csomag néha frissebb a katalógusénál, és van pár eszköz
+   (BIOS-segédek, RGB/ventilátor-vezérlés), amire nincs katalógus-csomag - azokhoz
+   mostantól kézzel kell a gyártó oldalára menni. */
 function renderHwSummary() {
   const box = document.getElementById('hw-summary');
   if (!box || !hwScanMeta) return;
@@ -3947,12 +4218,6 @@ function renderHwSummary() {
     +   '<span class="hw-sum-machine">' + esc(d.machine || '') + '</span>'
     +   '<span class="hw-sum-meta">' + esc(meta.join(' · ')) + '</span>'
     + '</div>'
-    + (hwOemInfo && hwOemInfo.url
-        ? '<button class="btn btn-sm" onclick="openVendorPage(\'' + esc(hwOemInfo.url) + '\')" '
-          + 'title="' + esc((hwOemInfo.desc || 'A gyártói oldalon vannak modell-specifikus driverek (hotkey, power, dokkoló...), amiket a Windows Update nem ad.')
-                            + (hwOemInfo.note ? ' — ' + hwOemInfo.note : '')) + '">🌐 '
-          + esc(hwOemInfo.vendor) + ' driver-oldal</button>'
-        : '')
     + (note ? '<div class="hw-sum-note">' + note + '</div>' : '');
 }
 
@@ -3992,6 +4257,38 @@ function setHwTab(key) {
   renderHwTree();
   updateHwButtons();
 }
+/* MELYIK CSOPORT NYÍLIK KI ALAPBÓL - EGY HELYEN, NÉGY CSOPORT-FAJTÁRA (2026-09-18,
+   explicit user decision): *"amikor bemegyek a naprakészhez akkor ott alapbol minden ki
+   van nyitva, ha a mindbe megyek akkor nincs kinyitva egyik periferia vagy hardware sem,
+   ez a jo, ez legyen az alapállapot kivéve a teendő és a nem telepíthetőnél, ott legyen
+   mindig alapbol kinyitva"*.
+
+   Az alapállapot tehát ÖSSZECSUKVA, és a kivétel a két TEENDŐ-jellegű fül:
+
+     fajta        | todo | bad | dead | ok | all
+     -------------|------|-----|------|----|-----
+     bad (hibás)  |  ▼   |  ▼  |  -   | -  |  ▶
+     offer        |  ▼   |  -  |  -   | -  |  ▶
+     dead         |  -   |  -  |  ▼   | -  |  ▶
+     installed    |  -   |  -  |  -   | ▶  |  ▶
+
+   Két döntés, ami nem szó szerint a kérésből jön:
+   - a NAPRAKÉSZ a saját fülén is összecsukva nyílik - ez a kérés kifejezett része, és
+     visszavonja a 2026-09-03-i szabályt ("nyitva a saját fülén, összecsukva a Mind
+     nézetben"). A régi érv (aki a fülre kattint, épp látni akarja) elesett: 140 sor
+     kinyitva ugyanolyan átláthatatlan, mint amiért a nézetet átépítettük.
+   - a 🔴 Hibás a saját fülén is nyitva van, pedig a kérés csak a Teendő és a Nem
+     telepíthető fülről beszél. Indok: a hibás eszközök a Teendő fül tartalmának a
+     része (a `todo` számláló is tartalmazza őket), és a Hibás fülön ez az EGYETLEN
+     csoport - egy fül, amin egyetlen összecsukott fejléc áll, pont az a panasz, ami
+     miatt ez a kör elindult. */
+function hwGroupOpen(kind) {
+  if (kind === 'bad')   return hwTab === 'todo' || hwTab === 'bad';
+  if (kind === 'offer') return hwTab === 'todo';
+  if (kind === 'dead')  return hwTab === 'dead';
+  return false;   // installed: soha (ez a leghosszabb lista, 85-140 sor)
+}
+
 function renderHwTree() {
   const container = document.getElementById('hw-tree');
   container.innerHTML = '';
@@ -4008,12 +4305,13 @@ function renderHwTree() {
   // találati fa FÖLÖTT ("olyan nagyba hát érted atlathatatlan az egész"); most rendes
   // sorok, de kiemelve - és a hibakód mellett ott a TEENDŐ is.
   if (showBad && hwProblems.length) {
+    const badOpen = hwGroupOpen('bad');
     const bad = document.createElement('div');
     bad.className = 'hw-cat';
-    bad.innerHTML = '<div class="hw-cat-header open" onclick="toggleHwCatExpand(this)">'
+    bad.innerHTML = '<div class="hw-cat-header' + (badOpen ? ' open' : '') + '" onclick="toggleHwCatExpand(this)">'
       + '<span class="chevron">▸</span>'
       + '<span style="color:#ff8f84">🔴 Hibás eszközök (' + hwProblems.length + ' db)</span></div>'
-      + '<div class="hw-cat-children" style="padding-left:12px">'
+      + '<div class="hw-cat-children' + (badOpen ? '' : ' collapsed') + '" style="padding-left:12px">'
       + hwProblems.map(hwBadRowHtml).join('') + '</div>';
     container.appendChild(bad);
   }
@@ -4026,6 +4324,7 @@ function renderHwTree() {
       const c = d.cat || '🔧 Egyéb'; if(!cats[c]) cats[c]=[]; cats[c].push({idx:i, ...d});
     });
     const sortedCats = [...HW_CAT_ORDER.filter(c=>cats[c]), ...Object.keys(cats).filter(c=>!HW_CAT_ORDER.includes(c))];
+    const offerOpen = hwGroupOpen('offer');
     sortedCats.forEach((cat, catIdx) => {
       const items = cats[cat];
       const catDiv = document.createElement('div');
@@ -4033,11 +4332,11 @@ function renderHwTree() {
       catDiv.dataset.catname = cat;
       const allChecked = items.every(it => hwSelectedIndices.has(it.idx));
       const catId = 'hwcat_' + catIdx;
-      catDiv.innerHTML = '<div class="hw-cat-header open" onclick="toggleHwCatExpand(this)">'
+      catDiv.innerHTML = '<div class="hw-cat-header' + (offerOpen ? ' open' : '') + '" onclick="toggleHwCatExpand(this)">'
         + '<span class="chevron">▸</span>'
         + '<input type="checkbox" '+(allChecked?'checked':'')+' data-catid="'+catId+'" onclick="event.stopPropagation();toggleHwCatById(\''+catId+'\')">'
         + '<span>⬇️ '+esc(cat)+' ('+items.length+' db)</span></div>'
-        + '<div class="hw-cat-children">' + items.map(hwRowHtml).join('') + '</div>';
+        + '<div class="hw-cat-children' + (offerOpen ? '' : ' collapsed') + '">' + items.map(hwRowHtml).join('') + '</div>';
       container.appendChild(catDiv);
     });
   }
@@ -4135,15 +4434,27 @@ function hwIsDeadOffer(d) { return !!(d && (d.prev_no_bind || d.class_code_only)
    Miért nem rejtjük el őket teljesen: a bejegyzés a katalógusban VALÓBAN létezik erre a
    hardver-azonosítóra, csak a csomag INF-je más gépgyártóra szabott. Egy téves feljegyzés
    (vagy egy időközben kijavított csomag) így is elérhető marad - a program soha nem hoz
-   olyan döntést a technikus helyett, amit ne tudna felülbírálni. A csoport ezért CSAK
-   össze van csukva, és a fejléce megmondja, mi ez és miért nem megy. */
+   olyan döntést a technikus helyett, amit ne tudna felülbírálni. A fejléce megmondja,
+   mi ez és miért nem megy.
+
+   EZ A CSOPORT HÁROM BUILDIG KINYITHATATLAN VOLT (javítva 2026-09-18, terepi jelentés:
+   *"amikor lenyitom akkor nem csinál úgy igazából semmit sem, nem írja ki h milyen
+   driverek vannak ott"*). Az ok egy némán egymást kizáró párosítás: a gyerek-doboz
+   INLINE `style="display:none"`-nal indult, a nyitó függvény viszont a `collapsed`
+   OSZTÁLYT kapcsolja (`.hw-cat-children.collapsed{display:none}`) - az inline stílus
+   pedig erősebb, mint bármelyik osztály-szabály. A kattintás tehát rendben lefutott, a
+   chevron is elfordult, csak a tartalom maradt rejtve, örökre. A képernyőn ez pontosan
+   úgy néz ki, mint a 2026-09-03-i `catOrder`-eset: fejléc, alatta SEMMI.
+   TANULSÁG: ha egy állapotot osztállyal kapcsolsz, a kezdőállapotot is osztállyal add
+   meg - egy inline `display` bármelyik későbbi osztály-váltást némán hatástalanná tesz. */
 function renderDeadOffers(container, dead) {
   if (!dead || !dead.length) return;
+  const open = hwGroupOpen('dead');
   const div = document.createElement('div');
   div.className = 'hw-cat';
   const bizonyitott = dead.filter(d => d.prev_no_bind).length;
   const altalanos   = dead.filter(d => !d.prev_no_bind && d.class_code_only).length;
-  div.innerHTML = '<div class="hw-cat-header" onclick="toggleHwCatExpand(this)" '
+  div.innerHTML = '<div class="hw-cat-header' + (open ? ' open' : '') + '" onclick="toggleHwCatExpand(this)" '
     + 'title="A katalógusban VAN bejegyzés ezekre az eszközökre, de a csomagok nem ehhez a '
     + 'géptípushoz valók. Ezért nincsenek a fenti listában és az Összes gomb sem jelöli be '
     + 'őket. Kinyitva bepipálhatók és megpróbálhatók, de a valódi megoldás a gép/alaplap '
@@ -4151,7 +4462,7 @@ function renderDeadOffers(container, dead) {
     + '<span class="chevron">▸</span>'
     + '<span style="color:#b9a7e8">🚫 Nem ehhez a géphez való ('
     + dead.length + ' db)</span></div>'
-    + '<div class="hw-cat-children" style="display:none">'
+    + '<div class="hw-cat-children' + (open ? '' : ' collapsed') + '">'
     + '<div style="padding:6px 10px 8px;font-size:11.5px;color:var(--text3)">'
     /* A KÉT OK KONFIDENCIÁJA KÜLÖNBÖZŐ, ÉS EZT KI KELL MONDANI. Az egyiket bizonyítottuk
        (letöltés + telepítés után az eszköz nem vette át), a másikat letöltés ELŐTT
@@ -4182,8 +4493,12 @@ function renderDeadOffers(container, dead) {
    a modul-szintű HW_CAT_ORDER. Tanulság: ha egy blokkot külön függvénybe emelsz, a
    benne olvasott KÜLSŐ neveket is vidd vele.
 
-   A csoportok alapból ÖSSZECSUKVA nyílnak: ez a leghosszabb lista (jellemzően 85-90
-   sor), kinyitva letolná a képernyőről a teendőket.
+   A csoportok alapból ÖSSZECSUKVA nyílnak, MOSTANTÓL A SAJÁT FÜLÜKÖN IS (2026-09-18,
+   explicit user decision - lásd `hwGroupOpen`): ez a leghosszabb lista (85-140 sor),
+   kinyitva letolná a képernyőről a teendőket. Ez visszavonja a 2026-09-03-i "nyitva a
+   saját fülén" szabályt, aminek az érve az volt, hogy aki a Naprakész fülre kattint,
+   épp azért teszi, hogy lássa - a felhasználó szerint viszont 140 kinyitott sor
+   ugyanolyan átláthatatlan, mint amiért az egész nézetet átépítettük.
 
    Ha a gyártó "Microsoft", az eszköz a Windows saját driverén fut. Ezt SZÁNDÉKOSAN nem
    emeljük ki külön jelöléssel: a "N eszköz fut a beépített driverén" doboz 2026-09-03-án
@@ -4195,11 +4510,7 @@ function renderHwInstalled(container) {
     sep.className = 'hw-separator';
     sep.textContent = '✅ Naprakész — nincs újabb driver ezekhez (' + hwInstalled.length + ' eszköz)';
     container.appendChild(sep);
-    // NYITVA a saját fülén, ÖSSZECSUKVA a "Mind" nézetben. Aki a "Naprakész" fülre
-    // kattint, épp azért teszi, hogy lássa, mi van a gépen - ott egy összecsukott
-    // kategória-fejléc pont azt az információt rejtené el, amiért odament. A "Mind"
-    // fülön viszont ez a leghosszabb lista (85-90 sor), és nyitva letolná a teendőket.
-    const instOpen = (hwTab === 'ok');
+    const instOpen = hwGroupOpen('installed');   // ma: soha - lásd a függvény tábláját
     const instCats = {};
     hwInstalled.forEach(d => { const c = d.cat||'🔧 Egyéb'; if(!instCats[c]) instCats[c]=[]; instCats[c].push(d); });
     const sortedCats = [...HW_CAT_ORDER.filter(c=>instCats[c]), ...Object.keys(instCats).filter(c=>!HW_CAT_ORDER.includes(c))];
@@ -4359,16 +4670,12 @@ async function showRescanOffer(data) {
       + nobind.slice(0, 6).join('\n   • ') + (nobind.length > 6 ? '\n   • …' : '')
       + '\n\nItt nem a telepítés hiányzik, hanem a KÖTÉS — ezt csak az eszközök '
       + 'újrafelderítése és egy újraindítás teszi rendbe.\n\n';
-  } else if (data && data.nothing_changed) {
-    /* SEMMI NEM VÁLTOZOTT (0 telepítve, semmi nem ragadt kötés nélkül). Az ablak ilyenkor
-       is feljön - a technikus a telepítés végén itt áll, és ez a hely, ahol el kell
-       mondani, hogy nincs teendő -, de NEM állítjuk, hogy ajánlott: egy újraindítást
-       kérni azért, mert "hátha", pont az a fajta zaj, amit ez a nézet ma irtott ki. */
-    uzenet = 'Ebben a körben egyetlen driver sem települt fel — vagy már minden naprakész '
-      + 'volt, vagy a program bizonyította, hogy a talált csomagok nem ehhez a géphez '
-      + 'valók (a részletek fent, a listában).\n\n'
-      + 'Emiatt az újraszkennelés most valószínűleg nem hoz újat.\n\n';
   } else {
+    /* A "semmi nem változott" ág TÖRÖLVE (2026-09-18, explicit user decision): az
+       esemény mostantól CSAK akkor jön (lásd hwscan.py), ha tényleg felment valami vagy
+       maradt kötés nélküli csomag - 0 sikeres telepítésnél egy újraindítás felajánlása
+       tiszta veszteség lenne, mert a Windowsnak nincs miből jobbat választania. A
+       `nothing_changed` mező ezért ki is került a payloadból. */
     uzenet = telepitve + ' driver települt.\n\nChipset- és USB-driver után új eszközök '
       + 'bukkanhatnak elő, és egy frissen telepített driver egy része is csak újraindítás '
       + 'után lép életbe.\n\n';
@@ -4377,12 +4684,9 @@ async function showRescanOffer(data) {
     + '⚠️ A művelet végén a GÉP ÚJRAINDUL (10 másodperces visszaszámlálás után), '
     + 'hogy a driverek a helyükre kerüljenek. Mentsd el, amin dolgozol.';
 
-  /* A CÍM IS AZ ÁLLAPOTOT MONDJA, nem egy általános feliratot: "Ajánlott" csak akkor,
-     ha tényleg van miért. Ha semmi nem változott, a cím se sürgessen. */
-  const cim = nobind.length ? '🔄 Ajánlott: eszközök újraszkennelése'
-            : ((data && data.nothing_changed) ? '🔄 Eszközök újraszkennelése (nem szükséges)'
-                                              : '🔄 Ajánlott: eszközök újraszkennelése');
-  const valasz = await showConfirm(cim, uzenet);
+  // Ide már csak akkor jutunk el, ha van miért: felment valami, vagy maradt kötés nélkül
+  // egy csomag. Ezért a cím egyértelműen ajánl.
+  const valasz = await showConfirm('🔄 Ajánlott: eszközök újraszkennelése', uzenet);
   if (valasz) {
     // A hozzájárulás a fenti ablakban megvan - ne kérdezzük meg másodszor is.
     rebindDrivers(true);
@@ -4402,35 +4706,20 @@ async function showRescanOffer(data) {
     + '</div>';
 }
 
-/* A VIDEOKÁRTYA-GYÁRTÓI KÁRTYÁK (NVIDIA/AMD/Intel) INNEN KIKERÜLTEK (2026-09-02,
-   explicit user decision) - a Python-oldal is törölve (app/gui/nvidia.py, vendorgpu.py).
+/* A GYÁRTÓI DRIVER-OLDALAK EGÉSZ ÁGA INNEN KIKERÜLT, KÉT LÉPÉSBEN:
 
-   Az openVendorPage() viszont MARAD, és ez nem formalitás: a gép/alaplap-gyártói kártya
-   (renderOemCard, lentebb) hívja a link-gombjában, az pedig nem videokártya. A törléskor
-   ez a függvény a két eltávolított render-függvény KÖZÖTT állt, és először velük együtt
-   esett ki - a hiba abban nyilvánult meg, hogy az OEM-kártya gombja némán semmit nem
-   csinált volna. A Python-párja (open_vendor_driver_page) ugyanezért költözött át a
-   vendorgpu.py-ból az oemdrivers.py-ba. */
-async function openVendorPage(url) {
-  try { await api().open_vendor_driver_page(url); }
-  catch (e) { toast('Oldal megnyitási hiba: ' + e, 'error'); }
-}
-/* Gyártói driver-oldal kártya (oem_driver_info event): márkás gépnél (Dell/Lenovo/HP)
-   a gépre szabott support-oldal, összerakott gépnél az ALAPLAP gyártójának oldala.
-   A címet/leírást a Python küldi (title/desc) - a régi OEM-szöveg ("gép", "dokkoló")
-   alaplapra értelmetlen; a fallback-ek a régi viselkedést tartják meg. */
-function renderOemCard(data) {
-  // 2026-09-03: EZ MÁR NEM SAJÁT KÁRTYÁT RAJZOL. A gyártói kártya a gép nevét
-  // MÁSODSZOR is kiírta, közvetlenül az összefoglaló alatt, ahol az már ott volt -
-  // ez volt az egyik doboz, amitől a nézet olvashatatlanná hízott. A link nem veszett
-  // el: a gomb beolvadt az összefoglaló csíkba (renderHwSummary).
-  //
-  // Az esemény a szken UTÁN, aszinkron érkezik, ezért csak eltároljuk és
-  // újrarajzoltatjuk a csíkot - ha épp nincs kirajzolt eredmény, a renderHwSummary
-  // magától nem csinál semmit, és a következő szken úgyis nullázza a `hwOemInfo`-t.
-  hwOemInfo = (data && data.vendor && data.url) ? data : null;
-  renderHwSummary();
-}
+   2026-09-02: a VIDEOKÁRTYA-gyártói kártyák (NVIDIA/AMD/Intel) - Python-oldal is
+     törölve (app/gui/nvidia.py, app/gui/vendorgpu.py). Akkor az `openVendorPage()` és
+     a gép/alaplap-gyártói kártya (`renderOemCard`) szándékosan MARADT.
+   2026-09-18: a gép/alaplap-gyártói link is törölve (explicit user decision), vele
+     együtt az `openVendorPage()`, a `renderOemCard()`, a `hwOemInfo` változó, az
+     `oem_driver_info` esemény-ág, az `app/gui/oemdrivers.py` modul, a mixin mindkét
+     API-osztályból, a szken végi `_check_oem_driver_page()` hívás és a CLI menüpontja.
+
+   Ha valaha visszakerül: a törlés egyetlen csapdája az volt, hogy 2026-09-02-kor az
+   `openVendorPage()` a két eltávolított render-függvény KÖZÖTT állt, és először velük
+   együtt esett ki - a hiba úgy nyilvánult volna meg, hogy az OEM-kártya gombja némán
+   nem csinál semmit. Most az egész ág megy, tehát nincs mit némán eltörni. */
 function updateHwButtons() {
   const hasPool = hwPool.length > 0;
   const hasSel = hwSelectedIndices.size > 0;
@@ -5393,7 +5682,7 @@ async function cleanTempFiles() {
   if (options.recycle_bin) {
     msg += '\n\n⚠️ FIGYELEM: a Lomtár ürítése is be van jelölve - az abban lévő fájlok utólag NEM állíthatók vissza!';
   }
-  const ok = await showConfirm('Temp Fájlok Törlése', msg);
+  const ok = await showConfirm('Temp fájlok és gyorsítótárak törlése', msg);
   if (ok) {
     try {
       await api().clean_temp_files(options);

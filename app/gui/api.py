@@ -30,7 +30,6 @@ from app.gui.blockscript import GuiBlockScriptMixin
 from app.gui.logs import GuiLogsMixin
 from app.gui.winact import GuiWinActMixin
 from app.gui.climode import GuiCliModeMixin
-from app.gui.oemdrivers import GuiOemDriversMixin
 from app.gui.rebind import GuiRebindMixin
 from app.gui.benchmark import GuiBenchmarkMixin
 from app.gui.display import GuiDisplayMixin
@@ -43,7 +42,6 @@ class DriverToolApi(GuiBaseMixin, GuiUpdaterMixin, GuiStressMixin,
                     GuiWuMixin, GuiAutofixMixin, GuiBackupMixin, GuiBitlockerMixin,
                     GuiReportMixin, GuiStorePrintMixin, GuiBlockScriptMixin,
                     GuiLogsMixin, GuiWinActMixin, GuiCliModeMixin,
-                    GuiOemDriversMixin,
                     GuiRebindMixin,
                     GuiBenchmarkMixin, GuiDisplayMixin):
     """A GUI backend - a pywebview js_api-ja. Minden feature a saját mixin-fájljában."""

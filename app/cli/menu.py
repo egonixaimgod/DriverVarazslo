@@ -492,7 +492,6 @@ def _menu_hwscan(api):
             ('2', 'Találatok listázása', 'Az előző keresés eredménye'),
             ('3', 'Kijelöltek telepítése', 'A listából számozva'),
             ('4', 'Problémás (hibakódos) eszközök', 'Felsorolás + gyors javítás'),
-            ('5', 'Gyártói driver-oldal megnyitása', 'A gép/alaplap gyártójának letöltőoldala'),
         ], back_label='Vissza a főmenübe')
         if c == '0':
             return
@@ -504,8 +503,6 @@ def _menu_hwscan(api):
             _run_screen(api, 'Telepítés', lambda: _hwscan_install(api))
         elif c == '4':
             _run_screen(api, 'Problémás eszközök', lambda: _hwscan_problems(api))
-        elif c == '5':
-            _run_screen(api, 'Gyártói oldal', lambda: _vendor_pages(api))
 
 
 def _hwscan_flow(api):
@@ -651,21 +648,12 @@ def _hwscan_problems(api):
             api.fix_problem_device(p['pnp_id'], p.get('code'))
 
 
-def _vendor_pages(api):
-    # A videokártya-gyártói ágak (NVIDIA/AMD/Intel) 2026-09-02-án kikerültek a programból
-    # (lásd app/gui/hwscan.py); ami maradt, az a gép/alaplap gyártójának driver-oldala.
-    for name, fn, key in (('Gyártói (OEM/alaplap)', api._check_oem_driver_page, 'oem_driver_info'),):
-        try:
-            _sync(api, fn)
-        except Exception as e:
-            logging.debug(f"[CLI] {name} ellenőrzés: {e}")
-        data = api._cli_take(key, {})
-        if not data:
-            continue
-        ui.write('')
-        ui.panel(name, [f"{k}: {v}" for k, v in data.items() if isinstance(v, str) and v][:6])
-        if data.get('url') and ui.confirm(f"Megnyitod a(z) {name} oldalát a böngészőben?", False):
-            api.open_vendor_driver_page(data['url'])
+# A GYÁRTÓI DRIVER-OLDAL MENÜPONTJA (`_vendor_pages`) ITT VOLT, ÉS TELJESEN KIKERÜLT.
+# Két lépésben: 2026-09-02-án a videokártya-gyártói ágak (NVIDIA/AMD/Intel), majd
+# 2026-09-18-án a gép/alaplap-gyártói link is (explicit user decision) - a Python-oldal
+# (`app/gui/oemdrivers.py`) is törölve. Azért kellett INNEN is kivenni, nem csak a
+# grafikus felületről, mert a CLI 2026-08-29 óta TELJES ÉRTÉKŰ felület: itt hagyva a
+# funkció az egyik felületen tovább élt volna, a másikon nem.
 
 
 # ---------------------------------------------------------------------------
