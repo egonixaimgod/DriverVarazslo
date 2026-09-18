@@ -74,13 +74,31 @@ REM EZ AZ, AMI A FRISSITEST AZONNALIVA TESZI. A program ELOSZOR a GitHub Release
 REM API-t kerdezi (api.github.com), ami a kiadas letrehozasa utan rogton latszik -
 REM mig a raw.githubusercontent.com egy Fastly CDN mogott ul `Cache-Control: max-age=300`
 REM fejleccel, vagyis a pusholt fajlt akar 5 percig a REGI valtozataban szolgalja ki.
-REM Ezert panaszkodott a frissites arra, hogy "csak 10 percre ra" talalja meg.
+REM
+REM EZ A LEPES MAR KIMARADT EGYSZER, ES A SZKRIPT ERROL NEM SZOLT (2026-09-18, meres):
+REM a build-314 es a build-315 kiadas nem jott letre, a szkript viszont ugyanugy kiirta
+REM a nagy "SIKERES KIADAS" keretet - a `[!]` sor pedig par sorral feljebb elveszett.
+REM Terepi kovetkezmeny: egy 313-as gep nem talalta meg a 315-ot. HAROM JAVITAS:
+REM   1) a gh kimenetet NEM nyeljuk el (a `>nul 2>&1` csak a letezes-ellenorzesen van),
+REM   2) a kiadas utan VISSZAELLENORIZZUK, hogy tenyleg letrejott-e (a gh visszateresi
+REM      kodja onmagaban keves - ugyanaz az elv, mint a programban: a verdikt a
+REM      visszaolvasas, nem a returncode),
+REM   3) a zaro keret az IGAZAT mondja: ha a kiadas kimaradt, azt nagybetuvel kiirjuk.
+set "RELEASE_OK=0"
 where gh >nul 2>&1
 if %errorlevel% neq 0 (
-    echo      [!] A "gh" parancs nem talalhato - a kiadas KIMARAD.
-    echo          A frissites igy is mukodik, csak a CDN miatt lassabban ^(~5 perc^).
+    echo      [HIBA] A "gh" parancs nem talalhato - a kiadas KIMARAD.
     echo          Telepites: winget install GitHub.cli   majd:  gh auth login
-    goto vege
+    goto ellenorzes
+)
+
+REM A bejelentkezes ellenorzese kulon: lejart/elerhetetlen token eseten a `gh release
+REM create` olyan hibaval bukik, ami a kimenetben elveszne.
+gh auth status >nul 2>&1
+if %errorlevel% neq 0 (
+    echo      [HIBA] A "gh" nincs bejelentkezve - a kiadas KIMARAD.
+    echo          Javitas:  gh auth login
+    goto ellenorzes
 )
 
 gh release view "build-%NEW_BUILD%" >nul 2>&1
@@ -88,21 +106,38 @@ if %errorlevel%==0 (
     echo      A kiadas mar letezik - az exe felulirasa...
     gh release upload "build-%NEW_BUILD%" "dist/DriverVarazslo.exe" --clobber
 ) else (
-    gh release create "build-%NEW_BUILD%" "dist/DriverVarazslo.exe" ^
-        --title "DriverVarazslo - build %NEW_BUILD%" ^
-        --notes "Automatikus kiadas. Build %NEW_BUILD%."
-)
-if %ERRORLEVEL% neq 0 (
-    echo      [!] A kiadas keszitese nem sikerult ^(jogosultsag? halozat?^).
-    echo          A frissites a raw uton igy is mukodik, csak lassabban.
-) else (
-    echo      Kiadas kesz: build-%NEW_BUILD%  ^(a frissites innentol azonnal lathato^)
+    gh release create "build-%NEW_BUILD%" "dist/DriverVarazslo.exe" --title "DriverVarazslo - build %NEW_BUILD%" --notes "Automatikus kiadas. Build %NEW_BUILD%."
 )
 
-:vege
+:ellenorzes
+REM VISSZAOLVASAS: tenyleg ott van-e a kiadas a GitHubon? Ez a verdikt, nem a returncode.
+where gh >nul 2>&1
+if %errorlevel%==0 (
+    gh release view "build-%NEW_BUILD%" >nul 2>&1
+    if !errorlevel!==0 set "RELEASE_OK=1"
+)
+
 echo.
-echo ==========================================
-echo    SIKERES KIADAS: Build %NEW_BUILD%
-echo ==========================================
+if "!RELEASE_OK!"=="1" (
+    echo ==========================================
+    echo    SIKERES KIADAS: Build %NEW_BUILD%
+    echo    Kiadas: build-%NEW_BUILD%  ^(a frissites azonnal lathato^)
+    echo ==========================================
+) else (
+    echo ==========================================
+    echo    Build %NEW_BUILD% FELTOLTVE, DE A KIADAS KIMARADT!
+    echo ==========================================
+    echo   A kod es az exe fent van a GitHubon ^(a push sikerult^), tehat a
+    echo   frissites mukodik - de a "build-%NEW_BUILD%" KIADAS nem jott letre.
+    echo.
+    echo   Mit jelent ez: a gepek a lassabb, CDN-cache-elt raw uton ertesulnek
+    echo   a frissitesrol, tehat ~5 perc keses lehet. A program ezt eszreveszi
+    echo   es a naplojaba WARNING-ot ir.
+    echo.
+    echo   Potlas kezzel:
+    echo     gh release create "build-%NEW_BUILD%" "dist/DriverVarazslo.exe" --title "DriverVarazslo - build %NEW_BUILD%" --notes "Automatikus kiadas."
+    echo.
+    echo   A fenti gh-kimenetben ott a pontos hibauzenet - olvasd el.
+)
 pause
 endlocal

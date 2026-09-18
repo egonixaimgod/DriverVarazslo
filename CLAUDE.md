@@ -305,6 +305,37 @@ Tehát nem a kód volt lassú, hanem a forrás: egy CDN edge **öt percig** kisz
 
 **ELLENŐRZÉS:** 24 offline állítás a kiadás-parse és az ág-választás minden esetére (több build, asset-tároló keverve, draft, exe nélküli kiadás, rate limit, üres lista), plusz 26 állítás, amiből a `.bat` **valóban lefutott egy homokozóban** (`ping.exe` másolatai „programként"): lecserélte mindkét példányt, naplózott, törölte magát. Ha az updater változik, ez a kettő a regressziós teszt.
 
+#### AZ API VÁLASZA NEM „DEFINITÍV" — A KIADÁS ELMARADHAT (2026-09-18, terepen mérve)
+
+**Terepi bejelentés:** *„az auto update nem működik, egy 313-as buildről nem tudtam felupdatelni 315-re, nem találja meg, nem dobja fel semmi"*. A mérés azonnal megadta az okot, és a hiba **ebben a fájlban dokumentált optimalizálásból** származott:
+
+```
+GitHub kiadások:                       build-311, build-312, build-313   <- a 314 és a 315 HIÁNYZIK
+raw driver_tool.py BUILD_NUMBER:       315
+```
+
+A 2026-09-08-i „azonos build → definitív válasz, azonnal vissza" szabály **hallgatólagosan feltételezte, hogy minden build kap kiadást**. Amikor a rebuild [4/4] lépése kimaradt, az API build-száma elmaradt a raw mögött, és a program magabiztosan azt mondta, hogy *„nincs újabb verzió"* — miközben két build-nyi frissítés állt a raw-on. Reprodukálva (`common.BUILD_NUMBER = 313`): `[UPDATE] Kiadás-szám (API): 313, Helyi: 313` → `{'has_update': False}`.
+
+**AZ ÚJ SZABÁLY: a két forrás közül a NAGYOBB nyer, nem az, amelyik előbb válaszol.** Az API csak akkor zárja le a kérdést, ha **ÚJABB** buildet ad (az a gyors, egykérdéses út); ha nem ad újabbat, a raw-ot **akkor is** megkérdezzük. A 2026-09-08-i nyereség megmarad: ha az API válaszolt, a raw **egyetlen** kérdést kap (a hálózat bizonyítottan él, itt már csak az a kérdés, elmaradt-e a kiadás), nem hármat.
+
+**ÉS A LETÖLTÉS FORRÁSA KÖVETI A DÖNTÉST — ez a rész nem elhagyható.** Ha a raw a frissebb, az exe-t is onnan kell hozni: a build-313 kiadás melléklete egy **313-as exe**, amivel „frissítve" a gép ugyanott maradna, és a következő indulásnál újra frissítést ajánlana — **végtelen kör**. Ezért a raw ág konkrét `exe_url`-t ad vissza, és a `stage_update` `expect_build` védőhálót kapott (egy a kértnél régebbi kiadás mellékletét soha nem tölti le). Ha valaki ezt „egyszerűsítené" vissza, ez a bekezdés a válasz.
+
+**A raw ág `_raw_build()`-ba került** (build-számot ad vissza, nem dict-et), és az „azonos build → nincs újrapróbálkozás" szabály ott változatlanul él. Ellenőrizve három szimulált gépen (313 → van frissítés a raw-ról; 315 → nincs; 316 = push előtti fejlesztői gép → nincs).
+
+> **⚠️ A JAVÍTÁS ÖNMAGÁT NEM TUDJA KÉZBESÍTENI — A KÖVETKEZŐ KIADÁSNÁL A `gh release create` KÖTELEZŐ.** A terepen lévő **Build 311–315** példányok a HIBÁS kódot futtatják: az API-tól 313-at kapnak, és mivel az nem nagyobb a sajátjuknál, „definitív nincs újabb"-bal megállnak — **a raw-ot meg sem kérdezik**. Vagyis amíg nincs `build-N` kiadás N > 315-tel, **egyetlen fielded példány sem fogja megtalálni a frissítést**, akárhányszor pusholunk. A javított kód csak azokra a gépekre jut el, amelyek egy **kiadással** megjelent buildre frissülnek; onnantól a két forrás közül a nagyobb nyer, és egy elmaradt kiadás már csak lassítja (raw, ~5 perc), nem blokkolja a frissítést.
+
+#### ÉS AMIÉRT A KIADÁS ELMARADT: A REBUILD SZKRIPT „SIKERES KIADÁS"-T ÍRT KI A BUKÁSRA IS
+
+A `gh` telepítve volt és be is volt jelentkezve (mérve), a build-314/315 kiadás mégsem jött létre — a szkript pedig **ugyanúgy kiírta a nagy keretes „SIKERES KIADAS" feliratot**, miközben a `[!]` sor pár sorral feljebb elveszett. Ez maga a néma hamis siker, amit ez a fájl mindenhol üldöz. Három javítás:
+
+1. **A `gh` kimenetét nem nyeljük el** (a `>nul 2>&1` csak a *létezés-ellenőrzésen* van), és a bejelentkezés külön ellenőrzött lépés (`gh auth status`) — egy lejárt token hibája különben a kimenetben veszne el.
+2. **A kiadás után VISSZAOLVASUNK** (`gh release view`): a verdikt az, hogy ott van-e a GitHubon, nem a `gh` visszatérési kódja. Ugyanaz az elv, mint a programban (bind-ellenőrzés, `verify_failed_installs`).
+3. **A záró keret az igazat mondja**: bukásnál „Build N FELTOLTVE, DE A KIADAS KIMARADT", a következménnyel (a gépek a lassabb raw úton értesülnek) és a kézi pótlás parancsával együtt.
+
+**A YouTube-projekt bat-ja NEM volt a megoldás** (a felhasználó felvetette, hogy másoljuk le): élőben összevetve a [4/4] szakasza **gyakorlatilag azonos**, sőt kevésbé robusztus — nincs benne `gh release view` létezés-ellenőrzés, és a `gh release create` végén egy `2>nul` **elnyeli a hibaüzenetet**. A DriverVarázsló szkriptje tehát nem lemásolásra, hanem javításra szorult.
+
+**Ellenőrzés:** a [4/4] szakasz mind a **4 ága lefutott egy homokozóban** egy `gh`-csonkkal (kiadás létrejön / a `create` elbukik / nincs bejelentkezve / a kiadás már létezik), és minden ágon az elvárt keret és a `gh` hibaüzenete jelent meg. **Harness-csapda a következő ilyen teszthez:** a csonk egy `.bat`, és egy `.bat`-ból **`call` nélkül** hívott másik `.bat`-ból a vezérlés **nem tér vissza** — a futás ott véget ér. A valódi `gh.exe`-t ez nem érinti, ezért a `call`-t csak a tesztben, és csak a ténylegesen `gh `-val KEZDŐDŐ sorok elé szabad beszúrni (az echo-zott és a REM-ben álló „gh …" szövegeket nem). Egy `[!]` az `echo`-ban `[]`-ként jelenik meg `enabledelayedexpansion` mellett — ezért `[HIBA]` a jelölés.
+
 ### Régi Windows-támogatás (Win 7 / 8 / 8.1)
 
 A bolt Win 7/8/8.1-es gépeken is használni akarja a programot (explicit user decision, 2026-08-13). Az alábbiak **mind mérve vannak** — ne tippelj újra, és ne "egyszerűsítsd" el őket.
@@ -346,6 +377,8 @@ When adding anything to the chain, ask first: *does this still work with nobody 
 3. **A DRIVERT NEM FELTÉTLENÜL MI TETTÜK FEL.** Az ügyfél behozza a gépet egy máshonnan telepített, rossz driverrel. Az az érvelés, hogy „ezt úgysem telepítjük, ezért ne is töröljük", ilyenkor a fejére áll: pont az ilyen csomagot kell tudni eltávolítani.
 
 **AMI MA IS ÍGY MŰKÖDIK, és így is kell maradnia** (ellenőrizve 2026-09-03): a `GuiDriversMixin.delete_drivers` **semmit nem szűr** — amit a technikus kipipál, az törlődik, firmware és tároló is; a lista (`load_drivers`) egyetlen szűrője a **nyomtató-pipa**, amit a felhasználó kapcsol, és az is csak elrejt, nem tilt; offline módban ugyanez az út él.
+
+**A „NEM SIKERÜLT TÖRÖLNI" NEM MINDIG VÉGLEGES — A KÉZI TÖRLÉS IS KAP SPOOLER-KÖRT (2026-09-18).** Terepi bejelentés: a technikus kijelölte a nem használt csomagokat, és **14 sikertelen** lett, magyarázat nélkül. Az ok a már dokumentált `0xE000023D` („egy telepített eszköz használja a megadott INF-et"): a nyomtatósorokat a Spooler tartja életben. **Az AutoFix törlési fázisa 2026-09-07 óta ismerte a második kört, a KÉZI törlés nem** — ott a képernyőn csak `❌ {pub} sikertelen` állt, se ok, se teendő. A kör azóta a **közös magban** él (`drivers_core.retry_in_use_deletes` + `in_use_explanation`), és **mindkét hívó ugyanazt hívja**; a régi, AutoFix-beli másolat törölve. A három szabály változatlan (egyszer állítjuk le a Spoolert az egész kötegre, a visszaindítás `finally`-ben van, és **nem szűrünk osztályra**), és a mért határ is (`prnms009.inf` a leállított Spooler mellett is bent maradhat — azt a nyomtatósor *eszköz-csomópontja* tartja). **Ez NEM új szűrő a törlésben, hanem épp fordítva: segít törölni azt, amit eddig nem sikerült** — és ahol tényleg nem megy, ott megnevezi a valódi teendőt (előbb a nyomtatót kell eltávolítani a Beállításokból). Offline tesztelve 8 esetre a terepi pnputil-kimenettel, köztük a magyar (mojibake-elt) szövegre, a megszakításra és a Spooler-visszaindítás bukására.
 
 **AZ EGYETLEN LÉTEZŐ KIVÉTELEK, és miért nem precedens:** a boot-útvonal védelme **kizárólag az AutoFix törlés-fázisában** van (ott senki nem ül a gép előtt, és a futó rendszer boot-driverének törlése `INACCESSIBLE_BOOT_DEVICE`-t adna, amit már semmilyen visszaállításunk nem javít), és még az is **példány-azonosító szerint célzott, nem osztály-alapú**. A többi kivétel mind **nevesített, ember által, a képernyőn meghozott döntés**: nyomtató-pipa, Wi-Fi mód, csomagonkénti opt-out. Egy néma, osztály-alapú kizárás egyikbe sem fér bele.
 
@@ -754,7 +787,7 @@ The adapter is identified with `Get-NetAdapter`/`Get-NetConnectionProfile` (stru
 
 **A TEREPI ESET, AMIÉRT LÉTEZIK:** egy távoli asztali program („ninja…") kernel-drivere törlődött, és ezzel megszűnt a távoli elérés — a driveren át kommunikált a program. Az ilyen drivernek **nincs eszköz-csomópontja**, tehát a korábbi felderítés (`Win32_PnPSignedDriver`) semmit nem tudott róla: a listában pontosan úgy nézett ki, mint egy rég nem használt telefon-driver.
 
-**NÉGY FÜGGETLEN JEL — MIND MÉRVE a fejlesztői gépen (144 third-party csomag):**
+**ÖT FÜGGETLEN JEL — MIND MÉRVE a fejlesztői gépen (144 third-party csomag):**
 
 | jel | mit talált | idő |
 |---|---|---|
@@ -762,9 +795,37 @@ The adapter is identified with `Get-NetAdapter`/`Get-NetConnectionProfile` (stru
 | **FUTÓ kernel-szolgáltatás** (új) | **+6 csomag** | 0,4 mp |
 | **nem jelenlévő (ghost) eszköz** (új) | +27 csomagra van | 0,7 mp |
 | **filter-regisztráció** (`Upper`/`LowerFilters`, új) | `ssudmdm`, `winusb` | 0,9 mp |
+| **spoolerben regisztrált nyomtató-driver** (új, 2026-09-18) | **20 INF** | 0,6 mp |
 | **semmi jel → szabadon törölhető** | **100 csomag** | |
 
 **A „+6" nem elméleti nyereség:** az ESET vírusirtó **négy** kernel-drivere (`eamonm`, `ehdrv`, `epfw`, `epfwwfp`) pontosan ide esett — futnak, a gép védelme rajtuk áll, és a régi felderítés mindegyiket használatlannak mutatta volna. Ez ugyanaz a hibaosztály, mint a ninja-eset.
+
+#### AZ ÖTÖDIK JEL: A NYOMTATÓ-DRIVER NEM PnP-DRIVER (2026-09-18, terepen mérve)
+
+**Terepi bejelentés:** *„ez miért van hogy pl ezt berakja nem használtba? most indítottam a gépet, oké h nem nyomtattam vele még, de hozzá van kötve a géphez, be is van kapcsolva"*, majd a pontos diagnózis a felhasználótól: *„ha ott van a spoolerben a nyomtató, akkor nem a nem használt kategóriában kéne lennie"*.
+
+**A besorolás tényleg hibás volt, de NEM azért, mert „még nem nyomtatott vele".** Egy nyomtató-driver nem kernel-driver, hanem **user-mode DLL, amit a `spoolsv.exe` tölt be**: nincs kernel-szolgáltatása, és jellemzően eszköz-csomópontja sincs. A négy korábbi jel tehát mind néma marad rá. Mérve ezen a gépen:
+
+| mérés | eredmény |
+|---|---|
+| spoolerben regisztrált nyomtató-driver (`Get-PrinterDriver`) | **20** |
+| telepített nyomtató (`Get-Printer`) | **8** |
+| `SWD\PRINTENUM\...` nyomtatósor-eszköz | 10, **amiből 9 a Windows saját `printqueue.inf`-jén fut** |
+| a nyomtató SAJÁT INF-jéhez kötött nyomtatósor | **1** (`oem113.inf` = HP Universal Printing PCL 6) |
+
+Vagyis a PnP-eszközfa a nyomtató-driverek **95%-áról semmit nem tud** — a nyilvántartás a nyomtatósor-kezelőben van. **A hatás a teljes gépen: a „nem használt" 14-ről 0-ra ment, és mind a 14 nyomtató-driver volt.**
+
+**KÉT ÁLLAPOT, MERT A KETTŐ NEM UGYANAZ** (a felhasználó „ha ott van a spoolerben, akkor aktívan használt" javaslatának finomítása, mérésre alapozva): a 20 spooler-driverből **csak 6-hoz van telepített nyomtató**, a többi 14 a Windows tartalék osztály-drivere (`prnms001`, `prnepcl2`, `prnsacl1`…) nyomtató nélkül. Ezért:
+- **van hozzá TELEPÍTETT NYOMTATÓ → `active`**, és a bizonyíték is kiíródik (*„Telepített nyomtató használja: WEBSHOP HP LaserJet 700 …"*);
+- **csak be van jegyezve, nyomtató nélkül → `standby`**.
+
+Egyik sem a „nem használt" — a kérés teljesül —, de „Használatban"-t nem írunk oda, ahol nincs mögötte nyomtató: az ugyanaz a hazugság lenne, csak fordítva.
+
+**A PÁROSÍTÁS KULCSA AZ EREDETI INF-NÉV, nem a published `oemNN.inf`**: a `Get-PrinterDriver` `InfPath`-ja a DriverStore-ból jön (`…\hpcu270u.inf_amd64_<hash>\hpcu270u.inf`), ami az eredeti nevet hordozza. Ezért kell a `build_usage`-nek az `originals` map — **és ha a hívó nem ad ilyet, a jel néma marad, amit WARNING mond ki** (enélkül egy „miért van a nyomtató-driver a nem használtak közt?" bejelentés megválaszolhatatlan lenne).
+
+**A két PowerShell-szkript (fő út + tartalék) UGYANAZOKBÓL A BLOKKOKBÓL épül össze** (`_PRINTER_PS_BLOCK`, `_SERVICES_PS_BLOCK`): két külön példány előbb-utóbb mást adna ugyanarról a gépről. A `Get-PrinterDriver`/`Get-Printer` a PrintManagement modulból jön, ami **csak Win8+-on létezik** — régi Windowson a `SilentlyContinue` miatt csendben üres lista lesz, és a másik négy jel változatlanul működik. Egy mért PowerShell-csapda: `@($used[$inf])` egy **hiányzó** kulcsra egy elemű, `null`-t tartalmazó tömböt ad, amitől a „nincs hozzá nyomtató" eset úgy nézne ki, mintha lenne egy névtelen nyomtatója — ezért kell a `ContainsKey`-ág (és a Python oldalon a `None`-szűrés védőhálóként).
+
+**Ellenőrzés:** végponttól végpontig a valódi `GuiDriversMixin.get_driver_usage`-en, 58 csomagon, admin nélkül (a published→original párosítás a fájlok **tartalmából**, mert a `dism` admint kér) — állítás: spoolerben lévő csomag **soha** nem lehet `unused`, és a `hpcu270u.inf` `active`, megnevezett nyomtatóval. Mindkettő teljesül.
 
 **[2026-09-17, ugyanaznap később: az eszközök forrása azóta a cfgmgr32 ESZKÖZFA, nem a registry-bejárós PowerShell — a registry-út tartalék maradt. A két út egyenértékűségét is mérés adja: a 64 érintett INF-en 0 eltérés, lásd [A gép felépítése](#a-gép-felépítése--melyik-driver-melyik-alkatrészé-2026-09-17). Az alábbi mérés a registry-útról továbbra is igaz.]** **A REGISTRY-ÚT BIZONYÍTOTTAN EGYENÉRTÉKŰ, CSAK TÖBBET LÁT.** A `Win32_PnPSignedDriver`-t azért váltotta le a `Control\Class\…\InfPath` + `Enum` bejárás, mert mérve **pontosan ugyanazt a 64 INF-et** adja a jelenlévő eszközökre (0 eltérés mindkét irányban), viszont a **nem jelenlévő** eszközöket is látja (+27 csomag, köztük egy `ThinkPad UltraNav driver` és egy BenQ monitor), ráadásul a teljes lekérdezés **2,9 mp**, míg a `Win32_PnPSignedDriver` önmagában 3,1 mp volt. A jelenlévőség eldöntésére és a SZÉP névhez a `Win32_PnPEntity` kell (a registry `DeviceDesc`-je gyakran `@oem14.inf,%str%;Név` alakú — a parse ezt kezeli).
 
@@ -913,7 +974,26 @@ Az újrakötés és a szellemeszköz-törlés azért került egy helyre: **mindk
 
 **8) A „HASZNÁLATBAN" ZÖLD, NEM PIROS.** *„nemtom h miert piros, az legyen inkább zöld"*. Igaza van: **a piros ebben a programban mindenhol hibát vagy veszélyt jelent, márpedig egy használatban lévő driver a NORMÁLIS, jó állapot** — a piros itt azt sugallta, hogy valami baj van vele. A „készenlétben" marad sárga (tartozik hozzá eszköz, de épp nem aktív — ez tényleg „figyelj rá"), a „nem használt" semleges/fehér (az a mazsolázható rész, nem hiba). A `USAGE_META.active` ikonja is 🔴 → 🟢, és a fül `tab-bad` → `tab-ok` — a fülek és a sor-chipek szándékosan ugyanazt a színkódot használják, tehát **mindkettőt együtt kell módosítani**.
 
-**ELLENŐRZÉS, AMI EZT A SZEKCIÓT MEGALAPOZZA** (ha a felület változik, ezt futtasd újra): `node --check` a kiszedett script-blokkra; egy **konzisztencia-szkript**, ami kimondja, hogy minden `data-view` mögött van `.view` (és csak a `home` a rejtett), hogy minden `switchView('X')` cél létezik, hogy mind a **163 `getElementById` hivatkozás** megtalálja a párját, és hogy a 28 áthelyezett elem-azonosító **pontosan egyszer** szerepel; végül **headless Chrome `--dump-dom` + `--screenshot` élő, a gépből kiolvasott adaton** (20 csomag, 24 alkatrész-kártya, valódi ASRock B450M térkép), ami a fenti px-méréseket és a fül-feliratokat (`🟢 Használatban 16`, `🟡 Készenlétben 1`, `⚪ Nem használt 3`), a `csoportosito_valto: 0`-t, a `logo_kiemelve: "sidebar-title on-home"`-ot és a `menupontok: 10`-et adta. **Harness-megjegyzés: ezen a gépen NINCS Edge, csak Chrome** (`C:\Program Files\Google\Chrome\Application\chrome.exe`) — a CLAUDE.md eddig Edge-et említett, a `--headless=new` Chrome-mal ugyanígy működik.
+**9) A SIDEBAR LEJJEBB KEZDŐDIK, ÉS A LOGÓ ALATT VAN HÉZAG** (2026-09-18, explicit user decision: *„az egész sidebar egy nagyon kicsit kezdődjön lejjebb, mert ott összeér a 2 cucc, lehet látni, annyira nem szép így"*). Két külön beállítás kell hozzá, és a második a lényeg: a `.sidebar` felső paddingja 16 → **24px** (ez csak lejjebb tolja az egészet, hogy a lila cím ne tapadjon az ablak tetejére), a `.sidebar-title` pedig `margin-bottom:12px`-et kapott. **A margó azért kell a padding MELLÉ, mert a kezdőlapon a címnek háttere van** (`.on-home`), és a padding ANNAK a része — vagyis a halvány doboz alja pont az első menüpontig ért le. Headless mérve: a cím teteje 24px, a cím és az első menüpont közt 12px.
+
+**10) A DRIVER-TÁBLÁZAT SOHA NEM LAPULHAT ÖSSZE — MÉRT PADLÓ** (2026-09-18, explicit user decision: *„most a táblázat teljesen eltűnik… legyen a táblázat minimum 4 soros, hogy ha nagyon kevés a driver, akkor se jöjjön elő ez a probléma"*). A bal hasáb magasságát a jobb oldali kártya-hasáb szabja meg (2×2 rács), és kevés alkatrésznél az rövid — ilyenkor a táblázatra pár tucat px maradt. **A 8. pontban rögzített 300px-es sor-minimum kevésnek bizonyult**, mert a hasábból az állapot-sáv és a fülek ~150-195px-et elvisznek.
+
+**A SZÁMOK HEADLESS MÉRVE, valódi adaton, 4 ablakméreten — ne tippeld újra, mert a kézenfekvő becslés a felére téved:**
+
+| mit | mért érték |
+|---|---|
+| csoport-fejléc sor | **33px** (fix) |
+| adatsor | **68–223px (!)** — a „Használat" chip és a „Mire való" cella tördel |
+| táblázat-fejléc (`thead`) | 30–46px |
+| a hasáb fejrésze (állapot-sáv + 2 gomb + fülek) | **144–195px** |
+
+Két CSS-változó dolgozik együtt: `--drv-table-min` (**290px** = 1 csoport-fejléc + 3 átlagos adatsor + fejléc) és `--mm-tablecol-min` (**490px** = az előbbi + a LEGNAGYOBB mért fejrész). Eredmény ugyanazon a gépen, 1920×1040-en: **2 sor → 4-5 sor**; a kevés-driveres és az egyetlen-driveres eset is végig olvasható marad, túllógás 0.
+
+**Két dolog, amit itt nem szabad „megjavítani":** a tördelést **nem csonkoljuk vissza** (a chip szövege a besorolás INDOKA, és pont azt vágná le — ez a szabály a Driver Keresés nézetben már vérrel íródott), és **egyhasábos módban (`mm-nomap` / `collapsed`) a padló 0**: ott nincs kártya-hasáb, ami összenyomná, tehát a `--drv-table-min` egy 2 soros listánál is 290px magas ÜRES dobozt csinálna. Mérve: nomap módban 220px, mind az 5 sor látszik.
+
+**ELLENŐRZÉS, AMI EZT A SZEKCIÓT MEGALAPOZZA** (ha a felület változik, ezt futtasd újra): `node --check` a kiszedett script-blokkra; egy **konzisztencia-szkript**, ami kimondja, hogy minden `data-view` mögött van `.view` (és csak a `home` a rejtett), hogy minden `switchView('X')` cél létezik, hogy mind a **163 `getElementById` hivatkozás** megtalálja a párját, és hogy a 28 áthelyezett elem-azonosító **pontosan egyszer** szerepel; végül **headless Chrome `--dump-dom` + `--screenshot` élő, a gépből kiolvasott adaton** (20 csomag, 24 alkatrész-kártya, valódi ASRock B450M térkép), ami a fenti px-méréseket és a fül-feliratokat (`🟢 Használatban 16`, `🟡 Készenlétben 1`, `⚪ Nem használt 3`), a `csoportosito_valto: 0`-t, a `logo_kiemelve: "sidebar-title on-home"`-ot és a `menupontok: 10`-et adta. **Harness-megjegyzés a böngésző útvonaláról — PONTOSÍTVA 2026-09-18, mérve.** A korábbi „ezen a gépen NINCS Edge, csak Chrome (`C:\Program Files\Google\Chrome\…`)" megfogalmazás **kétszeresen téves volt**: Edge IS van (`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`), a Chrome pedig a **32-bites** Program Files alatt ül (`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`) — a beégetett 64-bites útvonal `FileNotFoundError`-t adott. **A mérő-szkript ezért KERESSE a böngészőt** egy jelöltlistán (Chrome 64/32/user-local, majd Edge), ne egy beégetett útvonalat használjon; a `--headless=new` mindegyikkel ugyanúgy működik.
+
+**Harness-csapda a `--dump-dom`-os méréshez (2026-09-18):** a táblázat elemeinek valódi id-ja `driver-table-wrap` (a doboz) és **`driver-tbody`** (a sorok) — nincs `#driver-table` elem. Egy rossz selector nem hibázik, csak **üres listát** ad (`sorok=0/0`), ami valódi layout-hibának látszik.
 
 ### ÜRES (FEHÉR/FEKETE) FELÜLET PÁR MÁSODPERCCEL AZ INDULÁS UTÁN = IDEGEN DLL A WEBVIEW2-BEN (2026-09-18, mérve)
 

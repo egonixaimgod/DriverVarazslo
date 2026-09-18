@@ -666,55 +666,19 @@ class GuiAutofixMixin:
             # NEM megoldás a nyomtatósor-eszköz eltávolítása: az az ügyfél nyomtatóját
             # venné ki a gépből, amit a technikus nem kért - lásd a nyomtató-védelem
             # indoklását a CLAUDE.md-ben.
+            # A KÖR MAGA A `drivers_core.retry_in_use_deletes`-ben él, mert a KÉZI törlés
+            # is ugyanezt hívja (2026-09-18): két példány előbb-utóbb eltérne, és a két
+            # képernyő mást mondana ugyanarról a csomagról.
             still_in_use = []
             if in_use:
-                names = [f"{d.get('published')} ({d.get('original', '')})" for d in in_use]
-                logging.warning(f"[AUTOFIX-DELETE] {len(in_use)} csomagot használ egy telepített eszköz - "
-                                f"a(z) {drivers_core.PRINT_SPOOLER_SERVICE} leállításával újrapróbáljuk: {names}")
-                self.emit('task_progress', {'task': task_id, 'log':
-                          f'\n🖨️ {len(in_use)} csomagot még használ egy telepített eszköz - '
-                          f'a nyomtatósor átmeneti leállításával újrapróbáljuk...'})
-                spooler_stopped = drivers_core.set_service_state(
-                    self._run, drivers_core.PRINT_SPOOLER_SERVICE, start=False)
-                try:
-                    for drv in in_use:
-                        if self._cancel_flag:
-                            break
-                        nm = drv.get('published', '')
-                        res2 = drivers_core.delete_driver_package(self._run, nm,
-                                                                  timeout=DELETE_DRIVER_TIMEOUT)
-                        if drivers_core.delete_succeeded(res2):
-                            deleted_ok += 1
-                            logging.info(f"[AUTOFIX-DELETE] Törölve (2. kör): {nm} "
-                                         f"({drv.get('original', '')}) - {drv.get('provider', '?')} "
-                                         f"[{drv.get('class', '?')}]")
-                        else:
-                            failed.append(f"{nm} ({drv.get('original', '')})")
-                            if drivers_core.delete_blocked_in_use(res2):
-                                # Leállt Spooler MELLETT is "eszköz használja" -> nem a
-                                # szolgáltatás volt az akadály, hanem egy eszköz-csomópont.
-                                still_in_use.append(f"{nm} ({drv.get('original', '')})")
-                                logging.warning(
-                                    f"[AUTOFIX-DELETE] A 2. körben sem sikerült: {nm} "
-                                    f"({drv.get('original', '')}), returncode={res2.returncode} - "
-                                    f"a leállított {drivers_core.PRINT_SPOOLER_SERVICE} mellett is egy "
-                                    f"ESZKÖZ-csomópont (nyomtatósor) tartja, nem a szolgáltatás.")
-                            else:
-                                logging.warning(f"[AUTOFIX-DELETE] A 2. körben sem sikerült: {nm} "
-                                                f"({drv.get('original', '')}), returncode={res2.returncode}")
-                finally:
-                    # MINDENKÉPP vissza: ez a gép nyomtatási képessége.
-                    if spooler_stopped:
-                        if not drivers_core.set_service_state(
-                                self._run, drivers_core.PRINT_SPOOLER_SERVICE, start=True):
-                            # Ezt látnia KELL a technikusnak - nem hallgatható el.
-                            self.emit('task_progress', {'task': task_id, 'log':
-                                      '⚠️ A nyomtatósor (Spooler) szolgáltatást nem sikerült '
-                                      'visszaindítani! Indítsd el kézzel: services.msc → '
-                                      'Nyomtatásisor-kezelő → Indítás (vagy: net start Spooler).'})
-                        else:
-                            self.emit('task_progress', {'task': task_id, 'log':
-                                      '✅ A nyomtatósor visszaindítva.'})
+                r = drivers_core.retry_in_use_deletes(
+                    self._run, in_use,
+                    log=lambda m: self.emit('task_progress', {'task': task_id, 'log': m}),
+                    check_cancel=lambda: bool(self._cancel_flag),
+                    timeout=DELETE_DRIVER_TIMEOUT, log_tag='AUTOFIX-DELETE')
+                deleted_ok += len(r['deleted'])
+                failed.extend(r['failed'])
+                still_in_use = r['still_in_use']
 
             logging.info(f"[AUTOFIX-DELETE] Törlési fázis vége: {deleted_ok} sikeres, {len(failed)} sikertelen, "
                          f"{len(deferred)} halasztott (összesen {total} csomag).")
@@ -725,12 +689,10 @@ class GuiAutofixMixin:
                 if still_in_use:
                     # A KONKRÉT okot mondjuk meg, ne a "jellemzően valami tartja"-t: ezeknél
                     # a nyomtatósor ESZKÖZ-csomópontja tartja a csomagot, ami a Spooler
-                    # leállítása után is bejegyezve marad (mérve, lásd fentebb).
-                    self.emit('task_progress', {'task': task_id, 'log':
-                              f'   Ebből {len(still_in_use)} db-ot a nyomtatósor eszköz-csomópontja tart, '
-                              f'nem a Spooler szolgáltatás - ezért a leállítása sem segített rajtuk. '
-                              f'A Windows saját virtuális nyomtatóinál (Print to PDF, XPS Document Writer) '
-                              f'ez normális, és nincs is vele teendő: a Windows úgyis visszateszi őket.'})
+                    # leállítása után is bejegyezve marad (mérve, lásd fentebb). A szöveg a
+                    # magban van, hogy a kézi törlés ugyanezt mondja.
+                    self.emit('task_progress', {'task': task_id,
+                              'log': drivers_core.in_use_explanation(len(still_in_use))})
                 self.emit('task_progress', {'task': task_id, 'log': 'Ez általában nem gond: ezek a driverek maradnak, a folyamat megy tovább.\n'})
             if deferred:
                 # Végigértünk, de maradt beragadt csomag - az újraindítás utáni láb söpri be.

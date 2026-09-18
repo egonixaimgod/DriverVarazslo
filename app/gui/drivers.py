@@ -243,6 +243,14 @@ class GuiDriversMixin:
             total = len(published_names)
             success = 0
             fail = 0
+            # "EGY TELEPÍTETT ESZKÖZ MÉG HASZNÁLJA" (0xE000023D): nem végleges bukás, hanem
+            # megszüntethető akadály - a köteg VÉGÉN egyszer leállítjuk a nyomtatósort és
+            # újrapróbáljuk (ugyanaz a mag, amit az AutoFix használ). Terepi eset, amiből
+            # ez lett (2026-09-18): a technikus 14 nyomtató-csomagot jelölt ki, mind a 14
+            # ezzel a hibával bukott, és a képernyőn csak annyi állt, hogy "❌ sikertelen"
+            # - se ok, se teendő. A Spooler leállítása CSOMAGONKÉNT pazarlás és fölösleges
+            # kockázat lenne, ezért gyűjtjük őket.
+            in_use = []
             logging.info(f"[DELETE] Törlés indulása: {total} db driver")
             self.emit('task_start', {'task': 'delete', 'title': f'Törlés folyamatban... ({total} driver)'})
             self.emit('task_progress', {'task': 'delete', 'log': f'Kijelölt driverek törlése indult ({total} db)'})
@@ -267,6 +275,13 @@ class GuiDriversMixin:
                     if drivers_core.delete_succeeded(res):
                         success += 1
                         self.emit('task_progress', {'task': 'delete', 'log': f'  ✅ {pub} törölve'})
+                    elif drivers_core.delete_blocked_in_use(res):
+                        # A köteg végén, a nyomtatósor leállítása után újrapróbáljuk.
+                        in_use.append({'published': pub})
+                        logging.warning(f"[DELETE] HASZNÁLATBAN: {pub} (returncode={res.returncode}) "
+                                        f"- a köteg végén újrapróbáljuk.")
+                        self.emit('task_progress', {'task': 'delete', 'log':
+                                  f'  ⏸️ {pub}: egy telepített eszköz még használja - a végén újrapróbáljuk'})
                     else:
                         # Az agresszív force-fallback csak "ÖSSZES driver" módban, nem-oem
                         # csomagra fut (lásd drivers_core.force_delete_driver_files).
@@ -283,6 +298,27 @@ class GuiDriversMixin:
                 except Exception as e:
                     fail += 1
                     self.emit('task_progress', {'task': 'delete', 'log': f'  ❌ {pub} hiba: {e}'})
+
+            # MÁSODIK KÖR: amit "egy telepített eszköz használ" - a nyomtatósor átmeneti
+            # leállításával. UGYANAZ A MAG, amit az AutoFix törlési fázisa hív.
+            if in_use and not cancelled:
+                r = drivers_core.retry_in_use_deletes(
+                    self._run, in_use,
+                    log=lambda m: self.emit('task_progress', {'task': 'delete', 'log': m}),
+                    check_cancel=lambda: bool(self._cancel_flag),
+                    timeout=drivers_core.DELETE_DRIVER_TIMEOUT,
+                    target_os_path=self.target_os_path)
+                success += len(r['deleted'])
+                fail += len(r['failed'])
+                if r['failed']:
+                    self.emit('task_progress', {'task': 'delete', 'log':
+                              f'\n❌ {len(r["failed"])} csomagot így sem lehetett eltávolítani:'})
+                    for f in r['failed']:
+                        self.emit('task_progress', {'task': 'delete', 'log': f'   • {f}'})
+                if r['still_in_use']:
+                    # A KONKRÉT ok és a valódi teendő - nem elég annyi, hogy "sikertelen".
+                    self.emit('task_progress', {'task': 'delete',
+                              'log': drivers_core.in_use_explanation(len(r['still_in_use']))})
 
             # Post-delete scan
             is_offline = bool(self.target_os_path)

@@ -419,6 +419,103 @@ def set_service_state(run, service, start):
     return ok
 
 
+def retry_in_use_deletes(run, items, log=None, check_cancel=None, timeout=None,
+                         target_os_path=None, log_tag='DELETE'):
+    r"""MÁSODIK KÖR: a "egy telepített eszköz használja" hibával bukott csomagok
+    újrapróbálása a nyomtatósor-kezelő (Spooler) ÁTMENETI leállításával.
+
+    `items`: a bukott csomagok dict-jei (`published` + lehetőleg `original`, `provider`,
+    `class`). `log(msg)`: a képernyőre menő sorok (GUI: emit-lambda, CLI: print) - None
+    esetén csak a napló kap sort. `check_cancel()`: igazra a kör megszakad.
+
+    Visszatérés: {'deleted': [dict...], 'still_in_use': ['név (eredeti)'...],
+                  'failed': ['név (eredeti)'...]}.
+
+    EGY MAG, KÉT HÍVÓ (2026-09-18, explicit user decision): eddig csak az AutoFix
+    törlési fázisa ismerte ezt a kört, a KÉZI törlés nem - ott a technikus annyit
+    látott, hogy "❌ sikertelen", ok nélkül. Terepen ez 14 nyomtató-csomagnál fordult
+    elő egyszerre. Két külön példány előbb-utóbb eltérne, és a két képernyő mást mondana
+    ugyanarról a csomagról.
+
+    HÁROM SZABÁLY, ami nélkül ez többet ártana, mint használ:
+      1. A szolgáltatást EGYSZER állítjuk le az egész kötegre, nem csomagonként.
+      2. A visszaindítás `finally`-ben van, tehát kivétel, megszakítás vagy törlési hiba
+         után is megtörténik - egy Spooler nélkül visszaadott gép nem tud nyomtatni, ami
+         sokkal rosszabb, mint egy megmaradt driver-csomag.
+      3. NEM szűrünk osztályra: amit a technikus törölni akart, azt törölni akarjuk
+         (CLAUDE.md: a törlésbe soha ne kerüljön új szűrő).
+
+    A KÖR MÉRT HATÁRA (2026-09-07, ASRock B450M, Build 303): a Spooler bizonyítottan
+    leállt, a törlés mégis ugyanazzal a 0xE000023D kóddal bukott a `prnms009.inf` /
+    `prnms006.inf` csomagokon - azokat nem a SZOLGÁLTATÁS tartja, hanem a nyomtatósor
+    `SWD\PRINTENUM\{...}` ESZKÖZ-csomópontja, ami a leállítás után is bejegyezve marad.
+    Ezért van külön `still_in_use` lista: a hívó ezt nevén nevezheti a technikusnak.
+    NEM megoldás a nyomtatósor-eszköz eltávolítása - az az ügyfél nyomtatóját venné ki a
+    gépből, amit senki nem kért."""
+    out = {'deleted': [], 'still_in_use': [], 'failed': []}
+    items = [d for d in (items or []) if (d or {}).get('published')]
+    if not items:
+        return out
+
+    def _say(msg):
+        if log:
+            log(msg)
+
+    names = [f"{d.get('published')} ({d.get('original', '')})" for d in items]
+    logging.warning(f"[{log_tag}] {len(items)} csomagot használ egy telepített eszköz - a(z) "
+                    f"{PRINT_SPOOLER_SERVICE} leállításával újrapróbáljuk: {names}")
+    _say(f'\n🖨️ {len(items)} csomagot még használ egy telepített eszköz (jellemzően a '
+         f'nyomtatósor) - a nyomtatósor átmeneti leállításával újrapróbáljuk...')
+    spooler_stopped = set_service_state(run, PRINT_SPOOLER_SERVICE, start=False)
+    try:
+        for drv in items:
+            if check_cancel and check_cancel():
+                break
+            nm = drv.get('published', '')
+            label = f"{nm} ({drv.get('original', '')})"
+            res = delete_driver_package(run, nm, target_os_path, timeout=timeout)
+            if delete_succeeded(res):
+                out['deleted'].append(drv)
+                logging.info(f"[{log_tag}] Törölve (2. kör): {nm} ({drv.get('original', '')}) - "
+                             f"{drv.get('provider', '?')} [{drv.get('class', '?')}]")
+                _say(f'  ✅ {nm} törölve (a nyomtatósor leállítása után)')
+                continue
+            out['failed'].append(label)
+            if delete_blocked_in_use(res):
+                # Leállt Spooler MELLETT is "eszköz használja" -> nem a szolgáltatás volt
+                # az akadály, hanem egy eszköz-csomópont.
+                out['still_in_use'].append(label)
+                logging.warning(
+                    f"[{log_tag}] A 2. körben sem sikerült: {label}, "
+                    f"returncode={res.returncode} - a leállított {PRINT_SPOOLER_SERVICE} "
+                    f"mellett is egy ESZKÖZ-csomópont (nyomtatósor) tartja, nem a szolgáltatás.")
+            else:
+                logging.warning(f"[{log_tag}] A 2. körben sem sikerült: {label}, "
+                                f"returncode={res.returncode}")
+    finally:
+        # MINDENKÉPP vissza: ez a gép nyomtatási képessége.
+        if spooler_stopped:
+            if set_service_state(run, PRINT_SPOOLER_SERVICE, start=True):
+                _say('✅ A nyomtatósor visszaindítva.')
+            else:
+                # Ezt LÁTNIA KELL a technikusnak - nem hallgatható el.
+                _say('⚠️ A nyomtatósor (Spooler) szolgáltatást nem sikerült visszaindítani! '
+                     'Indítsd el kézzel: services.msc → Nyomtatásisor-kezelő → Indítás '
+                     '(vagy: net start Spooler).')
+    return out
+
+
+def in_use_explanation(count):
+    """A "nyomtatósor-eszköz tartja" kimenetel magyarázata - EGY szöveg, hogy a kézi
+    törlés és az AutoFix ugyanazt mondja róla."""
+    return (f'   Ebből {count} db-ot a nyomtatósor ESZKÖZ-csomópontja tart, nem a Spooler '
+            f'szolgáltatás - ezért a leállítása sem segített rajtuk. Ez akkor fordul elő, '
+            f'ha a driverhez telepített nyomtató tartozik: előbb a nyomtatót kell '
+            f'eltávolítani (Beállítások → Bluetooth és eszközök → Nyomtatók és lapolvasók), '
+            f'és utána törölhető a driver. A Windows saját virtuális nyomtatóinál '
+            f'(Print to PDF, XPS Document Writer) ez normális, és nincs is vele teendő.')
+
+
 def force_delete_driver_files(run, pub, target_os_path=None):
     """Agresszív force-törlés fallback (takeown/icacls/rmtree a FileRepository +
     Windows\\INF alól). CSAK "összes driver" módban, nem-oem csomagra hívható -

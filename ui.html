@@ -33,11 +33,18 @@ body::after{content:'';position:fixed;width:700px;height:700px;background:radial
 
 /* Layout */
 .app{display:flex;height:100vh;gap:0}
-.sidebar{width:230px;min-width:230px;display:flex;flex-direction:column;padding:16px 12px;border-radius:0;border-right:1px solid rgba(180,100,255,0.25);border-left:none;border-top:none;border-bottom:none;background:rgba(35,20,60,0.7);backdrop-filter:blur(30px);overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:rgba(180,100,255,0.3) transparent}
+/* A FELSŐ PADDING 24px, NEM 16 (2026-09-18, explicit user decision: *"az egész sidebar
+   egy nagyon kicsit kezdődjön lejjebb, mert ott összeér a 2 cucc"*): a logó és az első
+   menüpont vizuálisan egymásnak feszült. A hézagot a `.sidebar-title` margója adja - a
+   padding CSAK lejjebb tolja az egészet, hogy a lila cím ne tapadjon az ablak tetejére. */
+.sidebar{width:230px;min-width:230px;display:flex;flex-direction:column;padding:24px 12px 16px;border-radius:0;border-right:1px solid rgba(180,100,255,0.25);border-left:none;border-top:none;border-bottom:none;background:rgba(35,20,60,0.7);backdrop-filter:blur(30px);overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:rgba(180,100,255,0.3) transparent}
 .sidebar::-webkit-scrollbar{width:6px}
 .sidebar::-webkit-scrollbar-thumb{background:rgba(180,100,255,0.3);border-radius:3px}
 .sidebar>*{flex-shrink:0}
-.sidebar-title{font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:var(--accent);padding:8px 12px 16px;text-align:center;text-shadow:0 0 15px rgba(212,136,255,0.5);
+/* A `margin-bottom` KELL a `padding-bottom` MELLÉ: a kezdőlapon a címnek háttere van
+   (`.on-home`), és a padding ANNAK a része - vagyis a halvány doboz alja pont az első
+   menüpontig ért le. A margó az, ami a kettőt ténylegesen elválasztja. */
+.sidebar-title{font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:var(--accent);padding:8px 12px 12px;margin-bottom:12px;text-align:center;text-shadow:0 0 15px rgba(212,136,255,0.5);
   border-radius:var(--r-sm);transition:background var(--t),text-shadow var(--t)}
 /* A LOGÓ UGYANÚGY NÉZ KI, MINT EDDIG - csak egy halk kiemelést kap, amikor épp a
    kezdőlapon állunk (2026-09-18, explicit user decision: *"maradjon ugyanugy a logo...
@@ -452,14 +459,19 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
    táblázat alja MAGÁTÓL egy vonalba kerül a kártyák aljával (2026-09-18, explicit user
    decision) - korábban az ábra alatt egy képernyő-magas üres folt volt, a táblázat meg
    az egész alá csúszott. */
-/* A 2. SOR MINIMUMA 260px, NEM 0 (2026-09-18, mérve): a `minmax(0,1fr)` explicit 0-ás
-   minimuma FELÜLÍRTA a `.mm-tablecol` `min-height`-jét, ezért széles képernyőn a táblázat
-   99 px-re lapult (2560 px-en mérve) - a kártya-hasáb ott rövidebb, az ábra viszont a
-   hasáb szélességével együtt magasodik, és elvitte a helyet. Ha a kártya-hasáb ennél is
-   rövidebb, a bal hasáb túlnyúlik rajta - ez a vállalt irány: egy 99 px-es táblázat
-   használhatatlan, egy kicsit lelógó viszont csak esztétikai. */
+/* A 2. SOR MINIMUMA A TÁBLÁZAT PADLÓJA, NEM 0 (2026-09-18, mérve): a `minmax(0,1fr)`
+   explicit 0-ás minimuma FELÜLÍRTA a `.mm-tablecol` `min-height`-jét, ezért széles
+   képernyőn a táblázat 99 px-re lapult (2560 px-en mérve) - a kártya-hasáb ott rövidebb,
+   az ábra viszont a hasáb szélességével együtt magasodik, és elvitte a helyet. Ha a
+   kártya-hasáb ennél is rövidebb, a bal hasáb túlnyúlik rajta - ez a vállalt irány: egy
+   99 px-es táblázat használhatatlan, egy kicsit lelógó viszont csak esztétikai.
+   A 300px viszont KEVÉSNEK bizonyult (2026-09-18, terepi jelentés: *"most a táblázat
+   teljesen eltűnik... legyen a táblázat minimum 4 soros"*): a hasábból az állapot-sáv és
+   a fülek ~150px-et elvisznek, tehát 300-nál a táblázatra alig 1-2 sor maradt. A padlót
+   ezért a `--drv-table-min` (a táblázat saját minimuma, lásd ott) és a fölötte lévő
+   fejrész együtt adja. */
 .mm-body{display:grid;grid-template-columns:minmax(360px,1fr) minmax(0,1fr);
-  grid-template-rows:auto minmax(300px,1fr);gap:16px;padding:14px 16px 16px;
+  grid-template-rows:auto minmax(var(--mm-tablecol-min),1fr);gap:16px;padding:14px 16px 16px;
   position:relative;z-index:1}
 .mm-figure{grid-column:1;grid-row:1}
 .mm-cards{grid-column:2;grid-row:1 / span 2}
@@ -472,7 +484,27 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
    (a headless mérés ezt `bal_hasab_alja > kartya_hasab_alja`-ként mutatta ki).
    A `min-height` a padló: ha a kártya-hasáb rövid (kevés alkatrész), a táblázat akkor se
    szoruljon össze olvashatatlanra. */
-.mm-tablecol{grid-column:1;grid-row:2;min-width:0;min-height:260px;position:relative}
+/* A TÁBLÁZAT SOSEM LAPULHAT 4 SOR ALÁ (2026-09-18, explicit user decision: *"legyen a
+   táblázat minimum 4 soros, hogy ha nagyon kevés a driver, akkor se jöjjön elő ez a
+   probléma"*). A bal hasáb magasságát a jobb oldali kártya-hasáb szabja meg, és ha a
+   gépben kevés alkatrész van, az rövid - ilyenkor a táblázatra pár tucat px maradt.
+   A két szám EGYÜTT dolgozik, ezért van mindkettő változóban:
+     --drv-table-min     = a TÁBLÁZAT padlója: fejléc + ~4 sor.
+     --mm-tablecol-min   = a HASÁB padlója: a fenti + az állapot-sáv + a fülek.
+   HEADLESS MÉRVE (2026-09-18, valódi adaton, 4 ablakméreten) - ne tippeld újra, mert a
+   kézenfekvő becslés a felére téved:
+     csoport-fejléc sor : 33px  (fix)
+     adatsor            : 68-223px (!) - a "Használat" chip és a "Mire való" cella
+                          TÖRDEL, és keskeny hasábban egy sor 200px fölé is mehet
+     táblázat-fejléc    : 30-46px
+     a hasáb fejrésze   : 144-195px (állapot-sáv + a két kijelölő gomb + fülek)
+   A 290px tehát "1 csoport-fejléc + 3 átlagos adatsor + fejléc" (33+3*70+46 = 289), a
+   hasáb padlója pedig ehhez a LEGNAGYOBB mért fejrészt adja (290+195 = 485 -> 490).
+   Mérés a javítás előtt/után ugyanazon a gépen: 1920x1040-en 2 sor -> 5 sor.
+   A tördelést SZÁNDÉKOSAN nem csonkoljuk vissza: a chip szövege a besorolás INDOKA,
+   és pont azt vágná le (ez a szabály a Driver Keresés nézetben már vérrel íródott). */
+:root{--drv-table-min:290px;--mm-tablecol-min:490px}
+.mm-tablecol{grid-column:1;grid-row:2;min-width:0;min-height:var(--mm-tablecol-min);position:relative}
 .mm-tablecol-inner{position:absolute;inset:0;display:flex;flex-direction:column;min-height:0}
 /* A HASZNÁLAT-ÁLLAPOT SÁV a táblázat FEJÉBEN ül (2026-09-18, explicit user decision:
    *"a 1 csomagot használ a gép meg a minden kijelölése sor kerüljön át a táblázat
@@ -492,7 +524,7 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
 .mm-tablecol .hw-sum-meta{font-size:11px}
 /* A táblázat KITÖLTI a rendelkezésre álló magasságot (a saját 580px-es plafonja helyett),
    és belül gördül - ez teszi "egyvonalban"-ná a két hasábot. */
-.mm-tablecol #driver-table-wrap{flex:1 1 auto;max-height:none;min-height:0}
+.mm-tablecol #driver-table-wrap{flex:1 1 auto;max-height:none;min-height:var(--drv-table-min)}
 /* A 7 OSZLOP FÉL SZÉLESSÉGEN: tömörebb szedés, hogy ne kelljen vízszintesen gördíteni.
    A `overflow-x:auto` a védőháló - a `.table-wrap` alapból CSAK `overflow-y`-t kap, ezért
    egy kilógó oszlop nem gördíthető, hanem ELÉRHETETLEN lenne (a headless render pontosan
@@ -530,8 +562,13 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
    táblázat ELTŰNNE. A `position:static` + a saját magasság-plafon a régi, bevált
    viselkedést adja vissza. */
 .mm-wrap.collapsed .mm-tablecol-inner,.mm-wrap.mm-nomap .mm-tablecol-inner{position:static}
+/* EGYHASÁBOS MÓDBAN NINCS PADLÓ (`min-height:0`): ott nincs kártya-hasáb, ami a sort
+   összenyomná, tehát a táblázat a tartalmához igazodik - a `--drv-table-min` viszont egy
+   2 soros listánál is 290px magas ÜRES dobozt csinálna belőle. A plafon marad, különben
+   egy 100+ soros lista végtelen hosszúra nyújtaná a lapot. */
 .mm-wrap.collapsed #driver-table-wrap,
-.mm-wrap.mm-nomap #driver-table-wrap{max-height:min(580px, calc(100vh - 300px));flex:0 1 auto}
+.mm-wrap.mm-nomap #driver-table-wrap{max-height:min(580px, calc(100vh - 300px));flex:0 1 auto;
+  min-height:0}
 /* Térkép-adat nélkül a wrapper LÁTHATATLAN: nincs keret, háttér, vízjel, belső margó -
    a nézet pontosan úgy néz ki, mint a térkép bevezetése előtt. */
 .mm-wrap.mm-nomap{border:0;background:none;margin-bottom:0}

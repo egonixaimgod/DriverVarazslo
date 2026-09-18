@@ -13,7 +13,7 @@ felderítés (`Win32_PnPSignedDriver`) SEMMIT nem tudott róla: a listában pont
 nézett ki, mint egy rég nem használt telefon-driver.
 
 =============================================================================
-NÉGY FÜGGETLEN JEL - MÉRVE A FEJLESZTŐI GÉPEN (2026-09-17, 144 third-party csomag)
+ÖT FÜGGETLEN JEL - MÉRVE A FEJLESZTŐI GÉPEN (2026-09-17, 144 third-party csomag)
 =============================================================================
 
 | jel                                  | mit talált          | idő    |
@@ -22,12 +22,49 @@ NÉGY FÜGGETLEN JEL - MÉRVE A FEJLESZTŐI GÉPEN (2026-09-17, 144 third-party 
 | FUTÓ kernel-szolgáltatás  (ÚJ)       | +6 csomag           | 0,4 mp |
 | nem jelenlévő (ghost) eszköz  (ÚJ)   | +27 csomagra van    | 0,7 mp |
 | filter-regisztráció  (ÚJ)            | ssudmdm, winusb     | 0,9 mp |
+| spoolerben regisztrált nyomtató (ÚJ) | 20 INF (2026-09-18) | 0,6 mp |
 | SEMMI JEL -> nyugodtan törölhető     | 118 csomag          |        |
 
 A "+6 csomag" nem elméleti nyereség: az ESET vírusirtó NÉGY kernel-drivere
 (`eamonm`, `ehdrv`, `epfw`, `epfwwfp`) pontosan ide esett - futnak, a gép védelme
 rajtuk áll, és a régi felderítés mindegyiket "használatlannak" mutatta volna. Ez a
 ninja-eset ugyanaz a hibaosztály.
+
+=============================================================================
+AZ ÖTÖDIK JEL: A NYOMTATÓ-DRIVER NEM PnP-DRIVER (2026-09-18, TEREPEN MÉRVE)
+=============================================================================
+
+Terepi bejelentés: *"ez miért van hogy pl ezt berakja nem használtba? most inditottam a
+gepet, oke h nem nyomtattam vele még, de hozzá van kötve a géphez, be is van kapcsolva"*.
+
+A besorolás tényleg hibás volt, de NEM azért, mert "még nem nyomtatott vele". Egy
+nyomtató-driver nem kernel-driver, hanem **user-mode DLL, amit a `spoolsv.exe` tölt be**:
+nincs kernel-szolgáltatása, és jellemzően eszköz-csomópontja sincs. A fenti NÉGY jel
+tehát mind néma marad rá, és a csomag "semmi nem használja" verdiktet kapott.
+
+MÉRVE EZEN A GÉPEN (2026-09-18):
+  - a spoolerben **20 nyomtató-driver** van regisztrálva (`Get-PrinterDriver`),
+  - **8 telepített nyomtató** használja őket (`Get-Printer`),
+  - a **10 `SWD\PRINTENUM\...` nyomtatósor-eszközből 9 a Windows saját `printqueue.inf`-jén
+    fut**, és mindössze EGY (`oem113.inf` = HP Universal Printing PCL 6) van a nyomtató
+    saját INF-jéhez kötve.
+
+Vagyis a PnP-eszközfa a nyomtató-driverek 95%-áról semmit nem tud - a nyilvántartás a
+nyomtatósor-kezelőben (Spooler) van. Az ÖTÖDIK JEL ezért onnan olvas, és a `Get-Printer`
+révén a bizonyítékot is meg tudja nevezni ("a WEBSHOP HP LaserJet 700 ... használja").
+
+KÉT ÁLLAPOT, MERT A KETTŐ NEM UGYANAZ:
+  - van hozzá TELEPÍTETT NYOMTATÓ  -> `active`  (a gép most is használja)
+  - csak be van jegyezve, nyomtató nélkül -> `standby` (a Windows tartaléka; ez a legtöbb
+    `prnms*.inf` / gyári osztály-driver esete)
+
+A PÁROSÍTÁS KULCSA AZ **EREDETI** INF-NÉV, nem a published `oemNN.inf`: a `Get-PrinterDriver`
+`InfPath`-ja a DriverStore-ból jön (`...\hpcu270u.inf_amd64_<hash>\hpcu270u.inf`), ami az
+eredeti nevet hordozza. Ezért kell a `build_usage`-nek az `originals` map - enélkül ez a jel
+nem tud megszólalni (a hívó ilyenkor DEBUG sort kap, nem néma kihagyást).
+
+EZ TOVÁBBRA SEM SZŰRŐ: a nyomtató-csomag ettől ugyanúgy kipipálható és törölhető marad,
+csak a technikus végre LÁTJA, hogy a gép nyomtatói használják.
 
 =============================================================================
 AMI NEM LÉTEZIK: "MIKOR HASZNÁLTA UTOLJÁRA" - MÉRVE, NE PRÓBÁLD MEG ÚJRA
@@ -191,16 +228,45 @@ foreach ($s in (Get-WmiObject Win32_SystemDriver)) {
   $services += [pscustomobject]@{ name = $s.Name; state = $s.State; start = $s.StartMode; file = $file; repo = $repo }
 }
 
-[pscustomobject]@{
-  devices  = $devices
-  services = $services
-  filters  = @($filters.Keys)
-} | ConvertTo-Json -Depth 4 -Compress
 """
 
-# Csak a kernel-szolgáltatások: az eszközök és a szűrők az eszközfából jönnek.
-SERVICES_PS = r"""
-$ErrorActionPreference = 'SilentlyContinue'
+# A SPOOLERBEN REGISZTRÁLT NYOMTATÓ-DRIVEREK (az ötödik jel - lásd a modul tetején).
+# Mérve 610 ms. Az `inf` az EREDETI INF-név (a DriverStore-mappából), a `printers` pedig
+# azoknak a TELEPÍTETT nyomtatóknak a neve, amik ezt a drivert használják - ez utóbbi a
+# bizonyíték, amit a technikus a képernyőn lát.
+#
+# A `Get-PrinterDriver`/`Get-Printer` a PrintManagement modulból jön, ami csak Win8+-on
+# létezik. Régi Windowson a `SilentlyContinue` miatt csendben üres lista lesz belőle -
+# ott a nyomtató-jel egyszerűen nem szólal meg, a másik négy változatlanul működik.
+_PRINTER_PS_BLOCK = r"""
+$printers = @()
+$infOf = @{}
+foreach ($pd in (Get-PrinterDriver)) {
+  if ($pd.InfPath) { $infOf[$pd.Name] = [System.IO.Path]::GetFileName($pd.InfPath).ToLower() }
+}
+$used = @{}
+foreach ($pr in (Get-Printer)) {
+  $inf = $infOf[$pr.DriverName]
+  if ($inf) {
+    if (-not $used.ContainsKey($inf)) { $used[$inf] = New-Object System.Collections.ArrayList }
+    [void]$used[$inf].Add($pr.Name)
+  }
+}
+$seen = @{}
+foreach ($k in $infOf.Keys) {
+  $inf = $infOf[$k]
+  if ($seen.ContainsKey($inf)) { continue }
+  $seen[$inf] = 1
+  # A ContainsKey-ág KELL: `@($used[$inf])` egy hiányzó kulcsra EGY ELEMŰ, null-t
+  # tartalmazó tömböt ad (mérve), amitől a "nincs hozzá nyomtató" eset úgy nézne ki,
+  # mintha lenne egy névtelen nyomtatója.
+  if ($used.ContainsKey($inf)) { $names = @($used[$inf]) } else { $names = @() }
+  $printers += [pscustomobject]@{ inf = $inf; printers = $names }
+}
+"""
+
+# A KERNEL-SZOLGÁLTATÁSOK LEKÉRDEZÉSE. Az eszközök és a szűrők az eszközfából jönnek.
+_SERVICES_PS_BLOCK = r"""
 $services = @()
 foreach ($s in (Get-WmiObject Win32_SystemDriver)) {
   $file = ''
@@ -211,8 +277,25 @@ foreach ($s in (Get-WmiObject Win32_SystemDriver)) {
   }
   $services += [pscustomobject]@{ name = $s.Name; state = $s.State; start = $s.StartMode; file = $file; repo = $repo }
 }
-[pscustomobject]@{ services = $services } | ConvertTo-Json -Depth 4 -Compress
 """
+
+# A KÉT SZKRIPT UGYANAZOKBÓL A BLOKKOKBÓL ÁLL ÖSSZE - ez nem stílus: ha a fő út és a
+# tartalék út külön példányban tartalmazná a nyomtató- vagy a szolgáltatás-lekérdezést,
+# előbb-utóbb más eredményt adnának ugyanarról a gépről (a projekt legrégebbi visszatérő
+# hibája: a duplikált logika, aminek egy példánya lemarad egy javításról).
+DRIVER_USAGE_PS = (DRIVER_USAGE_PS + _SERVICES_PS_BLOCK + _PRINTER_PS_BLOCK + r"""
+[pscustomobject]@{
+  devices  = $devices
+  services = $services
+  filters  = @($filters.Keys)
+  printers = @($printers)
+} | ConvertTo-Json -Depth 4 -Compress
+""")
+
+SERVICES_PS = ("$ErrorActionPreference = 'SilentlyContinue'\n"
+               + _SERVICES_PS_BLOCK + _PRINTER_PS_BLOCK + r"""
+[pscustomobject]@{ services = $services; printers = @($printers) } | ConvertTo-Json -Depth 4 -Compress
+""")
 
 
 def devices_from_nodes(nodes):
@@ -468,6 +551,16 @@ def build_usage(raw, inf_facts, published_names=None, originals=None):
     services = raw.get('services') or []
     filters = {str(f).lower() for f in (raw.get('filters') or []) if f}
 
+    # ÖTÖDIK JEL: a spoolerben regisztrált nyomtató-driverek, az EREDETI INF-nevük szerint
+    # (lásd a modul tetején). A `None`-szűrés védőháló: a PowerShell egy hiányzó kulcsra
+    # egy elemű, null-t tartalmazó tömböt adhat, amitől a "nincs hozzá nyomtató" eset úgy
+    # nézne ki, mintha lenne egy névtelen nyomtatója.
+    printer_by_orig = {}
+    for p in (raw.get('printers') or []):
+        inf = _norm_inf((p or {}).get('inf'))
+        if inf:
+            printer_by_orig[inf] = [str(n).strip() for n in ((p or {}).get('printers') or []) if n]
+
     # INF -> eszközök (jelenlévő / nem jelenlévő külön)
     dev_present, dev_absent = {}, {}
     for d in devices:
@@ -544,12 +637,21 @@ def build_usage(raw, inf_facts, published_names=None, originals=None):
         stopped = [e for e in matched if (e['state'] or '').lower() != 'running']
         filt = [s for s in facts['services'] if s in filters]
 
+        # A nyomtató-jel az EREDETI INF-névre párosít (a spooler a DriverStore-mappát
+        # nevezi meg, ami az eredeti nevet hordozza). `None` = nincs a spoolerben;
+        # `[]` = be van jegyezve, de nincs hozzá telepített nyomtató.
+        printer_use = printer_by_orig.get(own_origin) if own_origin else None
+        in_spooler = printer_use is not None
+
         reasons = []
         if present:
             reasons.append('Jelenlévő eszköz használja: ' + ', '.join(present[:4])
                            + (f' (+{len(present) - 4})' if len(present) > 4 else ''))
         if running:
             reasons.append('Fut a kernel-szolgáltatása: ' + ', '.join(e['name'] for e in running))
+        if printer_use:
+            reasons.append('Telepített nyomtató használja: ' + ', '.join(printer_use[:3])
+                           + (f' (+{len(printer_use) - 3})' if len(printer_use) > 3 else ''))
         if absent:
             reasons.append('Tartozik hozzá eszköz, de most NINCS csatlakoztatva: '
                            + ', '.join(absent[:3]) + (f' (+{len(absent) - 3})' if len(absent) > 3 else ''))
@@ -559,10 +661,13 @@ def build_usage(raw, inf_facts, published_names=None, originals=None):
         if filt:
             reasons.append('Szűrő-driverként be van jegyezve (akkor lép működésbe, '
                            'ha a hozzá tartozó eszköz csatlakozik): ' + ', '.join(filt))
+        if in_spooler and not printer_use:
+            reasons.append('Nyomtató-driver: be van jegyezve a nyomtatósor-kezelőbe '
+                           '(Spooler), de jelenleg nincs hozzá telepített nyomtató.')
 
-        if present or running:
+        if present or running or printer_use:
             state = USAGE_ACTIVE
-        elif absent or stopped or filt:
+        elif absent or stopped or filt or in_spooler:
             state = USAGE_STANDBY
         else:
             state = USAGE_UNUSED
@@ -576,13 +681,17 @@ def build_usage(raw, inf_facts, published_names=None, originals=None):
             'services': [{'name': e['name'], 'state': e['state']} for e in matched],
             'running_services': [e['name'] for e in running],
             'filter_services': filt,
+            'printers': list(printer_use or []),
+            'in_spooler': in_spooler,
             'reasons': reasons,
-            'summary': _summary(state, present, running, absent, stopped, filt),
+            'summary': _summary(state, present, running, absent, stopped, filt,
+                                printer_use, in_spooler),
         }
     return out
 
 
-def _summary(state, present, running, absent, stopped, filt):
+def _summary(state, present, running, absent, stopped, filt,
+             printer_use=None, in_spooler=False):
     """A táblázat "Használat" oszlopának RÖVID szövege. Egy sor, ami azonnal megmondja,
     MIÉRT az adott állapot - a puszta "Használatban" felirat ugyanolyan vak lenne, mint
     a régi INF-név."""
@@ -591,7 +700,10 @@ def _summary(state, present, running, absent, stopped, filt):
             return f'{present[0]} + fut: {running[0]["name"]}'
         if present:
             return present[0] + (f' (+{len(present) - 1})' if len(present) > 1 else '')
-        return 'FUT: ' + ', '.join(e['name'] for e in running[:2])
+        if running:
+            return 'FUT: ' + ', '.join(e['name'] for e in running[:2])
+        return (f'nyomtató: {printer_use[0]}'
+                + (f' (+{len(printer_use) - 1})' if len(printer_use) > 1 else ''))
     if state == USAGE_STANDBY:
         if absent:
             return f'kihúzva: {absent[0]}' + (f' (+{len(absent) - 1})' if len(absent) > 1 else '')
@@ -599,6 +711,8 @@ def _summary(state, present, running, absent, stopped, filt):
             return 'szűrő-driver: ' + filt[0]
         if stopped:
             return 'leállítva: ' + stopped[0]['name']
+        if in_spooler:
+            return 'nyomtató-driver (nincs hozzá telepített nyomtató)'
         return 'készenlétben'
     if state == USAGE_UNKNOWN:
         return 'nem vizsgálva'
@@ -717,7 +831,8 @@ def collect_usage_raw(run_fn, node_fn=None, class_filter_fn=None):
                         f"a teljes PowerShell-felderítés fut, a gép-térkép kimarad.",
                         exc_info=True)
         try:
-            data = _run_ps_json(run_fn, DRIVER_USAGE_PS, ('devices', 'services', 'filters'))
+            data = _run_ps_json(run_fn, DRIVER_USAGE_PS,
+                                ('devices', 'services', 'filters', 'printers'))
             if data is not None:
                 data['nodes'] = None
             return data
@@ -725,7 +840,7 @@ def collect_usage_raw(run_fn, node_fn=None, class_filter_fn=None):
             logging.warning(f"[USAGE] A rendszerállapot lekérdezése sikertelen: {e2}")
             return None
     try:
-        svc = _run_ps_json(run_fn, SERVICES_PS, ('services',))
+        svc = _run_ps_json(run_fn, SERVICES_PS, ('services', 'printers'))
     except Exception as e:
         logging.warning(f"[USAGE] A kernel-szolgáltatások lekérdezése sikertelen: {e}")
         svc = None
@@ -738,6 +853,7 @@ def collect_usage_raw(run_fn, node_fn=None, class_filter_fn=None):
         'devices': devices_from_nodes(nodes),
         'services': svc.get('services') or [],
         'filters': sorted(filters_from_nodes(nodes, class_filters)),
+        'printers': svc.get('printers') or [],
         'nodes': nodes,
     }
 
@@ -775,7 +891,16 @@ def collect_usage_context(run_fn, packages=None, inf_dir=None, node_fn=None, cla
         f"(forrás: {'eszközfa' if raw.get('nodes') is not None else 'PowerShell-tartalék'}, "
         f"{len(raw.get('devices') or [])} kötött eszköz-példány, "
         f"{len(raw.get('services') or [])} kernel-szolgáltatás, "
-        f"{len(raw.get('filters') or [])} szűrő-bejegyzés)")
+        f"{len(raw.get('filters') or [])} szűrő-bejegyzés, "
+        f"{len(raw.get('printers') or [])} spooler-nyomtatódriver)")
+    # A NYOMTATÓ-JEL AZ EREDETI INF-NÉVRE PÁROSÍT, tehát `originals` nélkül NÉMA MARAD.
+    # Ezt ki kell mondani, különben egy "miért van a nyomtató-driver a nem használtak közt?"
+    # bejelentés megválaszolhatatlan: a naplóból kell látszania, hogy a jel egyáltalán
+    # megszólalhatott-e.
+    if raw.get('printers') and not originals:
+        logging.warning("[USAGE] A spoolerben van nyomtató-driver, de a hívó nem adott "
+                        "published->original párosítást - a nyomtató-jel ebben a körben "
+                        "nem tud megszólalni.")
     # A "használatban" sorok NEVESÍTVE a naplóba: ha a technikus később arra panaszkodik,
     # hogy egy törlés után elromlott valami, ez a sor mondja meg, mit tudott a program a
     # törlés pillanatában.

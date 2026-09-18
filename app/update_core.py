@@ -33,6 +33,38 @@ pedig melléklet - és az API a kiadás létrehozása után azonnal látja.
  3. Ha egy kiadásnál a `gh release create` kimarad (nincs gh, nincs jog), a raw akkor is
     friss - csak lassabban.
 
+=============================================================================
+AZ API VÁLASZA NEM "DEFINITÍV" - A KIADÁS ELMARADHAT (2026-09-18, TEREPEN MÉRVE)
+=============================================================================
+
+Terepi panasz: *"egy 313-as buildrol nem tudtam felupdatelni 315-re, nem talalja meg,
+nem dobja fel semmi"*. A mérés megadta az okot - és a hiba ÉPP EBBEN A FÁJLBAN volt:
+
+  a GitHub kiadások:  build-311, build-312, build-313   (a 314 és a 315 HIÁNYZIK)
+  a raw driver_tool.py BUILD_NUMBER-e:  315
+
+A 2026-09-08-i optimalizálás ugyanis az API válaszát DEFINITÍVNEK vette ("az API nem
+CDN-cache-elt, tehát nincs mit frissebbre várni") és azonnal visszatért. Ez az érvelés
+hallgatólagosan azt FELTÉTELEZTE, hogy minden build kap kiadást - és amikor a rebuild
+[4/4] lépése kimaradt (nincs gh / nincs auth / rate limit / hálózati hiba), az API
+build-száma ELMARADT a raw mögött. A program ilyenkor magabiztosan azt mondta, hogy
+"nincs újabb verzió", miközben a raw-on két build-nyi frissítés állt. Reprodukálva:
+
+  common.BUILD_NUMBER = 313 -> [UPDATE] Kiadás-szám (API): 313, Helyi: 313
+                            -> {'has_update': False}          # a raw-on 315 van!
+
+AZ ÚJ SZABÁLY: **a két forrás közül a NAGYOBB nyer, nem az, amelyik előbb válaszol.**
+Az API csak akkor zárja le a kérdést, ha ÚJABB buildet ad (az a gyors, egykérdéses út);
+ha nem ad újabbat, a raw-ot AKKOR IS megkérdezzük. A 2026-09-08-i nyereség megmarad: ha
+az API válaszolt, a raw-ot csak EGYSZER kérdezzük (a hálózat bizonyítottan él, itt csak
+azt nézzük, elmaradt-e a kiadás), nem háromszor.
+
+**ÉS A LETÖLTÉS FORRÁSA A DÖNTÉST KÖVETI.** Ha a raw a frissebb, az exe-t is a raw-ról
+kell hozni: a build-313 kiadás melléklete egy 313-as exe, amivel "frissítve" a gép
+ugyanott maradna, és a következő indulásnál újra frissítést ajánlana - végtelen kör.
+Ezért a raw ág KONKRÉT `exe_url`-t ad vissza, és a `stage_update` `expect_build`
+védőhálót kapott: egy régebbi kiadás mellékletét soha nem tölti le.
+
 **A `/releases/latest` SZÁNDÉKOSAN NINCS HASZNÁLVA, és ez eltérés a YouTube-projekttől.**
 Ebben a repóban a kiadások egy részé nem build, hanem ASSET-TÁROLÓ (`stresstools.zip`,
 `mas.zip`, `block.bat` - mérve 2026-09-17), és a `/releases/latest` ezek közül a
@@ -143,39 +175,79 @@ def _latest_release():
     return best_build, best_url
 
 
+def raw_exe_url():
+    """A raw úton lévő exe címe. Külön függvény, mert két helyről kell (a raw ág
+    visszatérése és a stage_update tartaléka), és egy elgépelt másolat itt egy
+    indíthatatlan exét jelentene."""
+    return f"{_RAW_BASE}/dist/DriverVarazslo.exe?t={int(time.time())}"
+
+
 def check_for_updates():
-    """Update-ellenőrzés. ELSŐDLEGESEN a GitHub Releases API-ról (azonnal friss),
-    tartalékként a raw.githubusercontent.com-on lévő driver_tool.py BUILD_NUMBER-éből
-    (CDN-cache miatt akár 5 perc késéssel) - a részletes indoklás a modul tetején.
+    """Update-ellenőrzés a GitHub Releases API-ból ÉS a raw.githubusercontent.com-on lévő
+    driver_tool.py BUILD_NUMBER-éből - a KETTŐ KÖZÜL A NAGYOBB NYER.
+
+    A részletes indoklás (miért nem elég egyik forrás sem önmagában, és miért nem
+    "definitív" az API válasza) a modul tetején van.
 
     Visszatérés: {'has_update': bool, 'new_version': int, 'exe_url': str|None,
                   'source': 'api'|'raw'}."""
     logging.info("[UPDATE] check_for_updates()")
-    import urllib.request
-    import urllib.error
-    import ssl
 
     # --- 1) ELSŐDLEGES: Releases API ---
     api_build, api_exe = _latest_release()
     if api_build is not None:
         logging.info(f"[UPDATE] Kiadás-szám (API): {api_build}, Helyi: {common.BUILD_NUMBER}")
         if api_build > common.BUILD_NUMBER:
+            # Az API ÚJABBAT ad: itt a kérdés le van zárva, a raw legfeljebb ugyanezt
+            # vagy egy elavult CDN-példányt adna. Ez a gyors, egykérdéses út.
             return {'has_update': True, 'new_version': api_build,
                     'exe_url': api_exe, 'source': 'api'}
-        # AZONOS VAGY KISEBB BUILD AZ API-RÓL: ez definitív válasz, NEM kell a raw-ot is
-        # megkérdezni. Az API nem CDN-cache-elt, tehát nincs mit "frissebbre" várni -
-        # a raw legfeljebb ugyanazt vagy egy elavult példányt adna.
-        logging.info("[UPDATE] Nincs újabb kiadás (az API definitív válasza).")
-        return {'has_update': False, 'source': 'api'}
 
-    # --- 2) TARTALÉK: a régi raw út (ezt ismerik a Build <= 310 példányok is) ---
-    logging.info("[UPDATE] Nincs használható kiadás az API-n - a raw út következik.")
+    # --- 2) A RAW UTAT AKKOR IS MEG KELL NÉZNI, HA AZ API NEM ADOTT ÚJABBAT ---
+    # Nem tartalék-ág többé, hanem a MÁSODIK FORRÁS: az API build-száma elmaradhat a
+    # raw mögött, ha egy kiadás létrehozása kimaradt (terepen mérve, lásd a modul
+    # tetején). Ha az API válaszolt, EGY kérdés elég - a hálózat bizonyítottan él, és
+    # itt már csak azt nézzük, elmaradt-e a kiadás; ha az API néma volt (rate limit,
+    # hálózati hiba), marad a régi, CDN-cache elleni 3 próbálkozás.
+    attempts = 1 if api_build is not None else UPDATE_CHECK_ATTEMPTS
+    logging.info(f"[UPDATE] Az API nem adott újabb buildet (kiadás: {api_build}) - a raw "
+                 f"forrás ellenőrzése következik ({attempts} próbálkozás).")
+    raw_build = _raw_build(attempts)
+    if raw_build is not None and raw_build > common.BUILD_NUMBER:
+        if api_build is not None and raw_build > api_build:
+            # EZT KI KELL MONDANI: ez a jele annak, hogy a rebuild [4/4] kiadás-lépése
+            # kimaradt. A frissítés így is működik (a raw-ról), de a fejlesztőnek tudnia
+            # kell, mert a kiadás nélkül minden gép ezen a lassabb, CDN-cache-elt úton jár.
+            logging.warning(
+                f"[UPDATE] A raw ÚJABB, mint a legfrissebb kiadás (raw={raw_build} > "
+                f"kiadás={api_build}): a build-{raw_build} GitHub-kiadás nem jött létre. "
+                f"A frissítés a raw útról megy, az exe is onnan jön.")
+        # A LETÖLTÉS IS A RAW-RÓL MEGY: a kiadás melléklete egy RÉGEBBI exe, amivel
+        # "frissítve" a gép ugyanott maradna, és a következő indulásnál újra frissítést
+        # ajánlana (végtelen kör).
+        return {'has_update': True, 'new_version': raw_build,
+                'exe_url': raw_exe_url(), 'source': 'raw'}
+
+    logging.info(f"[UPDATE] Nincs újabb verzió (kiadás: {api_build}, raw: {raw_build}, "
+                 f"helyi: {common.BUILD_NUMBER}).")
+    return {'has_update': False, 'source': 'api' if api_build is not None else 'raw'}
+
+
+def _raw_build(attempts=UPDATE_CHECK_ATTEMPTS):
+    """A raw.githubusercontent.com-on lévő driver_tool.py BUILD_NUMBER-e, vagy None.
+
+    SOHA nem dob: a hívónak van másik forrása, és egy elbukott ellenőrzés nem
+    akaszthatja meg az indulást."""
+    import urllib.request
+    import urllib.error
+    import ssl
+
     ssl_ctx = ssl.create_default_context()
-    for attempt in range(1, UPDATE_CHECK_ATTEMPTS + 1):
+    for attempt in range(1, attempts + 1):
         try:
             # A ?t=<timestamp> a kliens-oldali cache megkerülésére (a CDN-ét nem védi ki)
             url = f"{_RAW_BASE}/driver_tool.py?t={int(time.time())}"
-            logging.info(f"[UPDATE] Update ellenőrzése erről a címről ({attempt}/{UPDATE_CHECK_ATTEMPTS}. próbálkozás): {url}")
+            logging.info(f"[UPDATE] Update ellenőrzése erről a címről ({attempt}/{attempts}. próbálkozás): {url}")
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
             try:
                 with urllib.request.urlopen(req, context=ssl_ctx, timeout=10) as resp:
@@ -199,43 +271,53 @@ def check_for_updates():
             if m:
                 new_build = int(m.group(1))
                 logging.info(f"[UPDATE] Letöltött BUILD_NUMBER: {new_build}, Helyi: {common.BUILD_NUMBER}")
-                if new_build > common.BUILD_NUMBER:
-                    logging.info(f"[UPDATE] Új verzió elérhető: {new_build} (Jelenlegi: {common.BUILD_NUMBER})")
-                    return {'has_update': True, 'new_version': new_build,
-                            'exe_url': None, 'source': 'raw'}
-                if new_build == common.BUILD_NUMBER:
-                    # DEFINITÍV VÁLASZ - nincs mit újrapróbálni (lásd a konstansok indoklását).
-                    logging.info("[UPDATE] Nincs újabb verzió (a szerver a helyivel azonos "
-                                 "build-et ad - definitív válasz, nincs újrapróbálkozás).")
-                    return {'has_update': False, 'source': 'raw'}
+                if new_build >= common.BUILD_NUMBER:
+                    # DEFINITÍV VÁLASZ - nincs mit újrapróbálni (lásd a konstansok
+                    # indoklását): sem az újabb, sem az azonos build nem lehet elavult
+                    # CDN-példány eredménye.
+                    return new_build
                 logging.info(f"[UPDATE] A szerver a helyinél RÉGEBBI build-et ad "
                              f"({new_build} < {common.BUILD_NUMBER}) - elavult CDN-példány vagy "
                              f"push előtti helyi verziószám-emelés lehet, újrapróbáljuk.")
             else:
                 logging.error("[UPDATE] Nem található BUILD_NUMBER a letöltött fájlban!")
         except Exception:
-            logging.error(f"[UPDATE] Ellenőrzési hiba ({attempt}/{UPDATE_CHECK_ATTEMPTS}. próbálkozás):", exc_info=True)
-        if attempt < UPDATE_CHECK_ATTEMPTS:
+            logging.error(f"[UPDATE] Ellenőrzési hiba ({attempt}/{attempts}. próbálkozás):", exc_info=True)
+        if attempt < attempts:
             time.sleep(UPDATE_CHECK_RETRY_SEC)
-    return {'has_update': False, 'source': 'raw'}
+    return None
 
 
-def stage_update(log, exe_url=None):
+def stage_update(log, exe_url=None, expect_build=None):
     """Az új exe letöltése + a cserét végző .bat előkészítése. Visszatérés: a .bat
     útvonala (a futtatás a hívóé: launch_update_and_exit). Hibánál kivételt dob.
 
-    `exe_url`: a kiadás mellékletének címe, ha a hívó ismeri (a check_for_updates adja
-    vissza). Enélkül újra lekérdezzük az API-t, és ha ott sincs, a raw útra esünk -
-    így a frissítés akkor is működik, ha a hívó nem adott át semmit."""
+    `exe_url`: a letöltendő exe címe, ahogy a check_for_updates visszaadta. Enélkül újra
+    lekérdezzük az API-t, és ha ott sincs, a raw útra esünk - így a frissítés akkor is
+    működik, ha a hívó nem adott át semmit.
+
+    `expect_build`: a frissítés build-száma (a check_for_updates `new_version`-je).
+    VÉDŐHÁLÓ: ha az API kiadása ENNÉL RÉGEBBI, a mellékletét nem használjuk, mert azzal
+    "frissítve" a gép ugyanott maradna, és a következő indulásnál újra frissítést
+    ajánlana - végtelen kör. Terepen mérve (2026-09-18): a kiadások build-313-nál
+    megálltak, miközben a raw-on 315 volt."""
     import tempfile
 
     if not exe_url:
-        _, exe_url = _latest_release()
-    if exe_url:
+        api_build, api_exe = _latest_release()
+        if api_exe and expect_build is not None and api_build is not None and api_build < expect_build:
+            logging.warning(f"[UPDATE] A legfrissebb kiadás (build-{api_build}) RÉGEBBI a "
+                            f"kért frissítésnél (build-{expect_build}) - a mellékletét NEM "
+                            f"használjuk, az exe a raw útról jön.")
+        else:
+            exe_url = api_exe
+    if exe_url and 'raw.githubusercontent.com' not in exe_url:
         logging.info("[UPDATE] Az exe a GitHub kiadás mellékletéből jön (nem a raw CDN-ről).")
+    elif not exe_url:
+        exe_url = raw_exe_url()
+        logging.info("[UPDATE] Nincs használható kiadás-melléklet - az exe a raw útról jön.")
     else:
-        exe_url = f"{_RAW_BASE}/dist/DriverVarazslo.exe?t={int(time.time())}"
-        logging.info("[UPDATE] Nincs kiadás-melléklet - az exe a raw útról jön.")
+        logging.info("[UPDATE] Az exe a raw útról jön (a kiadásnál frissebb build).")
     # WinPE-ben a %TEMP% az X: RAM-diskre mutat - a letöltött exe-t a valódi C: meghajtóra tesszük.
     is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
     if is_pe:

@@ -21,10 +21,11 @@ class CliUpdaterMixin:
         result = update_core.check_for_updates()
         if not result.get('has_update'):
             print("✅ A program naprakész (nincs újabb build).")
-            # A figyelmeztetés CSAK a raw útra érvényes: az a CDN-cache-elt forrás.
-            # A kiadás-API válasza azonnali, ott nincs mire várni - és egy fölösleges
-            # "próbáld újra később" pont azt a bizonytalanságot hozná vissza, ami miatt
-            # az API elsődleges lett.
+            # A figyelmeztetés CSAK akkor jár, ha a választ EGYEDÜL a raw (CDN-cache-elt)
+            # forrás adta - vagyis az API nem felelt (rate limit, hálózati hiba). Ha
+            # `source == 'api'`, akkor MINDKÉT forrást megkérdeztük és mindkettő ugyanezt
+            # mondta; egy fölösleges "próbáld újra később" ott pont azt a bizonytalanságot
+            # hozná vissza, ami miatt az API elsődleges lett.
             if result.get('source') != 'api':
                 print("ℹ️  Megjegyzés: ez a válasz a GitHub CDN-ről jött, ami friss kiadás")
                 print("   után pár percig még a régi verziót adhatja - próbáld újra később.")
@@ -39,7 +40,8 @@ class CliUpdaterMixin:
 
         try:
             bat_path = update_core.stage_update(lambda msg: print(f"  {msg}"),
-                                                exe_url=result.get('exe_url'))
+                                                exe_url=result.get('exe_url'),
+                                                expect_build=new_version)
         except Exception as e:
             print(f"❌ Hiba a letöltés során: {e}")
             return
