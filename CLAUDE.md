@@ -28,6 +28,7 @@ Jump to what you need:
 | **anything touching the one-click fix** | [**The acceptance criterion**](#the-acceptance-criterion-for-the-one-click-fix-press-it-walk-away-come-back-to-a-finished-machine) — unattended, finished, 0 errors, any brand |
 | **a device that ended up with no driver** | [**Re-driver from ZERO — never back up & restore**](#the-products-whole-point-re-driver-from-zero-never-back-up-the-old-driver-and-put-it-back) — read this BEFORE designing anything, then [OEM driver packs](#oem-driver-packs--the-universal-fourth-source-measured-2026-08-25) |
 | **a device that keeps being offered, or won't install** | [**MINDEN ESZKÖZ KAPJON DRIVERT — a tiltólista SOHA nem megoldás**](#minden-eszköz-kapjon-drivert--a-tiltólista-soha-nem-megoldás-explicit-user-decision-2026-09-03) — keresd a valódi okot, ne a listát rövidítsd |
+| **„felajánlja, aztán maga veti el" / a letöltés előtti HWID-szűrő** | [A letöltés előtti szűrő három vak ága](#a-letöltés-előtti-szűrő-három-vak-ága--és-egy-megdőlt-állítás-2026-09-20-build-321) — a szűrő HÁROM ágon dönt, a dedup nem biztonságos, és a parser-javításhoz cache-érvénytelenítés kell |
 | **bármi, ami egy DRIVER TÖRLÉSÉT korlátozná** | [**MINDEN DRIVERT LEHESSEN TÖRÖLNI**](#minden-drivert-lehessen-törölni--a-törlésbe-soha-ne-tegyél-új-szűrőt-explicit-user-decision-2026-09-03) — **NE TEDD.** Olvasd el, mielőtt egy sort is írnál |
 | **„mi van használatban / mit lehet törölni?"** | [Mit használ a gép](#mit-használ-a-gép--egy-mag-a-driverek-nézetnek-és-a-fix-törlési-előnézetének-2026-09-17) — egy mag, négy jel, és miért NEM létezik a „mikor használta utoljára" |
 | **„melyik driver MINEK a drivere?" / a Class oszlop / a gép-ábra** | [A gép felépítése](#a-gép-felépítése--melyik-driver-melyik-alkatrészé-2026-09-17) — miért félrevezető a Class, és mi dönt helyette |
@@ -433,7 +434,7 @@ Vagyis a *„más gépgyártó változata"* eset **letöltés, kicsomagolás és
 1. **Csak NEM ÜRES lista alapján szűrünk.** `None` (nincs ilyen szekció a lapon, vagy nem jött le) = **nem eldönthető** → a jelölt marad. Ugyanaz az elv, mint az `inf_package_applies` `None`-jánál: **sosem vetünk el a nemtudás alapján.**
 2. **Ha a szűrés MINDENT kivágna, a szűrés eredményét eldobjuk.** Egy üres jelölt-lista azt állítaná, hogy „nincs hozzá driver" — ezt csak bizonyítottan szabad kimondani, és egy szerveroldali formátumváltozás nem tehet ilyen állítást.
 3. **Csak a néhány legjobb jelöltet ellenőrizzük** (`CATALOG_HWID_PROBE_MAX` = 12), különben egy 25 soros holtverseny 25 kérés lenne. A holtverseny dátum szerint rendezett, tehát az első néhány a releváns.
-4. **UGYANAZT A CSOMAGOT NEM KÉRDEZZÜK LE TÖBBSZÖR — dedup (cím, dátum) szerint, ÉS A KIZÁRÁS VERDIKTJE A TARTALÉK-LISTÁKRA IS ÉRVÉNYES** (2026-09-08, élőben mérve). A katalógus egy csomagot **több tucat GUID alatt** publikál, a `rows_by_guid` viszont GUID szerint dedupál, tehát a 3. szabály kerete elmehetett néhány valódi csomagra: mérve `PCI\VEN_1022&DEV_148A` = **75 bejegyzés / 4 csomag** (35×+24×+12×+4×), `PCI\VEN_10DE&DEV_2504` = **50 bejegyzés / 3 csomag**. **Ez nem csak pazarlás volt (24 mp eszközönként, lábanként), hanem helyességi kockázat**: a 12-es keret elfogyhatott egyetlen csomag bejegyzésein, és a maradék **ellenőrzés nélkül** ment tovább. A dedup **bizonyítottan biztonságos**: négy csoportban 3-3 testvér-GUID lapját összevetve az azonosító-lista mindig azonos volt (5/5/15/70 azonosító) — a lista a **csomag** tulajdonsága, nem a bejegyzésé. A verdikt a testvérekre is érvényes, de a sorrend és minden későbbi lépés (URL-feloldás, letöltés, tartalék-lista) **változatlanul az összes GUID-dal dolgozik**. A kiolvasott listák `catalog_hwids.json`-ban élnek túl a lábak közt (`CATALOG_HWIDS_TTL` = 7 nap; **hibás/üres eredményt sosem teszünk el**). Részletek: [Nyolc javítás egy 0 hibás láncból](#nyolc-javítás-egy-0-hibás-láncból--amikor-a-program-jól-dolgozik-de-rosszul-számol-be-róla-2026-09-08-build-304-asrock-b450m-pro4).
+4. **UGYANAZT A CSOMAGOT NEM KÉRDEZZÜK LE TÖBBSZÖR — dedup (cím, dátum) szerint, ÉS A KIZÁRÁS VERDIKTJE A TARTALÉK-LISTÁKRA IS ÉRVÉNYES** (2026-09-08, élőben mérve). A katalógus egy csomagot **több tucat GUID alatt** publikál, a `rows_by_guid` viszont GUID szerint dedupál, tehát a 3. szabály kerete elmehetett néhány valódi csomagra: mérve `PCI\VEN_1022&DEV_148A` = **75 bejegyzés / 4 csomag** (35×+24×+12×+4×), `PCI\VEN_10DE&DEV_2504` = **50 bejegyzés / 3 csomag**. **Ez nem csak pazarlás volt (24 mp eszközönként, lábanként), hanem helyességi kockázat**: a 12-es keret elfogyhatott egyetlen csomag bejegyzésein, és a maradék **ellenőrzés nélkül** ment tovább. ~~A dedup **bizonyítottan biztonságos**: négy csoportban 3-3 testvér-GUID lapját összevetve az azonosító-lista mindig azonos volt (5/5/15/70 azonosító) — a lista a **csomag** tulajdonsága, nem a bejegyzésé.~~ **[EZ AZ ÁLLÍTÁS 2026-09-20-ÁN MEGDŐLT — lásd [A letöltés előtti szűrő három vak ága](#a-letöltés-előtti-szűrő-három-vak-ága--és-egy-megdőlt-állítás-2026-09-20-build-321). A minta szűk volt: ugyanazon cím+dátum alatt LÉTEZIK eltérő HWID-listájú változat, és a kizárás verdiktje ezért nem vihető át vizsgálat nélkül a testvérekre. A dedup mint KÉRÉS-SPÓROLÁS érvényben marad, de a kizárt csoport testvéreiből mintát veszünk.]** A sorrend és minden későbbi lépés (URL-feloldás, letöltés, tartalék-lista) **változatlanul az összes GUID-dal dolgozik**. A kiolvasott listák `catalog_hwids.json`-ban élnek túl a lábak közt (`CATALOG_HWIDS_TTL` = 7 nap; **hibás/üres eredményt sosem teszünk el**). Részletek: [Nyolc javítás egy 0 hibás láncból](#nyolc-javítás-egy-0-hibás-láncból--amikor-a-program-jól-dolgozik-de-rosszul-számol-be-róla-2026-09-08-build-304-asrock-b450m-pro4).
 
 **A parse a NYERS HTML-ből megy, nem a tag-mentesített szövegből** — ez nem stílus: a lap szövegében a „More information" / „Support Url" a HWID-szekció ELŐTT szerepel, tehát egy szöveg-alapú `(.*?)(?:More information|…)` minta pont a listát vágja le (először pontosan ezt írtam, és 0 azonosítót adott). A `<div id="driverhwIDs">` blokk viszont egyértelmű.
 
@@ -1085,6 +1086,65 @@ node undef.js ui.html               # -> ">>> NINCS definiálatlan név. <<<"  v
 **A második fele legalább ilyen fontos: a KRITIKUS ÚTVONALAKAT MEG IS KELL HAJTANI.** A scanner azt mondja meg, hogy *létezik-e* a név; azt nem, hogy a gomb végigfut-e. A `drive_delete.js` a teljes script-blokkot betölti egy ~40 soros DOM-csonk fölé `new Function`-nel, az `api()`-t Proxyval csonkolja (minden hívás naplózódik), és végighajtja a `deleteSelected()` / `setDisplayHdr()` / `startAutoFix()` utat — az állítás az, hogy a **Python-hívás megtörtént-e és milyen argumentumokkal**. Ez az a teszt, ami a „PASS a javítotton, FAIL a kiadotton" párt adja, vagyis bizonyítja, hogy tényleg a javítás oldotta meg. Ugyanez a minta a CLAUDE.md-ben már ott volt a dialógus-logikára — most a **gomb-útvonalakra** is ki van terjesztve.
 
 **Harness-csapda:** a `new Function`-ös betöltésnél a függvények nem globálisak, ezért a script végére egy `return { … }` blokkot kell fűzni, és a belső állapothoz (`drivers`, `selectedDrivers`, `displayState`) getter/setter kell — enélkül a teszt nem tudja beállítani a kiinduló helyzetet, és minden „üres lista" ágon fut, ahol a hiba nem is sül el.
+
+### A LETÖLTÉS ELŐTTI SZŰRŐ HÁROM VAK ÁGA — és egy megdőlt állítás (2026-09-20, Build 321)
+
+**Terepi bejelentés:** *„lefuttattam egy driver scan-t, talált 2 drivert a gép, de mind a kettőt kihagyta, miért?"*. A verdikt mindkettőre **helyes volt** (a hang már a jó ASRock-csomagon futott, az ISA bridge `machine.inf`-en), a hiba az, hogy **egyáltalán felajánlotta őket**: a [letöltés előtti alkalmazhatóság-ellenőrzés](#a-katalógus-részletlapja-felsorolja-a-támogatott-hardver-azonosítókat--letöltés-előtt) 2 mp alatt kizárta volna mind a négy jelöltet, de **egyiket sem kérdezte le** (bizonyíték: a `catalog_hwids.json` 22 csomagot tartalmazott, a felajánlott 4 egyike sem volt köztük).
+
+**A KÁR MÉRVE:** 3 × 12,9 MB Realtek + 1 × 79 KB AMD letöltés, **28 másodperc**, hogy az INF-vizsgálat ugyanazt mondja ki, amit a részletlap (2,2 mp / 130 KB) megmondott volna.
+
+**NÉGY HIBA, EGYMÁSTÓL FÜGGETLENÜL:**
+
+**1. A HWID-parser elvesztette minden lista UTOLSÓ azonosítóját — egyeleműnél az egészet.** A minta `id="driverhwIDs"[^>]*>(.*?)</div>\s*</div>` volt, és a nem-mohó `.*?` a lista utolsó belső `</div>`-ét is elfogyasztotta (a forrásban a két záró tag közt csak whitespace van), így a belső `findall` egy lezáratlan `<div>`-et kapott. Élőben mérve, ugyanazokon a lapokon, amiket a terepi szken kérdezett:
+
+| csomag | régi parser | javított |
+|---|---|---|
+| `AMD - System - 1.0.0.18` | **`None`** (= „nem eldönthető" → átmegy) | **1** azonosító → kizárja |
+| `Realtek 6.0.10016.1` | 290 | **291** |
+
+Az AMD-nél ez a különbség dönt: az egyetlen azonosító `pci\ven_1022&dev_790e&subsys_790e1022&rev_51`, a gépé `...&subsys_ffff1849&rev_51`. **Ugyanaz a hibaosztály, amit ez a fájl a ui.html szerkesztésénél már rögzít: HTML-blokkot div-SZÁMLÁLÁSSAL kell vágni, nem `.*?</div>` mintával.** A javított kód a blokk végét szintszámlálással keresi, és ha a blokk nincs lezárva, `None`-t ad (a lap maradékából szemét azonosítók jönnének, ami valódi drivert zárna ki).
+
+**2. A szűrő CSAK a fő jelölt-listára futott, a nyertes viszont két további ágon is felülíródik.** A `_catalog_find_driver` a `pool`-ra (= a gép saját SUBSYS-kulcsának sorai) szűrt, utána viszont (a) az „általános kulcson még van kipróbálatlan sor" ág `cands = alt_cands`-szal felülírta a listát a teljes `scored`-ból, és (b) a tartalék-listák (`extra`) szintén a teljes `scored`-ból épültek. **Vagyis pont azokra a sorokra nem futott a szűrő, AMIKÉRT ÍRÓDOTT** (más gépgyártók OEM-változatai a törzs-HWID-ről). A naplóban ez így nézett ki:
+
+```
+22:30:04  '6.0.8730.1' KIZÁRVA letöltés előtt      <- own_rows, a szűrő lefutott
+22:30:04  NYERTES: '6.0.9136.1'                    <- own_rows
+22:30:04  ...azt ajánljuk: '6.0.10016.1'           <- SZŰRETLEN ÁG
+```
+
+Mindhárom ág most ugyanazt a `_hwid_elloszures` függvényt hívja, **közös kérés-kerettel** (a keret az ESZKÖZÉ, nem a hívásé, különben 3×12 = 36 lekérdezés lenne eszközönként).
+
+**3. A keret elment a MÁR MEGVIZSGÁLT csomagokra.** Az első javítás után is átment a Realtek, mert a rendezés legerősebb kulcsa a specifikusság, tehát a 2. ág listájának elején a már ismert (saját kulcsról való) csomagok ültek. Mérve: `1. hívás 6 lap (keret 12→6), 2. hívás 6 lap (6→0) — mind a 6 a már vizsgált own_rows-ra`. A `probe_kesz_guids` halmaz óta a már eldöntött csomag nem fogyaszt keretet, és a keret 12 → **24**.
+
+**4. ÉS A LEGFONTOSABB: A 2026-09-08-I „A DEDUP BIZONYÍTOTTAN BIZTONSÁGOS" ÁLLÍTÁS MEGDŐLT.** Az akkori mérés (négy csoportban 3-3 testvér, mindig azonos lista) **szűk mintán készült**. Élőben újramérve a gép Realtek NIC-jén (`PCI\VEN_10EC&DEV_8168&SUBSYS_81681849&REV_15`, 25 sor → 4 csoport):
+
+| csoport | GUID | lista | verdikt |
+|---|---|---|---|
+| `realtek net driver update (10.79.50.1003)` [2025-10-02] | 10 | hossz=1 | egységes |
+| `realtek - net - 10.73.815.2024` [2024-08-14] | 6 | hossz=1 | egységes |
+| `realtek - net - 10.74.1128.2024` [2024-11-27] | 5 | hossz=1 | egységes |
+| **`realtek driver update (10.74.1128.2024)`** [2024-11-27] | **4** | hossz=300 | **KEVERT: 2 illik, 2 nem** |
+
+**És SEMMILYEN ingyenes jel nem választja el őket** — végigmérve: azonos cím, azonos dátum, azonos méret (0,537 MB), sőt **azonos OS-ág alatt is van illő és kizáró** (`24h2`: egy ILLIK + egy kizár). Csonkolás sincs (a lapok 129-130 KB-osak, 300/301 azonosító-div, csonkolás-jel nincs) — a listák valódian különböznek. Tehát a katalógus **két különböző csomagot publikál azonos cím alatt**, és csak a HWID-lista különbözteti meg őket.
+
+**A MEGOLDÁS ASZIMMETRIKUS, mert a két tévedés ára nem egyforma:**
+
+- **megtartás** (illik / nem eldönthető) → átszáll a testvérekre. Téves megtartás ára: egy fölösleges letöltés, amit az INF-vizsgálat elkap.
+- **kizárás** → a képviselő mellett még `CATALOG_HWID_SIBLING_PROBE` (3) testvért ellenőrzünk. Ha bármelyik illik, a csoport marad, és a meg nem nézett testvérek **jelöltek maradnak** (a `maradek` ezért GUID-alapú, nem csoport-alapú). Téves kizárás ára: egy jó driver vész el csendben.
+
+**MIÉRT MINTA ÉS NEM TELJES BIZONYÍTÁS — mérve:** a teljes, GUID-szintű bizonyítás ára ezen a gépen **193 lekérdezés ≈ 6,5 perc EGYETLEN szkenre** (AMD PCI 75, Realtek audio 31, NVIDIA 25, AMD SMBUS 25, AMD PSP 25…), ami nem fér a szken keretébe. A minta (1 képviselő + 3 testvér = 4) a **mért kevert csoportot teljesen lefedi**, mert az 4 GUID-os volt.
+
+**EGY SZIGORÚBB VÁLTOZAT MÉRÉSSEL ELBUKOTT, és ezt fontos rögzíteni.** Kipróbáltam azt a szabályt, hogy *mintavételből sosem mondható ki a „nincs való csomag"* — elvileg védhető (a legdrágább állítás a legerősebb bizonyítékot igényli), **gyakorlatilag viszont 0 helyett 3 találatot adott** ugyanezen a gépen (AMD PSP, AMD SMBUS, Realtek audio), vagyis visszahozta pontosan azokat a fölösleges ajánlatokat, amik miatt az egész szűrő létezik. Ezért a minta **elég bizonyíték, ha egységes** — de a napló kimondja, ha a verdikt egy része mintavételen alapult (*„ha egy eszköz mégis kimaradna, itt kell keresni"*).
+
+**A GYORSÍTÓTÁRNAK SÉMA-VERZIÓT KELLETT KAPNIA (`CATALOG_HWIDS_SCHEMA`), KÜLÖNBEN A JAVÍTÁS KÁROSABB LETT VOLNA A HIBÁNÁL.** A `catalog_hwids.json` a RÉGI, hiányos kiolvasás eredményét tárolja (290 a valódi 291 helyett), 7 napos TTL-lel. A most már **éles** szűrő azt tényként olvasná vissza, és ha épp a hiányzó utolsó azonosító az eszközé, egy **jó** csomagot zárna ki. A verzió a bejegyzésben utazik, így a régi tételek maguktól elavulnak — fájltörlés és migráció nélkül. **Általános szabály: ha egy parser logikája változik, a kimenetét tároló cache-t érvényteleníteni kell.**
+
+**ELLENŐRZÉS, AMI EZT A SZEKCIÓT MEGALAPOZZA** (ha a szűrő változik, ezt a négyet futtasd újra):
+- **a parser a 4 valódi lapon** (291/291/291/1 azonosító, mind kizár) + a séma-verzió mindkét ága;
+- **6 offline állítás a döntési ágakra** szintetikus csoportokkal: kevert (jó elöl / rossz elöl), mind kizár kis és nagy csoportban, mind illik, nem eldönthető — a lekérdezés-számmal együtt (`mind illik` → 1 lap, `mind kizár (10)` → 4 lap);
+- **a két terepi eszköz élőben**, üres no-bind tárral: mindkettőre `NINCS ajanlat`;
+- **teljes katalógus-kör az egész gépen**: 107 eszköz, **0 találat** (a terepi 2 helyett), **új találat nincs**, 25 csomag kizárva letöltés nélkül, 41 mp (a terepi 38 mp-hez képest +3, cache nélkül).
+
+**Harness-tanulság:** a `test_spec.py`-szerű teszt, ami közvetlenül a `_catalog_supported_hwids`-t hívja GUID-onként, **nem a szűrő logikáját méri** — nálam „1 gyanús eszközt" jelzett olyan csomagra, amit a szűrő valójában helyesen megtartott. A döntési ágakat a `_catalog_find_driver`-en keresztül kell meghajtani.
 
 ### ÜRES (FEHÉR/FEKETE) FELÜLET PÁR MÁSODPERCCEL AZ INDULÁS UTÁN = IDEGEN DLL A WEBVIEW2-BEN (2026-09-18, mérve)
 

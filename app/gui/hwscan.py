@@ -175,7 +175,11 @@ CATALOG_FOREIGN_TRY_MAX_MB = 100
 # dátumú AlpsAlpine-jelölt jött, tehát a 6-os korláttal a szűrő KIMARADT, és a program
 # újra felajánlotta a bizonyítottan nem ide való csomagot. 12 lap ~24 mp - egy olyan
 # eszköznél, ahol enélkül minden szken újra felajánlana valamit, ez megéri.
-CATALOG_HWID_PROBE_MAX = 12
+# 2026-09-20: 12 -> 24. A keret azóta az EGÉSZ eszközé (a szűrő három ágon fut, nem
+# egyen), és a kizárt csoportok testvér-mintavétele is ebből gazdálkodik. Mérve: a régi
+# 12 a fő ág + az általános kulcs ágának vizsgálatára is kevés volt, ezért a terepi
+# esetben a felajánlott csomag ellenőrizetlenül maradt.
+CATALOG_HWID_PROBE_MAX = 24
 CATALOG_SORT_QS = '&scol=DateComputed&sdir=desc'
 # Ennyi holtverseny-jelöltnél kérjük le a részletlapot a "Driver Model" mezőért
 # (letöltés előtti, pár KB-os alkalmasság-jelzés - lásd _catalog_driver_models). PONTOS
@@ -227,8 +231,28 @@ _CATALOG_ROWS_LOCK = threading.Lock()
 # rajta ilyen szekció) nem kerül a tárba: egy hálózati hiba különben tartósan "nem
 # eldönthető"-vé betonozná a csomagot - ugyanaz a szabály, mint a sor-gyorsítótárnál
 # ("hibás lekérdezést sosem teszünk el").
+# Hány TESTVÉR-GUID-ot ellenőrzünk egy kizárt (cím, dátum) csoportból (2026-09-20).
+#
+# A katalógus AZONOS cím + dátum + méret + OS-ág alatt is publikálhat eltérő
+# HWID-listájú változatot - élőben mérve a gép Realtek NIC-jén: 4 testvér-GUID, ebből
+# 2 tartalmazza a gép azonosítóját, 2 nem, és SEMMILYEN ingyenes jel (cím, dátum,
+# méret, sorszöveg) nem választja el őket. A teljes, GUID-szintű bizonyítás ára viszont
+# mérve 193 lekérdezés (~6,5 perc) EGYETLEN szkenre ezen a gépen, ami nem fér bele a
+# szken keretébe. A minta ezt a kockázatot csökkenti, a maradékot pedig az a szabály
+# fogja el, hogy a "nincs való csomag" állításhoz mintavétel NEM elég bizonyíték.
+CATALOG_HWID_SIBLING_PROBE = 3
 CATALOG_HWIDS_TTL = 7 * 24 * 3600
 CATALOG_HWIDS_MAX = 3000
+# A PARSER SÉMA-VERZIÓJA - EMELD, HA A KIOLVASÁS LOGIKÁJA VÁLTOZIK (2026-09-20).
+#
+# Enélkül egy parser-javítás a fielded gépeken 7 napig (TTL) hatástalan maradna, sőt
+# KÁROS lenne: a tárban a RÉGI, hibás kiolvasás eredménye ül, és a javított kód azt
+# tényként olvasná vissza. A konkrét eset, ami ezt kikényszerítette: a régi minta minden
+# lista UTOLSÓ azonosítóját elvesztette (mérve: 290 a valódi 291 helyett), és ha épp az
+# a hiányzó azonosító az eszközé, akkor a most már ÉLES szűrő egy JÓ csomagot zárna ki -
+# rosszabb, mint az eredeti hiba. A verzió a bejegyzésben utazik, így a régi tételek
+# maguktól elavulnak, migrációs lépés és fájltörlés nélkül.
+CATALOG_HWIDS_SCHEMA = 2
 _CATALOG_HWIDS_LOCK = threading.Lock()
 
 
@@ -1330,22 +1354,61 @@ try {
         # (lásd CATALOG_HWIDS_TTL indoklását).
         with _CATALOG_HWIDS_LOCK:
             ent = self._catalog_hwids_cache().get(guid)
-            if ent and 0 <= (time.time() - ent.get('t', 0)) < CATALOG_HWIDS_TTL:
+            if ent and ent.get('v') == CATALOG_HWIDS_SCHEMA \
+                    and 0 <= (time.time() - ent.get('t', 0)) < CATALOG_HWIDS_TTL:
                 ids = ent.get('ids') or None
                 if ids:
                     return list(ids)
         html = self._catalog_detail_page(guid, ssl_ctx)
         if not html:
             return None
-        m = re.search(r'id="driverhwIDs"[^>]*>(.*?)</div>\s*</div>', html, re.S | re.I)
-        if not m:
+        # A BLOKK HATÁRÁT DIV-SZÁMLÁLÁS ADJA, NEM EGY `</div>\s*</div>` MINTA
+        # (2026-09-20, terepen mérve - ez a szűrőt NÉMÁN VAKKÁ tevő hiba volt).
+        #
+        # A régi minta `id="driverhwIDs"[^>]*>(.*?)</div>\s*</div>` volt, és a nem-mohó
+        # `.*?` a lista UTOLSÓ belső `</div>`-ét is elfogyasztotta (a lap forrásában a
+        # két záró tag közt csak whitespace van), így a `group(1)` egy LEZÁRATLAN utolsó
+        # `<div>`-vel ért véget - a belső `findall` ezért MINDIG eggyel kevesebbet látott,
+        # EGYETLEN azonosító esetén pedig NULLÁT. Nulla elemnél az `if ids:` hamis, a
+        # függvény `None`-t ad, amit a hívó "nem eldönthető"-nek olvas -> a csomag
+        # ellenőrzés nélkül átmegy. Élőben mérve (ugyanazokon a lapokon, amiket a terepi
+        # szken kérdezett le):
+        #
+        #   AMD - System - 1.0.0.18   : régi=None (!)   új=1 azonosító
+        #        az elveszett: pci\ven_1022&dev_790e&subsys_790e1022&rev_51
+        #        az eszközé:   pci\ven_1022&dev_790e&subsys_ffff1849&rev_51
+        #        -> a csomagot KI KELLETT VOLNA zárni, helyette letöltöttük és az
+        #           INF-vizsgálat vetette el (ugyanaz a verdikt, csak drágábban)
+        #   Realtek 6.0.10016.1       : régi=290        új=291 azonosító
+        #
+        # Ugyanaz a hibaosztály, amit a CLAUDE.md a ui.html szerkesztésénél már rögzít:
+        # HTML-blokkot div-SZÁMLÁLÁSSAL kell vágni, nem `.*?</div>` mintával.
+        nyito = re.search(r'<div[^>]*id="driverhwIDs"[^>]*>', html, re.I)
+        if not nyito:
+            return None
+        kezd, szint, veg = nyito.end(), 1, None
+        for tok in re.finditer(r'<div\b[^>]*>|</div\s*>', html[kezd:], re.I):
+            szint += -1 if tok.group(0)[1] == '/' else 1
+            if szint == 0:
+                veg = kezd + tok.start()
+                break
+        if veg is None:
+            # A blokk nincs lezárva (szerveroldali formátumváltozás?). A lap maradékát
+            # NEM dolgozzuk fel: abból szemét azonosítók jönnének, és egy HAMIS lista
+            # sokkal rosszabb, mint a nemtudás - valódi drivert zárna ki.
+            logging.debug(f"[CATALOG] A részletlap driverhwIDs blokkja nincs lezárva ({guid}) "
+                          f"- nem eldönthető, nem szűrünk vele.")
             return None
         import html as _html
-        ids = [_html.unescape(' '.join(x.split())).lower()
-               for x in re.findall(r'<div[^>]*>(.*?)</div>', m.group(1), re.S) if x.strip()]
+        # A `'<' not in t` higiéniai háló: ha a blokk szerkezete mégis változna, egy
+        # HTML-maradék ne kerüljön be azonosítóként (lásd a fenti indoklást).
+        ids = [t for t in (_html.unescape(' '.join(x.split())).lower()
+                           for x in re.findall(r'<div[^>]*>(.*?)</div>', html[kezd:veg], re.S))
+               if t and '<' not in t and len(t) < 200]
         if ids:
             with _CATALOG_HWIDS_LOCK:
-                self._catalog_hwids_cache()[guid] = {'t': time.time(), 'ids': ids}
+                self._catalog_hwids_cache()[guid] = {'t': time.time(), 'ids': ids,
+                                                     'v': CATALOG_HWIDS_SCHEMA}
                 self._cat_hwids_dirty = True
         return ids or None
 
@@ -1365,7 +1428,16 @@ try {
             with open(self._catalog_hwids_store_path(), 'r', encoding='utf-8') as f:
                 data = json.load(f)
             if isinstance(data, dict):
-                cache = data
+                # A RÉGI SÉMÁJÚ BEJEGYZÉSEKET ELDOBJUK (lásd CATALOG_HWIDS_SCHEMA): azok
+                # egy korábbi, bizonyítottan hiányos kiolvasás eredményei, és tényként
+                # visszaolvasva valódi drivert zárnának ki.
+                cache = {g: e for g, e in data.items()
+                         if isinstance(e, dict) and e.get('v') == CATALOG_HWIDS_SCHEMA}
+                elavult = len(data) - len(cache)
+                if elavult:
+                    logging.info(f"[CATALOG] {elavult} támogatott-azonosító bejegyzés eldobva "
+                                 f"(régi séma - a listájuk egy javított hiba miatt hiányos volt); "
+                                 f"újra le lesznek kérdezve.")
             logging.info(f"[CATALOG] Támogatott-azonosító gyorsítótár beolvasva: {len(cache)} csomag.")
         except FileNotFoundError:
             pass
@@ -1618,10 +1690,36 @@ try {
         # telepítő le is töltötte volna (hangnál 11 MB, videokártyánál 1,2 GB), hogy aztán
         # az INF-vizsgálat ugyanazt mondja ki még egyszer.
         probe_kizart_guids = set()
-        if dev_ids:
+        # Minden GUID, amire MÁR van verdiktünk (kizárt vagy megtartott) - lásd a
+        # `kepviselok` melletti indoklást: a már megvizsgált csomag nem fogyaszt keretet.
+        probe_kesz_guids = set()
+        # KÖZÖS KÉRÉS-KERET AZ EGÉSZ ESZKÖZRE (2026-09-20).
+        #
+        # A szűrő 2026-09-20-ig CSAK a fő `cands` listára futott le, a nyertes viszont
+        # két további ágon is felülíródhat - és PONT azokon az ágakon, ahová az idegen
+        # gyártós csomagok érkeznek (lásd a `_hwid_elloszures` hívási helyeit lentebb).
+        # Most mind a három ág ugyanezt a szűrőt hívja, de NEM háromszoros kerettel:
+        # a keret az ESZKÖZÉ, nem a hívásé, különben egy 3x12 = 36 részletlap-letöltés
+        # lenne eszközönként (~72 mp). A gyorsítótár miatt egy már lekérdezett GUID
+        # ingyen van, tehát a keret csak a TÉNYLEGESEN ÚJ csomagokat fogyasztja.
+        probe_keret = [CATALOG_HWID_PROBE_MAX]
+
+        def _hwid_elloszures(jeloltek, jelentsunk=False):
+            """Letöltés előtti alkalmazhatóság-ellenőrzés egy jelölt-listára.
+
+            Visszatérés: `(megtartott, mind_kizarva)`. A `mind_kizarva` csak akkor igaz,
+            ha MINDEN jelöltet megvizsgáltunk ÉS mindegyik listája kizárja az eszközt -
+            csak ilyenkor mondható ki bizonyítottan, hogy nincs való csomag.
+
+            A `jelentsunk` a képernyőre írást kapcsolja: a fő listánál igen, a tartalék-
+            listáknál nem (ott a technikust nem érdekli, hány tartalékot vizsgáltunk meg,
+            csak az, hogy mi marad)."""
+            if not dev_ids or not jeloltek:
+                return list(jeloltek), False
+            mintavetel = [False]   # volt-e olyan csoport, amit csak MINTÁBÓL zártunk ki
             # A SORREND SZÁMÍT: a legfrissebb (és legspecifikusabb kulcsról való) jelölteket
             # kérdezzük le, mert a korlát miatt csak az első néhányat vizsgáljuk meg.
-            sorrend = sorted(cands, key=lambda c: ((c[3] or ''), _parse_driver_version(c[2]) or ()),
+            sorrend = sorted(jeloltek, key=lambda c: ((c[3] or ''), _parse_driver_version(c[2]) or ()),
                              reverse=True)
             sorrend.sort(key=lambda c: spec_by_guid.get(c[1], 99))
             # UGYANAZT A CSOMAGOT NEM KÉRDEZZÜK LE HATSZOR (2026-09-08, terepen mérve).
@@ -1661,59 +1759,168 @@ try {
             csoport = {}
             for c in sorrend:
                 csoport.setdefault(((c[2] or '').strip().lower(), c[3] or ''), []).append(c)
-            kepviselok = [tagok[0] for tagok in csoport.values()][:CATALOG_HWID_PROBE_MAX]
-            probed_keys = {((c[2] or '').strip().lower(), c[3] or '') for c in kepviselok}
-            maradek = [c for c in sorrend
-                       if ((c[2] or '').strip().lower(), c[3] or '') not in probed_keys]
+            # A MÁR MEGVIZSGÁLT CSOMAG NEM FOGYASZT KERETET (2026-09-20, méréssel javítva).
+            #
+            # A három hívási ág jelölt-listái erősen átfedik egymást: a 2. és 3. ág a
+            # TELJES `scored`-ból indul, tehát az 1. ág csomagjait is tartalmazza. Az első
+            # cut ezeket újra a `kepviselok` közé vette, és mivel a rendezés legerősebb
+            # kulcsa a SPECIFIKUSSÁG, a már ismert (a gép saját kulcsáról való) csomagok
+            # ültek a lista elején - vagyis a keret rájuk ment el, és az általános kulcs
+            # sorai, AMIKÉRT AZ EGÉSZ SZŰRŐ VAN, megint ellenőrzés nélkül maradtak. Élőben
+            # mérve ezen a gépen (ASRock B450M, Realtek ALC892):
+            #
+            #   1. hívás: 25 bejegyzés /  6 csomag -> 6 lap    keret 12 ->  6
+            #   2. hívás: 50 bejegyzés / 12 csomag -> 6 lap    keret  6 ->  0   <- mind a 6
+            #             a MÁR VIZSGÁLT own_rows csomagokra ment, a 6.0.10016.1-re nem
+            #   3. hívás: 24 bejegyzés /  5 csomag -> 0 lap    keret  0
+            #
+            # A verdiktjük nem vész el: a kizártakat a `probe_kizart_guids` szűri, a
+            # megvizsgált és MEGTARTOTT csomagok pedig a `maradek`-be kerülnek, tehát
+            # jelöltként megmaradnak - csak nem kérdezzük le őket még egyszer.
+            mar_kizart = [c for c in sorrend if c[1] in probe_kizart_guids]
+            kepviselok = [tagok[0] for tagok in csoport.values()
+                          if tagok[0][1] not in probe_kesz_guids][:probe_keret[0]]
+            probe_keret[0] -= len(kepviselok)
             if len(csoport) != len(sorrend):
                 logging.info(f"[CATALOG] {item['name']}: {len(sorrend)} katalógus-bejegyzés "
                              f"{len(csoport)} tényleges csomagot takar (a katalógus egy csomagot "
                              f"több GUID alatt publikál) - {len(kepviselok)} részletlapot kérdezünk le.")
+            # A KIZÁRÁS GUID-SZINTŰ BIZONYÍTÉKOT IGÉNYEL, A MEGTARTÁS NEM (2026-09-20).
+            #
+            # A 2026-09-08-i mérés ("négy csoportban 3-3 testvér-GUID listája MINDIG
+            # azonos volt") SZŰK MINTÁN készült, és ezen a gépen MEGDŐLT. Élőben mérve,
+            # `PCI\VEN_10EC&DEV_8168&SUBSYS_81681849&REV_15` (a gép Realtek NIC-je),
+            # 25 sor -> 4 (cím, dátum) csoport:
+            #
+            #   realtek net driver update (10.79.50.1003) [2025-10-02] 10 GUID, hossz=1  EGYSÉGES
+            #   realtek - net - 10.73.815.2024            [2024-08-14]  6 GUID, hossz=1  EGYSÉGES
+            #   realtek - net - 10.74.1128.2024           [2024-11-27]  5 GUID, hossz=1  EGYSÉGES
+            #   realtek driver update (10.74.1128.2024)   [2024-11-27]  4 GUID, hossz=300
+            #                                     <- KEVERT: 4-ből 2 tartalmazza a gépét!
+            #
+            # Vagyis a katalógus AZONOS cím + dátum + listahossz alatt is publikálhat
+            # eltérő OEM-variánsokat - pontosan azt a különbséget, amiért ez a szűrő
+            # létezik. A dedupolt verdikt átvitele ezért felezett eséllyel tévedett, és
+            # a tévedés egyik iránya sokkal drágább:
+            #
+            #   téves MEGTARTÁS -> egy fölösleges letöltés, az INF-vizsgálat elkapja
+            #   téves KIZÁRÁS   -> egy JÓ driver vész el, csendben, bizonyíték nélkül
+            #
+            # Ezért aszimmetrikus: a megtartás (illik / nem eldönthető) átszáll a
+            # testvérekre, a KIZÁRÁS viszont csak arra a GUID-ra érvényes, amit tényleg
+            # lekérdeztünk. A kizárt csoport testvéreit külön ellenőrizzük - a KÖZÖS
+            # keretből, tehát ez nem szabadul el -, és amire nem jutott keret, az
+            # JELÖLT MARAD (a nemtudás sosem elvetés ok).
             illik, eldonthetetlen, kizart = [], [], []
             for c in kepviselok:
                 tagok = csoport[((c[2] or '').strip().lower(), c[3] or '')]
                 tamogatott = self._catalog_supported_hwids(c[1], ssl_ctx)
                 if tamogatott is None:
+                    probe_kesz_guids.update(t[1] for t in tagok)
                     eldonthetetlen.extend(tagok)
                 elif dev_ids & set(tamogatott):
+                    probe_kesz_guids.update(t[1] for t in tagok)
                     illik.extend(tagok)
                 else:
-                    kizart.append((c, len(tamogatott), len(tagok)))
-                    probe_kizart_guids.update(t[1] for t in tagok)
+                    probe_kesz_guids.add(c[1])
+                    probe_kizart_guids.add(c[1])
+                    kizart_db, tal_illo = 1, False
+                    testverek = [x for x in tagok if x[1] != c[1]]
+                    # MINTAVÉTEL, NEM TELJES BIZONYÍTÁS - a teljes ára mérve 193 lekérdezés
+                    # (~6,5 perc) EGY szkenre ezen a gépen, ami nem fér bele. A minta a
+                    # kevert csoportot jó eséllyel elkapja (a mért esetben 4-ből 2 illett).
+                    minta = testverek[:CATALOG_HWID_SIBLING_PROBE]
+                    for t in minta:
+                        if probe_keret[0] <= 0:
+                            break          # keret nélkül nem zárunk ki: jelölt marad
+                        probe_keret[0] -= 1
+                        t_ids = self._catalog_supported_hwids(t[1], ssl_ctx)
+                        probe_kesz_guids.add(t[1])
+                        if t_ids is None:
+                            eldonthetetlen.append(t)
+                            tal_illo = True     # nem eldönthető -> a csoport nem zárható ki
+                        elif dev_ids & set(t_ids):
+                            illik.append(t)
+                            tal_illo = True
+                        else:
+                            probe_kizart_guids.add(t[1])
+                            kizart_db += 1
+                    if tal_illo:
+                        # KEVERT csoport: a meg nem nézett testvérek JELÖLTEK MARADNAK,
+                        # mert bizonyítottan nem egyformák. (A `maradek` GUID-alapú.)
+                        logging.info(f"[CATALOG] {item['name']}: '{c[2][:50]}' KEVERT csoport - a "
+                                     f"katalógus azonos cím+dátum alatt eltérő változatokat publikál, "
+                                     f"ezért a testvéreit NEM zárjuk ki.")
+                    else:
+                        # A minta egységes volt: a verdikt átszáll a meg nem nézett
+                        # testvérekre is. Ha a mintavétel nem volt teljes, azt jelezzük -
+                        # a "nincs való csomag" állításhoz ez már nem elég bizonyíték.
+                        probe_kizart_guids.update(t[1] for t in testverek)
+                        probe_kesz_guids.update(t[1] for t in testverek)
+                        kizart_db = len(tagok)
+                        if len(minta) < len(testverek):
+                            mintavetel[0] = True
+                    kizart.append((c, len(tamogatott), kizart_db))
             if kizart:
                 for (c, n, db) in kizart:
                     logging.info(f"[CATALOG] {item['name']}: '{c[2][:60]}' KIZÁRVA letöltés előtt - "
                                  f"a részletlap {n} támogatott azonosítója közt nincs ott az eszközé"
                                  + (f" (a katalógusban {db} bejegyzés alatt)." if db > 1 else "."))
-                n_bejegyzes = sum(db for _c, _n, db in kizart)
-                self.emit('task_progress', {'task': 'hw_scan', 'log':
-                          f'  ⏭️ {item["name"]}: {len(kizart)} katalógus-csomag kizárva letöltés '
-                          f'nélkül (a gyártó saját listája szerint nem ehhez az eszközhöz valók)'
-                          + (f' - a katalógusban {n_bejegyzes} bejegyzés alatt szerepelnek.'
-                             if n_bejegyzes != len(kizart) else '.')})
-            # MI MARAD JELÖLTNEK: ami illik, ami nem volt eldönthető, és amit a korlát miatt
-            # meg sem néztünk. A BIZONYÍTOTTAN kizártak nem.
+                if jelentsunk:
+                    n_bejegyzes = sum(db for _c, _n, db in kizart)
+                    self.emit('task_progress', {'task': 'hw_scan', 'log':
+                              f'  ⏭️ {item["name"]}: {len(kizart)} katalógus-csomag kizárva letöltés '
+                              f'nélkül (a gyártó saját listája szerint nem ehhez az eszközhöz valók)'
+                              + (f' - a katalógusban {n_bejegyzes} bejegyzés alatt szerepelnek.'
+                                 if n_bejegyzes != len(kizart) else '.')})
+            # MI MARAD JELÖLTNEK: ami illik, ami nem volt eldönthető, és amire NEM JUTOTT
+            # VERDIKT (a keret elfogyott, vagy egy korábbi hívás már megtartotta). A
+            # BIZONYÍTOTTAN kizártak nem. A `maradek` GUID-alapú, nem (cím, dátum)-alapú:
+            # egy kizárt csoport keret nélkül maradt testvéréről semmit nem tudunk, tehát
+            # jelöltnek kell maradnia - a csoportja alapján kiejteni pont az a bizonyíték
+            # nélküli kizárás lenne, amit a fenti aszimmetria kizár.
+            maradek = [c for c in sorrend if c[1] not in probe_kesz_guids]
             szurt = illik + eldonthetetlen + maradek
             if szurt:
-                cands = szurt
-            elif eldonthetetlen or not kizart:
+                return szurt, False
+            if eldonthetetlen or not (kizart or mar_kizart):
                 # Nem tudtunk semmit kiolvasni -> NEM szűrünk (a nemtudás sosem elvetés ok).
                 logging.info(f"[CATALOG] {item['name']}: a részletlapokból nem derült ki semmi - "
                              f"a szűrést nem alkalmazzuk.")
-            else:
-                # MINDEN jelöltet MEGVIZSGÁLTUNK, és mindegyik listája KIZÁRJA az eszközt.
-                # Ez nem feltételezés, hanem a gyártó saját, névszerinti listája - tehát
-                # kimondható, hogy erre az eszközre a katalógusban nincs való csomag.
-                # (Terepen mérve: a HID billentyűzetre 12 AlpsAlpine-jelölt jött, mindegyik
-                # `hid\alp000d&col02` típusú azonosítókat támogat, az eszköz viszont
-                # `hid\vid_044e&pid_1212&col02&col02` - egyik sem fedi.)
-                logging.info(f"[CATALOG] {item['name']}: MINDEN megvizsgált jelölt ({len(kizart)} db) "
-                             f"kizárja ezt az eszközt a saját támogatott-azonosító listájával - "
-                             f"nincs való csomag, nem ajánljuk fel.")
-                self.emit('task_progress', {'task': 'hw_scan', 'log':
-                          f'  🚫 {item["name"]}: a katalógus {len(kizart)} jelöltje közül egyik sem '
-                          f'támogatja ezt az eszközt (a gyártó saját listája szerint) - nem ajánljuk fel.'})
-                return None
+                return list(jeloltek), False
+            if mintavetel[0]:
+                # A VERDIKTET EZ NEM VÁLTOZTATJA MEG, DE A NAPLÓBAN KI KELL MONDANI.
+                #
+                # Kipróbáltuk azt a szigorúbb szabályt is, hogy mintavételből ne lehessen
+                # "nincs való csomag"-ot állítani - és MÉRÉSSEL ELBUKOTT: ezen a gépen 0
+                # helyett 3 találatot adott (AMD PSP, AMD SMBUS, Realtek audio), vagyis
+                # visszahozta pontosan azokat a fölösleges ajánlatokat, amik miatt ez az
+                # egész szűrő létezik. Az egyensúly a minta MÉRETÉN múlik: a mért kevert
+                # csoport 4 GUID-os volt, a minta pedig 1 képviselő + 3 testvér = 4, tehát
+                # azt az esetet teljesen lefedi. A nagy (20+ GUID-os) csoportoknál a minta
+                # részleges, de ott a mérés szerint a tagok egységesek voltak.
+                logging.info(f"[CATALOG] {item['name']}: a 'nincs való csomag' verdikt egy része "
+                             f"MINTAVÉTELEN alapul (csoportonként {CATALOG_HWID_SIBLING_PROBE} "
+                             f"testvér) - ha egy eszköz mégis kimaradna, itt kell keresni.")
+            # MINDEN jelöltet MEGVIZSGÁLTUNK, és mindegyik listája KIZÁRJA az eszközt.
+            # Ez nem feltételezés, hanem a gyártó saját, névszerinti listája - tehát
+            # kimondható, hogy erre az eszközre a katalógusban nincs való csomag.
+            # (Terepen mérve: a HID billentyűzetre 12 AlpsAlpine-jelölt jött, mindegyik
+            # `hid\alp000d&col02` típusú azonosítókat támogat, az eszköz viszont
+            # `hid\vid_044e&pid_1212&col02&col02` - egyik sem fedi.)
+            return [], True
+
+        # 1. HÍVÁS: a fő jelölt-lista. Csak itt mondható ki bizonyítottan, hogy "nincs
+        # való csomag" - a tartalék-listák üresre fogyása önmagában nem ilyen állítás.
+        cands, mind_kizarva = _hwid_elloszures(cands, jelentsunk=True)
+        if mind_kizarva:
+            logging.info(f"[CATALOG] {item['name']}: MINDEN megvizsgált jelölt kizárja ezt az "
+                         f"eszközt a saját támogatott-azonosító listájával - nincs való csomag, "
+                         f"nem ajánljuk fel.")
+            self.emit('task_progress', {'task': 'hw_scan', 'log':
+                      f'  🚫 {item["name"]}: a katalógus egyik jelöltje sem támogatja ezt az '
+                      f'eszközt (a gyártó saját listája szerint) - nem ajánljuk fel.'})
+            return None
         # KORÁBBAN MÁR MEGBUKOTT CSOMAGOK KIHAGYÁSA: amit egy előző futásban ugyanerre az
         # eszközre letöltöttünk és az INF-vizsgálat elvetett, azt nem töltjük le újra
         # (egy videokártya-csomag 1,2 GB). A jelölést a tartós no-bind tár őrzi, GUID
@@ -1859,6 +2066,29 @@ try {
                                  f"saját kulcsán már a legfrissebb csomag van, egy ekkora letöltés "
                                  f"nem éri meg a próbát.")
                     alt_pool = [c for c in alt_pool if c not in nagyok]
+                # AZ ELŐSZŰRŐT ERRE AZ ÁGRA IS LE KELL FUTTATNI (2026-09-20, terepen mérve).
+                #
+                # Ez az ág a fő `cands`-ot a TELJES `scored`-ból választott listával írja
+                # felül - vagyis pont ide érkeznek az általános kulcs idegen gyártós sorai,
+                # AMIKÉRT AZ ELŐSZŰRŐ ÍRÓDOTT. Az előszűrő viszont fentebb csak a `pool`-ra
+                # (= a gép saját SUBSYS-kulcsának sorai) futott le, így ezek a jelöltek
+                # ellenőrzés nélkül jutottak a listára. Terepen mérve (ASRock B450M,
+                # Realtek ALC892, 2026-09-20):
+                #
+                #   22:30:04  '6.0.8730.1' KIZÁRVA letöltés előtt      <- own_rows, lefutott
+                #   22:30:04  NYERTES: '6.0.9136.1'                    <- own_rows
+                #   22:30:04  ...azt ajánljuk: '6.0.10016.1'           <- EZ SZŰRETLEN VOLT
+                #
+                # A felajánlott csomag 290 támogatott azonosítója közt a gépé nincs ott
+                # (mind SUBSYS_1558xxxx = Clevo), tehát a részletlap 2,2 mp / 130 KB alatt
+                # kizárta volna. Helyette 12,9 MB letöltés + kicsomagolás + INF-vizsgálat
+                # jött, ugyanazzal a verdikttel - és a technikus azt látta, hogy a program
+                # felajánl valamit, amit aztán maga vet el.
+                #
+                # `mind_kizarva`-ra NEM adunk vissza None-t: itt a `newer is False` ág úgyis
+                # azt jelenti, hogy nincs ajánlat - a különbség csak az, hogy ezt a fő
+                # nyertes kiadás-kapuja mondja ki, nem a szűrő.
+                alt_pool, _ = _hwid_elloszures(alt_pool)
                 if alt_pool:
                     alt_best = max(s for s, _g, _t, _d in alt_pool)
                     alt_cands = [c for c in alt_pool if c[0] == alt_best]
@@ -2023,6 +2253,15 @@ try {
             # felmegy, és minden szempontból jobb a generikusnál.
             extra = [c for c in scored if c[1] not in have
                      and c[1] not in probe_kizart_guids]
+            # A TARTALÉKOKRA IS LEFUT AZ ELŐSZŰRŐ (2026-09-20). A `probe_kizart_guids`
+            # fenti szűrése önmagában kevés volt: abban csak az szerepel, amit a fő ág
+            # MEGVIZSGÁLT, a tartalékok viszont a TELJES `scored`-ból épülnek, tehát a
+            # meg nem vizsgált (jellemzően általános kulcsról jött) sorok érintetlenül
+            # jöttek át. Terepen ez volt a Realtek-eset másik két letöltése: a nyertes
+            # mellé két tartalék került ellenőrzés nélkül, és mindhárom 12,9 MB-ot vitt
+            # el, hogy az INF-vizsgálat ugyanazt mondja ki, amit a részletlap 2 mp alatt.
+            # A szűrő ELŐBB fut, mint a rendezés, mert a visszaadott sorrend a szűrőé.
+            extra, _ = _hwid_elloszures(extra)
             # Három menetben, a Python STABIL rendezésére építve (a legutolsó a
             # legerősebb): dátum csökkenő -> pontszám csökkenő -> specifikusság növekvő.
             # Így a LEGSPECIFIKUSABB kulcs sorai jönnek elöl (ott minden sor ehhez a
@@ -2067,6 +2306,10 @@ try {
             extra = [c for c in scored if c[1] not in have
                      and c[1] not in probe_kizart_guids
                      and is_newer_release(c[3], c[2], inst.get('date'), inst.get('version')) is not False]
+            # Az előszűrő itt is kell, ugyanazért, mint az inbox-ágon (lásd ott): a
+            # `probe_kizart_guids` csak a MÁR MEGVIZSGÁLT csomagokat ismeri, a tartalékok
+            # viszont a teljes `scored`-ból épülnek. A szűrő a rendezés ELŐTT fut.
+            extra, _ = _hwid_elloszures(extra)
             extra.sort(key=lambda c: (c[3] or ''), reverse=True)
             extra.sort(key=lambda c: c[0], reverse=True)
             extra.sort(key=lambda c: spec_by_guid.get(c[1], 99))
