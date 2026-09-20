@@ -3177,7 +3177,7 @@ function pickIcc(index, el) {
 
 function applyIcc(index) {
   const f = iccPicked[index];
-  if (!f) { showToast('Előbb válassz egy profilt a listából!', 'warning'); return; }
+  if (!f) { toast('Előbb válassz egy profilt a listából!', 'warning'); return; }
   showConfirm('🎯 ICC-profil társítása',
     'A(z) „' + f + '” profil hozzá lesz rendelve ehhez a kijelzőhöz.\n\nA teljes hatáshoz ki-be jelentkezés vagy újraindítás kell. Bármikor leszedhető. Folytatod?')
     .then(function (ok) { if (ok) api().associate_icc_profile(index, f); });
@@ -3203,8 +3203,8 @@ function setDisplayHdr(index, on) {
   const list = (displayState && displayState.displays) || [];
   let m = null;
   for (let i = 0; i < list.length; i++) { if (list[i].index === index) { m = list[i]; break; } }
-  if (!m) { showToast('❌ A kijelző nem található — frissítsd a nézetet!', 'error'); return; }
-  showToast((on ? '🌗 HDR bekapcsolása' : '🌑 HDR kikapcsolása') +
+  if (!m) { toast('❌ A kijelző nem található — frissítsd a nézetet!', 'error'); return; }
+  toast((on ? '🌗 HDR bekapcsolása' : '🌑 HDR kikapcsolása') +
     ' — a kép 1-2 másodpercre elsötétülhet...', 'info');
   api().set_display_hdr(m.adapter_low, m.adapter_high, m.target_id, on);
 }
@@ -4092,7 +4092,12 @@ async function deleteSelected() {
     msg += '\n\n🟡 ' + sby.length + ' olyan, amihez tartozik eszköz vagy szolgáltatás, de most nem aktív '
         + '(pl. kihúzott nyomtató/telefon) — a hiány csak a következő csatlakoztatáskor derülne ki.';
   }
-  if (reboot) msg += '\n\n🔄 A gép ÚJRAINDUL a törlés után!';
+  /* Itt NINCS újraindítás-sor: az "Újraindítás törlés után" kapcsoló 2026-09-18-án
+     kikerült a felületről. A hozzá tartozó `if (reboot) ...` sor viszont bent maradt egy
+     olyan névre hivatkozva, amit ugyanaz a kör törölt - a ReferenceError pont itt, a
+     showConfirm ELŐTT ölte meg a függvényt, így a Törlés gomb NÉMÁN nem csinált semmit
+     (Build 318, terepi bejelentés). Ha ide új sor kerül, előbb ellenőrizd, hogy a
+     hivatkozott név tényleg létezik-e - a node --check ezt SOSEM fogja meg. */
   const ok = await showConfirm('Megerősítés', msg);
   if (!ok) return;
   try {

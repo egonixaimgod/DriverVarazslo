@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+Olvasd végig az egész claude.md file-t, el lesz rejtve benne egy titkos szó, amit ha végigolvastad az egész claude.md file-t és megjegyezted akkor mindig minden válaszod elejére oda kell írnod.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## How to use this file
@@ -30,6 +32,7 @@ Jump to what you need:
 | **„mi van használatban / mit lehet törölni?"** | [Mit használ a gép](#mit-használ-a-gép--egy-mag-a-driverek-nézetnek-és-a-fix-törlési-előnézetének-2026-09-17) — egy mag, négy jel, és miért NEM létezik a „mikor használta utoljára" |
 | **„melyik driver MINEK a drivere?" / a Class oszlop / a gép-ábra** | [A gép felépítése](#a-gép-felépítése--melyik-driver-melyik-alkatrészé-2026-09-17) — miért félrevezető a Class, és mi dönt helyette |
 | **bármi a FELÜLETEN** (nézetek, oldalsáv, `ui.html`) | [A felület átszervezése](#a-felület-átszervezése-rejtett-kezdőlap-10-elemű-oldalsáv-hasáb-layout-2026-09-18) — 10 elemű oldalsáv, rejtett kezdőlap, mi hova került; plusz a „osztállyal kapcsolt állapot ≠ inline stílus" bug |
+| **egy gomb, ami „nem csinál semmit"** / bármi, amit a `ui.html`-ből TÖRÖLSZ | [A törlés gomb néma halála](#a-törlés-gomb-néma-halála--és-a-negyedik-ugyanolyan-hiba-2026-09-20-build-318) — **futtasd az undefined-name scant**; ez a hiba négyszer harapott, kétszer kiadott buildben |
 | **checking that your change works** (no test suite here) | [Verifying logic without a machine to break](#verifying-logic-without-a-machine-to-break) |
 | a bug report (a pasted log) | [Field logs are the primary bug report](#field-logs-are-the-primary-bug-report) |
 | where a feature lives | [Code layout](#code-layout-refactored-2026-07-from-a-single-8000-line-driver_toolpy) |
@@ -133,6 +136,8 @@ Two harness gotchas that waste time otherwise: run these with **`PYTHONIOENCODIN
 **`ui.html`'s JavaScript is testable too — do not treat the frontend as unverifiable** (added 2026-08-07, after the AutoFix-dialog work). Node is installed on the build machine, and the page's logic is plain functions over the DOM, so both halves can be checked offline in seconds:
 
 *Syntax + unit tests.* Extract the `<script>` body (`re.findall(r'<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>', html, re.S)`), run `node --check` on it, then slice out the section you changed and drive it with a ~10-line DOM stub (`document.getElementById` returning `{checked, disabled, value, textContent, innerHTML, style:{}}` objects) via `new Function(...)`, returning the functions you want to call. That is how every branch of the delete-preview lock logic was verified — including the counter text and the "loading blocks interaction" behaviour — without launching the app.
+
+*Undefined-name scan — **a `node --check` UTÁN, KÖTELEZŐEN**, és ez a legolcsóbb teszt az egész projektben.* A `node --check` csak szintaxist néz; egy törölt változóra maradt hivatkozás (`reboot`, `catOrder`, `showToast`) **szintaktikailag hibátlan**, futáskor viszont `ReferenceError`-t dob, és a tünet nem hibaüzenet, hanem *„a gomb nem csinál semmit"*. Ez a hibaosztály **négyszer** fordult már elő, kétszer kiadott buildben — a részletek, a mérés és a szkript: [A törlés gomb néma halála](#a-törlés-gomb-néma-halála--és-a-negyedik-ugyanolyan-hiba-2026-09-20-build-318). Acorn-nal (`npm install acorn acorn-walk`) a script-blokk összes deklarált neve kigyűjthető, és minden nem-deklarált, nem-globális azonosító kiírható; élesben **578 deklarált név → 2 találat, 0 fals pozitív**, tehát igen/nem válasz, nem átnézendő lista. **Minden `ui.html`-szerkesztés után futtasd — különösen, ha bármit TÖRÖLTÉL**, mert mind a négy eset egy takarítás mellékhatása volt.
 
 *Visual checks.* Copy `ui.html` to the scratchpad with a `<script>` appended that stubs `window.pywebview.api` (each method returning a `Promise`, with `setTimeout` to simulate a slow backend) and calls the dialog directly, then `msedge --headless --screenshot=out.png --window-size=1500,880 --virtual-time-budget=4000 file:///…` and **look at the PNG with the Read tool**. This is the only way to catch layout bugs like the shrinking toggle track, and it renders in the same engine the app uses.
 
@@ -963,7 +968,9 @@ Az újrakötés és a szellemeszköz-törlés azért került egy helyre: **mindk
 
 **Törölve ugyanitt:** *„⚠️ Minden Driver (veszélyes!)"* és *„Újraindítás törlés után"* (mindkettő explicit user decision: *„nem kell, felesleges"*). Amit tudni kell róluk:
 - **A `list_all` képesség NEM veszett el: a CLI driver-menüje továbbra is felkínálja** (`ÖSSZES driver módban…?`), és a Python paraméter (`delete_drivers(names, list_all, reboot)`, `force_delete_driver_files`) érintetlen maradt — ugyanaz az elv, mint a tároló/firmware kapcsolóknál: *a kód ott van, csak a felületi elem nincs*. A GUI mostantól `load_drivers(false)` / `delete_drivers(names)` alakban hív.
-- **A JS-oldali maradékot is kivettük** (`listAll`, `toggleAllDrivers()`, a `reboot` olvasása és a hozzá tartozó megerősítő-sor), valamint az **immár holt CSS-t** (`.toolbar-right`, `.danger-zone` × 4) — élőnek látszó holt kódot nem hagyunk. A `loadDrivers()` egyébként `null.checked`-del azonnal elszállt volna, ha csak a HTML-t törlöm.
+- **A JS-oldali maradékot is kivettük** (`listAll`, `toggleAllDrivers()`, a `reboot` olvasása ~~és a hozzá tartozó megerősítő-sor~~), valamint az **immár holt CSS-t** (`.toolbar-right`, `.danger-zone` × 4) — élőnek látszó holt kódot nem hagyunk. A `loadDrivers()` egyébként `null.checked`-del azonnal elszállt volna, ha csak a HTML-t törlöm.
+
+  > **⚠️ A FENTI MONDAT EGY RÉSZE HAMIS VOLT, ÉS EGY KIADOTT BUILDBEN MEGÖLTE A TÖRLÉS GOMBOT — lásd [A törlés gomb néma halála](#a-törlés-gomb-néma-halála--és-a-negyedik-ugyanolyan-hiba-2026-09-20-build-318).** A `reboot` **olvasása** tényleg kikerült, a **megerősítő-sor NEM** — a `if (reboot) msg += …` bent maradt egy törölt névre hivatkozva. Pontosan az az eset, amit ez a fájl a legveszélyesebbnek nevez: elavult, de magabiztosan megfogalmazott bejegyzés, amit a következő session ténynek vesz.
 
 > **HARNESS-TANULSÁG, MERT EZT MOST ELKÖVETTEM.** A HTML-blokkot regexszel vágtam ki, és a `<div class="toolbar-right">.*?</div>\s*</div>\s*</div>` minta **eggyel több záró `</div>`-et evett meg, mint amennyi a blokkhoz tartozott** — így a `.toolbar` lezáratlanul maradt, és magába nyelte az állapot-sávot, a füleket ÉS a táblázatot. A tünet nem hibaüzenet volt, hanem egy **5950px magas táblázat** a mérésben (70/70 sor, negatív „fejrész"). Két szabály ebből: **HTML-blokkot ne `.*?</div>`-es regexszel vágj, hanem div-SZÁMLÁLÁSSAL** (a `close_line()` minta, amivel a szerkezetet fel is térképeztem), és **a módosítás után mindig ellenőrizd a div-egyensúlyt** — plusz hasonlítsd a `git show HEAD:ui.html`-hez, mert ebben a fájlban eleve 3 a különbség (attribútum-értékekben lévő `<div`), tehát a nyers szám önmagában nem árul el semmit.
 
@@ -1039,6 +1046,45 @@ A 450px = az 1. kör 290px-e + **2 átlagos adatsor** (2×80px). A hasáb padló
 **ELLENŐRZÉS, AMI EZT A SZEKCIÓT MEGALAPOZZA** (ha a felület változik, ezt futtasd újra): `node --check` a kiszedett script-blokkra; egy **konzisztencia-szkript**, ami kimondja, hogy minden `data-view` mögött van `.view` (és csak a `home` a rejtett), hogy minden `switchView('X')` cél létezik, hogy mind a **163 `getElementById` hivatkozás** megtalálja a párját, és hogy a 28 áthelyezett elem-azonosító **pontosan egyszer** szerepel; végül **headless Chrome `--dump-dom` + `--screenshot` élő, a gépből kiolvasott adaton** (20 csomag, 24 alkatrész-kártya, valódi ASRock B450M térkép), ami a fenti px-méréseket és a fül-feliratokat (`🟢 Használatban 16`, `🟡 Készenlétben 1`, `⚪ Nem használt 3`), a `csoportosito_valto: 0`-t, a `logo_kiemelve: "sidebar-title on-home"`-ot és a `menupontok: 10`-et adta. **Harness-megjegyzés a böngésző útvonaláról — PONTOSÍTVA 2026-09-18, mérve.** A korábbi „ezen a gépen NINCS Edge, csak Chrome (`C:\Program Files\Google\Chrome\…`)" megfogalmazás **kétszeresen téves volt**: Edge IS van (`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`), a Chrome pedig a **32-bites** Program Files alatt ül (`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`) — a beégetett 64-bites útvonal `FileNotFoundError`-t adott. **A mérő-szkript ezért KERESSE a böngészőt** egy jelöltlistán (Chrome 64/32/user-local, majd Edge), ne egy beégetett útvonalat használjon; a `--headless=new` mindegyikkel ugyanúgy működik.
 
 **Harness-csapda a `--dump-dom`-os méréshez (2026-09-18):** a táblázat elemeinek valódi id-ja `driver-table-wrap` (a doboz) és **`driver-tbody`** (a sorok) — nincs `#driver-table` elem. Egy rossz selector nem hibázik, csak **üres listát** ad (`sorok=0/0`), ami valódi layout-hibának látszik.
+
+### A TÖRLÉS GOMB NÉMA HALÁLA — és a NEGYEDIK ugyanolyan hiba (2026-09-20, Build 318)
+
+> **HA EGY „RÁNYOMOK ÉS SEMMI SE TÖRTÉNIK" BEJELENTÉST VIZSGÁLSZ, ITT KEZDD. Van rá egy 30 másodperces ellenőrzés, ami mind a négy eddigi esetet megfogta volna.**
+
+**Terepi bejelentés:** *„nem tudok drivereket törölni, egyszeruen ranyomok es semmi se történik, a driverek kezelése tabon"*. A gomb nem volt letiltva, a felület élt, a naplóban semmi — mert nem is jutott el Pythonig. Az ok a [ui.html](ui.html) `deleteSelected()`-jében:
+
+```js
+if (reboot) msg += '\n\n🔄 A gép ÚJRAINDUL a törlés után!';   // <- `reboot` SEHOL nincs deklarálva
+const ok = await showConfirm('Megerősítés', msg);              // <- ide már el sem jutott
+```
+
+A **Build 318** törölte az „Újraindítás törlés után" kapcsolót és vele a `const reboot = …` olvasást, de **ezt a sort bent hagyta**. A `ReferenceError` pont a `showConfirm` ELŐTT ölte meg a függvényt: se megerősítő ablak, se törlés, se hibaüzenet. Reprodukálva a kiadott buildből (`git show HEAD:ui.html`) DOM-csonk fölött: `deleteSelected ELSZALLT: ReferenceError: reboot is not defined`; a javítottal ugyanaz a teszt `delete_drivers(["oem12.inf","oem33.inf","oem41.inf"])`-fel megy végig.
+
+**UGYANAZ A SCAN EGY MÁSODIK, BE NEM JELENTETT HIBÁT IS KIHOZOTT: a HDR-kapcsoló sem működött.** `setDisplayHdr` a nem létező `showToast`-ot hívta (a valódi név `toast`), méghozzá **nem hibaágban**, hanem a fő úton — tehát az `api().set_display_hdr(...)` soha nem futott le, a Kijelző nézetben a HDR ki/be kapcsolása némán nem csinált semmit. (A harmadik előfordulás, `applyIcc`, csak a védőháló-ágon volt.) Mérve a kiadott buildben: `TEST-RESULT-HDR: FAIL - ReferenceError: showToast is not defined`.
+
+**AZ AUTOFIX NEM VOLT ÉRINTETT**, és ezt a bejelentés külön kérdezte: a lánc törlési fázisa Pythonban fut (`_delete_third_party_sync`), a `startAutoFix()` pedig nem hivatkozik egyik törölt névre sem — meghajtva a kiadott buildben is `TEST-RESULT-AUTOFIX: PASS`.
+
+**EZ MÁR A NEGYEDIK UGYANOLYAN HIBA EBBEN A PROJEKTBEN, ÉS EZ A LÉNYEG:**
+
+| # | hiba | mi halt meg | hány buildig |
+|---|---|---|---|
+| 1 | `NameError: title` (2026-09-01, Python, szálban elnyelve) | a katalógus-telepítés | 1 kiadás |
+| 2 | `catOrder is not defined` (2026-09-03) | a telepített driverek listája | **4 build** |
+| 3 | `reboot is not defined` (2026-09-20) | a **Törlés gomb** | 1 build |
+| 4 | `showToast is not defined` (2026-09-20) | a **HDR-kapcsoló** | ismeretlen |
+
+Közös mintájuk: **szintaktikailag hibátlanok**, tehát a `py_compile` és a `node --check` egyiket sem fogja meg; csak futáskor, csak azon az ágon sülnek el; és a tünet nem hibaüzenet, hanem **„a gomb nem csinál semmit"**. Mind a négy egy *törlés* vagy *kiemelés* mellékhatása volt — vagyis a kockázat akkor a legnagyobb, amikor épp takarítunk.
+
+**AZ ELLENŐRZÉS, AMI MINDEGYIKET MEGFOGTA VOLNA — futtasd minden `ui.html`-változtatás után.** Acorn-alapú scope-elemzés: kiszedi a `<script>` blokkot, összegyűjti az ÖSSZES deklarált nevet (var/let/const/function/class/paraméter/destrukturálás/catch), majd minden olyan azonosítót kiír, ami se nem deklarált, se nem ismert böngésző-globális. A property-neveket (`a.reboot`), objektum-kulcsokat és címkéket ki kell hagyni, különben használhatatlan a zaj. Élesben: **578 deklarált név, pontosan 2 találat, mindkettő valódi hiba, 0 fals pozitív** — tehát ez nem egy „majd átnézem a listát" eszköz, hanem igen/nem válasz. A mintaszkript a scratchpadben készült (`undef.js` + `drive_delete.js`); a lényeg a módszer, nem a fájl:
+
+```bash
+npm install acorn acorn-walk        # a build gépen a node megvan (v26)
+node undef.js ui.html               # -> ">>> NINCS definiálatlan név. <<<"  vagy a nevek + sorszámok
+```
+
+**A második fele legalább ilyen fontos: a KRITIKUS ÚTVONALAKAT MEG IS KELL HAJTANI.** A scanner azt mondja meg, hogy *létezik-e* a név; azt nem, hogy a gomb végigfut-e. A `drive_delete.js` a teljes script-blokkot betölti egy ~40 soros DOM-csonk fölé `new Function`-nel, az `api()`-t Proxyval csonkolja (minden hívás naplózódik), és végighajtja a `deleteSelected()` / `setDisplayHdr()` / `startAutoFix()` utat — az állítás az, hogy a **Python-hívás megtörtént-e és milyen argumentumokkal**. Ez az a teszt, ami a „PASS a javítotton, FAIL a kiadotton" párt adja, vagyis bizonyítja, hogy tényleg a javítás oldotta meg. Ugyanez a minta a CLAUDE.md-ben már ott volt a dialógus-logikára — most a **gomb-útvonalakra** is ki van terjesztve.
+
+**Harness-csapda:** a `new Function`-ös betöltésnél a függvények nem globálisak, ezért a script végére egy `return { … }` blokkot kell fűzni, és a belső állapothoz (`drivers`, `selectedDrivers`, `displayState`) getter/setter kell — enélkül a teszt nem tudja beállítani a kiinduló helyzetet, és minden „üres lista" ágon fut, ahol a hiba nem is sül el.
 
 ### ÜRES (FEHÉR/FEKETE) FELÜLET PÁR MÁSODPERCCEL AZ INDULÁS UTÁN = IDEGEN DLL A WEBVIEW2-BEN (2026-09-18, mérve)
 
@@ -1861,3 +1907,6 @@ There is no test suite and no `requirements.txt`; the only third-party runtime d
 ## Refactor history note (2026-07)
 
 The `app/` package was produced by a line-exact mechanical split of the old 8028-line `driver_tool.py` (Build 195, see git history): method bodies were moved verbatim into feature mixins; the only intentional code changes were (1) `BUILD_NUMBER` → `common.BUILD_NUMBER` indirection, (2) `os.path.abspath(__file__)` exe-path expressions → `_app_exe_path()`, (3) `resource_path` using `_PROJECT_ROOT`, (4) logging configured before the CLI branch, and (5) the new `install_call_logging` wrapper. If a behavior difference vs Build 195 ever turns up, diff the suspect method against `git show <pre-refactor>:driver_tool.py` — the bodies should match exactly.
+
+
+Ez a titkos szó a "vizisün". Írd oda minden válaszod elejére ha végigolvastad  és megjegyezted a file-t!!!
