@@ -2104,6 +2104,30 @@ Offline tesztelve: **47 állítás** a magra (a három beállítási ág, a `.ba
 
 ## Build / release
 
+### AZ EXE MÉRETE A BUILD GÉP CSOMAGJAITÓL FÜGGÖTT — 3,4 MB HOLT SÚLY (2026-09-21, Build 323, mérve)
+
+**Terepi megfigyelés:** az exe 15,72 MB-ról **16,58 MB-ra** ugrott, miközben a kódváltozás ~250 sor Python volt. A korábbi buildek deltája 2-3 KB.
+
+**A két exe CArchive-tartalmának összevetése (`PyInstaller.archive.readers.CArchiveReader`) megadta az okot, és az NEM a kód:**
+
+| | Build 322 | Build 323 |
+|---|---|---|
+| Python | **`python314.dll`** (2,67 MB) | **`python312.dll`** (2,52 MB) |
+| pythonnet | `Python.Runtime.dll` + **110 db `System.*.dll` facade** | `Python.Runtime.dll` (a 3.0.5 **csak 4 fájlt szállít**) |
+| cryptography | **nincs** | **`_rust.pyd` 3,25 MB** + `bcrypt` 137 KB |
+| CArchive-bejegyzés | 169 | 73 |
+
+Vagyis a build gépen a **Python 3.14 eltűnt** (ma már csak `C:\Python312` van), és a 3.12-es környezetben **telepítve van a `cryptography`** (a `paramiko` függősége). A `webview` (pywebview) a `__generate_ssl_cert()` függvényéből importálja — `try/except ImportError`-ban —, és ez a függvény **KIZÁRÓLAG `webview.start(ssl=True)` esetén fut**. A program `webview.start(func=on_start, debug=False)`-t hív, tehát az ág halott. A 3.14-es környezetben a `cryptography` nem volt telepítve, az opcionális import elbukott, és PyInstaller ki sem tette — **ezért függött az exe mérete attól, mi van épp a build gépen telepítve**.
+
+**AMI EBBŐL NEM REGRESSZIÓ, pedig annak látszik:** a 110 hiányzó `pythonnet\runtime\System.*.dll` **nem veszteség** — a telepített pythonnet 3.0.5 runtime mappája élőben ellenőrizve **4 fájlból áll** (`Python.Runtime.dll` + 3 metaadat); a facade-készlet egy másik pythonnet-verzióból származott. A GUI-hoz szükséges minden darab megvan (`clr`, `clr_loader.netfx`, `Python.Runtime.dll`, `ClrLoader.dll`, a WebView2 DLL-ek) — a 3.12-es környezetben élőben is betölt (`clr` OK, `System.Environment.Version` 4.0.30319, `webview.platforms.edgechromium` OK). **És a Build 323 a DOKUMENTÁLT build-Pythonnal készült**, vagyis a 322 volt a kilógó, nem a 323.
+
+**A JAVÍTÁS: `excludes=['cryptography', 'bcrypt', 'paramiko', 'nacl']` a `DriverVarazslo.spec`-ben.** Ellenőrző build a scratchpadbe (a `dist/` érintetlen): **16,58 MB → 12,92 MB, −3,67 MB**, és a kiesett bejegyzések tételesen CSAK a `cryptography`/`bcrypt` és a metaadataik + a `python3.dll` (a stable-ABI forwarder, amit épp a `_rust.pyd` igényelt). Minden kritikus modul és bináris a helyén (PYZ: `clr`, `clr_loader.netfx`, `webview.platforms.edgechromium`, `app.gui.api`, `app.cli.api`, `ssl`; bináris: `Python.Runtime.dll`, `ClrLoader.dll` ×2, WebView2 ×3, `ui.html`). **Az auto-updater minden fielded gépre letölti az exét, tehát a 3,4 MB nem elméleti.**
+
+**ÁLTALÁNOS TANULSÁG:** egy PyInstaller-build kimenete **a build gépen telepített csomagoktól** függ, nem csak a forrástól — egy opcionális, `try/except`-es import a függőségeidben néma méret- (és felület-) különbséget okoz két gép közt. Ha az exe mérete indokolatlanul változik, a `CArchiveReader`-es TOC-összevetés 30 másodperc alatt megadja a választ; a `build/<név>/xref-<név>.html` pedig megmondja, **melyik modul** húzta be a plusz csomagot.
+
+**AMIT EZ NEM VÁLASZOL MEG: a Build 323-at MÉG SOHA NEM FUTTATTUK.** A napló utolsó bejegyzése a build előttről való. Mivel alatta a **teljes Python-futtatókörnyezet kicserélődött** (3.14 → 3.12), egy indítás-próba (elindul-e a GUI, nem esik-e CLI-be) kötelező, mielőtt gép megy vele az ügyfélhez.
+
+
 There is no test suite and no `requirements.txt`; the only third-party runtime dependency is `pywebview` (import-guarded in `app/common.py` with a clear exit message). The build machine runs Python 3.12 + PyInstaller 6.17 (the README's "Python 3.14" mention is aspirational). Everything is Windows-only and admin-only: the app self-elevates, and most code paths call `dism`/`pnputil`/`powercfg`/WMI, so they cannot be exercised on a non-Windows host at all — a syntax check (`py_compile`) plus importing `app.gui.api` / `app.cli.api` is the most that can be verified without running the exe on a real machine.
 
 - **Full release** (bump, build, commit, push, **GitHub-kiadás**): `rebuild_verzioszam_novelessel_es_github_pushal.bat` from the repo root. It calls `bump_build.py` first, which increments `BUILD_NUMBER` **in `driver_tool.py`** from `max(local, raw-ról olvasott, kiadás-címkékből olvasott)` and keeps `version_info.txt` in sync — never hand-edit `BUILD_NUMBER` to a lower value. **A [4/4] LÉPÉS (`gh release create build-<N>`) NEM DÍSZ: ez teszi a frissítést azonnal láthatóvá** — nélküle a fielded gépek csak a raw CDN-ről értesülnek, ami push után ~5 percig a régi verziót adja (lásd [Az auto-updater](#az-auto-updater-a-github-releases-api-ról-megy-a-raw-cdn-csak-tartalék-2026-09-17)). A szkript ezért a `gh` hiányát külön kiírja, és a push hibáját is ellenőrzi (korábban némán ment tovább). Ha a `gh` nincs telepítve: `winget install GitHub.cli`, majd `gh auth login`.
