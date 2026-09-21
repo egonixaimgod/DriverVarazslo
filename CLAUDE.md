@@ -1216,6 +1216,19 @@ Az eszköz azonosítói közül az **átfedés egyetlen eleme egy `&CC_` tag**, 
 >
 > A **kulcs-alapú** jel (*„a nyertest egy `&CC_`-s kulcs hozta be"*) is kikerült. Az nem bizonyíték, csak gyanú, és mérve **pont az volt vak arra a csomagra, amiért 2026-09-04-ben született** (a `&CC_` kulcs 0 sort adott). Ahol a gyártó nem publikál listát, ott a program nem tudhatja előre — ott marad a letöltés + `inf_package_applies` + a tartós no-bind tár.
 
+**MIÉRT ÉLT EGYÁLTALÁN KÉT MECHANIZMUS EGYMÁS MELLETT — a git-ből kiolvasva, mert ezt a kérdést a következő session is fel fogja tenni.** A letöltés előtti szűrő és a `class_code_only` **egy nap különbséggel** született, és soha nem találkoztak: a szűrő azt dönti el, hogy *mely jelölteket vizsgáljuk meg és mit olvasunk ki*, a jelölés pedig azt, hogy *a nyertest melyik keresőkulcs hozta*. Ugyanaz a tünet, két külön támadási pont — és pont a harmadik, a legfontosabb maradt üresen:
+
+| mikor | mi épült | mit fedett le | mit NEM |
+|---|---|---|---|
+| 09-03 14:49 | a letöltés előtti szűrő (`_catalog_supported_hwids`) | egyáltalán szűrünk-e letöltés előtt | **mi számít egyezésnek** |
+| 09-04 12:22 (Build 302) | `class_code_only` **jelölés** | a maradék esetek megjelölése | nem zár ki; a *keresőkulcsból* dolgozik, tehát vak arra, amit a törzs-kulcs hoz be |
+| **09-20 23:12 (Build 322)** | a szűrő **lefedettsége + a parser** | mind a 3 jelölt-ág megkapja a szűrőt; közös kérés-keret; testvér-mintavétel; a HWID-parser utolsó azonosítója | **mi számít egyezésnek** — a `dev_ids & set(...)` teszt VÁLTOZATLAN maradt (a diffben csak *áthelyeződött* az új függvénybe) |
+| 09-21 | a **match-teszt** (`_tamogatja`) + a jelölés kivezetése | a CC-only átfedés mostantól NEM egyezés → kizárás | – |
+
+Mérve a 09-20-i commiton: **0 sor** érintette a `class_code_only`-t, és a `dev_ids & set(t_ids)` sor tartalmilag változatlan. Ezért maradt életben a gyengébb mechanizmus, és ezért ment át rajta az Alps csomag: a tegnapi kör a szűrő *hatókörét* és az *olvasását* javította, a *döntési feltételét* nem.
+
+**A TANULSÁG ÁLTALÁNOSAN:** ha egy védelem három dologból áll — *kiket vizsgálunk*, *mit olvasunk ki róluk*, *mi alapján döntünk* —, akkor két javítási kör után is maradhat egy érintetlen harmadik. Egy terepi visszaesésnél ezt a hármat kell külön végigkérdezni, nem azt, hogy „javítottuk-e már ezt a hibát".
+
 **MÉRVE, ÉLŐBEN, A TELJES GÉPEN** (98 eszköz, a valódi katalógus, telepítés nélkül):
 
 | | a régi szabállyal | az újjal |
