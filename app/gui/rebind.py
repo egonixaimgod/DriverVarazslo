@@ -48,6 +48,7 @@ from app.wu_core import WU_PNP_QUERY_PS
 from app.wu_core import _filter_wu_scan_devices
 from app.wu_core import _is_inbox_driver
 from app.wu_core import _hwid_tokens
+from app.wu_core import _hwid_token_seq
 from app.wu_core import is_specific_hwid
 from app.wu_core import extract_inf_hardware_ids
 from app.wu_core import _read_text_best_effort
@@ -149,7 +150,27 @@ def _strict_hwid_match(inf_id, dev_hwid):
         return a[1] == b[1]
     if ia != ib:
         return False
-    # A gyártó+eszköz egyezik; a többi tag (SUBSYS/REV/COL/MI) egyik irányban bővebb lehet.
+    # A HID-KOLLEKCIÓ LÁNCA (&COL..) HALMAZKÉNT LÁTHATATLAN - UGYANAZ A SZABÁLY, MINT A
+    # `wu_core._hwid_matches`-BEN (2026-09-21, terepen mérve, HP EliteDesk + Alps).
+    #
+    # A COL-szabály 2026-09-03-án BEKERÜLT a laza `_hwid_matches`-be, de EBBŐL, a
+    # SZIGORÚBBNAK szánt párjából KIMARADT - a projekt legrégebbi visszatérő hibája
+    # (duplikált logika, aminek az egyik példánya lemarad). A mérés:
+    #
+    #   INF    : HID\VID_044E&PID_1212&COL02            {VID_044E, PID_1212, COL02}
+    #   eszköz : HID\VID_044E&PID_1212&COL02&COL04      {VID_044E, PID_1212, COL02, COL04}
+    #
+    # A `<=` részhalmaz-szabály szerint ez EGYEZÉS, pedig két KÜLÖN csomópont: az INF a
+    # touchpad-kollekciót deklarálja, az eszköz annak egy GYEREK-kollekciója. Emiatt az
+    # újrakötés-kör négy csomópontot (`&COL01..COL04`) fölöslegesen eltávolított, majd
+    # kikényszerített egy újraindítást - a naplóban `[REBIND] Egyezés: ... <- apvhid.inf`
+    # négyszer, `2. lépés - a csomópont eltávolítása` négyszer.
+    #
+    # A COL-lánc SORREND és DARABSZÁM szerint azonosít; rá csak a PONTOS egyezés jó.
+    if ([t for t in _hwid_token_seq(inf_id) if t.startswith('COL')]
+            != [t for t in _hwid_token_seq(dev_hwid) if t.startswith('COL')]):
+        return False
+    # A gyártó+eszköz egyezik; a többi tag (SUBSYS/REV/MI) egyik irányban bővebb lehet.
     return a[1] <= b[1] or b[1] <= a[1]
 
 

@@ -570,6 +570,52 @@ def _hwid_token_seq(hwid):
     return [t for t in s.split('\\', 1)[1].split('&') if t]
 
 
+def class_code_only_match(dev_ids, supported_ids):
+    """CSAK OSZTÁLYKÓD-AZONOSÍTÓN illeszkedik-e a csomag az eszközre?
+
+    A katalógus részletlapja (`_catalog_supported_hwids`) NÉVSZERINT felsorolja, mely
+    hardver-azonosítókat támogatja a csomag. Ha az eszköz azonosítói közül KIZÁRÓLAG
+    `&CC_`-s (PCI osztálykód) tagokon van átfedés, akkor a gyártó azt mondta ki, hogy
+    "bármely gyártó ilyen FAJTA eszközéhez" - nem ehhez a géphez. Ez a legerősebb
+    letöltés előtti jel arra, hogy a csomag nem ide való.
+
+    TEREPEN MÉRVE (2026-09-21, HP EliteDesk 800 G2, ez a függvény ebből született):
+
+        eszköz : PCI\\VEN_8086&DEV_A123&SUBSYS_8054103C&REV_31   (Intel SMBus vezérlő)
+        csomag : AlpsAlpine - System - 10.4200.1616.141 [2019-03-04]
+        a csomag SAJÁT, publikált listája (7 elem):
+            acpi\\len001c, acpi\\len007c,                 <- LENOVO ACPI azonosítók
+            pci\\ven_8086&dev_8c22&cc_0c05, ...&9c22..., ...&9ca2..., ...&9d23...,
+            pci\\ven_8086&dev_a123&cc_0c05               <- EZEN illeszkedett
+        -> az átfedés EGYETLEN eleme egy &CC_ tag, SUBSYS egyetlen sorban sincs.
+
+    A telepítés után a gép Intel SMBus vezérlője az Eszközkezelőben "ThinkPad UltraNav
+    driver" néven jelent meg, LEGYÁRTOTT négy nem létező Alps HID-csomópontot
+    (`HID\\VID_044E&PID_1212&COL02&COL01..04`), és minden rendszerindításkor feldobta a
+    "Set user settings to driver failed" ablakot.
+
+    MIÉRT NEM ELÉG A RÉGI, KULCS-ALAPÚ JEL: a `class_code_only` 2026-09-04 óta azt nézte,
+    hogy a nyertes sort melyik KERESÉSI kulcs hozta be, és `&CC_`-t keresett benne. Ezen a
+    gépen a `...&CC_0C0500` kulcs **0 sort** adott (mérve a `catalog_rows.json`-ből), a
+    teljes 25 soros találat a szintetizált törzs-kulcsról (`PCI\\VEN_8086&DEV_A123`) jött -
+    amiben nincs `&CC_`. A jelölés tehát PONT arra a csomagra volt vak, amiért íródott.
+    A csomag saját listája viszont attól független, hogy mi melyik kulcson kerestünk.
+
+    Visszatérés: `(igen, a_dontesst_hozo_azonosito)`; átfedés nélkül `(False, '')`.
+    """
+    d = {str(x).strip().lower() for x in (dev_ids or ()) if x}
+    s = {str(x).strip().lower() for x in (supported_ids or ()) if x}
+    kozos = d & s
+    if not kozos:
+        return False, ''
+    # MINDEN átfedő tagnak osztálykódosnak kell lennie. Egyetlen nem-CC egyezés (pl. a
+    # gép SUBSYS-es azonosítója) azt jelenti, hogy a gyártó KONKRÉTAN ezt az eszközt is
+    # felsorolta - onnantól ez nem "bármely ilyen fajta eszköz" csomag.
+    if not all('&cc_' in x for x in kozos):
+        return False, ''
+    return True, sorted(kozos)[0]
+
+
 # INF-ből kiolvasható hardver-azonosító: BUSZ\TOKEN&TOKEN... alak. A `_` megkövetelése
 # zárja ki a registry-utakat (SYSTEM\CurrentControlSet\...), amikben nincs VEN_/DEV_-szerű tag.
 _INF_HWID_RE = re.compile(r'\b([A-Z0-9]{2,12}\\[A-Z0-9_&\.\-]{4,})', re.IGNORECASE)

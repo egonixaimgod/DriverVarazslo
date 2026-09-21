@@ -877,6 +877,23 @@ _CALL_LOG_EXCLUDE = {
     '_catalog_detail_page', '_catalog_supported_hwids',
     '_autofix_stats_path',
 
+    # UGYANEZ A HIBA MÉGEGYSZER, EGY NAPPAL KÉSŐBB SZÜLETETT SEGÉDDEL (2026-09-21, mérve).
+    #
+    # A `_catalog_hwids_cache` a 2026-09-08-i `catalog_hwids.json` perzisztenciával jött,
+    # vagyis EGY NAPPAL a fenti mérés után - és nem került rá a listára. Egy 7 perces
+    # KÉZI szken (Build 322, HP EliteDesk) naplója:
+    #
+    #     napló összesen        670 KB / 3509 sor
+    #     _catalog_hwids_cache  303 KB          <- a napló 45,2%-a, EGYETLEN segédtől
+    #     627 hívás, ebből 204-nél a visszatérés a TELJES 278 KB-os gyorsítótár-dict
+    #
+    # A döntés a hívó soraiban megmarad ("KIZÁRVA letöltés előtt", a támogatott
+    # azonosítók számával és a konkrét okkal), tehát semmit nem veszítünk vele.
+    #
+    # ÖKÖLSZABÁLY A KÖVETKEZŐHÖZ: ha egy új segéd GYORSÍTÓTÁRAT ad vissza (vagy bármilyen
+    # nagy adatszerkezetet), a [CALL]-réteg nem neki való - a listára még aznap tedd rá.
+    '_catalog_hwids_cache',
+
     # A gép-térkép építője (2026-09-17): a teljes eszközfát (146+ csomópont, ~15 mező
     # mindegyiken) kapja és egy ~50 KB-os térképet ad vissza - a [CALL]-réteg ennek a
     # repr-jét minden hívásnál felépítené. A döntés a saját soraiban megmarad: a

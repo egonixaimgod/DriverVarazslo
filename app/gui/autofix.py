@@ -1182,38 +1182,14 @@ class GuiAutofixMixin:
                                  f"(hibás={len(problem_devs)}, generikus={len(generic_devs)}, mély={deep_extra})")
                     self.emit('task_progress', {'task': task_id, 'log': f'\n--- KATALÓGUS-ZÁRÓKÖR: {" + ".join(detail)} eszköz keresése a Microsoft Update Catalogban ({len(cat_devs)} db)... ---'})
                     found = self._catalog_search_collect(cat_devs, inst_info)
-                    # ===== FELÜGYELET NÉLKÜL NEM TELEPÍTÜNK OSZTÁLYKÓD-CSOMAGOT =====
-                    # (2026-09-04, terepen mérve - a részletes indoklás a jelölést kiszámoló
-                    # `_catalog_find_driver`-ben van, itt csak a döntés.)
-                    #
-                    # A `&CC_xxxx` kulcsról jött csomag azt jelenti: "bármely gyártó ilyen
-                    # FAJTA eszközéhez való", nem ehhez a géphez. A fejlesztői gépen egy
-                    # ilyen (AlpsAlpine SMBus) csomag ment fel az Intel SMBus vezérlőre,
-                    # átment minden ellenőrzésünkön (INF-illeszkedés és kötés egyaránt
-                    # IGAZ volt), és utána legyártott egy nem létező tapipadot négy
-                    # szellem-gyerekkel + egy minden bootnál hibát dobó szolgáltatást.
-                    #
-                    # A lánc [elfogadási feltétele](CLAUDE.md) szerint a technikus nincs a
-                    # gép előtt, tehát itt nincs ki mérlegeljen - a KÉZI szken viszont
-                    # felajánlja (csak nem előre bejelölve), mert ott van, aki eldöntse.
-                    # Ez NEM eszköz-kizárás: az eszköz minden körben keresésre kerül, és
-                    # ha a gyártó a gép saját SUBSYS-kulcsán is publikál csomagot, az
-                    # jelölés nélkül, normálisan felmegy.
-                    cc_only = [h for h in found if h.get('class_code_only')]
-                    if cc_only:
-                        found = [h for h in found if not h.get('class_code_only')]
-                        for h in cc_only:
-                            logging.warning(
-                                f"[AUTOFIX-CAT] Kihagyva (csak osztálykód-kulcsról jött, "
-                                f"nem ehhez a géptípushoz): {h.get('name')} <- "
-                                f"'{h.get('wu_title')}' (kulcs: {h.get('class_code_key')})")
-                        nevek = ', '.join((h.get('name') or '?') for h in cc_only[:4])
-                        self.emit('task_progress', {'task': task_id, 'log':
-                            f'⏭️ {len(cc_only)} csomag kihagyva: nem ehhez a géptípushoz '
-                            f'valók (a gyártó általános, "bármely ilyen chiphez" kulcsán '
-                            f'találtuk, nem a gép saját azonosítóján) - {nevek}'
-                            f'{" …" if len(cc_only) > 4 else ""}. Felügyelet nélkül ilyet '
-                            f'nem telepítünk; a Driver Keresés nézetben kézzel bejelölhető.'})
+                    # (2026-09-04 és 2026-09-21 között itt egy külön szűrés állt, ami a
+                    #  `class_code_only`-val megjelölt csomagokat vette ki az AutoFix
+                    #  köréből, miközben a kézi szken felajánlotta őket. Ez VISSZA VAN
+                    #  VONVA: ami bizonyítottan nem ehhez a géphez való, azt MOST MÁR
+                    #  EGYIK felület sem ajánlja fel, mert a letöltés előtti szűrő
+                    #  (`_catalog_find_driver` / `_hwid_elloszures`) kizárja - tehát idáig
+                    #  el sem jut. Explicit user decision; a mérés és az indoklás a
+                    #  CLAUDE.md "A class_code_only vak volt..." szekciójában.)
                     # MÁR MEGBUKOTT CSOMAGOK KISZŰRÉSE (lábakon átívelő emlékezet). Ha egy
                     # csomag egy korábbi lábon feltelepült, de az eszköz nem vette át (más
                     # gépre szabott változat, vagy egy specifikusabb HWID-en álló driver

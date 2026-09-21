@@ -18,6 +18,7 @@ from app.common import _ps_quote, _app_data_dir
 from app import dupdrivers_core
 from app.wu_core import WU_PNP_QUERY_PS
 from app.wu_core import WuProcessAborted
+from app.wu_core import class_code_only_match
 from app.wu_core import wu_search_error_text
 from app.wu_core import _build_wu_install_ps
 from app.wu_core import _filter_wu_scan_devices
@@ -1693,6 +1694,12 @@ try {
         # Minden GUID, amire MÁR van verdiktünk (kizárt vagy megtartott) - lásd a
         # `kepviselok` melletti indoklást: a már megvizsgált csomag nem fogyaszt keretet.
         probe_kesz_guids = set()
+        # CSAK OSZTÁLYKÓD-AZONOSÍTÓN ILLESZKEDŐ CSOMAGOK: {guid: a döntést hozó azonosító}.
+        # A csomag a gyártó SAJÁT, publikált listája szerint nem ehhez a géphez való -
+        # lásd `wu_core.class_code_only_match` (az AlpsAlpine-eset mérési adataival).
+        # NEM kizárás: a tétel felkerül a listára, csak nem lesz előre bejelölve, és az
+        # AutoFix kihagyja (ott nincs, aki mérlegeljen).
+        probe_csak_cc = {}
         # KÖZÖS KÉRÉS-KERET AZ EGÉSZ ESZKÖZRE (2026-09-20).
         #
         # A szűrő 2026-09-20-ig CSAK a fő `cands` listára futott le, a nyertes viszont
@@ -1811,19 +1818,41 @@ try {
             # lekérdeztünk. A kizárt csoport testvéreit külön ellenőrizzük - a KÖZÖS
             # keretből, tehát ez nem szabadul el -, és amire nem jutott keret, az
             # JELÖLT MARAD (a nemtudás sosem elvetés ok).
+            def _tamogatja(tamogatott):
+                """TÁMOGATJA-E a csomag ezt az ESZKÖZT (nem csak ezt a FAJTA eszközt)?
+
+                Visszatérés: `(igen, csak_osztalykod_azonosito)`. A második tag akkor nem
+                üres, ha a csomag azért esik ki, mert az átfedés KIZÁRÓLAG osztálykódos -
+                ez kerül a naplóba és a képernyőre indoklásként.
+
+                A PUSZTA HALMAZ-METSZET KEVÉS VOLT, ÉS EZ EGY GÉPET ELRONTOTT (2026-09-21).
+                A PCI-eszközök HardwareID-listájában a Windows az OSZTÁLYKÓDOS tagokat is
+                felsorolja (mérve: `...&CC_0C0500`, `...&CC_0C05`), tehát a metszet akkor
+                sem üres, ha a gyártó listájában a gép eszközéről szó sincs - csak a
+                "bármely Intel A123 SMBus vezérlő" kategóriáról."""
+                if not tamogatott:
+                    return False, ''
+                if not (dev_ids & set(tamogatott)):
+                    return False, ''
+                cc_ok, cc_id = class_code_only_match(dev_ids, tamogatott)
+                return (not cc_ok), (cc_id if cc_ok else '')
+
             illik, eldonthetetlen, kizart = [], [], []
             for c in kepviselok:
                 tagok = csoport[((c[2] or '').strip().lower(), c[3] or '')]
                 tamogatott = self._catalog_supported_hwids(c[1], ssl_ctx)
+                jo, cc_id = _tamogatja(tamogatott)
                 if tamogatott is None:
                     probe_kesz_guids.update(t[1] for t in tagok)
                     eldonthetetlen.extend(tagok)
-                elif dev_ids & set(tamogatott):
+                elif jo:
                     probe_kesz_guids.update(t[1] for t in tagok)
                     illik.extend(tagok)
                 else:
                     probe_kesz_guids.add(c[1])
                     probe_kizart_guids.add(c[1])
+                    if cc_id:
+                        probe_csak_cc[c[1]] = cc_id
                     kizart_db, tal_illo = 1, False
                     testverek = [x for x in tagok if x[1] != c[1]]
                     # MINTAVÉTEL, NEM TELJES BIZONYÍTÁS - a teljes ára mérve 193 lekérdezés
@@ -1836,14 +1865,17 @@ try {
                         probe_keret[0] -= 1
                         t_ids = self._catalog_supported_hwids(t[1], ssl_ctx)
                         probe_kesz_guids.add(t[1])
+                        t_jo, t_cc = _tamogatja(t_ids)
                         if t_ids is None:
                             eldonthetetlen.append(t)
                             tal_illo = True     # nem eldönthető -> a csoport nem zárható ki
-                        elif dev_ids & set(t_ids):
+                        elif t_jo:
                             illik.append(t)
                             tal_illo = True
                         else:
                             probe_kizart_guids.add(t[1])
+                            if t_cc:
+                                probe_csak_cc[t[1]] = t_cc
                             kizart_db += 1
                     if tal_illo:
                         # KEVERT csoport: a meg nem nézett testvérek JELÖLTEK MARADNAK,
@@ -1863,8 +1895,17 @@ try {
                     kizart.append((c, len(tamogatott), kizart_db))
             if kizart:
                 for (c, n, db) in kizart:
+                    # KÉT KÜLÖN OK, ÉS A NAPLÓNAK MEG KELL KÜLÖNBÖZTETNIE ŐKET: az eszköz
+                    # egyáltalán nincs a listán, VAGY csak az osztálykódján át van rajta
+                    # (= a gyártó a fajtájára írta, nem erre a gépre). A második a ritkább
+                    # és a veszélyesebb eset, és egy terepi bejelentésnél pont ez a kérdés.
+                    cc_id = probe_csak_cc.get(c[1], '')
                     logging.info(f"[CATALOG] {item['name']}: '{c[2][:60]}' KIZÁRVA letöltés előtt - "
-                                 f"a részletlap {n} támogatott azonosítója közt nincs ott az eszközé"
+                                 + (f"a részletlap {n} támogatott azonosítója közül az eszközre CSAK "
+                                    f"az OSZTÁLYKÓDJÁN illeszkedik ({cc_id}): a gyártó 'bármely ilyen "
+                                    f"fajta eszközhöz' szánta, a gép SUBSYS-e nincs a listában"
+                                    if cc_id else
+                                    f"a részletlap {n} támogatott azonosítója közt nincs ott az eszközé")
                                  + (f" (a katalógusban {db} bejegyzés alatt)." if db > 1 else "."))
                 if jelentsunk:
                     n_bejegyzes = sum(db for _c, _n, db in kizart)
@@ -2323,56 +2364,30 @@ try {
                              f"mellett örökre a rossz gyártójú csomagot ajánlanánk. "
                              f"Első tartalék: '{uj[0][1][:60]}' [{uj[0][2] or '?'}]")
 
-        # ===== CSAK OSZTÁLYKÓD-KULCSRÓL JÖTT-E A NYERTES? (2026-09-04, terepen mérve) =====
+        # ===== A "NEM EHHEZ A GÉPHEZ VALÓ" CSOMAG MÁR NEM IDÁIG JUT EL =====
         #
-        # A `&CC_xxxx` (PCI osztálykód) kulcs azt jelenti: "bármely gyártó ilyen FAJTA
-        # eszközéhez való csomag". Ez a katalógusban az idegen gyártók OEM-bundle-jeinek
-        # mágnese - és ebből lett a fejlesztői gép egyik legcsúnyább esete:
+        # 2026-09-04 és 2026-09-21 között itt egy JELÖLÉS állt (`class_code_only`): a tétel
+        # bekerült a listába, csak nem lett előre kipipálva, és az AutoFix kihagyta.
+        # EZ A MEGKÖZELÍTÉS VISSZA VAN VONVA (explicit user decision, 2026-09-21):
         #
-        #   eszköz: PCI\VEN_8086&DEV_A123&SUBSYS_8054103C  (HP EliteDesk SMBus vezérlő)
-        #   nyertes: 'AlpsAlpine - System - 10.4200.1616.141' [2019-03-04]
-        #   a kulcs, ami behozta: ...&CC_0C0500      <- osztálykód, NEM a gép SUBSYS-e
+        #   "ne legyen felajánlva ha nem ehhez a géphez való... minek ajánlja fel? feleslegesen
+        #    megy egy kört az ügyfél, feltelepíti és nem működik"
         #
-        # MINDEN ellenőrzésünk igazat mondott rá: az INF tényleg deklarálja a
-        # `pci\ven_8086&dev_a123&cc_0c05`-öt (inf_package_applies -> True), a Windows
-        # rangsora is ezt választotta (hardver-azonosítós egyezés, míg az Intel saját
-        # csomagja csak kompatibilis azonosítón illeszkedik), és tényleg rá is kötött
-        # (kötés-ellenőrzés -> True). A csomag mégsem ide való: a driver felrakása után
-        # LEGYÁRTOTT egy nem létező ThinkPad UltraNav tapipadot (`HID\VID_044E&PID_1212`)
-        # négy szellem-gyerekkel, és minden rendszerindításkor hibaüzenetet dobott
-        # ("Set user settings to driver failed"). Mérve a Windows setupapi.dev.log-jából:
-        # a telepítés 13:19:11, a szellemeszköz születése 13:19:13.7 - a driver csinálta.
+        # A jelölés két dolgot feltételezett, és mindkettő rossz volt: hogy a technikusnak van
+        # mit MÉRLEGELNIE (nincs - a gyártó saját listája mondta ki, hogy nem ide való), és
+        # hogy egy összecsukott csoportba tett, ki nem pipált sor "nem zavar" (dehogynem: a
+        # fejlesztői gépen épp ez ment fel és rontotta el a gépet).
         #
-        # MIÉRT NEM FOGTA MEG SEMMI: a tíz döntési pontunk mind azt kérdezi, hogy
-        # "ALKALMAZHATÓ-e ez a csomag erre az eszközre" - és a válasz becsületesen igen
-        # volt. Azt egyik sem kérdezi, hogy "ennek a GÉPNEK szánta-e a gyártó". Ezt az
-        # információt pontosan két hely hordozza: a WU szerver-oldali célzása (amit a
-        # katalógus használatával definíció szerint megkerülünk), és a katalógus
-        # részletlapjának SUBSYS-szintű azonosító-listája (`_catalog_supported_hwids`) -
-        # csakhogy az utóbbi üres is lehet, és olyankor szándékosan nem szűrünk.
+        # A DÖNTÉS MOST A LETÖLTÉS ELŐTTI SZŰRŐBEN VAN (`_hwid_elloszures` / `_tamogatja`),
+        # ugyanazon az ágon, ahol a többi bizonyítottan nem ide való csomag kiesik: ha a
+        # gyártó publikált listája az eszközre CSAK az osztálykódján illeszkedik, a csomag
+        # KIZÁRT - nem kerül a jelöltek közé, nem töltjük le, és fel sem ajánljuk.
         #
-        # EZ A JELÖLÉS A MÁSODIK VÉDŐVONAL, ÉS SZÁNDÉKOSAN NEM TILTÁS. A tétel bekerül a
-        # listába, a technikus bejelölheti és feltelepítheti - csak nem lesz ELŐRE
-        # kipipálva, és az AutoFix (ahol senki nem ül a gép előtt) kihagyja. Ez nem
-        # eszköz-kizárás: az eszköz minden körben, minden forrásból keresésre kerül,
-        # lásd CLAUDE.md "MINDEN ESZKÖZ KAPJON DRIVERT".
-        #
-        # NEM VESZÍTÜNK VELE VALÓDI CSOMAGOT: ha a csomag tényleg ehhez a géphez való, a
-        # gép SAJÁT `&SUBSYS_`-kulcsa is behozza, és akkor a `spec_by_guid` ott adja a
-        # kisebb (specifikusabb) indexet - vagyis a jelölés fel sem kerül.
-        #
-        # KIVÉTEL: HIBAKÓDOS eszköz. Ott nincs működő driver, tehát bármi jobb a semminél -
-        # ugyanaz az elv, mint a downgrade-védelemnél és a SUBSYS-szűkítésnél fentebb.
-        best_spec = spec_by_guid.get(best_id, 99)
-        src_key = hwids[best_spec] if best_spec < len(hwids) else ''
-        class_code_only = ('&CC_' in (src_key or '').upper()) and not item.get('err_code')
-        if class_code_only:
-            logging.warning(
-                f"[CATALOG] {item['name']}: a nyertes csomag ('{best_title[:60]}') KIZÁRÓLAG "
-                f"osztálykód-kulcsról jött ({src_key}) - vagyis 'bármely gyártó ilyen fajta "
-                f"eszközéhez' szól, nem ehhez a géphez. A gép saját SUBSYS-kulcsa nem hozta be. "
-                f"Felajánljuk, de NEM jelöljük be előre, és az AutoFix kihagyja.")
-
+        # A RÉGI, KULCS-ALAPÚ JEL IS KIKERÜLT ("a nyertest egy &CC_-s kulcs hozta be"). Az
+        # nem bizonyíték, csak gyanú - a gyártó listája viszont az, és mérve pont a kulcs-jel
+        # volt vak arra a csomagra, amiért született (a `&CC_` kulcs 0 sort adott, minden a
+        # törzs-kulcsról jött). Ahol nincs publikált lista, ott a program nem tudhatja előre,
+        # hogy nem ide való - ott marad a letöltés + INF-vizsgálat + a tartós no-bind tár.
         cab_url = self._catalog_download_url(best_id, ssl_ctx, item['name'])
         if not cab_url:
             return None
@@ -2421,11 +2436,9 @@ try {
             "risky": bool(item.get('risky')),
             "risk_label": item.get('risk_label') or '',
             "risk_reason": item.get('risk_reason') or '',
-            # CSAK OSZTÁLYKÓD-KULCSRÓL JÖTT (lásd a fenti blokkot): a felület nem jelöli
-            # be előre és kiírja az okot, az AutoFix pedig kihagyja. A kulcsot is
-            # visszaadjuk, mert a "miért nincs bepipálva?" kérdésre csak az válaszol.
-            "class_code_only": class_code_only,
-            "class_code_key": src_key if class_code_only else '',
+            # (A `class_code_only` / `class_code_key` mezők 2026-09-21-én MEGSZŰNTEK -
+            #  lásd a fenti blokkot: a "nem ehhez a géphez való" csomag már a letöltés
+            #  előtti szűrőben kiesik, tehát idáig el sem jut, nincs mit megjelölni.)
         }
 
     def _catalog_search_collect(self, devices_to_check, installed_info=None):

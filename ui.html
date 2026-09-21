@@ -1497,6 +1497,13 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           <p style="margin-bottom:12px;color:var(--text3)">Ugyanabból a driverből minden frissítés után ottmarad a régi verzió is a DriverStore-ban - ezek csak a helyet foglalják. A keresés a legújabb verziót mindig megtartja, és az épp használatban lévő drivereket SOHA nem törli. <b style="color:var(--text2)">A driver-telepítések végén (manuális telepítés és 1 Kattintásos Fix) ez a takarítás automatikusan is lefut</b> - ez a panel a kézi, ellenőrzött futtatáshoz van.</p>
           <div class="toolbar">
             <button class="btn btn-primary" onclick="scanDupDrivers()" id="btn-dup-scan">🔍 Duplikátumok keresése</button>
+            <!-- MIND-KAPCSOLÓ (2026-09-21, explicit user decision: "inkabb legyen egy olyan
+                 h MIND törlése és akkor egy gombbal törli az összeset"). Ugyanaz a minta,
+                 mint a Driverek nézet kijelölő gombjánál: a FELIRAT MINDIG A KÖVETKEZŐ
+                 MŰVELETET mondja - egy "Mind kijelölése" feliratú gomb, ami levesz, pont
+                 az a néma hazugság, amit ez a projekt mindenhol üldöz. Csak a TÖRÖLHETŐ
+                 (nem zárolt) sorokra hat: a használatban lévő driver kijelölhetetlen marad. -->
+            <button class="btn btn-secondary" onclick="toggleAllDupChecks()" id="btn-dup-all" style="display:none">☑ Mind kijelölése</button>
             <button class="btn btn-danger" onclick="deleteDupDrivers()" id="btn-dup-delete" disabled style="display:none">🗑 Kijelölt régi verziók törlése</button>
           </div>
           <div id="dup-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
@@ -4113,6 +4120,9 @@ async function scanDupDrivers() {
   document.getElementById('dup-loading').style.display = 'block';
   document.getElementById('dup-results').innerHTML = '';
   document.getElementById('btn-dup-scan').disabled = true;
+  // Az előző keresés gombjai nem lóghatnak át egy új, még üres találatra.
+  document.getElementById('btn-dup-all').style.display = 'none';
+  document.getElementById('btn-dup-delete').style.display = 'none';
   try {
     await api().list_duplicate_drivers();
   } catch (e) {
@@ -4132,12 +4142,30 @@ function onDupDriversLoaded(data) {
   if (!dupGroups.length) {
     res.innerHTML = (data && data.error) ? '' : '<div style="color:var(--green);padding:8px 0">✅ Nincs duplikált driver-verzió a DriverStore-ban.</div>';
     delBtn.style.display = 'none';
+    document.getElementById('btn-dup-all').style.display = 'none';
     badge.style.display = 'none';
     return;
   }
   badge.style.display = '';
   badge.textContent = (data.deletable || 0) + ' törölhető';
   let html = '';
+  // MIÉRT NINCS OTT A PIPA? (2026-09-21, terepi bejelentés: "nem tudom kijelölni h mit
+  // szeretnék törölni, mert nincs ott checkbox ezért nem is tudom őket törölni").
+  //
+  // A viselkedés HELYES volt - a mért eset: `intcdaud.inf`, megmarad oem22.inf
+  // (v11.2.0.10), a duplikátum oem23.inf (v10.26.0.12) viszont ÉPP AZ "Intel(R)
+  // megjelenítő hang" eszközt hajtja, tehát a védelem nem engedi törölni. A hiba az
+  // volt, hogy ezt SEMMI nem mondta ki: a technikus egy csoportot látott, benne egy
+  // lakat-ikont, alatta egy letiltott törlés-gombot - ebből nem derül ki, hogy a program
+  // szándékosan véd, nem pedig elromlott. Egy néma letiltott gomb hibának néz ki.
+  if (!(data.deletable || 0)) {
+    html += '<div style="border:1px solid var(--glass-border);border-left:3px solid var(--green);'
+      + 'border-radius:8px;padding:8px 12px;margin:8px 0;font-size:12px;color:var(--text2)">'
+      + '🔒 <b>Nincs most törölhető régi verzió.</b> A lent felsorolt régi verziókat egy-egy '
+      + 'jelenlévő eszköz ÉPP HASZNÁLJA, ezért a program védi őket - a törlésük elvenné az '
+      + 'eszköztől a működő driverét. Nem hiba: ez a duplikátum-takarítás beépített védelme, '
+      + 'ezért nincs mellettük jelölőnégyzet.</div>';
+  }
   dupGroups.forEach(g => {
     html += '<div style="border:1px solid var(--glass-border);border-radius:10px;padding:8px 12px;margin:8px 0">'
       + '<div style="font-weight:700">' + esc(g.original) + ' <span style="color:var(--text3);font-weight:400">(' + esc(g.provider || '') + (g.class ? ' · ' + esc(g.class) : '') + ')</span></div>'
@@ -4145,7 +4173,7 @@ function onDupDriversLoaded(data) {
       + g.dups.map(d =>
           '<div style="font-size:12px;display:flex;gap:8px;align-items:center;padding:2px 0">'
           + (d.active
-              ? '<span title="Ezt a verziót egy jelenlévő eszköz épp használja - nem törölhető">🔒</span><span>' + esc(d.published) + ' — v' + esc(d.version || '?') + ' <span style="color:var(--text3)">(használatban, védett)</span></span>'
+              ? '<span title="Ezt a verziót egy jelenlévő eszköz épp használja - nem törölhető">🔒</span><span style="opacity:.75">' + esc(d.published) + ' — v' + esc(d.version || '?') + ' <span style="color:var(--text3)">(HASZNÁLATBAN — védett, nem jelölhető ki)</span></span>'
               : '<input type="checkbox" class="dup-check" data-pub="' + esc(d.published) + '" checked onchange="updateDupDeleteBtn()"><span>' + esc(d.published) + ' — v' + esc(d.version || '?') + ' <span style="color:var(--text3)">(régi verzió)</span></span>')
           + '</div>').join('')
       + '</div>';
@@ -4154,11 +4182,30 @@ function onDupDriversLoaded(data) {
   delBtn.style.display = '';
   updateDupDeleteBtn();
 }
+/* MIND-KAPCSOLÓ: a látható, NEM ZÁROLT sorokra hat, és második kattintásra visszavon.
+   Zárolt (használatban lévő) sorhoz nincs is `.dup-check`, tehát azt nem érintheti. */
+function toggleAllDupChecks() {
+  const boxes = [...document.querySelectorAll('.dup-check')];
+  if (!boxes.length) return;
+  const mind = boxes.every(c => c.checked);
+  boxes.forEach(c => { c.checked = !mind; });
+  updateDupDeleteBtn();
+}
 function updateDupDeleteBtn() {
-  const n = document.querySelectorAll('.dup-check:checked').length;
+  const boxes = [...document.querySelectorAll('.dup-check')];
+  const n = boxes.filter(c => c.checked).length;
   const btn = document.getElementById('btn-dup-delete');
   btn.disabled = n === 0;
   btn.textContent = '🗑 Kijelölt régi verziók törlése (' + n + ' db)';
+  /* A kijelölő gomb csak akkor létezik, ha VAN mit kijelölni - különben egy örökre halott
+     gomb állna a panelen. A felirata a KÖVETKEZŐ műveletet mondja (lásd a markup melletti
+     indoklást), a darabszámmal együtt, hogy előre látszódjon, mi fog történni. */
+  const all = document.getElementById('btn-dup-all');
+  if (!all) return;
+  all.style.display = boxes.length ? '' : 'none';
+  const mind = boxes.length > 0 && n === boxes.length;
+  all.textContent = mind ? ('☐ Kijelölés visszavonása (' + boxes.length + ')')
+                         : ('☑ Mind kijelölése (' + boxes.length + ')');
 }
 async function deleteDupDrivers() {
   const names = [...document.querySelectorAll('.dup-check:checked')].map(c => c.dataset.pub);
@@ -4345,7 +4392,7 @@ function onHwScanResult(data) {
   // telepítettnél régebbi drivert ajánl), (b) a KOCKÁZATOS, tárolóvezérlő/lemez
   // találatokat (telepítésük tudatos emberi döntést kíván, lásd
   // wu_core.RISKY_CLASS_WARNING), és (c) amit a `hwIsDeadOffer` nem ehhez a géphez
-  // valónak ítél (prev_no_bind + class_code_only).
+  // valónak ítél (prev_no_bind - bizonyított nem-kötés).
   //
   // AZ (a) ÉS (b) A FŐ LISTÁBAN MARAD, csak pipa nélkül: ott a technikusnak VAN mit
   // mérlegelnie (egy régebbi driver néha épp az, ami kell; egy tárolóvezérlő-csere
@@ -4597,7 +4644,6 @@ function hwRowHtml(it) {
           + (it.generic_replace ? ' <span style="color:#5fb2ff;font-size:11px;font-weight:700" title="Ezen az eszközön most a Windows beépített, generikus drivere fut. A chip gyártójának saját drivere elérhető a Microsoft Update Catalogban - jellemzően többet tud (hang-DSP, energiakezelés, offload). Ha a csere után az eszköz hibás lenne, a program automatikusan visszaáll a Windows driverére.">🏭 most Windows alapdriver → gyári elérhető</span>' : '')
           + (it.risky ? ' <span style="color:#ff5f6d;font-size:11px;font-weight:800" title="'+esc(it.risk_reason||'')+'">'+esc(it.risk_label||'⛔ KOCKÁZATOS - telepítése tudatos döntést kíván!')+'</span>' : '')
           + (it.prev_no_bind ? ' <span style="color:#b9a7e8;font-size:11px;font-weight:700" title="Egy korábbi futásban ez a csomag már feltelepült vagy kipróbáltuk, de az eszköz nem vette át'+(it.prev_no_bind_reason?' ('+esc(it.prev_no_bind_reason)+')':'')+' - jellemzően más gépgyártóra szabott változat. Bejelölhető és újrapróbálható, de várhatóan most sem ezt választaná a Windows. A jobb forrás a hardver gyártójának saját letöltőoldala (videokártyánál NVIDIA/AMD/Intel, alaplapi eszköznél az alaplapgyártó).">↷ korábban nem vette át az eszköz</span>' : '')
-          + (it.class_code_only ? ' <span style="color:#ffa94d;font-size:11px;font-weight:700" title="Ezt a csomagot a gyártó ÁLTALÁNOS, osztálykód-kulcsán találtuk ('+esc(it.class_code_key||'&amp;CC_...')+'), nem a gép saját azonosítóján - vagyis &quot;bármely gyártó ilyen fajta eszközéhez&quot; szól, nem konkrétan ehhez a géphez. Rákötni valószínűleg rá fog kötni (az INF-je illeszkedik), de nem biztos, hogy ehhez a géphez szánták: egy ilyen csomag rakott fel egyszer egy Alps tapipad-drivert egy asztali HP SMBus vezérlőjére, ami utána nem létező eszközöket gyártott és minden indításkor hibát dobott. Bejelölhető és feltelepíthető, ha tudod, hogy kell - az 1 kattintásos fix viszont kihagyja, mert ott nincs, aki mérlegeljen.">🎲 nem ehhez a géptípushoz (általános kulcs)</span>' : '')
           + '</span></span>'
           + '<span class="hwid">'+esc(it.hwid||'')+'</span></div>';
 }
@@ -4605,11 +4651,20 @@ function hwRowHtml(it) {
 /* EGY HELYEN dől el, mi kerül a "nem ehhez a géphez való" csoportba (2026-09-04).
    Hat helyen kellett a feltétel (szűrés, számláló ×2, fül-kihagyás, "Összes", alap-
    kijelölés); egy hetedik ok felvételekor a projekt legrégebbi hibája jönne elő, hogy
-   egy példány lemarad. A két ok KONFIDENCIÁJA különbözik, és a sor-jelölés ki is mondja:
-     prev_no_bind    - BIZONYÍTOTT: letöltöttük, felraktuk, az eszköz nem vette át;
-     class_code_only - LETÖLTÉS ELŐTT eldöntve: a csomag a gyártó általános, "bármely
-                       ilyen chiphez" kulcsáról jött, nem a gép saját azonosítójáról. */
-function hwIsDeadOffer(d) { return !!(d && (d.prev_no_bind || d.class_code_only)); }
+   egy példány lemarad.
+
+   2026-09-21 ÓTA EGYETLEN OK VAN, ÉS EZ SZŰKÍTÉS (explicit user decision): a `class_code_only`
+   kikerült. Az nem bizonyíték volt, hanem gyanú ("a nyertest a gyártó általános kulcsán
+   találtuk"), és a felhasználó döntése az, hogy amit a program NEM EHHEZ A GÉPHEZ VALÓNAK
+   ismer fel, azt ne is ajánlja fel: *"minek ajánlja fel? feleslegesen megy egy kört az
+   ügyfél, feltelepíti és nem működik"*. Az ilyen csomag azóta a LETÖLTÉS ELŐTTI SZŰRŐBEN
+   esik ki (a gyártó saját, publikált azonosító-listája alapján), tehát ide el sem jut.
+
+   Ami MARADT, az bizonyíték, nem gyanú:
+     prev_no_bind - letöltöttük, felraktuk, és az eszköz NEM vette át. Azért marad
+                    felajánlható (összecsukva, pipa nélkül), mert egy időközben kijavított
+                    csomagnak vagy egy téves feljegyzésnek elérhetőnek kell maradnia. */
+function hwIsDeadOffer(d) { return !!(d && d.prev_no_bind); }
 
 /* A BIZONYÍTOTTAN NEM ILLESZKEDŐ AJÁNLATOK KÜLÖN, ÖSSZECSUKOTT CSOPORTBAN.
 
@@ -4638,8 +4693,7 @@ function renderDeadOffers(container, dead) {
   const open = hwGroupOpen('dead');
   const div = document.createElement('div');
   div.className = 'hw-cat';
-  const bizonyitott = dead.filter(d => d.prev_no_bind).length;
-  const altalanos   = dead.filter(d => !d.prev_no_bind && d.class_code_only).length;
+  const bizonyitott = dead.length;   // 2026-09-21 óta minden ide kerülő tétel bizonyított
   div.innerHTML = '<div class="hw-cat-header' + (open ? ' open' : '') + '" onclick="toggleHwCatExpand(this)" '
     + 'title="A katalógusban VAN bejegyzés ezekre az eszközökre, de a csomagok nem ehhez a '
     + 'géptípushoz valók. Ezért nincsenek a fenti listában és az Összes gomb sem jelöli be '
@@ -4650,16 +4704,11 @@ function renderDeadOffers(container, dead) {
     + dead.length + ' db)</span></div>'
     + '<div class="hw-cat-children' + (open ? '' : ' collapsed') + '">'
     + '<div style="padding:6px 10px 8px;font-size:11.5px;color:var(--text3)">'
-    /* A KÉT OK KONFIDENCIÁJA KÜLÖNBÖZŐ, ÉS EZT KI KELL MONDANI. Az egyiket bizonyítottuk
-       (letöltés + telepítés után az eszköz nem vette át), a másikat letöltés ELŐTT
-       döntöttük el a keresőkulcsból. Ha a kettőt egy mondatba mosnánk, vagy túlállítanánk
-       (a gyanút bizonyítéknak), vagy alulállítanánk (a bizonyítékot gyanúnak). */
-    + (bizonyitott ? '<b>' + bizonyitott + ' db bizonyítottan:</b> a program letöltötte és '
-        + 'felrakta, az eszköz nem vette át — a csomag INF-je más gépgyártó változatához tartozik.<br>' : '')
-    + (altalanos ? '<b>' + altalanos + ' db a keresőkulcs alapján:</b> a csomagot a gyártó '
-        + 'általános, „bármely ilyen chiphez” kulcsán találtuk, nem a gép saját azonosítóján. '
-        + 'Rákötni valószínűleg rákötne, de nem ehhez a géptípushoz készült — egy ilyen rakott '
-        + 'fel egyszer egy tapipad-drivert egy asztali gép SMBus vezérlőjére.<br>' : '')
+    /* CSAK BIZONYÍTOTT TÉTEL KERÜLHET IDE (lásd hwIsDeadOffer): letöltés + telepítés után
+       az eszköz nem vette át. A letöltés előtt FELISMERT, nem ide való csomag nem itt van,
+       hanem ki van zárva - azt a program fel sem ajánlja. */
+    + '<b>' + bizonyitott + ' db bizonyítottan:</b> a program letöltötte és '
+    + 'felrakta, az eszköz nem vette át — a csomag INF-je más gépgyártó változatához tartozik.<br>' 
     + 'A gyári driver ezekhez a gép/alaplap gyártójának oldalán van. Bepipálva megpróbálhatók.'
     + '</div>' + dead.map(hwRowHtml).join('') + '</div>';
   container.appendChild(div);
