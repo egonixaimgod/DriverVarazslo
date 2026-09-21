@@ -802,7 +802,6 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .hw-bad-code{font-size:10.5px;font-weight:800;padding:1px 8px;border-radius:999px;
   background:rgba(255,80,80,0.22);border:1px solid rgba(255,80,80,0.45);color:#ffb3ab;white-space:nowrap}
 .hw-bad-desc{color:var(--text3);font-size:11.5px}
-.hw-fwport{display:inline-block;font-size:11px;font-weight:700;color:#9fb6d4;background:rgba(120,160,210,.13);border:1px solid rgba(120,160,210,.35);border-radius:6px;padding:2px 8px;white-space:normal}
     .hw-bad-remedy{margin-top:6px;font-size:12px;line-height:1.55;color:#ffd9a0;
   background:rgba(255,180,80,0.09);border-left:3px solid #ffb454;padding:6px 10px;border-radius:0 6px 6px 0}
 .hw-bad-remedy b{color:#ffb454;font-weight:800}
@@ -4622,22 +4621,16 @@ function hwBadRowHtml(p) {
        a `pnputil /remove-device`-t futtatja, de CSAK erre az egy eszközre (a menüpont
        marad, ha valaki mindet akarja).
 
-       DE NEM MINDEN CODE 24 TÖRÖLHETŐ (2026-09-21, terepen mérve). Az ALAPLAP FIRMWARE-E
-       (ACPI) által deklarált üres portra - tipikusan a PS/2 egér/billentyűzet egy olyan
-       asztali gépen, ahol USB-s a kettő - a Windows MINDEN RENDSZERINDÍTÁSKOR újra
-       létrehozza a csomópontot. A technikus terepen meg is nyomta ezt a gombot, és a
-       csomópont visszajött; a panasz úgy szólt, hogy *"minden alkalommal kiírja, hogy van
-       2 db szellemeszköz, minden újraindítás után"*. Egy gomb, ami láthatóan lefut, majd
-       semmit nem old meg, rosszabb, mint ha ott sem lenne - ezért ilyen soron NEM jelenik
-       meg, a `remedy` pedig megmondja a valódi teendőt (BIOS, vagy hagyd figyelmen kívül).
-       A megkülönböztetés a Python oldalon dől el (`firmware_declared_port`), egy helyen. */
-    +     (p.code === 24 && p.pnp_id && !p.firmware_port
+       AZ ALAPLAP FIRMWARE-E (ACPI) ÁLTAL DEKLARÁLT, ÜRESEN ÁLLÓ PORT IDE MÁR EL SEM JUT:
+       a Python kihagyja a `problems` listából (`wu_core.firmware_declared_port`), tehát
+       Code 24-es sor itt mindig valódi, törölhető maradvány. Egy ideig az volt a megoldás,
+       hogy a sor maradt, csak a gombot vettük le róla és külön szöveget kapott - azt a
+       felhasználó elvetette: *"ott van a teendőmben ez a szar, holott ez nyilván nem egy
+       teendő"*. A részletes indoklás és a mérés a Python oldali függvény fölött. */
+    +     (p.code === 24 && p.pnp_id
           ? '<button class="btn btn-sm" id="hwghost-btn-'+i+'" onclick="removeGhostRow('+i+')" '
             + 'title="Ennek az EGY eszköznek a maradványát törli az Eszközkezelőből (pnputil /remove-device) - ugyanaz, amit a Szellemeszközök menü csinál, csak erre a sorra. A menüpont továbbra is ott van, ha az összeset akarod.">'
             + '👻 Szellem törlése</button>'
-          : '')
-    +     (p.firmware_port
-          ? '<span class="hw-fwport" title="Az alaplap firmware-e (ACPI) deklarálja ezt a portot. A csomópontja minden rendszerindításkor újra létrejön, ezért a törlése nem tünteti el.">🔌 alaplapi port, nincs bedugva semmi</span>'
           : '')
     +   '</span>'
     +   (p.remedy ? '<div class="hw-bad-remedy"><b>👉 Teendő:</b> ' + esc(p.remedy) + '</div>' : '')

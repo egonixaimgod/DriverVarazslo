@@ -42,14 +42,63 @@ PNP_REMOVAL_STALL_CODES = (480, 482)
 
 
 def _dism_date_to_iso(val):
-    """A DISM `Date : 9/9/2025` mezője -> 'YYYY-MM-DD' (rendezhető), különben ''.
-    A `/English` kimenet mindig M/D/YYYY alakú - a lokalizált formátumokra nem
-    számítunk, mert minden hívás /English-sel megy (lásd get_third_party_drivers)."""
-    m = re.match(r'^\s*(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\s*$', val or '')
-    if not m:
+    """A DISM `Date :` mezője -> 'YYYY-MM-DD' (rendezhető), különben ''.
+
+    >>> A `/English` CSAK A KULCSSZAVAKAT ANGOLOSÍTJA, A DÁTUM-ÉRTÉKET NEM. <<<
+    Ez a függvény korábban az ellenkezőjét állította ("a `/English` kimenet mindig
+    M/D/YYYY alakú - a lokalizált formátumokra nem számítunk"), és ez a feltevés
+    TEREPEN MEGDŐLT (2026-09-21, Dell Latitude 5480, Build 326). A napló szó szerint:
+
+        Published Name : oem0.inf
+        Date : 2006. 06. 21.          <- MAGYAR formátum az angol kulcsszó mellett
+        Version : 10.0.19041.1806
+
+    A DISM a dátumot a RENDSZER rövid-dátum mintájával formázza; magyar Windowson az
+    `yyyy. MM. dd.` (élőben mérve: `(Get-Culture).DateTimeFormat.ShortDatePattern` ->
+    `yyyy. MM. dd.`). A régi regex (`\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{4}`) erre nem
+    illeszkedett, tehát a `date` mező MINDEN magyar gépen üresen maradt - vagyis a
+    duplikátum-takarítás "dátum elsődleges, verzió csak holtversenynél" szabálya
+    (a projekt 2026-07-27 óta egységes kiadás-rendezése) a bolt ÖSSZES gépén némán
+    verzió-alapú maradt. Pontosan az a hibaosztály, ami miatt az a szabály született:
+    egy gyártói verziósémaváltásnál a verzió-rendezés a FRISSEBB csomagot jelöli meg
+    törölhetőnek. A hiba egy éve némán élt, mert semmi nem jelezte a hiányzó dátumot -
+    ezért logol a `parse_dism_driver_list` összegző sora.
+
+    KÉT ALAK, ÉS A MÁSODIK KÉTÉRTELMŰ:
+      - NÉGYJEGYŰ ÉV ELÖL (`2006. 06. 21.`, `2006-06-21`, `2006/06/21`): egyértelmű,
+        utána hónap, majd nap. Ez a magyar/ISO/kelet-ázsiai alak.
+      - NÉGYJEGYŰ ÉV HÁTUL (`6/21/2006`, `21.06.2006`): a hónap/nap sorrend nem
+        olvasható ki a számokból. Amit el tudunk dönteni, azt eldöntjük (ha az egyik
+        szám > 12, az csak nap lehet), a maradékra a szeparátor szokása dönt:
+        `/` -> amerikai M/D, `.` vagy `-` -> európai D/M.
+
+    A kétértelműség ára kicsi és NEM ROMLÓ: a rendezés relatív, a heurisztika pedig
+    determinisztikus, tehát egy csoport minden csomagját UGYANÚGY értelmezi - egy
+    esetleges hónap/nap csere az évet és a hónap-szintű sorrendet nem forgatja fel.
+    Érvénytelen (hónap>12, nap>31) értékre üres stringet adunk, mert egy rossz dátum
+    rosszabb, mint a hiányzó: a hiányzót a `dup_release_key` a verzióval pótolja."""
+    s = (val or '').strip()
+    # 1) Négyjegyű év ELÖL - egyértelmű sorrend (ide tartozik a magyar `yyyy. MM. dd.`).
+    m = re.match(r'^(\d{4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})\.?$', s)
+    if m:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    else:
+        # 2) Négyjegyű év HÁTUL - a hónap/nap sorrend kétértelmű.
+        m = re.match(r'^(\d{1,2})([.\-/])\s*(\d{1,2})[.\-/]\s*(\d{4})\.?$', s)
+        if not m:
+            return ''
+        a, sep, b, y = int(m.group(1)), m.group(2), int(m.group(3)), int(m.group(4))
+        if a > 12:        # az első szám nem lehet hónap
+            mo, d = b, a
+        elif b > 12:      # a második szám nem lehet hónap
+            mo, d = a, b
+        elif sep == '/':  # amerikai szokás: M/D/YYYY
+            mo, d = a, b
+        else:             # európai szokás: D.M.YYYY
+            mo, d = b, a
+    if not (1 <= mo <= 12 and 1 <= d <= 31):
         return ''
-    mo, d, y = m.group(1), m.group(2), m.group(3)
-    return f"{y}-{int(mo):02d}-{int(d):02d}"
+    return f"{y:04d}-{mo:02d}-{d:02d}"
 
 
 def parse_dism_driver_list(stdout):
@@ -81,10 +130,27 @@ def parse_dism_driver_list(stdout):
                 current["class"] = val
             elif key == "Date":
                 current["date"] = _dism_date_to_iso(val)
+                if val and not current["date"]:
+                    # A NYERS ÉRTÉKET IS MEGTARTJUK, hogy a napló megnevezhesse, mit nem
+                    # sikerült értelmezni. E nélkül a hiányzó dátum egy éven át NÉMA volt
+                    # (lásd `_dism_date_to_iso`): minden magyar gépen elveszett, és a
+                    # duplikátum-rendezés dátum-elsőbbsége csendben verzió-alapúvá esett.
+                    current["date_raw"] = val
             elif "Version" in key:
                 current["version"] = val
     if current and "published" in current:
         drivers.append(current)
+    # ÉRTELMEZHETETLEN DÁTUM-FORMÁTUM: EGY összegző sor (nem csomagonként - a lista
+    # 100+ tételes is lehet, és a Rule 0 ellen-szabálya szerint a hot loop nem logol).
+    # Ez az a jelzés, ami a 2026-09-21-i terepi leletet egy pillantással megadta volna.
+    unparsed = sorted({d['date_raw'] for d in drivers if d.get('date_raw')})
+    if unparsed:
+        logging.warning(
+            f"[DRIVERS] {sum(1 for d in drivers if d.get('date_raw'))}/{len(drivers)} csomag "
+            f"DÁTUMÁT nem sikerült értelmezni - a duplikátum-takarítás ezeknél a verzióra "
+            f"esik vissza. Előforduló nyers alakok: {unparsed[:5]} "
+            f"(a DISM a rendszer rövid-dátum mintáját használja, a /English csak a "
+            f"kulcsszavakat angolosítja).")
     # NÉMA PARZOLÁSI HIBA elleni jelzés: ha a DISM adott kimenetet, de egyetlen csomagot
     # sem sikerült kinyerni, az szinte biztosan a /English hiánya (más nyelvű Windows/
     # WinPE) vagy megváltozott kimeneti formátum - és eddig ez egy csendes "0 driver"
@@ -503,6 +569,42 @@ def retry_in_use_deletes(run, items, log=None, check_cancel=None, timeout=None,
                      'Indítsd el kézzel: services.msc → Nyomtatásisor-kezelő → Indítás '
                      '(vagy: net start Spooler).')
     return out
+
+
+def delete_failure_text(res, limit=140):
+    """Egy sikertelen `pnputil /delete-driver` VALÓDI okának emberi szövege.
+
+    MIÉRT KELL: a pnputil kimenete a saját FEJLÉCÉVEL kezdődik, tehát a nyers stdout
+    első N karaktere a hibaüzenet helyett ezt adja - terepen mérve (Dell Latitude 5480,
+    Build 326) a technikus ennyit látott a képernyőn:
+
+        ❌ oem41.inf (iigd_ext.inf Intel Corporation v30.0.101.1069) törlése sikertelen:
+           Microsoft PnP Utility
+
+    ...miközben a valódi ok a következő bekezdésben állt (`Failed to delete driver
+    package: One or more devices are presently installed using the specified INF`,
+    rc=0xE000023D). A "Microsoft PnP Utility" mint hibaüzenet semmit nem mond, és pont
+    az a fajta néma hamis jelentés, amit ez a projekt mindenhol üldöz.
+
+    A sorrend: (1) az in-use eset SAJÁT, MAGYAR szövege - erre van értelmes
+    magyarázatunk, és a felület magyar (a pnputil `Failed to delete driver package: One
+    or more devices are presently installed using the specified INF.` sora 100 karakter
+    angolul, és a technikusnak nem mond többet); (2) a pnputil `Failed to ...` sora, ha
+    az ok más; (3) végszükségben az első NEM fejléc-sor. Tiszta függvény."""
+    if res is None:
+        return '?'
+    text = f"{getattr(res, 'stdout', '') or ''}\n{getattr(res, 'stderr', '') or ''}"
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if delete_blocked_in_use(res):
+        return 'egy telepített eszköz még használja ezt az INF-et'
+    for ln in lines:
+        if ln.lower().startswith('failed to'):
+            return ln[:limit]
+    for ln in lines:
+        if 'pnp utility' not in ln.lower():
+            return ln[:limit]
+    rc = getattr(res, 'returncode', '?')
+    return f'a pnputil nem adott magyarázatot (kód {rc})'
 
 
 def in_use_explanation(count):

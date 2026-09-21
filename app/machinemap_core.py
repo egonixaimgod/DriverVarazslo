@@ -51,6 +51,7 @@ valódi terepi adaton tesztelhető.
 import re
 import logging
 import collections
+from app.wu_core import firmware_declared_port
 # === /AUTO-IMPORTS ===
 
 
@@ -571,8 +572,19 @@ def _headline_nodes(func, members):
 
 def _device_entry(m):
     inf = (m.get('inf') or '').lower()
+    # A `problem` mező jelentése: VALÓDI hibakód, amivel a technikusnak teendője van.
+    # Az alaplap firmware-e által deklarált, üresen álló port (tipikusan PS/2) ezért 0-t
+    # kap, holott a Windows Code 24-et ad rá: az nem hiba, csak annyit jelent, hogy nincs
+    # bedugva semmi, és nincs is mit tenni vele. Enélkül a gép-térkép egér/billentyűzet
+    # kártyáján örökre ott állna egy "⚠️ 2 hibakódos eszköz" jelvény (mérve: HP EliteDesk
+    # 800 G2, `present=True` + `problem=24` mindkét porton). A szabály - és ugyanez a
+    # döntés a kézi szken hibalistájában és a fix záró jelentésében - egy helyen él:
+    # `wu_core.firmware_declared_port`.
+    problem = int(m.get('problem') or 0)
+    if firmware_declared_port(m.get('id') or '', problem):
+        problem = 0
     return {'name': node_name(m), 'id': m.get('id') or '', 'present': bool(m.get('present')),
-            'inf': inf, 'vendor_driver': inf.startswith('oem'), 'problem': m.get('problem') or 0}
+            'inf': inf, 'vendor_driver': inf.startswith('oem'), 'problem': problem}
 
 
 # =============================================================================

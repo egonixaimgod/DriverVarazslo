@@ -68,6 +68,7 @@ from app.wu_core import mark_generic_replace_candidates
 from app.wu_core import _is_inbox_driver
 from app.wu_core import driverstore_package_inf
 from app.wu_core import HEALTH_REPORT_SKIP_INFS
+from app.wu_core import firmware_declared_port
 from app.wu_core import is_specific_hwid
 from app.wu_core import deep_catalog_candidates
 from app import logupload_core
@@ -500,7 +501,11 @@ class GuiAutofixMixin:
             # katalógus nem ismer hozzá gyári csomagot (a MONITOR\AOCA610 kulcsra négyszer
             # is 0 sor jött). Ha az eszköz JELEN VAN, a teendő a gyártói oldal, nem a
             # bedugás. Egy WMI-lekérdezés, a törlés előtt egyszer.
-            usage = collect_driver_usage(self._run)
+            # A `drivers` listát ÁT KELL ADNI: a published->original párosítás nélkül a
+            # nyomtató-jel néma marad (a spooler az eredeti INF-nevet ismeri), és a
+            # nyomtató-csomagok "nem használt"-nak látszanak. Terepen mérve (Dell Latitude
+            # 5480, Build 326) a napló ki is mondta, hogy a hívó nem adta át.
+            usage = collect_driver_usage(self._run, drivers or None)
             cur_pkgs = [{'original': d.get('original', ''), 'provider': d.get('provider', ''),
                          'version': d.get('version', ''), 'class': d.get('class', ''),
                          'devices': usage.get((d.get('published') or '').strip().lower(), [])}
@@ -807,18 +812,24 @@ class GuiAutofixMixin:
                 devices_to_check,
                 allow_storage=getattr(self, '_autofix_allow_storage', False),
                 allow_firmware=getattr(self, '_autofix_allow_firmware', False))
-            # A SZÖVEG NEM HIVATKOZHAT JELÖLŐNÉGYZETRE (2026-09-07, terepi naplóból):
-            # 2026-09-02 óta ez a program RÖGZÍTETT szabálya, nincs hozzá kapcsoló sehol,
-            # tehát nincs mit "nem engedélyezni". A régi mondat egy meg nem hozott döntést
-            # magyarázott, és egy nem létező felületre küldte a technikust. Ez a szöveg
-            # HARMADIK példánya volt: a záró jelentésnél (_emit_driver_health) és a kézi
-            # szken `hw-risk-note` dobozánál ugyanez már javítva lett, ez a kettő (WU-kör
-            # + katalógus-zárókör) kimaradt - egy ASRock B450M láncban 18-szor ment ki a
-            # képernyőre, a 324 folyamatsor 5,5%-a. Röviden fogalmaz, mert LÁBANKÉNT
-            # ismétlődik; a teljes indoklás a záró jelentésben van, egyszer.
+            # >>> EZ A SOR 2026-09-21 ÓTA CSAK A NAPLÓBA MEGY, A KÉPERNYŐRE NEM. <<<
+            # A KÉZI SZKENBŐL a felhasználó már 2026-09-03-án kivetette (*"azt se írja ki
+            # nekem h a tároló és firmware driverek kihagyva, senkit se érdekel minek van
+            # ott"*), az AutoFix köreiből viszont NEM - és ott lábanként, körönként újra
+            # kimegy. Terepen mérve (Dell Latitude 5480, Build 326): 22 ilyen sor az 538
+            # képernyő-sorból, és EGYETLEN döntést sem magyaráz, amit bárki meghozott
+            # volna: 2026-09-02 óta ez a program rögzített szabálya, nincs hozzá kapcsoló.
+            # Ugyanaz a hibaosztály, mint a "gyártói kártyák" és a "jelölőnégyzet"
+            # szövegeknél: egy döntés megszűnt, de nem minden példányát írtuk át.
+            # AMI MEGMARAD: a záró jelentés EGYSZER, NEVESÍTVE kiírja ugyanezt
+            # (`_emit_driver_health`: "🛡️ N eszköz ... mert tároló- vagy firmware-eszköz:
+            # <nevek>"), ott ugyanis a technikus a lánc végén áll, és az a "mi maradt"
+            # pillanata - nem egy percenként visszatérő figyelmeztetés.
             for _label, _items in risky_skipped.items():
                 if _items:
-                    self.emit('task_progress', {'task': task_id, 'log': f'🛡️ {len(_items)} {_label}-eszköz kihagyva - ezeket a program szándékosan soha nem driverezi (egy rossz csere itt visszafordíthatatlan).'})
+                    logging.info(f"[AUTOFIX-WU] {len(_items)} {_label}-eszköz kihagyva "
+                                 f"(rögzített szabály, nem kapcsoló): "
+                                 f"{[d.get('name') for d in _items]}")
 
             self.emit('task_progress', {'task': task_id, 'log': f'✅ {len(devices_to_check)} hardverelem azonosítva. Egyeztetés...'})
             # A _search_wu_api HÁROM külön kimenetelt ad, és ezeket NEM szabad összemosni:
@@ -1119,10 +1130,13 @@ class GuiAutofixMixin:
                     allow_storage=getattr(self, '_autofix_allow_storage', False),
                     allow_firmware=getattr(self, '_autofix_allow_firmware', False),
                     log_tag='AUTOFIX-CAT', context='a katalógus-zárókörből')
-                # Nem jelölőnégyzetre hivatkozik - lásd a WU-kör azonos szabályát fentebb.
+                # CSAK NAPLÓBA, nem a képernyőre - lásd a WU-kör azonos szabályát fentebb
+                # (a `filter_autofix_risky_devices` maga is nevesítve logolja őket).
                 for _label, _items in cat_risky_skipped.items():
                     if _items:
-                        self.emit('task_progress', {'task': task_id, 'log': f'🛡️ {len(_items)} {_label}-eszköz kihagyva a katalógus-keresésből is (ugyanez a rögzített szabály).'})
+                        logging.info(f"[AUTOFIX-CAT] {len(_items)} {_label}-eszköz kihagyva "
+                                     f"(rögzített szabály, nem kapcsoló): "
+                                     f"{[d.get('name') for d in _items]}")
                 problem_devs = [d for d in devices_now if d.get('err_code')]
                 # A hibás eszközök mellé a GENERIKUS (Windows-beépített) driveren futók is
                 # bekerülnek a zárókörbe: a WU ezekre semmit nem ajánl (szerinte rendben
@@ -1835,8 +1849,11 @@ class GuiAutofixMixin:
             # (Terepi eset: AOC AG276QZD2 monitor - a gyári monitor-INF-fel a gyári ICC
             # színprofil is elveszett, és a Kijelző nézet is emiatt mutat "Generic PnP
             # Monitor"-t.)
+            # A `current` (a most telepített csomagok) MÁR betöltve van pár sorral feljebb,
+            # tehát a published->original párosítás ingyen átadható - és kell is, különben
+            # a nyomtató-jel néma marad (lásd `_collect_present_device_names`).
             present_names = {n.strip().lower()
-                             for names in (self._collect_present_device_names() or {}).values()
+                             for names in (self._collect_present_device_names(current) or {}).values()
                              for n in names}
             still_here, really_gone = [], []
             for p in missing:
@@ -1855,7 +1872,13 @@ class GuiAutofixMixin:
                     logging.info(f"[AUTOFIX] Nincs pótlás, de az eszköz jelen van: "
                                  f"{p.get('original')} ({p.get('provider')}) - {p['_present_devices']}")
                 self.emit('task_progress', {'task': task_id, 'log': '   Az eszköz működik (a Windows beépített driverével), de a GYÁRI driver hiányzik: sem a Windows Update, sem a Microsoft Update Catalog nem ismer hozzá csomagot.'})
-                self.emit('task_progress', {'task': task_id, 'log': '👉 TEENDŐ: az eszköz GYÁRTÓJÁNAK letöltőoldaláról pótolható (monitornál ezzel a gyári színprofil is visszajön). A "Driver Keresés és Telepítés" menü gyártói kártyái segítenek megtalálni.'})
+                # A SZÖVEG NEM HIVATKOZHAT A "gyártói kártyákra": azok a link-kártyák
+                # 2026-09-02-án (videokártya) és 09-18-án (gép/alaplap) TELJESEN kikerültek
+                # a programból, tehát a technikus egy nem létező felületi elemet keresett.
+                # Ugyanaz a hibaosztály, mint a megszüntetett tároló/firmware-jelölőnégyzetre
+                # küldő szövegek - ha egy döntés megszüntet egy felületi elemet, a TELJES
+                # szövegkészletben rá kell keresni, mert egy elemhez több szöveg tartozik.
+                self.emit('task_progress', {'task': task_id, 'log': '👉 TEENDŐ: az eszköz GYÁRTÓJÁNAK letöltőoldaláról pótolható, kézzel (monitornál ezzel a gyári színprofil is visszajön).'})
 
             if not really_gone:
                 return
@@ -1875,13 +1898,20 @@ class GuiAutofixMixin:
         except Exception as e:
             logging.warning(f"[AUTOFIX] Eltűnt csomagok összevetése sikertelen (nem kritikus): {e}")
 
-    def _collect_present_device_names(self):
+    def _collect_present_device_names(self, drivers=None):
         """A JELENLEG telepített driver-csomagokat használó eszközök nevei
         ({INF: [eszköznevek]}). A záró jelentés ebből tudja eldönteni, hogy egy eltűnt
         csomag eszköze még a gépben van-e. Hibánál üres dict (a jelentés ilyenkor a
-        régi, óvatosabb szöveget adja)."""
+        régi, óvatosabb szöveget adja).
+
+        A `drivers` (a dism-csomaglista) átadása NEM opcionális kényelem: a
+        published->original párosítás nélkül a NYOMTATÓ-jel néma marad (a spooler az
+        EREDETI INF-nevet ismeri, nem az `oemNN.inf`-et), és a nyomtató-csomagok
+        "nem használt"-nak látszanak - terepen mérve (Dell Latitude 5480, Build 326)
+        a napló kétszer is kimondta: *"a hívó nem adott published->original párosítást"*.
+        Ha a hívónak nincs kéznél a lista, a mag maga kérdezi le az INF-mappából."""
         try:
-            return collect_driver_usage(self._run) or {}
+            return collect_driver_usage(self._run, drivers or None) or {}
         except Exception as e:
             logging.warning(f"[AUTOFIX] A jelenlévő eszközök nevei nem kérdezhetők le: {e}")
             return {}
@@ -2060,7 +2090,9 @@ class GuiAutofixMixin:
                     ver = inst.get('version') or '?'
                     inf = inst.get('inf') or '?'
                     self.emit('task_progress', {'task': task_id, 'log': f"   • {dev['name']} [{dev.get('cat', '')}] - {inf} {ver}"})
-                self.emit('task_progress', {'task': task_id, 'log': '👉 Ezekhez sem a Windows Update, sem a Microsoft Update Catalog nem adott gyári csomagot. Alaplapi hang/LAN/chipset esetén az alaplap- vagy gépgyártó letöltőoldaláról pótolható (lásd a "Driver Keresés és Telepítés" menü gyártói kártyáit).'})
+                # Nem hivatkozunk "gyártói kártyákra" - azok 2026-09-02/09-18-án kikerültek
+                # a programból (lásd a `_emit_missing_packages` azonos javítását).
+                self.emit('task_progress', {'task': task_id, 'log': '👉 Ezekhez sem a Windows Update, sem a Microsoft Update Catalog nem adott gyári csomagot. Alaplapi hang/LAN/chipset esetén az alaplap- vagy gépgyártó letöltőoldaláról pótolható, kézzel.'})
             if skipped_by_user:
                 names = ', '.join(f"{d['name']}" for d, _i in skipped_by_user[:4])
                 more = f" (és további {len(skipped_by_user) - 4})" if len(skipped_by_user) > 4 else ''
@@ -2289,7 +2321,22 @@ class GuiAutofixMixin:
                 except Exception as e:
                     logging.warning(f"[AUTOFIX] PnP JSON értelmezési hiba (a maradék hibás eszközök listája üres marad): {e}")
             all_devs = _filter_wu_scan_devices(pnp_data)
-            problems = [d for d in all_devs if d.get('err_code')]
+            # ALAPLAPI, ÜRESEN ÁLLÓ PORT (tipikusan PS/2) NEM SZÁMÍT HIBÁNAK.
+            # Enélkül a lánc a "0 hibával" záró üzenet helyett két olyan eszközt
+            # sorolna fel, amivel nincs és nem is lehet teendő - épp az
+            # elfogadási feltételt rontva el. Mérve (HP EliteDesk 800 G2): 97
+            # eszközből 2 hibakódos, MINDKETTŐ ilyen, tehát a gép valójában tiszta.
+            # A szabály a `wu_core.firmware_declared_port`-nál; a napló alább
+            # nevesíti őket, tehát nem tűnnek el nyomtalanul (Rule 0).
+            fw_ports = [d for d in all_devs
+                        if firmware_declared_port(d.get('pnp_id', ''), d.get('err_code'))]
+            if fw_ports:
+                logging.info(
+                    f"[AUTOFIX] {len(fw_ports)} alaplapi (ACPI) port üresen áll - NEM hiba, "
+                    f"kimarad a záró jelentésből: "
+                    f"{[(d['name'], d.get('pnp_id', '')) for d in fw_ports]}")
+            problems = [d for d in all_devs if d.get('err_code')
+                        and not firmware_declared_port(d.get('pnp_id', ''), d.get('err_code'))]
             if problems:
                 self.emit('task_progress', {'task': task_id, 'log': f'⚠️ Továbbra is hibakódos eszköz: {len(problems)} db'})
                 for p in problems:

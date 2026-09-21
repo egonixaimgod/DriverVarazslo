@@ -18,6 +18,8 @@ import json
 import logging
 from app.wu_core import _iso_date_or_none
 from app.wu_core import _parse_driver_version
+from app.drivers_core import delete_blocked_in_use
+from app.drivers_core import delete_failure_text
 # === /AUTO-IMPORTS ===
 
 
@@ -259,8 +261,25 @@ def delete_duplicate_packages(run, log, names, active_infs, check_cancel=None, d
             logging.warning(f"[DUPDRV] Törölve: {_cimke(name)}")
             log(f'  ✅ {_cimke(name)} törölve ({i + 1}/{total})')
         else:
-            fail += 1
-            logging.warning(f"[DUPDRV] SIKERTELEN törlés: {_cimke(name)} - "
-                            f"{(res.stdout or '')[:200] if res else '?'}")
-            log(f'  ❌ {_cimke(name)} törlése sikertelen: {(res.stdout or "")[:120] if res else "?"}')
+            # A VALÓDI okot írjuk ki, nem a pnputil fejlécét (`Microsoft PnP Utility`) -
+            # lásd `drivers_core.delete_failure_text`. A naplóban marad a teljes kimenet.
+            why = delete_failure_text(res)
+            # AZ IN-USE ESET A TAKARÍTÁSBAN NORMÁLIS KIMENETEL, NEM HIBA: a sima
+            # /delete-driver szándékosan nem bánt semmit, amit egy eszköz használ (a
+            # CLAUDE.md ezt a takarítás "tervezett viselkedésének" nevezi). Ezért a
+            # `skipped` számlálóba megy, nem a `fail`-be: a záró sor különben azt írta,
+            # hogy "1 sikertelen", miközben a tétel sora azt, hogy "ez normális" -
+            # két egymásnak ellentmondó állítás egy képernyőn. A három számláló így
+            # egyértelmű: ok = törölve, skipped = használatban van (nem bántjuk),
+            # fail = VALÓDI hiba, amivel foglalkozni kell.
+            if delete_blocked_in_use(res):
+                skipped += 1
+                logging.info(f"[DUPDRV] MARAD (használatban): {_cimke(name)} - {why}")
+                log(f'  ⏭ {_cimke(name)} marad: {why} - ez a takarításban normális, '
+                    f'a régi verzió a következő újraindítás után törölhető.')
+            else:
+                fail += 1
+                logging.warning(f"[DUPDRV] SIKERTELEN törlés: {_cimke(name)} - {why} "
+                                f"| nyers: {(res.stdout or '')[:200] if res else '?'}")
+                log(f'  ❌ {_cimke(name)} törlése sikertelen: {why}')
     return ok, fail, skipped

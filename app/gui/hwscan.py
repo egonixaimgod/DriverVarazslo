@@ -47,6 +47,7 @@ from app.wu_core import filter_autofix_risky_devices
 from app.wu_core import FIRMWARE_CLASS_LABEL
 from app.wu_core import FIRMWARE_CLASS_WARNING
 from app.wu_core import no_source_is_actionable
+from app.wu_core import firmware_declared_port
 from app.drivers_core import DELETE_DRIVER_TIMEOUT
 from app.drivers_core import INSTALL_DRIVER_TIMEOUT
 from app.common import CMD_TIMEOUT_RETURNCODE
@@ -91,51 +92,8 @@ PNP_ERROR_CODE_DESCRIPTIONS = {
 #
 # A kulcshalmaznak NEM kell fednie a PNP_ERROR_CODE_DESCRIPTIONS-t: hiányzó kódnál
 # a felület egyszerűen nem ír teendőt, ami jobb, mint egy általános semmitmondás.
-# ===== ALAPLAPI PORT, AMIBE NINCS BEDUGVA SEMMI (2026-09-21, terepen mérve) =====
-#
-# Terepi bejelentés: *"ez a scan minden alkalommal kiírja h van 2 db szellem eszköz,
-# szerintem minden újraindítás után"*. A gép HP EliteDesk 800 G2 SFF, a két eszköz:
-#
-#     ACPI\PNP0F13\4&1EA8F989&0   PS/2-kompatibilis egér        [msmouse.inf]
-#     ACPI\HPQ8001\4&1EA8F989&0   Szabványos PS/2 billentyűzet  [keyboard.inf]
-#
-# Élőben mérve mindkettő: `enumerator = ACPI`, a szülő a `PCI\VEN_8086&DEV_A146` LPC
-# vezérlő, a szolgáltatás `i8042prt`. Vagyis az ALAPLAP FIRMWARE-E deklarálja a két PS/2
-# portot, a Windows pedig MINDEN RENDSZERINDÍTÁSKOR létrehozza hozzájuk a csomópontot.
-# Mivel a gépen USB billentyűzet/egér van és a PS/2 portokba nincs bedugva semmi, az
-# `i8042prt` nem tudja elindítani őket -> Code 24, örökre.
-#
-# EZ NEM SZELLEMESZKÖZ, ÉS A PROGRAM EDDIG VALÓTLANT ÁLLÍTOTT RÓLA. A Code 24 szövege azt
-# ígérte, hogy *"Szellemeszközök menü → törlés, ettől eltűnik a listáról"* - a technikus
-# ezt meg is tette (a naplóban 09:55:05, `remove_ghost_device('ACPI\PNP0F13\...')`), és
-# a következő induláskor a csomópont VISSZAJÖTT, mert az ACPI újra deklarálja. A program
-# tehát egy elvégezhetetlen teendőt írt ki, minden egyes szken után.
-#
-# A KÜLÖNBSÉG, AMI SZÁMÍT: egy kihúzott USB-eszköz maradványa tényleg törölhető és tényleg
-# eltűnik; egy firmware-ben deklarált, üres port nem. A kettőt az ENUMERÁTOR különbözteti
-# meg: `ACPI\` = az alaplap firmware-e deklarálja, `USB\`/`HID\`/`PCI\` = valódi,
-# csatlakoztatható eszköz nyoma.
-#
-# A VALÓDI TEENDŐ ilyenkor: dugj bele eszközt, VAGY tiltsd le a portot a BIOS-ban, VAGY
-# hagyd figyelmen kívül - a gép működését nem érinti.
-_FIRMWARE_PORT_REMEDY = (
-    'Ez az ALAPLAP firmware-ében deklarált port (pl. PS/2), amibe nincs bedugva semmi - '
-    'nem kihúzott eszköz maradványa. A törlése NEM segít: a Windows minden '
-    'rendszerindításkor újra létrehozza, ezért jön vissza minden újraindítás után. '
-    'Ha nem használod: hagyd figyelmen kívül (a gép működését nem érinti), vagy tiltsd le '
-    'a portot a BIOS-ban. Ha használni akarod: dugj bele eszközt.')
-
-
-def firmware_declared_port(pnp_id, code):
-    """Firmware (ACPI) által deklarált, ÜRES port-e - nem törölhető szellemeszköz?
-
-    Csak a Code 24-re (az eszköz nincs jelen) és csak ACPI-enumerátorra igaz. Minden más
-    esetben a szokásos szöveg megy ki - egy kihúzott USB-eszköz maradványa valóban
-    törölhető, és tényleg eltűnik tőle.
-    """
-    return code == 24 and str(pnp_id or '').upper().startswith('ACPI\\')
-
-
+# Az alaplap firmware-e által deklarált, ÜRES portok (tipikusan PS/2) NEM kerülnek a
+# hibás eszközök közé - a szabály és a mérés a `wu_core.firmware_declared_port`-nál.
 PNP_ERROR_CODE_REMEDIES = {
     1:  'Futtasd a szkennelést és telepítsd a talált drivert. Ha nincs találat, a gyártó oldaláról kell driver.',
     3:  'Telepítsd újra a drivert (szkennelés → telepítés). Ha marad, kevés a memória vagy sérült a driver-fájl.',
@@ -785,9 +743,18 @@ class GuiHwScanMixin:
                 # PROBLÉMÁS ESZKÖZÖK: hibakódos eszközök kiemelése, hogy sose maradjon
                 # észrevétlen lyuk - akkor is látszik, ha egyik forrás sem adott rá drivert.
                 problems = []
+                fw_ports = []
                 for dev in devices_to_check:
                     code = dev.get('err_code') or 0
                     if not code:
+                        continue
+                    # ALAPLAPI PORT, AMIBE NINCS BEDUGVA SEMMI: NEM HIBA, NEM TEENDŐ.
+                    # Nem magyarázatot kap, hanem kimarad - a részletes indoklás és a
+                    # mérés a `wu_core.firmware_declared_port` fölött. A naplóba
+                    # nevesítve megy ki (Rule 0), tehát utólag is megválaszolható,
+                    # miért nem szerepel a listán.
+                    if firmware_declared_port(dev.get('pnp_id', ''), code):
+                        fw_ports.append(dev)
                         continue
                     problems.append({
                         'name': dev['name'], 'hwid': dev['id'], 'code': code,
@@ -796,16 +763,15 @@ class GuiHwScanMixin:
                         # MIT KELL VELE CSINÁLNI (2026-09-03): a leírás megmondja, MI a baj,
                         # a technikusnak viszont az kell, hogy MIT tegyen. Ismeretlen kódnál
                         # üres marad - egy általános semmitmondás rosszabb, mint a hallgatás.
-                        # FIRMWARE-DEKLARÁLT ÜRES PORT: külön szöveg, mert rá a Code 24
-                        # általános tanácsa ("töröld, ettől eltűnik") bizonyítottan NEM igaz.
-                        'remedy': (_FIRMWARE_PORT_REMEDY
-                                   if firmware_declared_port(dev.get('pnp_id', ''), code)
-                                   else PNP_ERROR_CODE_REMEDIES.get(code, '')),
-                        # A felület ebből tudja, hogy NEM ajánlhat "Szellem törlése" gombot.
-                        'firmware_port': firmware_declared_port(dev.get('pnp_id', ''), code),
+                        'remedy': PNP_ERROR_CODE_REMEDIES.get(code, ''),
                         'cat': dev.get('cat') or '',
                         'has_fix': dev['id'] in pool_hwids,
                     })
+                if fw_ports:
+                    logging.info(
+                        f"[HW_SCAN] {len(fw_ports)} alaplapi (ACPI) port üresen áll - NEM hiba, "
+                        f"kimarad a hibás eszközök listájából: "
+                        f"{[(d['name'], d.get('pnp_id', '')) for d in fw_ports]}")
                 if problems:
                     logging.info(f"[HW_SCAN] Problémás eszközök: {[(p['name'], p['code'], p['has_fix']) for p in problems]}")
 
@@ -2006,12 +1972,19 @@ try {
         # való csomag" - a tartalék-listák üresre fogyása önmagában nem ilyen állítás.
         cands, mind_kizarva = _hwid_elloszures(cands, jelentsunk=True)
         if mind_kizarva:
+            # >>> CSAK A NAPLÓBA, A KÉPERNYŐRE NEM (2026-09-21, terepen mérve). <<<
+            # Ez a sor DIAGNOSZTIKA, nem teendő: azt mondja ki, hogy egy eszközre
+            # megvizsgáltuk a jelölteket, és a gyártó saját listája szerint egyik sem ide
+            # való - vagyis épp azt, hogy NINCS mit tenni. Egy AutoFix láncban viszont
+            # eszközönként ÉS lábanként újra kiment: a Dell Latitude 5480 naplójában
+            # (Build 326) 70 ilyen sor az 538 képernyő-sorból (13%), egyetlen chipset-
+            # eszközre 8 alkalommal, és a 2-5. lábon már a `catalog_hwids.json`
+            # gyorsítótárból, tehát új információ nélkül. A technikus teendőjét a záró
+            # jelentés `🏭 Windows-alapdriveren maradt` listája adja meg, egyszer,
+            # nevesítve - az a hely, ahol ez valóban kérdés.
             logging.info(f"[CATALOG] {item['name']}: MINDEN megvizsgált jelölt kizárja ezt az "
                          f"eszközt a saját támogatott-azonosító listájával - nincs való csomag, "
                          f"nem ajánljuk fel.")
-            self.emit('task_progress', {'task': 'hw_scan', 'log':
-                      f'  🚫 {item["name"]}: a katalógus egyik jelöltje sem támogatja ezt az '
-                      f'eszközt (a gyártó saját listája szerint) - nem ajánljuk fel.'})
             return None
         # KORÁBBAN MÁR MEGBUKOTT CSOMAGOK KIHAGYÁSA: amit egy előző futásban ugyanerre az
         # eszközre letöltöttünk és az INF-vizsgálat elvetett, azt nem töltjük le újra

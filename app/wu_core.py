@@ -948,6 +948,57 @@ def no_source_is_actionable(entry):
     return (entry.get('installed_inf') or '').strip().lower() not in HEALTH_REPORT_SKIP_INFS
 
 
+# ===== ALAPLAPI PORT, AMIBE NINCS BEDUGVA SEMMI: EZ NEM HIBA =====================
+#
+# Terepen mérve (2026-09-21, HP EliteDesk 800 G2 SFF). A gép minden szken után két
+# "hibás eszközt" jelentett, minden újraindítás után újra:
+#
+#     ACPI\PNP0F13\4&1EA8F989&0   PS/2-kompatibilis egér        Code 24  [msmouse.inf]
+#     ACPI\HPQ8001\4&1EA8F989&0   Szabványos PS/2 billentyűzet  Code 24  [keyboard.inf]
+#
+# Élőben mérve mindkettőre: `enumerator = ACPI`, a szülő a `PCI\VEN_8086&DEV_A146` LPC
+# vezérlő, a szolgáltatás `i8042prt`. Vagyis az ALAPLAP FIRMWARE-E deklarálja a két PS/2
+# portot, és a Windows MINDEN RENDSZERINDÍTÁSKOR újra létrehozza hozzájuk a csomópontot.
+# A gépen USB billentyűzet/egér van, a portokba nincs bedugva semmi, ezért az `i8042prt`
+# nem tudja elindítani őket -> Code 24, örökre. EZ NEM HIBA, ÉS NEM IS TEENDŐ: nincs
+# olyan mozdulat a program keretein belül, ami megszüntetné.
+#
+# UGYANAZON A GÉPEN MÉRVE: 97 eszközből PONTOSAN 2 volt hibakódos, és MINDKETTŐ ez -
+# vagyis a gép valójában hibátlan volt, a program mégis két teendőt írt ki, minden egyes
+# szken után. A felhasználó szavaival: *"ott van a teendőmben ez a szar, holott ez nyilván
+# nem egy teendő"*.
+#
+# >>> EZ A KORÁBBI (UGYANAZNAPI) MEGOLDÁS VISSZAVONÁSA. <<< Az első válaszom az volt, hogy
+# a sor MARAD a hibás eszközök közt, csak más szöveget és egy "🔌 alaplapi port" jelzést
+# kap, a "Szellem törlése" gomb pedig eltűnik róla. Az a javítás igaz dolgot mondott, de a
+# ROSSZ KÉRDÉSRE válaszolt: a technikusnak nem magyarázat kellett arról, miért nem lehet
+# megjavítani valamit, hanem az, hogy ne is kerüljön a teendői közé. Egy piros sor, ami
+# mellé oda van írva, hogy "hagyd figyelmen kívül", továbbra is elolvasandó sor.
+#
+# A HATÁR SZÁNDÉKOSAN SZŰK, és mindkét fele kell:
+#   - CSAK a Code 24 (CM_PROB_DEVICE_NOT_THERE = a készülék nincs a gépben). Minden más
+#     hibakód valódi hiba, akkor is, ha ACPI-eszközön van.
+#   - CSAK az `ACPI\` enumerátor, mert a firmware deklarálja újra minden bootkor. Egy
+#     kihúzott USB/HID/PCI eszköz maradványa (`USB\`, `HID\`, `PCI\`) TÉNYLEG törölhető és
+#     tényleg eltűnik tőle - az marad a hibás eszközök közt, a "👻 Szellem törlése"
+#     gombbal együtt.
+#
+# AMIT EZ NEM CSINÁL: NEM zárja ki az eszközt a driver-keresésből. A `problem_devs` ág
+# (katalógus-kör) és a szken eszközlistája érintetlen - lásd a CLAUDE.md "MINDEN ESZKÖZ
+# KAPJON DRIVERT" szabályát -, itt kizárólag a HIBA-JELENTÉS szűkül. És a naplóban minden
+# ilyen eszköz nevesítve marad (Rule 0), tehát egy terepi kérdés utólag is megválaszolható.
+def firmware_declared_port(pnp_id, code):
+    """Firmware (ACPI) által deklarált, ÜRES port-e - vagyis NEM hiba és nem teendő?
+
+    Tiszta függvény (offline tesztelhető). Három fogyasztó hívja, szándékosan ugyanezt:
+    a kézi szken hiba-listája (`app/gui/hwscan.py`), az 1 kattintásos fix záró jelentése
+    (`app/gui/autofix.py`) és a gép-térkép hibaszámlálója (`app/machinemap_core.py`).
+    Ha a három külön döntene, ugyanarról a gépről mondanának mást - ez a projekt
+    legrégebbi visszatérő hibája.
+    """
+    return int(code or 0) == 24 and str(pnp_id or '').upper().startswith('ACPI\\')
+
+
 # TÖRÖLT SZŰRŐK (2026-07-28) - ne kerüljenek vissza eszköz-szűrőként.
 #
 # Itt állt két konstans, amit MINDKÉT katalógus-kör (generikus csere és mély szken)

@@ -130,15 +130,41 @@ def _latest_release():
     létrehozás ideje szerint megy, és egy utólag feltöltött asset-tároló kiadás
     (pl. új stresstools.zip) a build-kiadások ELÉ kerülne."""
     import urllib.request
+    import urllib.error
     import ssl
     try:
         req = urllib.request.Request(_API_RELEASES, headers={
             'User-Agent': 'DriverVarazslo',
             'Accept': 'application/vnd.github+json',
         })
-        with urllib.request.urlopen(req, context=ssl.create_default_context(),
-                                    timeout=API_TIMEOUT) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
+        try:
+            with urllib.request.urlopen(req, context=ssl.create_default_context(),
+                                        timeout=API_TIMEOUT) as resp:
+                raw = resp.read().decode('utf-8')
+        except (urllib.error.URLError, ssl.SSLError) as ssl_err:
+            # FRISS WINDOWSON EZ NEM SZÉLSŐ ESET, HANEM A TIPIKUS ESET - terepen mérve
+            # (Dell Latitude 5480, Build 326): `api.github.com` ->
+            # `CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate`,
+            # miközben a `raw.githubusercontent.com` UGYANABBAN a futásban hibátlanul
+            # lejött. Ez a CLAUDE.md-ben dokumentált gyök-tanúsítvány-hiány: egy frissen
+            # telepített Windows tárolója hiányos, és a github.com/api.github.com lánca
+            # (Sectigo/USERTrust) épp nincs benne, a raw-é (DigiCert) igen.
+            #
+            # A KÖVETKEZMÉNY, AMIÉRT EZ SÚLYOS: a 2026-09-17-i "az API azonnal friss,
+            # a raw CDN 5 percig régi" nyereség pont AZOKON a gépeken veszett el, ahol a
+            # program dolgozik - a frissen telepített Windowsokon. És ez a fájl saját,
+            # kimondott szabályát sértette ("Minden letöltés a közös letöltőn megy, az
+            # auto-updater is"): a 09-17-i API-ág csupasz urllib volt, a raw ág viszont
+            # már akkor is a fallbackre esett. Ugyanaz a minta: TLS-hibára a közös
+            # letöltő PowerShell (schannel) ágára váltunk, teljes ellenőrzéssel.
+            if not common._should_try_ps_download(ssl_err):
+                raise
+            logging.warning(f"[UPDATE] A Releases API Python-oldali TLS-hibát adott "
+                            f"({ssl_err}) - áttérés a közös letöltő PowerShell (schannel) "
+                            f"ágára...")
+            raw = common.fetch_text_with_cert_fallback(
+                _API_RELEASES, timeout=API_TIMEOUT, ps_timeout=120, log_tag='UPDATE')
+        data = json.loads(raw)
     except Exception as e:
         # A 403 itt jellemzően az óránkénti 60 kérés kimerülése (több gép egy IP-n).
         # Nem hiba, csak annyit jelent, hogy most a raw úton megyünk.

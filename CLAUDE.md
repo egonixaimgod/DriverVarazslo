@@ -1293,7 +1293,7 @@ Három változás, egyik sem lazítja a védelmet:
 
 **Harness-csapda, amibe megint beleestem** (a CLAUDE.md-ben már ott volt): a DOM-csonk `textContent` **setterének** frissítenie kell az `innerHTML`-t, különben az `esc()` MINDENRE üres stringet ad, a render `data-pub=""`-t ír, és a teszt fele hamisan elhasal. Plusz egy új: **a headless Edge-nek WINDOWS-útvonalú `file:///C:/...` URL kell** — a Git Bash `$PWD` (`/c/Users/...`) alakjára az Edge a saját hibalapját rendereli, amiből egy `--dump-dom` úgy néz ki, mintha a szerkesztésünk tűnt volna el (`btn-dup-all: 0 találat`).
 
-### „MINDEN ÚJRAINDÍTÁS UTÁN KIÍR 2 SZELLEMESZKÖZT" — ALAPLAPI PORT, AMIT NEM LEHET TÖRÖLNI (2026-09-21, mérve)
+### „MINDEN ÚJRAINDÍTÁS UTÁN KIÍR 2 SZELLEMESZKÖZT" — ÜRESEN ÁLLÓ ALAPLAPI PORT: NEM HIBA, KI SEM ÍRJUK (2026-09-21, mérve)
 
 **Terepi bejelentés:** *„ez a scan minden alkalommal kiírja h van 2 db szellem eszköz, szerintem minden újraindítás után"*. A gép HP EliteDesk 800 G2 SFF, a két eszköz Code 24-gyel:
 
@@ -1306,13 +1306,120 @@ ACPI\HPQ8001\4&1EA8F989&0   Szabványos PS/2 billentyűzet  szolg=i8042prt  inf=
 
 **A PROGRAM VISZONT VALÓTLANT ÁLLÍTOTT RÓLA, ÉS EZ VOLT A JAVÍTANDÓ.** A Code 24 teendő-szövege ezt ígérte: *„Szellemeszközök menü → törlés, ettől eltűnik a listáról"*, és a sor mellett ott volt a **„👻 Szellem törlése"** gomb. A technikus meg is nyomta — a naplóban `09:55:05 remove_ghost_device('ACPI\PNP0F13\4&1EA8F989&0')` —, a csomópont pedig a következő induláskor **visszajött**. A program tehát egy **elvégezhetetlen teendőt** írt ki, minden egyes szken után, és egy gombot kínált, ami láthatóan lefut, majd semmit nem old meg. Ugyanaz a hibaosztály, mint a nem ide való csomag felajánlása: a felület olyat ígér, amit nem tud betartani.
 
-**A MEGKÜLÖNBÖZTETÉS AZ ENUMERÁTOR** (`app/gui/hwscan.py: firmware_declared_port`): `ACPI\` = az alaplap firmware-e deklarálja (üres port, nem törölhető), minden más (`USB\`, `HID\`, `PCI\`) = valódi eszköz nyoma, ami tényleg törölhető és tényleg eltűnik. A szabály **csak a Code 24-re** él; más hibakódon semmi nem változik.
+**A MEGKÜLÖNBÖZTETÉS AZ ENUMERÁTOR** (`wu_core.firmware_declared_port`): `ACPI\` = az alaplap firmware-e deklarálja (üres port), minden más (`USB\`, `HID\`, `PCI\`) = valódi eszköz nyoma, ami tényleg törölhető és tényleg eltűnik. A szabály **csak a Code 24-re** él; más hibakódon semmi nem változik.
 
-Amit a felület csinál firmware-porton: **nincs „Szellem törlése" gomb**, helyette egy `🔌 alaplapi port, nincs bedugva semmi` jelzés, és a teendő-szöveg kimondja, hogy **a törlés NEM segít, mert a Windows újra létrehozza** — a valódi lehetőségekkel együtt (dugj bele eszközt / tiltsd le a portot a BIOS-ban / hagyd figyelmen kívül, a gép működését nem érinti).
+#### AZ ELSŐ VÁLASZOM ROSSZ VOLT: MAGYARÁZATOT ADTAM OTT, AHOL A SORNAK NEM KELLETT VOLNA OTT LENNIE (ugyanaznap visszavonva)
+
+> **~~Amit a felület csinál firmware-porton: nincs „Szellem törlése" gomb, helyette egy `🔌 alaplapi port, nincs bedugva semmi` jelzés, és a teendő-szöveg kimondja, hogy a törlés NEM segít…~~** — **VISSZAVONVA, explicit user decision:** *„ezt nekem ne tüntesse fel a program mert senkit nem érdekel"*, *„ott van a teendőmben ez a szar, holott ez nyilván nem egy teendő"*, *„ez a jellegű dolog ne legyen kiírva és ne legyen hiba"*.
+
+Az a javítás **igazat mondott, de a ROSSZ KÉRDÉSRE válaszolt.** A sor bent maradt a piros „Hibás eszközök" listában és a **Teendő** fül számlálójában, csak más szöveget kapott. **Egy piros sor, amely mellé oda van írva, hogy „hagyd figyelmen kívül", továbbra is elolvasandó sor** — a technikus munkája nem lett kevesebb, csak a magyarázat lett hosszabb. A helyes válasz: **a sor egyáltalán nem jelenik meg**, sem hibaként, sem teendőként.
+
+**A MÉRÉS, AMI EZT ELDÖNTI** (ugyanaz a gép, élőben): **97 eszközből PONTOSAN 2 volt hibakódos, és MINDKETTŐ ez a két PS/2 port** — vagyis a gép valójában hibátlan volt, a program mégis két teendőt írt ki, minden szken után, örökre. Szűrés után **0 marad**.
+
+**HÁROM HELYEN JELENT MEG UGYANEZ A KÉT ESZKÖZ, ÉS MIND A HÁROM UGYANAZT A FÜGGVÉNYT HÍVJA** (`wu_core.firmware_declared_port` — ha külön döntenének, ugyanarról a gépről mondanának mást):
+
+| hol | mit írt ki | mérve a javítás után |
+|---|---|---|
+| kézi szken hiba-listája (`app/gui/hwscan.py`) | 🔴 Hibás eszközök (2 db) + a **Teendő** fül számlálójában | 0 |
+| a fix **záró jelentése** (`app/gui/autofix.py`) | *„⚠️ Továbbra is hibakódos eszköz: 2 db"* | `✅ Nem maradt hibakódos eszköz` |
+| a **gép-térkép** kártyái (`app/machinemap_core.py`) | `⚠️ 2 hibakódos eszköz` jelvény + `[hibakód 24]` a tooltipben | 14 kártya, **0** jelvény |
+
+**A ZÁRÓ JELENTÉS A LEGSÚLYOSABB A HÁROM KÖZÜL**, és külön indoklást érdemel: az [elfogadási feltétel](#the-acceptance-criterion-for-the-one-click-fix-press-it-walk-away-come-back-to-a-finished-machine) szerint a lánc pass-üzenete a *„0 hibával"* — egy üresen álló PS/2 port miatt viszont **minden** ilyen gépen `⚠️`-vel záródott volna a hibátlan lánc.
+
+**A SZELLEMESZKÖZÖK NÉZET NEM ÉRINTETT — ezt is mérés zárta le, nem feltevés.** A ghost-lekérdezés `Present -eq $false`-ra szűr, a két PS/2 port viszont `Present=True` (a cfgmgr32 és a `Get-PnpDevice` szerint egyaránt): a csomópont létezik, csak hardver nincs mögötte. Élőben ellenőrizve a Mouse/Keyboard osztályban a ghost-lista csak valódi HID-maradványokat ad. Tehát a „szellemeszköz" szó a bejelentésben a **hiba-lista** sorára utalt, nem arra a nézetre.
+
+**AMIT A SZŰKÍTÉS NEM CSINÁL: nem zárja ki az eszközt a driver-keresésből.** A katalógus-kör `problem_devs` ága és a szken eszközlistája **érintetlen** — lásd [MINDEN ESZKÖZ KAPJON DRIVERT](#minden-eszköz-kapjon-drivert--a-tiltólista-soha-nem-megoldás-explicit-user-decision-2026-09-03). Itt kizárólag a **hiba-jelentés** szűkül, és a kizárt eszközök a naplóban **nevesítve** maradnak (Rule 0: `[HW_SCAN] N alaplapi (ACPI) port üresen áll…`), tehát egy „miért nem szerepel a listán?" kérdés utólag is megválaszolható.
 
 **AMIT A MÉRÉS KIZÁRT, és fontos, mert kézenfekvő gyanú volt:** ezt **nem az AlpsAlpine-csomag okozta**. A napló szerint a két Code 24-es eszköz `09:52:13`-kor már jelentve volt, az Alps telepítés `09:52:56`-kor futott — tehát **megelőzi**. Az Alps osztály-filterei sincsenek sehol (a Mouse/Keyboard `UpperFilters` a szokásos `mouclass`/`kbdclass`).
 
-**ÁLTALÁNOS TANULSÁG:** egy hibakód önmagában nem mondja meg, van-e vele TEENDŐ. Ugyanaz a Code 24 jelenthet egy tényleg törölhető maradványt és egy örökre üresen álló, firmware-ben deklarált portot — a kettőt csak az eszköz származása (enumerátor + szülő) különbözteti meg. Ha egy sor mellé műveletet teszünk, előbb azt kell megválaszolni, hogy **az a művelet tud-e egyáltalán eredményt hozni**.
+**KÉT ÁLTALÁNOS TANULSÁG:**
+1. **Egy hibakód önmagában nem mondja meg, van-e vele TEENDŐ.** Ugyanaz a Code 24 jelenthet egy tényleg törölhető maradványt és egy örökre üresen álló, firmware-ben deklarált portot — a kettőt csak az eszköz származása (enumerátor + szülő) különbözteti meg. Ha egy sor mellé műveletet teszünk, előbb azt kell megválaszolni, hogy **az a művelet tud-e egyáltalán eredményt hozni**.
+2. **HA EGY SORHOZ NINCS TEENDŐ, A HELYES JAVÍTÁS A SOR ELTÁVOLÍTÁSA, NEM EGY JOBB MAGYARÁZAT.** Ez a hibaosztály ebben a projektben már többször előfordult, és mindig ugyanígy dőlt el: a *„N eszköz fut a Windows beépített driverén"* doboz, a *„tároló- és firmware-driverek kihagyva"* magyarázat és a *„Csoportosítás: Használat"* váltó is mind **törlésre** került, nem átírásra. Ha egy szöveg azt magyarázza, hogy miért nem kell vele foglalkozni, akkor eleve nem oda tartozik.
+
+### HAT JAVÍTÁS EGY 0 HIBÁS LÁNCBÓL — a DÁTUM egy éve elveszett minden magyar gépen (2026-09-21, Build 326, Dell Latitude 5480)
+
+**A lánc kifogástalan volt**, és ezt előre ki kell mondani: 14:21 → 14:47, **8 láb, 32 driver, 0 ERROR, 0 kivétel, 0 időtúllépés**, a végén 0 hibakódos eszköz, `A FOLYAMAT SIKERESEN BEFEJEZŐDÖTT`. A 71 WARNING nagy része a `[DUPDRV]` szándékos, nevesítő naplózása. **Hat javítás mégis kijött belőle, és az egyik egy éve némán élt.**
+
+#### 1. A DISM DÁTUMA MINDEN MAGYAR GÉPEN ELVESZETT — a `/English` csak a KULCSSZAVAKAT angolosítja
+
+Ez a legsúlyosabb lelet, és egyetlen naplósor adta meg:
+
+```
+Published Name : oem0.inf
+Date : 2006. 06. 21.          <- MAGYAR formátum, az ANGOL kulcsszó mellett
+Version : 10.0.19041.1806
+```
+
+A `_dism_date_to_iso` docstringje kimondta a téves feltevést: *„A `/English` kimenet mindig M/D/YYYY alakú — **a lokalizált formátumokra nem számítunk**, mert minden hívás /English-sel megy"*. **Ez megdőlt.** A DISM a dátumot a **rendszer rövid-dátum mintájával** formázza; élőben mérve ezen a gépen `(Get-Culture)` = `hu-HU`, `ShortDatePattern` = **`yyyy. MM. dd.`**. A régi regex (`\d{1,2}[/.-]\d{1,2}[/.-]\d{4}`) erre nem illeszkedett.
+
+**A KÖVETKEZMÉNY:** a `date` mező **minden magyar Windowson üres volt**, tehát a duplikátum-takarítás *„dátum elsődleges, verzió csak holtversenynél"* szabálya — amit a projekt 2026-07-27 óta az egységes kiadás-rendezésének nevez — **a bolt összes gépén némán verzió-alapú maradt**. Pontosan az a hibaosztály, ami miatt az a szabály született: egy gyártói verziósémaváltásnál a verzió-rendezés a **frissebb** csomagot jelöli meg törölhetőnek. A naplóban ez így látszott (a `[?]` a hiányzó dátum):
+
+```
+[DUPDRV] TÖRLENDŐ: oem47.inf (apvhid.inf) Alps v10.0.0.123 [?] - MEGMARAD helyette: oem15.inf v10.0.0.126 [?]
+```
+
+**MIÉRT ÉLT EGY ÉVIG: semmi nem jelezte.** A hiányzó dátum csendben a verzió-tagra esett vissza. Ezért a `parse_dism_driver_list` most **egy összegző WARNING-ot** ír (nem csomagonként — hot loop), és megnevezi az értelmezhetetlen nyers alakokat. Ez az a sor, ami ezt egy pillantással megadta volna.
+
+**A PARSER KÉT ALAKOT KEZEL, és a második kétértelmű:** négyjegyű év **elöl** (`2006. 06. 21.`, ISO, `yyyy/MM/dd`) → egyértelmű; év **hátul** (`6/21/2006`, `21.06.2006`) → a hónap/nap sorrend nem olvasható ki, ezért ahol lehet, a számok döntenek (ami >12, az csak nap), a maradékra a szeparátor szokása (`/` → amerikai M/D, `.`/`-` → európai D/M). **A kétértelműség ára nem romló**: a heurisztika determinisztikus, tehát egy csoport minden csomagját ugyanúgy értelmezi, és érvénytelen értékre (`hónap>12`) üres stringet ad — egy rossz dátum rosszabb, mint a hiányzó, mert azt a verzió pótolja. Offline tesztelve **18 alakra** + végponttól végpontig a terepi DISM-blokkal + egy **regresszió-tesztre**: verziósémaváltásnál (`30.0.101.1` [2024] vs `1.0.0.9` [2026]) most a frissebb **dátumú** marad meg.
+
+#### 2. AZ AUTO-UPDATER API-ÁGA FRISS WINDOWSON MINDIG ELBUKOTT
+
+```
+[UPDATE] A Releases API nem elérhető (<urlopen error [SSL: CERTIFICATE_VERIFY_FAILED]
+         certificate verify failed: unable to get local issuer certificate>) - a raw útra váltunk.
+[UPDATE] Update ellenőrzése erről a címről: https://raw.githubusercontent.com/... -> 326   <- EZ SIKERÜLT
+```
+
+A 2026-09-17-i `_latest_release()` **csupasz `urllib`** volt — miközben ez a fájl kimondja: *„Minden letöltés a közös letöltőn megy, az auto-updater is… a `fetch_text_with_cert_fallback` az egyetlen helyes út."* A raw ág már akkor is a fallbackre esett, az új API-ág kimaradt.
+
+**Ez nem szélső eset, hanem a TIPIKUS eset:** a CLAUDE.md-ben dokumentált gyök-tanúsítvány-hiány szerint egy frissen telepített Windows tárolójából épp a `github.com`/`api.github.com` lánca (Sectigo/USERTrust) hiányzik, a raw-é (DigiCert) nem — a napló ezt ugyanabban a futásban bizonyítja. Vagyis a 09-17-i *„az API azonnal friss, a raw CDN 5 percig régi"* nyereség **pont azokon a gépeken veszett el, amiken a program dolgozik**.
+
+**Mérve a javítás után** (élő hálózat): a közös letöltő **kiszolgálja** az API-t (89 KB, 26 kiadás, `build-326` elöl — tehát a `User-Agent` sem gond, az `Invoke-WebRequest` ad ilyet), és **szimulált** friss-Windows TLS-hibán a fallback is `build=326`-ot ad.
+
+#### 3. A NYOMTATÓ-JEL NÉMA VOLT A LÁNCBAN — a hívó nem adta át a párosítást
+
+```
+[USAGE] A spoolerben van nyomtató-driver, de a hívó nem adott published->original
+        párosítást - a nyomtató-jel ebben a körben nem tud megszólalni.        (2×)
+```
+
+A 2026-09-18-i nyomtató-jel (a spooler az **eredeti** INF-nevet ismeri, nem az `oemNN.inf`-et) az AutoFix két hívóhelyén nem kapott `packages` listát, tehát a nyomtató-csomagok **„nem használt"-nak látszottak** — épp az a hiba, amit a felhasználó 2026-09-18-án bejelentett, csak a lánc oldalán. A javítás ingyen volt: **mindkét hívónál a csomaglista már be volt töltve** két sorral feljebb.
+
+#### 4. A KÉPERNYŐ 17%-A ISMÉTLŐDŐ „NINCS TEENDŐ" ZAJ VOLT — mérve, nem becsülve
+
+| sor | db | a 538 képernyő-sorból |
+|---|---|---|
+| `🚫 <eszköz>: a katalógus egyik jelöltje sem támogatja…` | **70** | 13% |
+| `🛡️ N tároló/firmware-eszköz kihagyva…` | **22** | 4% |
+
+Mindkettő **lábanként, körönként újra** ment ki, és mindkettő azt mondja, hogy **nincs mit tenni**. A `🚫` egyetlen chipset-eszközre 8-szor, a 2–5. lábon már a `catalog_hwids.json` gyorsítótárból, tehát **új információ nélkül**. A `🛡️`-t a felhasználó a **kézi szkenből** már 2026-09-03-án kivetette (*„senkit se érdekel minek van ott"*), az AutoFix köreiből nem — ugyanaz az „egy döntés, több szöveg" hiba. **Mindkettő a naplóba került**; ami megmarad a képernyőn: a záró jelentés egyszeri, **nevesített** sorai (`🛡️ 4 eszköz … : <nevek>`, `🏭 8 eszköz Windows-alapdriveren maradt`), mert ott a technikus a lánc végén áll.
+
+#### 5. A „gyártói kártyák" SZÖVEG HARMADIK ÉS NEGYEDIK PÉLDÁNYA
+
+```
+👉 Ezekhez sem a WU, sem a katalógus nem adott gyári csomagot… (lásd a "Driver Keresés
+   és Telepítés" menü gyártói kártyáit).
+```
+
+A gyártói link-kártyák **2026-09-02-án (videokártya) és 09-18-án (gép/alaplap) TELJESEN kikerültek** a programból, tehát a szöveg egy nem létező felületi elemhez küldött. Ez ugyanannak a hibaosztálynak a harmadik és negyedik előfordulása (az első kettő a megszüntetett tároló/firmware-jelölőnégyzetre küldő szövegek voltak). **Ökölszabály, immár harmadszor bizonyítva: ha egy döntés megszüntet egy felületi elemet, `grep`-elj rá a TELJES szövegkészletben — egy elemhez több szöveg tartozik.**
+
+#### 6. A HIBAÜZENET A pnputil FEJLÉCE VOLT, NEM A HIBA
+
+```
+❌ oem41.inf (iigd_ext.inf Intel Corporation v30.0.101.1069) törlése sikertelen:
+   Microsoft PnP Utility
+```
+
+A `Microsoft PnP Utility` a pnputil **fejléce**; a valódi ok a következő bekezdésben állt (`Failed to delete driver package: One or more devices are presently installed using the specified INF`, rc=`0xE000023D`). A nyers `stdout[:120]` tehát semmit nem mondott. Új közös segéd: `drivers_core.delete_failure_text` — sorrendben (1) az in-use eset **saját, magyar** szövege, (2) a pnputil `Failed to …` sora, (3) az első nem-fejléc sor. **És ugyanitt derült ki egy önmagával ellentmondó összegzés**: az in-use kimenetel a `fail` számlálóba esett, vagyis a záró sor *„1 sikertelen"*-t írt, miközben a tétel sora azt, hogy *„ez normális"*. Az in-use mostantól a `skipped`-be megy: **ok = törölve, skipped = használatban van, fail = VALÓDI hiba**.
+
+#### AMIT A VIZSGÁLAT KIZÁRT — két lelet, ami IGAZAT mondott
+
+Mindkettőnél kézenfekvő volt a „javítás", és mindkettő téves lett volna:
+
+- **`[PREVIEW] Van Wi-Fi kártya, de EGYETLEN third-party csomag sem illeszkedik rá (védett INF-ek: ['netwtw06.inf'])`** — önmagával ellentmondónak *látszik* (a védett lista nem üres). Valójában a `netwtw06.inf` a **Win10 inbox** Wi-Fi drivere az Intel 8265-höz, tehát tényleg nincs rá third-party csomag; a lánc végén a DUPDRV egy **új, third-party** `netwtw`-t takarított, ami ezt megerősíti.
+- **`Microsoft Usbccid intelligenskártya-olvasó (WUDF)` KÉTSZER a health reportban** — a Dell ControlVault (`USB\VID_0A5C&PID_5834`) kompozit eszköz **négy interfésszel** (`MI_00`…`MI_03`), amiből kettő azonos nevű kártyaolvasó. **Két külön eszköz**, a felsorolás helyes.
+
+Ugyanez a szabály, amit a színprofil-visszavonás és a T580-tapipad óta a fájl őriz: **külön kell választani, amit a kód bizonyíthatóan tesz, attól, amit egy tünet sugall.**
 
 ### ÜRES (FEHÉR/FEKETE) FELÜLET PÁR MÁSODPERCCEL AZ INDULÁS UTÁN = IDEGEN DLL A WEBVIEW2-BEN (2026-09-18, mérve)
 
