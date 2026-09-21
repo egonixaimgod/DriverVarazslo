@@ -844,7 +844,8 @@ def _is_inbox_driver(inst):
 # Ez a kör korábban KÉT osztálylistával dolgozott: egy szűk engedélyező whitelisttel
 # (16 osztály) és egy tiltólistával. Mindkettő megszűnt, mert a termék szabálya közben
 # egységes lett: a gép MINDEN hardvere kapjon drivert, és pontosan KÉT kivétel legyen -
-# amit a felhasználó jelölőnégyzettel kizár (tároló, firmware), illetve ami fogalmilag
+# a tároló és a firmware (2026-09-02 óta a program RÖGZÍTETT szabálya, korábban két,
+# alapból kikapcsolt jelölőnégyzet), illetve ami fogalmilag
 # nem hardver (WU_SCAN_IGNORED_CLASSES, a lánc legelején). A whitelist ezt bontotta meg:
 # egy gyári driveren futó NYOMTATÓ, billentyűzet vagy USB-vezérlő hiába volt a
 # Windows generikus driverén, ez a kör meg sem kérdezte rá a katalógust - miközben
@@ -1214,8 +1215,9 @@ STORAGE_RISK_CLASSES = {'SCSIADAPTER', 'HDC', 'DISKDRIVE'}
 #  - egy megszakadt írás (áramszünet a flash közben) HARDVERESEN teszi tönkre az eszközt -
 #    a gép nem "nem indul el", hanem nincs többé;
 #  - a TPM firmware-frissítése bizonyos esetekben ÉRVÉNYTELENÍTI a BitLocker-kulcsokat.
-# Ezért a firmware NEM megy fel magától: a felhasználó a fix indító dialógusán, külön
-# jelölőnégyzettel engedélyezheti (alapértelmezés KI).
+# Ezért a firmware SOHA nem megy fel: 2026-09-02 óta ez a program rögzített szabálya,
+# nincs hozzá kapcsoló sehol (korábban a fix dialógusán egy alapból kikapcsolt
+# jelölőnégyzet engedte volna be). Aki ezt visszahozná: [Tároló és firmware] szekció.
 FIRMWARE_RISK_CLASSES = {'FIRMWARE'}
 
 # A `risky` jelölt találatokhoz tartozó, FELÜLETRE kiírandó figyelmeztetések (a manuális
@@ -1321,10 +1323,21 @@ DEEP_CATALOG_BLOCKED_CLASSES = STORAGE_RISK_CLASSES | FIRMWARE_RISK_CLASSES
 
 def filter_autofix_risky_devices(devices, allow_storage=False, allow_firmware=False,
                                  log_tag='AUTOFIX-WU', context='a WU-egyeztetésből'):
-    """Az AutoFix eszközlistájáról kiszűri a KOCKÁZATOS osztályokat, amiket a felhasználó
-    nem engedélyezett a fix indításakor. Két, egymástól FÜGGETLEN kapcsoló:
+    """Az AutoFix eszközlistájáról kiszűri a KOCKÁZATOS osztályokat. Két, egymástól
+    FÜGGETLEN szabály:
       - tároló (STORAGE_RISK_CLASSES): rossz driver -> a gép nem bootol;
       - firmware (FIRMWARE_RISK_CLASSES): visszafordíthatatlan, akár hardveres kár.
+
+    >>> EZ 2026-09-02 ÓTA A PROGRAM RÖGZÍTETT SZABÁLYA, NEM A FELHASZNÁLÓ KAPCSOLÓJA. <<<
+    A két `allow_*` paraméter megmaradt (a hívók közös kapuja mindig `False`-ot ad, lásd
+    `run_autofix` / `start_hw_scan`), de jelölőnégyzet SEHOL nincs hozzá - sem az AutoFix
+    dialógusán, sem a kézi szkenben, sem a CLI-ben. A szövegek ezért nem hivatkozhatnak
+    "engedélyezésre": terepen mérve (Dell Latitude 5480, Build 326) a napló még mindig
+    azt írta, hogy *"(a fix indításakor nem volt engedélyezve)"*, vagyis egy meg nem
+    hozott döntést magyarázott. Ez ugyanannak a szövegnek a HATODIK példánya volt (a
+    záró jelentés, a kézi szken magyarázó doboza, a WU-kör és a katalógus-kör
+    képernyő-sorai után) - a tanulság változatlanul az, hogy egy megszűnt felületi
+    elemre a TELJES szövegkészletben rá kell keresni, a naplósorokat is beleértve.
 
     MINDKÉT AutoFix-forrás ezen megy át (WU-egyeztetés és katalógus-zárókör), ezért a
     naplócímke és a szövegkörnyezet paraméter: a `[AUTOFIX-WU] ... a WU-egyeztetésből`
@@ -1347,13 +1360,19 @@ def filter_autofix_risky_devices(devices, allow_storage=False, allow_firmware=Fa
             # Nevesítve: a "miért nem kapott a gépem X drivert?" kérdésre ez a válasz.
             names = ['{0} [{1}]'.format(d.get('name') or '?', d.get('pclass') or '?') for d in items]
             logging.info(f"[{log_tag}] {len(items)} {label}-eszköz kihagyva {context} "
-                         f"(a fix indításakor nem volt engedélyezve): {names}")
+                         f"(a program rögzített szabálya, nincs hozzá kapcsoló): {names}")
     if allow_storage or allow_firmware:
+        # IDE MA CSAK HÍVÁSI HIBÁVAL LEHET ELJUTNI: a felületen nincs kapcsoló, és a
+        # hívók közös kapuja `False`-ot ad (ott már WARNING szól, ha nem az érkezett).
+        # Ezért NEM azt írjuk ki, hogy "a felhasználó engedélyezte" - az valótlan lenne,
+        # és épp a hívási hibát fedné el.
         enabled = [n for n, on in (('tároló', allow_storage), ('firmware', allow_firmware)) if on]
         risky_now = [d.get('name') for d in kept
                      if (d.get('pclass') or '').strip().upper() in (STORAGE_RISK_CLASSES | FIRMWARE_RISK_CLASSES)]
         if risky_now:
-            logging.warning(f"[{log_tag}] A felhasználó ENGEDÉLYEZTE ({', '.join(enabled)}): {risky_now}")
+            logging.warning(f"[{log_tag}] FIGYELEM: a kockázatos osztály ÁTENGEDVE "
+                            f"({', '.join(enabled)}) - ehhez a felületen nincs kapcsoló, "
+                            f"tehát ez hívási hiba: {risky_now}")
     return kept, dropped
 
 

@@ -626,9 +626,10 @@ class GuiHwScanMixin:
                 # végzi - ugyanez fut az AutoFix katalógus-zárókörében is, hogy a két út
                 # pontosan ugyanazokat az eszközöket találja meg.
                 # allow_storage/allow_firmware: a kockázatos eszközöket a FENTI kapu már
-                # kiszűrte a `devices_to_check`-ből, ha a technikus nem engedélyezte őket.
-                # Itt ezért a kapcsolók értékét adjuk tovább (nem fix True-t): bekapcsolva a
-                # találat pirosan és ELŐRE BE NEM JELÖLVE jelenik meg - itt ember dönt.
+                # kiszűrte a `devices_to_check`-ből (2026-09-02 óta rögzített szabály,
+                # nincs hozzá kapcsoló - a paraméterek mindig False-ok). Az értéket
+                # mégis továbbadjuk, nem fix True-t: ha a szabály valaha visszakerülne
+                # kapcsoló alá, a találat pirosan és ELŐRE BE NEM JELÖLVE jelenne meg.
                 generic_devs = mark_generic_replace_candidates(
                     devices_to_check, inst_info,
                     allow_storage=allow_storage, allow_firmware=allow_firmware)

@@ -1336,9 +1336,11 @@ Az a javítás **igazat mondott, de a ROSSZ KÉRDÉSRE válaszolt.** A sor bent 
 1. **Egy hibakód önmagában nem mondja meg, van-e vele TEENDŐ.** Ugyanaz a Code 24 jelenthet egy tényleg törölhető maradványt és egy örökre üresen álló, firmware-ben deklarált portot — a kettőt csak az eszköz származása (enumerátor + szülő) különbözteti meg. Ha egy sor mellé műveletet teszünk, előbb azt kell megválaszolni, hogy **az a művelet tud-e egyáltalán eredményt hozni**.
 2. **HA EGY SORHOZ NINCS TEENDŐ, A HELYES JAVÍTÁS A SOR ELTÁVOLÍTÁSA, NEM EGY JOBB MAGYARÁZAT.** Ez a hibaosztály ebben a projektben már többször előfordult, és mindig ugyanígy dőlt el: a *„N eszköz fut a Windows beépített driverén"* doboz, a *„tároló- és firmware-driverek kihagyva"* magyarázat és a *„Csoportosítás: Használat"* váltó is mind **törlésre** került, nem átírásra. Ha egy szöveg azt magyarázza, hogy miért nem kell vele foglalkozni, akkor eleve nem oda tartozik.
 
-### HAT JAVÍTÁS EGY 0 HIBÁS LÁNCBÓL — a DÁTUM egy éve elveszett minden magyar gépen (2026-09-21, Build 326, Dell Latitude 5480)
+### NYOLC JAVÍTÁS EGY 0 HIBÁS LÁNCBÓL — a DÁTUM egy éve elveszett minden magyar gépen (2026-09-21, Build 326, Dell Latitude 5480)
 
-**A lánc kifogástalan volt**, és ezt előre ki kell mondani: 14:21 → 14:47, **8 láb, 32 driver, 0 ERROR, 0 kivétel, 0 időtúllépés**, a végén 0 hibakódos eszköz, `A FOLYAMAT SIKERESEN BEFEJEZŐDÖTT`. A 71 WARNING nagy része a `[DUPDRV]` szándékos, nevesítő naplózása. **Hat javítás mégis kijött belőle, és az egyik egy éve némán élt.**
+**A lánc kifogástalan volt**, és ezt előre ki kell mondani: 14:21 → 14:47, **8 láb, 32 driver, 0 ERROR, 0 kivétel, 0 időtúllépés**, a végén 0 hibakódos eszköz, `A FOLYAMAT SIKERESEN BEFEJEZŐDÖTT`. A 71 WARNING nagy része a `[DUPDRV]` szándékos, nevesítő naplózása. **Nyolc javítás mégis kijött belőle, és az egyik egy éve némán élt.**
+
+> **A VIZSGÁLAT MENETE, MERT A MÁSODIK KÖR HOZTA A LEGÉRTÉKESEBB LELETET.** Az első átfutás a `WARNING`/`ERROR` sorokat és a képernyőre kiírt üzeneteket nézte — abból jött 1–6. A 7–8. pont viszont csak akkor derült ki, amikor **a lánc DÖNTÉSI sorait** is végigolvastam (`[REBIND]`, `[CATALOG] Döntés:`, `[AUTOFIX-*]`), és **összevetettem őket egymással**: a REV-hiba egyetlen `Egyezés:` sor és egy `[GENERIC] … nem valódi csere` sor EGYÜTT olvasásából látszott, egyik önmagában nem WARNING. Egy naplót tehát nem elég a hibaszintű sorok szerint átnézni — a szomszédos, INFO-szintű döntéseket is egymáshoz kell mérni.
 
 #### 1. A DISM DÁTUMA MINDEN MAGYAR GÉPEN ELVESZETT — a `/English` csak a KULCSSZAVAKAT angolosítja
 
@@ -1411,6 +1413,36 @@ A gyártói link-kártyák **2026-09-02-án (videokártya) és 09-18-án (gép/a
 ```
 
 A `Microsoft PnP Utility` a pnputil **fejléce**; a valódi ok a következő bekezdésben állt (`Failed to delete driver package: One or more devices are presently installed using the specified INF`, rc=`0xE000023D`). A nyers `stdout[:120]` tehát semmit nem mondott. Új közös segéd: `drivers_core.delete_failure_text` — sorrendben (1) az in-use eset **saját, magyar** szövege, (2) a pnputil `Failed to …` sora, (3) az első nem-fejléc sor. **És ugyanitt derült ki egy önmagával ellentmondó összegzés**: az in-use kimenetel a `fail` számlálóba esett, vagyis a záró sor *„1 sikertelen"*-t írt, miközben a tétel sora azt, hogy *„ez normális"*. Az in-use mostantól a `skipped`-be megy: **ok = törölve, skipped = használatban van, fail = VALÓDI hiba**.
+
+#### 7. A REVÍZIÓ „eltérhet" FELTEVÉS TÉVES VOLT — egy másik hardver-változat INF-jét kötöttük vissza
+
+Ez a napló legfinomabb lelete, és **mérhető kárt okozott**. A rebind kör naplósora:
+
+```
+[REBIND] Egyezés: Realtek USB GbE Family Controller [USB\VID_0BDA&PID_8153]
+                  <- rtump64arm64sta.inf [USB\VID_0BDA&PID_8153&REV_32FD]
+[REBIND] - újratelepítés: ... FileRepository\rtump64arm64sta.inf_amd64_95a87af0abe9c628\...
+[GENERIC] Realtek USB GbE Family Controller: a gyári csomag felment, de az eszköz
+          a Windows driverén maradt (rtux64w10.inf) - nem valódi csere.
+```
+
+Az eszköz valódi azonosítója viszont **`USB\VID_0BDA&PID_8153&REV_31FD`** (a WU-sorból: `usb\vid_0bda&pid_8153&rev_31fd`), az INF-é **`REV_32FD`** — **két külön hardver-revízió**. A `_staged_vendor_inf_for` docstringje kimondta a feltevést: *„Így a `SUBSYS`/`REV` eltérés még belefér"*. A SUBSYS-ra ez **igaz** (ugyanaz a chip más gépgyártó gépében — ezen áll az R9-200 eset), a **REV-re nem**: az az eszköz hardver-változata, amihez a gyártó külön INF-szekciót ír.
+
+**MIÉRT CSÚSZOTT ÁT A SZIGORÚ PÁROSÍTÓN:** a `_strict_hwid_match` **egy** INF-azonosítót **egy** eszköz-azonosítóval hasonlít, és az eszköznek van egy REV **nélküli**, kompatibilis azonosítója is (`USB\VID_0BDA&PID_8153`). Arra halmazként `{VID,PID} ⊆ {VID,PID,REV_32FD}`, tehát részhalmaz-egyezés. A revízió-ellentmondás csak akkor látszik, ha az eszköz **összes** azonosítóját együtt nézzük — ezért a új `rev_conflict` az `all_hwids`-ból gyűjtött REV-halmazzal dolgozik, nem a párral.
+
+**A KÁR, tételesen:** a kör eltávolította egy működő eszköz csomópontját, újratelepítette a **rossz revíziójú** INF-et, a Windows (helyesen) nem kötötte rá, az eszköz a Windows `rtux64w10.inf`-jén maradt — és mindez **egy fölösleges újraindításba** került. A naplóban emellett egy valótlan `Egyezés:` sor áll, ami egy jövőbeli vizsgálatot is félrevezetne.
+
+**A SZABÁLY SZÁNDÉKOSAN SZŰK:** csak akkor ellentmondás, ha **mindkét** oldal közöl revíziót, és **nincs közös**. Ha az INF általánosabb (nincs REV-je), az a legitim részhalmaz-eset — és ez a leggyakoribb alak, tehát a szűkítés nem veszít el valódi egyezést. Regresszió-tesztelve mind a négy dokumentált terepi esetre (R9 200 `ven+dev+rev`, amdafd `ven+cc`, USB kompozit `&MI_00`, ACPI pontos egyezés) + a COL-láncra: **9/9 + 4/4 állítás**, egyik sem változott.
+
+**EGY GYANÚ, AMIT A MÉRÉS ELVETETT:** az INF neve `rtump64**arm64**sta.inf`, ami első pillantásra rossz architektúrának látszik egy x64 gépen. A DriverStore mappaneve viszont **`_amd64_`** — vagyis a Windows amd64-ként stage-elte, tehát az INF tartalmaz amd64 szekciót. **Az INF NEVÉBŐL nem szabad architektúrára következtetni**; a Windows saját verdiktje (a mappanév) a bizonyíték. A valódi ok a revízió volt, nem az architektúra.
+
+#### 8. A „nem létező jelölőnégyzet" HATODIK példánya — ezúttal a NAPLÓBAN
+
+```
+[AUTOFIX-CAT] 3 tároló-eszköz kihagyva a katalógus-zárókörből (a fix indításakor nem volt engedélyezve)
+```
+
+A 2026-09-07-i kör a **képernyő-szövegeket** javította, a `wu_core.filter_autofix_risky_devices` **naplósorát** nem — a docstringjével és az `allow_*` ág *„A felhasználó ENGEDÉLYEZTE"* WARNING-jával együtt. Ez a sor most annál is fontosabb, mert a 4. pont óta ez a **napló egyetlen** forrása erről a döntésről. Az `allow_*` ág szövege külön is téves volt: oda ma **csak hívási hibával** lehet eljutni (a felületen nincs kapcsoló, a hívók közös kapuja `False`-ot ad), tehát a *„felhasználó engedélyezte"* megfogalmazás épp a hívási hibát fedte volna el — most `FIGYELEM … ez hívási hiba`. Ugyanebben a körben **három elavult komment** is javítva (`wu_core` ×2, `hwscan` ×1), amik még *„a felhasználó jelölőnégyzettel engedélyezheti"*-ként írták le a 2026-09-02 óta rögzített szabályt.
 
 #### AMIT A VIZSGÁLAT KIZÁRT — két lelet, ami IGAZAT mondott
 

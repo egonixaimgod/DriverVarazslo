@@ -136,6 +136,54 @@ def _identity_tokens(tokens):
     return frozenset(t for t in tokens if t.startswith(_IDENTITY_PREFIXES))
 
 
+def _rev_tokens(hwid):
+    """Egy hardver-azonosító REV_ tokenjei (halmaz)."""
+    t = _hwid_tokens(hwid)
+    return {x for x in (t[1] if t else ()) if x.startswith('REV_')}
+
+
+def dev_rev_tokens(hwids):
+    """Az ESZKÖZ összes azonosítójából kigyűjtött REV_ tokenek. Tiszta függvény."""
+    out = set()
+    for h in hwids or []:
+        out |= _rev_tokens(h)
+    return out
+
+
+def rev_conflict(inf_id, dev_revs):
+    """Ellentmond-e egy INF-azonosító REVÍZIÓJA az eszköz ismert revízióinak?
+
+    >>> A `SUBSYS`/`REV` "eltérhet" FELTEVÉS A REV-RE TÉVES - terepen mérve. <<<
+    (2026-09-21, Dell Latitude 5480, Build 326.) Ez a modul eddig azt írta, hogy a
+    gyártó+eszköz tokenek egyezése után "a `SUBSYS`/`REV` eltérés még belefér". A SUBSYS-ra
+    ez igaz (ugyanaz a chip más gépgyártó gépében), a REV-re NEM: az USB/PCI revízió az
+    eszköz hardver-változata, amihez a gyártó külön INF-szekciót ír. A napló:
+
+        eszköz : USB\\VID_0BDA&PID_8153&REV_31FD      (Realtek USB GbE)
+        INF    : USB\\VID_0BDA&PID_8153&REV_32FD      (rtump64arm64sta.inf)
+        [REBIND] Egyezés: Realtek USB GbE Family Controller [USB\\VID_0BDA&PID_8153] <- ...
+
+    A párosítás azért mondott egyezést, mert az eszköz REV NÉLKÜLI (kompatibilis)
+    azonosítóját hasonlította az INF specifikus azonosítójához, és halmazként
+    `{VID,PID} <= {VID,PID,REV_32FD}`. A revízió viszont ütközik: a `31FD` nem `32FD`.
+    Következmény a naplóban: a kör eltávolította az eszköz csomópontját és
+    újratelepítette a ROSSZ revíziójú INF-et, a Windows (helyesen) nem kötötte rá
+    (`[GENERIC] ... a gyári csomag felment, de az eszköz a Windows driverén maradt`),
+    és mindez egy fölösleges újraindításba került.
+
+    A SZABÁLY SZŰK, hogy a bevált eseteket ne rontsa el: csak akkor ellentmondás, ha
+    MINDKÉT oldal közöl revíziót, és nincs közös. Ha az INF általánosabb (nincs REV-je),
+    az a legitim részhalmaz-eset, és marad egyezés - ez a leggyakoribb alak. Regresszió-
+    tesztelve a dokumentált terepi esetekre (R9 200 `ven+dev+rev`, amdafd `ven+cc`, USB
+    kompozit `&MI_00`, ACPI pontos egyezés)."""
+    if not dev_revs:
+        return False                       # az eszköz nem közöl revíziót: nincs mit ütköztetni
+    inf_revs = _rev_tokens(inf_id)
+    if not inf_revs:
+        return False                       # az INF általánosabb: legitim részhalmaz-eset
+    return not (inf_revs & dev_revs)
+
+
 def _strict_hwid_match(inf_id, dev_hwid):
     """SZIGORÚ azonosító-egyezés (a laza `_hwid_matches` helyett - lásd
     _staged_vendor_inf_for indoklását: a laza változat terepen Intel GPS-drivert húzott
@@ -373,8 +421,12 @@ class GuiRebindMixin:
           2) PONTOS token-egyezés kell, nem részhalmaz: az INF-ben szereplő azonosító
              tokenkészletének AZONOSNAK kell lennie az eszközével, vagy az eszközének kell
              bővebbnek lennie ugyanazon a buszon úgy, hogy a gyártó+eszköz (VEN/DEV, VID/PID)
-             tokenek mind egyeznek. Így a `SUBSYS`/`REV` eltérés még belefér, egy másik
-             gyártó csomagja viszont nem.
+             tokenek mind egyeznek. Így a `SUBSYS` eltérés még belefér (ugyanaz a chip más
+             gépgyártó gépében), egy másik gyártó csomagja viszont nem.
+          3) A REVÍZIÓ NEM ÜTKÖZHET (`rev_conflict`, 2026-09-21, terepen mérve): ha az INF
+             és az eszköz is közöl `REV_`-et, de más értékkel, az MÁS hardver-változat.
+             A régi szöveg itt azt állította, hogy "a SUBSYS/REV eltérés még belefér" - a
+             REV-re ez téves volt, és egy Realtek USB LAN-adapternél kárt is okozott.
 
         Visszatérés: (INF útvonala, eredeti INF-név) vagy (None, '').
 
@@ -385,6 +437,11 @@ class GuiRebindMixin:
         hwids = [h for h in (dev.get('all_hwids') or []) if h and is_specific_hwid(h)]
         if not hwids:
             return None, ''
+        # AZ ESZKÖZ ISMERT REVÍZIÓI - a REV-ütközés kizárásához (lásd `rev_conflict`).
+        # Az ÖSSZES azonosítóból gyűjtjük, mert a párosítás alább egy REV NÉLKÜLI
+        # (kompatibilis) azonosítón is egyezhet, és pont ott csúszott be terepen egy
+        # másik revízió INF-je.
+        dev_revs = dev_rev_tokens(dev.get('all_hwids'))
         for pkg in third_party or []:
             orig = (pkg.get('original') or '').strip()
             if not orig:
@@ -394,6 +451,10 @@ class GuiRebindMixin:
                 continue
             for inf_id in ids:
                 if not is_specific_hwid(inf_id):
+                    continue
+                if rev_conflict(inf_id, dev_revs):
+                    logging.debug(f"[REBIND] Kihagyva (MÁS hardver-revízió): {dev.get('name')} "
+                                  f"{sorted(dev_revs)} <- {orig} [{inf_id}]")
                     continue
                 for hw in hwids:
                     if _strict_hwid_match(inf_id, hw):
