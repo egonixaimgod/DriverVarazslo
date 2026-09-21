@@ -91,6 +91,51 @@ PNP_ERROR_CODE_DESCRIPTIONS = {
 #
 # A kulcshalmaznak NEM kell fednie a PNP_ERROR_CODE_DESCRIPTIONS-t: hiányzó kódnál
 # a felület egyszerűen nem ír teendőt, ami jobb, mint egy általános semmitmondás.
+# ===== ALAPLAPI PORT, AMIBE NINCS BEDUGVA SEMMI (2026-09-21, terepen mérve) =====
+#
+# Terepi bejelentés: *"ez a scan minden alkalommal kiírja h van 2 db szellem eszköz,
+# szerintem minden újraindítás után"*. A gép HP EliteDesk 800 G2 SFF, a két eszköz:
+#
+#     ACPI\PNP0F13\4&1EA8F989&0   PS/2-kompatibilis egér        [msmouse.inf]
+#     ACPI\HPQ8001\4&1EA8F989&0   Szabványos PS/2 billentyűzet  [keyboard.inf]
+#
+# Élőben mérve mindkettő: `enumerator = ACPI`, a szülő a `PCI\VEN_8086&DEV_A146` LPC
+# vezérlő, a szolgáltatás `i8042prt`. Vagyis az ALAPLAP FIRMWARE-E deklarálja a két PS/2
+# portot, a Windows pedig MINDEN RENDSZERINDÍTÁSKOR létrehozza hozzájuk a csomópontot.
+# Mivel a gépen USB billentyűzet/egér van és a PS/2 portokba nincs bedugva semmi, az
+# `i8042prt` nem tudja elindítani őket -> Code 24, örökre.
+#
+# EZ NEM SZELLEMESZKÖZ, ÉS A PROGRAM EDDIG VALÓTLANT ÁLLÍTOTT RÓLA. A Code 24 szövege azt
+# ígérte, hogy *"Szellemeszközök menü → törlés, ettől eltűnik a listáról"* - a technikus
+# ezt meg is tette (a naplóban 09:55:05, `remove_ghost_device('ACPI\PNP0F13\...')`), és
+# a következő induláskor a csomópont VISSZAJÖTT, mert az ACPI újra deklarálja. A program
+# tehát egy elvégezhetetlen teendőt írt ki, minden egyes szken után.
+#
+# A KÜLÖNBSÉG, AMI SZÁMÍT: egy kihúzott USB-eszköz maradványa tényleg törölhető és tényleg
+# eltűnik; egy firmware-ben deklarált, üres port nem. A kettőt az ENUMERÁTOR különbözteti
+# meg: `ACPI\` = az alaplap firmware-e deklarálja, `USB\`/`HID\`/`PCI\` = valódi,
+# csatlakoztatható eszköz nyoma.
+#
+# A VALÓDI TEENDŐ ilyenkor: dugj bele eszközt, VAGY tiltsd le a portot a BIOS-ban, VAGY
+# hagyd figyelmen kívül - a gép működését nem érinti.
+_FIRMWARE_PORT_REMEDY = (
+    'Ez az ALAPLAP firmware-ében deklarált port (pl. PS/2), amibe nincs bedugva semmi - '
+    'nem kihúzott eszköz maradványa. A törlése NEM segít: a Windows minden '
+    'rendszerindításkor újra létrehozza, ezért jön vissza minden újraindítás után. '
+    'Ha nem használod: hagyd figyelmen kívül (a gép működését nem érinti), vagy tiltsd le '
+    'a portot a BIOS-ban. Ha használni akarod: dugj bele eszközt.')
+
+
+def firmware_declared_port(pnp_id, code):
+    """Firmware (ACPI) által deklarált, ÜRES port-e - nem törölhető szellemeszköz?
+
+    Csak a Code 24-re (az eszköz nincs jelen) és csak ACPI-enumerátorra igaz. Minden más
+    esetben a szokásos szöveg megy ki - egy kihúzott USB-eszköz maradványa valóban
+    törölhető, és tényleg eltűnik tőle.
+    """
+    return code == 24 and str(pnp_id or '').upper().startswith('ACPI\\')
+
+
 PNP_ERROR_CODE_REMEDIES = {
     1:  'Futtasd a szkennelést és telepítsd a talált drivert. Ha nincs találat, a gyártó oldaláról kell driver.',
     3:  'Telepítsd újra a drivert (szkennelés → telepítés). Ha marad, kevés a memória vagy sérült a driver-fájl.',
@@ -751,7 +796,13 @@ class GuiHwScanMixin:
                         # MIT KELL VELE CSINÁLNI (2026-09-03): a leírás megmondja, MI a baj,
                         # a technikusnak viszont az kell, hogy MIT tegyen. Ismeretlen kódnál
                         # üres marad - egy általános semmitmondás rosszabb, mint a hallgatás.
-                        'remedy': PNP_ERROR_CODE_REMEDIES.get(code, ''),
+                        # FIRMWARE-DEKLARÁLT ÜRES PORT: külön szöveg, mert rá a Code 24
+                        # általános tanácsa ("töröld, ettől eltűnik") bizonyítottan NEM igaz.
+                        'remedy': (_FIRMWARE_PORT_REMEDY
+                                   if firmware_declared_port(dev.get('pnp_id', ''), code)
+                                   else PNP_ERROR_CODE_REMEDIES.get(code, '')),
+                        # A felület ebből tudja, hogy NEM ajánlhat "Szellem törlése" gombot.
+                        'firmware_port': firmware_declared_port(dev.get('pnp_id', ''), code),
                         'cat': dev.get('cat') or '',
                         'has_fix': dev['id'] in pool_hwids,
                     })

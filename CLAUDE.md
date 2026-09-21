@@ -1293,6 +1293,27 @@ Három változás, egyik sem lazítja a védelmet:
 
 **Harness-csapda, amibe megint beleestem** (a CLAUDE.md-ben már ott volt): a DOM-csonk `textContent` **setterének** frissítenie kell az `innerHTML`-t, különben az `esc()` MINDENRE üres stringet ad, a render `data-pub=""`-t ír, és a teszt fele hamisan elhasal. Plusz egy új: **a headless Edge-nek WINDOWS-útvonalú `file:///C:/...` URL kell** — a Git Bash `$PWD` (`/c/Users/...`) alakjára az Edge a saját hibalapját rendereli, amiből egy `--dump-dom` úgy néz ki, mintha a szerkesztésünk tűnt volna el (`btn-dup-all: 0 találat`).
 
+### „MINDEN ÚJRAINDÍTÁS UTÁN KIÍR 2 SZELLEMESZKÖZT" — ALAPLAPI PORT, AMIT NEM LEHET TÖRÖLNI (2026-09-21, mérve)
+
+**Terepi bejelentés:** *„ez a scan minden alkalommal kiírja h van 2 db szellem eszköz, szerintem minden újraindítás után"*. A gép HP EliteDesk 800 G2 SFF, a két eszköz Code 24-gyel:
+
+```
+ACPI\PNP0F13\4&1EA8F989&0   PS/2-kompatibilis egér        szolg=i8042prt  inf=msmouse.inf
+ACPI\HPQ8001\4&1EA8F989&0   Szabványos PS/2 billentyűzet  szolg=i8042prt  inf=keyboard.inf
+```
+
+**Élőben mérve mindkettőre:** `enumerator = ACPI`, a szülő a `PCI\VEN_8086&DEV_A146` **LPC vezérlő**. Vagyis az **alaplap firmware-e deklarálja a két PS/2 portot**, és a Windows **minden rendszerindításkor újra létrehozza** hozzájuk a csomópontot. A gépen USB billentyűzet/egér van, a PS/2 portokba nincs bedugva semmi, ezért az `i8042prt` nem tudja elindítani őket → Code 24, örökre. **Ez nem hiba, nem szellemeszköz, és nem a program okozza.**
+
+**A PROGRAM VISZONT VALÓTLANT ÁLLÍTOTT RÓLA, ÉS EZ VOLT A JAVÍTANDÓ.** A Code 24 teendő-szövege ezt ígérte: *„Szellemeszközök menü → törlés, ettől eltűnik a listáról"*, és a sor mellett ott volt a **„👻 Szellem törlése"** gomb. A technikus meg is nyomta — a naplóban `09:55:05 remove_ghost_device('ACPI\PNP0F13\4&1EA8F989&0')` —, a csomópont pedig a következő induláskor **visszajött**. A program tehát egy **elvégezhetetlen teendőt** írt ki, minden egyes szken után, és egy gombot kínált, ami láthatóan lefut, majd semmit nem old meg. Ugyanaz a hibaosztály, mint a nem ide való csomag felajánlása: a felület olyat ígér, amit nem tud betartani.
+
+**A MEGKÜLÖNBÖZTETÉS AZ ENUMERÁTOR** (`app/gui/hwscan.py: firmware_declared_port`): `ACPI\` = az alaplap firmware-e deklarálja (üres port, nem törölhető), minden más (`USB\`, `HID\`, `PCI\`) = valódi eszköz nyoma, ami tényleg törölhető és tényleg eltűnik. A szabály **csak a Code 24-re** él; más hibakódon semmi nem változik.
+
+Amit a felület csinál firmware-porton: **nincs „Szellem törlése" gomb**, helyette egy `🔌 alaplapi port, nincs bedugva semmi` jelzés, és a teendő-szöveg kimondja, hogy **a törlés NEM segít, mert a Windows újra létrehozza** — a valódi lehetőségekkel együtt (dugj bele eszközt / tiltsd le a portot a BIOS-ban / hagyd figyelmen kívül, a gép működését nem érinti).
+
+**AMIT A MÉRÉS KIZÁRT, és fontos, mert kézenfekvő gyanú volt:** ezt **nem az AlpsAlpine-csomag okozta**. A napló szerint a két Code 24-es eszköz `09:52:13`-kor már jelentve volt, az Alps telepítés `09:52:56`-kor futott — tehát **megelőzi**. Az Alps osztály-filterei sincsenek sehol (a Mouse/Keyboard `UpperFilters` a szokásos `mouclass`/`kbdclass`).
+
+**ÁLTALÁNOS TANULSÁG:** egy hibakód önmagában nem mondja meg, van-e vele TEENDŐ. Ugyanaz a Code 24 jelenthet egy tényleg törölhető maradványt és egy örökre üresen álló, firmware-ben deklarált portot — a kettőt csak az eszköz származása (enumerátor + szülő) különbözteti meg. Ha egy sor mellé műveletet teszünk, előbb azt kell megválaszolni, hogy **az a művelet tud-e egyáltalán eredményt hozni**.
+
 ### ÜRES (FEHÉR/FEKETE) FELÜLET PÁR MÁSODPERCCEL AZ INDULÁS UTÁN = IDEGEN DLL A WEBVIEW2-BEN (2026-09-18, mérve)
 
 > **HA EGY „NEM INDUL EL / ÜRES AZ ABLAK" BEJELENTÉST VIZSGÁLSZ, EZT OLVASD EL ELŐBB. Egy teljes session ment el arra, hogy a saját frontend-változtatásaimat gyanúsítottam, miközben a hiba a gépen futó MSI Afterburner overlay-e volt.**
