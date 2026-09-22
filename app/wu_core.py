@@ -306,8 +306,8 @@ def _iter_process_lines(process, run_fn, cancel_check=None, inactivity_timeout=1
 # tartozik boot-kockázat:
 #  - Monitor: a monitor-INF nem "csak metaadat" - EDID-felülbírálást ÉS a gyári ICC
 #    színprofilt hozza magával, tehát pont az a csomag, ami a színkezelést helyre teszi
-#    (lásd app/colorprofile_core.py: a fix a kalibrációt gyári alapra állítja, a gyári
-#    alap viszont a monitor INF-jéből jön). Rossz monitor-driver a képen kívül semmit
+#    (a Kijelző nézet gyári visszaállítása - app/colormgmt_core.py - a színkezelést
+#    alapra teszi, a monitor gyári profilja viszont a monitor INF-jéből jön). Rossz monitor-driver a képen kívül semmit
 #    nem tud elrontani, és a Windows alap-monitordrivere sosem tűnik el mögüle;
 #  - Processor: az AMD/Intel chipset-csomagok processzor-energiakezelő drivert is
 #    szállítanak (a WU is ad rá csomagot);
@@ -1190,7 +1190,7 @@ def is_generic_replace_candidate(dev, inst, allow_storage=False, allow_firmware=
 # driveren futó vezérlő volt - vagyis pont az, amit frissíteni KELL (ugyanaz, amit a WU is
 # tenne). A MONITOR ugyanezen a napon került ki, más okból: a gyártói monitor-INF
 # EDID-felülbírálást ÉS a gyári ICC színprofilt hozza, vagyis pont az a csomag, ami a
-# színkezelést gyári alapra teszi (párja: app/colorprofile_core.py).
+# színkezelést gyári alapra teszi (párja: app/colormgmt_core.py).
 #
 # A tároló marad az egyetlen valódi határvonal, mert ott a hiba VISSZAFORDÍTHATATLAN
 # (INACCESSIBLE_BOOT_DEVICE a következő bootnál) - és azt is a felhasználó oldhatja fel a

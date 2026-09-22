@@ -16,10 +16,12 @@ RTX 3060) - a hozzátartozó minta a fejlesztői gépről:
   - EDID (384 bájt, CTA-861)     -> csúcs 1015 nit, teljes képmezős 254 nit, fekete 0.0006 nit
   - EDID színpontok              -> R .686/.304  G .240/.712  B .144/.058  W .3135/.3291
 
-ICC-PROFIL TÁRSÍTÁS (2026-07-31): a társítás KÖZVETLEN REGISTRY-ÍRÁSSAL megy, mert az
-erre való mscms API-k ezen a Windowson bizonyítottan nem csinálnak semmit - a mérési
-jegyzőkönyv az associate_profile() docstringjében. Az InstallColorProfileW ezzel szemben
-működik, azt használjuk a profil telepítésére.
+ICC-PROFIL TÁRSÍTÁS: 2026-09-22 óta az app/colormgmt_core.py-ban él, a MODERN
+`ColorProfileAddDisplayAssociation` API-val (élőben mérve működik, SDR és HDR módra is).
+A 2026-07-31-i megállapítás, hogy "az mscms társító API-k nem csinálnak semmit", a RÉGI
+`WcsAssociateColorProfileWithDevice`/`AssociateColorProfileWithDeviceW` párosra igaz, a
+modernre NEM. Itt csak az olvasás (profil-fejléc, kalibráció-kapcsoló, regisztrációk) és
+a telepítés (InstallColorProfileW) maradt.
 
 AMI TOVÁBBRA SINCS ITT: ICC-profil generálás és a vezetett nit-teszt.
 """
@@ -37,13 +39,11 @@ from app import win32 as w32
 _user32 = ctypes.windll.user32
 _mscms = ctypes.WinDLL('mscms', use_last_error=True)
 
-# A színkezelés registry-gyökere (ugyanaz az ág, amit a colorprofile_core takarít).
+# A színkezelés registry-gyökere.
 _ICM_BASE = r'SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM'
-_ICM_ASSOC = _ICM_BASE + r'\ProfileAssociations\Display'
 # A "Windows-kijelzőkalibráció használata" kapcsoló a Calibration ALKULCSBAN ül, nem az ICM
 # gyökerében - ezt a különbséget az első kiadásom elrontotta, és pont a legfontosabb esetet
 # tette vakká: az érték hiánya és a 0 érték ugyanúgy "nincs beállítva"-ként jött vissza.
-# A colorprofile_core (Build 235 óta) is ezt az utat írja.
 _ICM_CALIB = _ICM_BASE + r'\Calibration'
 _ICM_REGISTERED = _ICM_BASE + r'\RegisteredProfiles'
 _EDID_ROOT = r'SYSTEM\CurrentControlSet\Enum\DISPLAY'
@@ -167,6 +167,42 @@ def set_hdr(adapter_id, target_id, enable):
         logging.error(f"[DISPLAY] A HDR átkapcsolása NEM sikerült (kért: {want}, "
                       f"tényleges: {state['enabled']}; rc_uj={rc_new}, rc_regi={rc_old}).")
     return state['enabled'] == want, state
+
+
+def set_acm(adapter_id, target_id, enable):
+    """A Windows "Automatically manage color for apps" (ACM) kapcsolója egy kijelzőn.
+
+    MIT KAPCSOL VALÓJÁBAN: a DisplayConfig WCG (széles színtartomány) állapotát. A
+    Beállítások ACM-kapcsolója pontosan ez - élőben mérve (2026-09-22, AOC AG276QZD2):
+    a 17-es hívás 1 értékére az aktív színmód 'WCG' lett és a Windows a
+    MonitorDataStore\\<monitor>\\AutoColorManagementEnabled értéket 1-re írta, 0-ra
+    mindkettő visszaállt. HDR módban a hívásnak nincs értelme (ott a Windows mindig
+    színkezelt), ezért ott nem is próbáljuk - a nézet ezt kiírja.
+
+    A siker mércéje - mint a set_hdr-nél - a VISSZAOLVASOTT állapot, nem a visszatérési
+    kód. Visszaad: (sikerult, uj_allapot_dict)."""
+    want = bool(enable)
+    before = read_hdr_state(adapter_id, target_id)
+    logging.warning(f"[DISPLAY] ACM (automatikus színkezelés) {'BEkapcsolása' if want else 'KIkapcsolása'} "
+                    f"(adapter={adapter_id.LowPart}:{adapter_id.HighPart}, target={target_id}; "
+                    f"eddig: {'BE' if before.get('wcg_enabled') else 'KI'})...")
+    if not before.get('wcg_supported'):
+        logging.warning("[DISPLAY] Ezen a kijelzőn/Windowson az ACM nem elérhető (nincs WCG-támogatás "
+                        "vagy a Windows régebbi, mint 11 24H2).")
+        return False, before
+    s = w32._DISPLAYCONFIG_SET_WCG_STATE()
+    s.header.type = w32.DISPLAYCONFIG_DEVICE_INFO_SET_WCG_STATE
+    s.header.size = ctypes.sizeof(s)
+    s.header.adapterId = adapter_id
+    s.header.id = target_id
+    s.value = 1 if want else 0
+    rc = _user32.DisplayConfigSetDeviceInfo(ctypes.byref(s))
+    state = read_hdr_state(adapter_id, target_id)
+    ok = bool(state.get('wcg_enabled')) == want
+    (logging.info if ok else logging.error)(
+        f"[DISPLAY] SET_WCG_STATE(17) rc={rc} -> ACM most: {'BE' if state.get('wcg_enabled') else 'KI'}"
+        f"{'' if ok else ' - NEM a kért állapot!'}")
+    return ok, state
 
 
 # A gamma-rámpa "lineárisnak" tekintésének tűréshatára (65535-ös skálán). Nem 0, mert a
@@ -302,7 +338,6 @@ def enumerate_displays():
             'adapter': info.get('adapter', ''),
             'monitor_driver': info.get('monitor_driver', ''),
             'monitor_device_id': info.get('monitor_device_id', ''),
-            'icc': device_profiles(info.get('monitor_device_id', '')),
             'generic_monitor': 'generic' in (info.get('monitor_driver', '') or '').lower(),
             'primary': info.get('primary', False),
             'connection': w32.DISPLAY_OUTPUT_TECHNOLOGY.get(tech, f'0x{tech:x}' if tech else '?'),
@@ -315,6 +350,11 @@ def enumerate_displays():
             'adapter_low': p.targetInfo.adapterId.LowPart,
             'adapter_high': p.targetInfo.adapterId.HighPart,
             'target_id': p.targetInfo.id,
+            # A modern színprofil-API (ColorProfileAddDisplayAssociation) a FORRÁS
+            # azonosítót kéri, nem a target-et - lásd app/colormgmt_core.py.
+            'source_adapter_low': p.sourceInfo.adapterId.LowPart,
+            'source_adapter_high': p.sourceInfo.adapterId.HighPart,
+            'source_id': p.sourceInfo.id,
         })
     logging.info(f"[DISPLAY] {len(displays)} aktív kijelző: "
                  + '; '.join(f"{d['name']} ({d['connection']}, "
@@ -583,206 +623,9 @@ def parse_icc(path):
         return {'file': os.path.basename(path), 'path': path, 'hiba': str(e)}
 
 
-def list_color_profiles():
-    """A gépre telepített összes ICC/ICM profil, feldolgozva. A monitor-profilok kerülnek
-    előre (a nyomtató-profilokhoz ebben a nézetben nincs dolgunk, de a listából ne
-    tűnjenek el - a szerviznek az is információ, mi van a gépen)."""
-    cdir = color_directory()
-    profiles = []
-    try:
-        names = sorted(os.listdir(cdir))
-    except OSError as e:
-        logging.error(f"[DISPLAY] A színprofil-mappa nem olvasható ({cdir}): {e}")
-        return cdir, []
-    for fn in names:
-        if fn.lower().endswith(('.icc', '.icm')):
-            profiles.append(parse_icc(os.path.join(cdir, fn)))
-    profiles.sort(key=lambda p: (not p.get('is_monitor'), p.get('file', '').lower()))
-    mon = sum(1 for p in profiles if p.get('is_monitor'))
-    logging.info(f"[DISPLAY] {len(profiles)} színprofil a(z) {cdir} mappában "
-                 f"({mon} monitor-profil, {sum(1 for p in profiles if p.get('has_mhc2'))} HDR-kalibrációs).")
-    return cdir, profiles
-
-
 # ============================================================================
 # A Windows színkezelésének állapota
 # ============================================================================
-
-def _read_assoc_branch(root):
-    """A ProfileAssociations\\Display ág beolvasása egy registry-gyökérből.
-    A profil maga ÉRTÉKKÉNT ül a {osztály-GUID}\\NNNN alkulcsokban - a puszta kulcsok
-    üresek is lehetnek, ezért az ÉRTÉKEKET számoljuk, nem a kulcsokat (ez a
-    colorprofile_core-ban már megtanult lecke, itt is érvényes)."""
-    found = []
-    try:
-        base = winreg.OpenKey(root, _ICM_ASSOC)
-    except OSError:
-        return found
-    i = 0
-    while True:
-        try:
-            g = winreg.EnumKey(base, i)
-        except OSError:
-            break
-        i += 1
-        try:
-            gk = winreg.OpenKey(base, g)
-        except OSError:
-            continue
-        j = 0
-        while True:
-            try:
-                sub = winreg.EnumKey(gk, j)
-            except OSError:
-                break
-            j += 1
-            try:
-                sk = winreg.OpenKey(gk, sub)
-            except OSError:
-                continue
-            m = 0
-            while True:
-                try:
-                    name, val, _t = winreg.EnumValue(sk, m)
-                except OSError:
-                    break
-                m += 1
-                vals = val if isinstance(val, list) else [val]
-                for v in vals:
-                    if isinstance(v, str) and v.strip():
-                        found.append({'guid': g, 'sub': sub, 'value_name': name, 'profile': v})
-    return found
-
-
-def monitor_assoc_key(monitor_device_id):
-    """A monitor eszköz-azonosítójából a hozzá tartozó ICM registry-alkulcs útja.
-
-    A DeviceID alakja:  MONITOR\\AOCA610\\{4d36e96e-e325-11ce-bfc1-08002be10318}\\0003
-                                          ^^^^ osztály-GUID              ^^^^ példány
-    és a társítás pontosan ezen a két tagon ül:
-        ...\\ICM\\ProfileAssociations\\Display\\{osztály-GUID}\\{példány}
-    Visszaad: a relatív kulcsút, vagy None, ha az azonosító nem értelmezhető."""
-    if not monitor_device_id:
-        return None
-    parts = monitor_device_id.split('\\')
-    if len(parts) < 4 or not parts[2].startswith('{'):
-        logging.debug(f"[DISPLAY] Nem értelmezhető monitor-azonosító: {monitor_device_id!r}")
-        return None
-    return f"{_ICM_ASSOC}\\{parts[2]}\\{parts[3]}"
-
-
-def device_profiles(monitor_device_id):
-    """Az EHHEZ A MONITORHOZ társított ICC-profilok. Ez válaszolja meg a "melyik profil van
-    most használatban?" kérdést - a globális profile_associations() az egész gépről szól,
-    ez viszont egy konkrét kijelzőről.
-
-    Visszaad: {'user': [...], 'system': [...], 'active': <a hatályos profil neve vagy None>}
-    Az 'active' a felhasználói szintet részesíti előnyben, mert a Windows is azt használja,
-    ha a "Use my settings for this device" be van kapcsolva."""
-    key = monitor_assoc_key(monitor_device_id)
-    out = {'user': [], 'system': [], 'active': None}
-    if not key:
-        return out
-    for root, name in ((winreg.HKEY_CURRENT_USER, 'user'), (winreg.HKEY_LOCAL_MACHINE, 'system')):
-        try:
-            k = winreg.OpenKey(root, key)
-        except OSError:
-            continue
-        i = 0
-        while True:
-            try:
-                vname, val, _t = winreg.EnumValue(k, i)
-            except OSError:
-                break
-            i += 1
-            if vname.lower() != 'icmprofile':
-                continue
-            for v in (val if isinstance(val, list) else [val]):
-                if isinstance(v, str) and v.strip():
-                    out[name].append(v.strip())
-    out['active'] = (out['user'] or out['system'] or [None])[0]
-    return out
-
-
-def associate_profile(monitor_device_id, profile_name, per_user=True):
-    """Egy ICC-profil TÁRSÍTÁSA a monitorhoz - közvetlen registry-írással.
-
-    MIÉRT NEM AZ API-VAL (terepen mérve 2026-07-31, ez a modul legdrágább tanulsága):
-    a `WcsAssociateColorProfileWithDevice` ezen a Windows 11-en TRUE-t ad vissza, miközben
-    SEMMIT nem ír sehova - rendszergazdaként is, felhasználói és rendszerszintű hatókörrel
-    is; a `WcsDisassociate...` utána ERROR_PROFILE_NOT_ASSOCIATED_WITH_DEVICE-szal bukik, a
-    régi `AssociateColorProfileWithDeviceW` pedig FALSE-t ad hibakód nélkül. A közvetlen
-    registry-írás viszont MŰKÖDIK, és a Windows saját Színkezelés vezérlőpultja azonnal
-    látja is (élőben ellenőrizve: "Use my settings for this device" bepipálva, a profil
-    "(default)" jelöléssel). Ha valaki egyszer visszaírná API-hívásra, azt előbb pontosan
-    ezzel a próbával kell igazolni: társítás után a vezérlőpultnak MUTATNIA kell.
-
-    Az érték neve `ICMProfile` (REG_MULTI_SZ), és a `UsePerUserProfiles`=1 az, ami a
-    vezérlőpult "Use my settings for this device" pipájának felel meg.
-    Visszaad: (sikerult, uzenet)."""
-    key = monitor_assoc_key(monitor_device_id)
-    if not key:
-        return False, 'A monitor azonosítója nem értelmezhető.'
-    root = winreg.HKEY_CURRENT_USER if per_user else winreg.HKEY_LOCAL_MACHINE
-    scope = 'felhasználói' if per_user else 'rendszerszintű'
-    existing = device_profiles(monitor_device_id)
-    current = existing['user'] if per_user else existing['system']
-    logging.warning(f"[DISPLAY] ICC-profil TÁRSÍTÁSA ({scope}): '{profile_name}' -> "
-                    f"{monitor_device_id} (eddigi: {current or 'nincs'})")
-    profiles = [profile_name] + [p for p in current if p.lower() != profile_name.lower()]
-    try:
-        k = winreg.CreateKeyEx(root, key, 0, winreg.KEY_ALL_ACCESS)
-        winreg.SetValueEx(k, 'ICMProfile', 0, winreg.REG_MULTI_SZ, profiles)
-        if per_user:
-            winreg.SetValueEx(k, 'UsePerUserProfiles', 0, winreg.REG_DWORD, 1)
-    except OSError as e:
-        logging.error(f"[DISPLAY] A társítás nem sikerült: {e}")
-        return False, str(e)
-    logging.info(f"[DISPLAY] Társítva. A kijelző profilsora most: {profiles}")
-    return True, ''
-
-
-def disassociate_profile(monitor_device_id, profile_name):
-    """Egy ICC-profil társításának MEGSZÜNTETÉSE a monitorról (mindkét hatókörben).
-    Ha a monitorhoz nem marad profil, az `ICMProfile` érték is eltűnik - a Windows ilyenkor
-    a saját alapértelmezéséhez tér vissza. A profil FÁJLJÁHOZ nem nyúlunk.
-    Visszaad: (sikerult, uzenet)."""
-    key = monitor_assoc_key(monitor_device_id)
-    if not key:
-        return False, 'A monitor azonosítója nem értelmezhető.'
-    logging.warning(f"[DISPLAY] ICC-profil társításának MEGSZÜNTETÉSE: '{profile_name}' -> "
-                    f"{monitor_device_id}")
-    touched, errors = 0, []
-    for root, scope in ((winreg.HKEY_CURRENT_USER, 'felhasználói'),
-                        (winreg.HKEY_LOCAL_MACHINE, 'rendszerszintű')):
-        try:
-            k = winreg.OpenKey(root, key, 0, winreg.KEY_ALL_ACCESS)
-        except OSError:
-            continue
-        try:
-            val, _t = winreg.QueryValueEx(k, 'ICMProfile')
-        except OSError:
-            continue
-        cur = [v for v in (val if isinstance(val, list) else [val]) if isinstance(v, str) and v.strip()]
-        left = [v for v in cur if v.lower() != profile_name.lower()]
-        if len(left) == len(cur):
-            continue
-        try:
-            if left:
-                winreg.SetValueEx(k, 'ICMProfile', 0, winreg.REG_MULTI_SZ, left)
-            else:
-                winreg.DeleteValue(k, 'ICMProfile')
-            touched += 1
-            logging.info(f"[DISPLAY] {scope} hatókör: maradt {left or 'semmi'}")
-        except OSError as e:
-            logging.error(f"[DISPLAY] Nem sikerült eltávolítani ({scope}): {e}")
-            errors.append(str(e))
-    if errors:
-        return False, errors[0]
-    if not touched:
-        return False, 'Ez a profil nem volt társítva ehhez a kijelzőhöz.'
-    return True, ''
-
 
 def install_profile(src_path):
     """Egy ICC/ICM fájl TELEPÍTÉSE a rendszerbe (bemásolás a színprofil-mappába).
@@ -809,42 +652,6 @@ def install_profile(src_path):
         return False, 'A telepítés nem hozta létre a fájlt a színprofil-mappában.'
     logging.info(f"[DISPLAY] Telepítve: {dest}")
     return True, name
-
-
-def uninstall_profile(profile_name):
-    """Egy telepített színprofil ELTÁVOLÍTÁSA a rendszerből (a fájl törlése).
-    Előbb minden kijelzőről leszedjük a társítását, hogy ne maradjon árva hivatkozás -
-    pont az a hiba, amit a registered_profiles_report a gépen talált.
-    Visszaad: (sikerult, uzenet)."""
-    logging.warning(f"[DISPLAY] Színprofil ELTÁVOLÍTÁSA a rendszerből: {profile_name}")
-    for d in enumerate_displays():
-        icc = d.get('icc') or {}
-        if any(p.lower() == profile_name.lower() for p in icc.get('user', []) + icc.get('system', [])):
-            disassociate_profile(d.get('monitor_device_id', ''), profile_name)
-    ctypes.set_last_error(0)
-    ok = _mscms.UninstallColorProfileW(None, profile_name, True)
-    err = ctypes.get_last_error()
-    if not ok:
-        logging.error(f"[DISPLAY] UninstallColorProfileW sikertelen (err={err}).")
-        return False, f'Nem sikerült eltávolítani (hibakód: {err}).'
-    logging.info(f"[DISPLAY] Eltávolítva: {profile_name}")
-    return True, ''
-
-
-def profile_associations():
-    """Melyik monitorhoz milyen ICC-profil van társítva (rendszer- és felhasználói szinten).
-    Visszaad: {'system': [...], 'user': [...]}"""
-    out = {'system': _read_assoc_branch(winreg.HKEY_LOCAL_MACHINE),
-           'user': _read_assoc_branch(winreg.HKEY_CURRENT_USER)}
-    n = len(out['system']) + len(out['user'])
-    if n:
-        logging.info(f"[DISPLAY] {n} monitor-profil társítás: "
-                     + '; '.join(f"{a['profile']} ({a['sub']})"
-                                 for a in out['system'] + out['user']))
-    else:
-        logging.info("[DISPLAY] EGYETLEN ICC-profil sincs a kijelzőkhöz társítva - "
-                     "a Windows sRGB-ként kezeli a panelt.")
-    return out
 
 
 def calibration_management():

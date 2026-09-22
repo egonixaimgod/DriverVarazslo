@@ -904,59 +904,123 @@ def _menu_winact(api):
 
 
 def _menu_display(api):
-    _header(api, 'Kijelző & Színkezelés')
-    ui.info('Kijelzők és színprofilok beolvasása...')
-    _sync(api, api.load_display_info)
-    data = api._cli_take('display_info', {}) or {}
-    mons = data.get('displays') or []
-    if not mons:
-        ui.warn('Nem sikerült kijelző-adatot olvasni.')
-    for i, m in enumerate(mons, 1):
-        hdr = m.get('hdr') or {}
-        edid = m.get('edid') or {}
-        gamma = m.get('gamma_ramp') or {}
+    """Kijelző & Színkezelés - ugyanazok a műveletek, mint a GUI nézetben (2026-09-22-i
+    újraírás), ugyanazon a magon (app/colormgmt_core.py)."""
+    while True:
+        _header(api, 'Kijelző & Színkezelés')
+        ui.info('Kijelzők és színprofilok beolvasása...')
+        api._cli_reset_events()
+        _sync(api, api.load_display_info)
+        data = api._cli_take('display_info', {}) or {}
+        mons = data.get('displays') or []
+        if not mons:
+            ui.warn('Nem sikerült kijelző-adatot olvasni.')
+        for i, m in enumerate(mons, 1):
+            hdr = m.get('hdr') or {}
+            pr = m.get('profiles') or {}
+            lum = (m.get('edid') or {}).get('luminance') or {}
+            gamma = m.get('gamma_ramp') or {}
+            ui.write('')
+            ui.panel(f"{i}. {m.get('name') or m.get('gdi_name') or 'Kijelző'}", [
+                f"Csatlakozás    : {m.get('connection') or '-'}"
+                + (f"  ·  {m.get('refresh_hz')} Hz" if m.get('refresh_hz') else ''),
+                'HDR            : ' + ('nem támogatott' if not hdr.get('supported')
+                                       else ('BEKAPCSOLVA' if hdr.get('enabled') else 'kikapcsolva')),
+                'Autom. színkez.: ' + ('nem elérhető' if not hdr.get('wcg_supported')
+                                       else ('BE' if hdr.get('wcg_enabled') else 'KI')),
+                f"SDR-profil     : {pr.get('active_sdr') or 'nincs (Windows alapértelmezés)'}",
+                f"HDR-profil     : {pr.get('active_hdr') or 'nincs (Windows alapértelmezés)'}",
+                'Gamma (GPU)    : ' + ('LINEÁRIS' if gamma.get('linear') else 'MÓDOSÍTOTT'),
+                f"Csúcsfényerő   : {lum.get('peak_nits') or '-'} nit (a GYÁRTÓ adata, nem mérés)",
+                f"Monitor driver : {m.get('monitor_driver') or '-'}",
+            ])
         ui.write('')
-        ui.panel(f"{i}. {m.get('name') or m.get('gdi_name') or 'Kijelző'}", [
-            f"Csatlakozás    : {m.get('connection') or '-'}"
-            + (f"  ·  {m.get('refresh_hz')} Hz" if m.get('refresh_hz') else ''),
-            f"HDR            : "
-            + ('támogatott' if hdr.get('hdr_supported') or hdr.get('supported') else 'nem támogatott')
-            + ('  ·  BEKAPCSOLVA' if hdr.get('hdr_enabled') or hdr.get('enabled') else ''),
-            f"Csúcsfényerő   : {edid.get('peak_nits') or '-'} nit (a GYÁRTÓ adata, nem mérés)",
-            f"Monitor driver : {m.get('monitor_driver') or '-'}"
-            + ('  (általános Windows-driver)' if m.get('generic_monitor') else ''),
-            f"ICC profil     : {(m.get('icc') or {}).get('active') or 'nincs hozzárendelve'}",
-            f"Gamma-görbe    : "
-            + ('LINEÁRIS (semmi nem korrigál)' if gamma.get('linear') else 'MÓDOSÍTVA'),
-        ])
-    cal = data.get('calibration')
-    if cal is not None:
-        ui.write('')
-        ui.kv('Windows kalibráció-kezelés', 'BE' if cal else 'KI', label_w=30)
-    if data.get('broken'):
-        ui.warn(f"{len(data['broken'])} sérült profil-regisztráció (a 4. menüpont javítja).")
-    c = ui.menu([
-        ('1', 'HDR be/ki kapcsolása', None),
-        ('2', 'Színkezelés visszaállítása alapállapotba', 'Törli a monitor ICC-hozzárendeléseit'),
-        ('3', 'Kalibráció-kezelés be/ki', None),
-        ('4', 'Sérült profil-regisztrációk javítása', None),
-        ('5', 'Windows Színkezelés megnyitása', None),
-    ], back_label='Vissza a főmenübe')
-    if c == '1' and mons:
-        i = ui.pick_indices('Melyik kijelző? (sorszám)', len(mons))
-        if i:
-            m = mons[i[0]]
-            api.set_display_hdr(m.get('adapter_low'), m.get('adapter_high'),
-                                m.get('target_id'), ui.confirm('Bekapcsoljam a HDR-t?', True))
-    elif c == '2':
-        if ui.confirm('Biztosan visszaállítod a színkezelést alapállapotba?', False):
-            _run_screen(api, 'Színkezelés', lambda: api.reset_display_colors())
-    elif c == '3':
-        api.set_calibration_management(ui.confirm('Kalibráció-kezelés BEkapcsolása?', True))
-    elif c == '4':
-        _run_screen(api, 'Profil-javítás', lambda: api.repair_color_registration())
-    elif c == '5':
-        api.open_windows_color_tool('colorcpl')
+        cal = data.get('calibration')
+        ui.kv('Profil-betöltés', 'LETILTVA' if cal == 0 else 'engedélyezve', label_w=30)
+        ui.kv('Autom. színkezelés tartós zár', 'BE (minden bejelentkezéskor kikapcsol)'
+              if data.get('acm_guard') else 'nincs', label_w=30)
+        if data.get('broken') or data.get('orphans'):
+            ui.warn(f"{data.get('broken', 0)} törött regisztráció, {len(data.get('orphans') or [])} árva "
+                    f"társítás (a 7. menüpont javítja).")
+        c = ui.menu([
+            ('1', 'HDR be/ki', None),
+            ('2', 'Automatikus színkezelés (ACM) be/ki', None),
+            ('3', 'ACM tartós kikapcsolása (zár) be/ki', None),
+            ('4', 'Profil-betöltés engedélyezése / letiltása', 'Tiltáskor minden profil lekerül'),
+            ('5', 'Színprofil aktiválása / levétele', None),
+            ('6', 'Színprofil törlése', None),
+            ('7', 'Hibás bejegyzések javítása', None),
+            ('8', 'MINDEN színbeállítás GYÁRI visszaállítása', None),
+            ('9', 'Windows Színkezelés megnyitása', None),
+        ], back_label='Vissza a főmenübe')
+        if not c:
+            return
+
+        def pick_mon():
+            if len(mons) == 1:
+                return mons[0]
+            i = ui.pick_indices('Melyik kijelző? (sorszám)', len(mons))
+            return mons[i[0]] if i else None
+
+        if c in ('1', '2', '5') and not mons:
+            continue
+        if c == '1':
+            m = pick_mon()
+            if m:
+                on = ui.confirm('Bekapcsoljam a HDR-t?', not (m.get('hdr') or {}).get('enabled'))
+                _run_screen(api, 'HDR', lambda: api.set_display_hdr(m['index'], on))
+        elif c == '2':
+            m = pick_mon()
+            if m:
+                on = ui.confirm('Bekapcsoljam az automatikus színkezelést?', False)
+                _run_screen(api, 'ACM', lambda: api.set_display_acm(m['index'], on))
+        elif c == '3':
+            on = ui.confirm('Kapcsoljam ki TARTÓSAN az automatikus színkezelést (zár)?', not data.get('acm_guard'))
+            _run_screen(api, 'ACM-zár', lambda: api.set_acm_lock(on))
+        elif c == '4':
+            on = ui.confirm('ENGEDÉLYEZZEM a profil-betöltést? (Nem = letiltás, minden profil lekerül)',
+                            cal == 0)
+            _run_screen(api, 'Profil-betöltés', lambda: api.set_profile_loading(on))
+        elif c == '5':
+            m = pick_mon()
+            if not m:
+                continue
+            slot = 'hdr' if ui.confirm('HDR-módra? (Nem = SDR)', False) else 'sdr'
+            libs = [p for p in (data.get('library') or []) if p.get('selectable')]
+            ui.table(['#', 'Profil', 'Típus'], [[str(k), p.get('file'), 'HDR' if p.get('hdr') else 'SDR']
+                                                for k, p in enumerate(libs, 1)])
+            ui.dim('0 = profil levétele (Windows alapértelmezés)')
+            raw = ui.ask('Sorszám', '0').strip()
+            if raw.isdigit() and 0 <= int(raw) <= len(libs):
+                f = libs[int(raw) - 1]['file'] if int(raw) else ''
+                _run_screen(api, 'Profil', lambda: api.activate_color_profile(m['index'], slot, f))
+        elif c == '6':
+            libs = data.get('library') or []
+            ui.table(['#', 'Fájl', 'Eredet'], [[str(k), p.get('file'), 'Windows' if p.get('windows') else 'hozzáadott']
+                                               for k, p in enumerate(libs, 1)])
+            i = ui.pick_indices('Melyik fájlt törlöm?', len(libs))
+            if i and ui.confirm(f"Biztosan törlöd: {libs[i[0]]['file']}?", False):
+                f = libs[i[0]]['file']
+                _run_screen(api, 'Törlés', lambda: api.uninstall_icc_profile(f))
+        elif c == '7':
+            _run_screen(api, 'Javítás', lambda: api.repair_color_registration())
+        elif c == '8':
+            plan = api.get_color_reset_preview() or {}
+            ui.write('')
+            ui.panel('Gyári visszaállítás - ezt fogja csinálni', [
+                f"Profil-társítás törlése : {len(plan.get('associations') or [])}",
+                f"Hozzáadott profilfájl   : {len(plan.get('files') or [])}",
+                f"Nyomtató-profilfájl     : {len(plan.get('printer_files') or [])}",
+                f"HDR kikapcsolása        : {', '.join(plan.get('hdr_on') or []) or '-'}",
+                f"ACM kikapcsolása        : {', '.join(plan.get('acm_on') or []) or '-'}",
+                f"ACM-zár eltávolítása    : {'igen' if plan.get('acm_guard') else '-'}",
+                'Megmarad (Windows gyári): ' + ', '.join(plan.get('kept_windows') or []),
+            ])
+            if ui.confirm('Biztosan MINDENT visszaállítasz gyárira?', False):
+                pr = ui.confirm('A nyomtató-profilokat is töröljem?', True)
+                _run_screen(api, 'Gyári visszaállítás', lambda: api.factory_reset_colors(pr))
+        elif c == '9':
+            api.open_windows_color_tool('colorcpl')
 
 
 def _menu_stress(api):

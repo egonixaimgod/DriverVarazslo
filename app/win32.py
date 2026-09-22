@@ -166,6 +166,10 @@ DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE = 10  # régi HDR-kapcsoló
 DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL = 11
 DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO_2 = 15  # Win11 24H2+, részletesebb
 DISPLAYCONFIG_DEVICE_INFO_SET_HDR_STATE = 16              # Win11 24H2+ HDR-kapcsoló
+# Win11 24H2+ WCG-kapcsoló = a Beállítások "Automatically manage color for apps" (ACM)
+# kapcsolója. ÉLŐBEN MÉRVE 2026-09-22: 1-re a Beállítások kapcsolója és a
+# MonitorDataStore\<monitor>\AutoColorManagementEnabled is 1 lett, 0-ra mindkettő 0.
+DISPLAYCONFIG_DEVICE_INFO_SET_WCG_STATE = 17
 
 # DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY - csak a szerviz által látott gyakoriak
 DISPLAY_OUTPUT_TECHNOLOGY = {
@@ -261,6 +265,13 @@ class _DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE(ctypes.Structure):
 
 
 class _DISPLAYCONFIG_SET_HDR_STATE(ctypes.Structure):
+    _fields_ = [("header", _DISPLAYCONFIG_DEVICE_INFO_HEADER),
+                ("value", ctypes.wintypes.UINT)]
+
+
+class _DISPLAYCONFIG_SET_WCG_STATE(ctypes.Structure):
+    """DISPLAYCONFIG_SET_WCG_STATE: header + egy bitmező-unió (enableWcg:1) - a mérete
+    pontosan ugyanaz, mint a SET_HDR_STATE-é."""
     _fields_ = [("header", _DISPLAYCONFIG_DEVICE_INFO_HEADER),
                 ("value", ctypes.wintypes.UINT)]
 
