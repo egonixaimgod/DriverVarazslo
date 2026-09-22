@@ -58,8 +58,8 @@ from app.gui.updater import GuiUpdaterMixin
 # --- A CLI saját metódusai ---
 #
 # CSAK AZ MARAD, AMI NEM DUPLIKÁTUM. A régi CLI feature-mixinek (app/cli/drivers.py,
-# backup.py, wu.py, ghost.py, tempclean.py, blockscript.py, autofix.py, bitlocker.py,
-# report.py, bcd.py, dupdrivers.py) ugyanazokat a metódusneveket vitték, mint a GUI
+# backup.py, wu.py, ghost.py, blockscript.py, autofix.py, bitlocker.py, report.py, bcd.py,
+# dupdrivers.py; a tempclean.py 2026-09-22-én TÖRÖLVE) ugyanazokat a metódusneveket vitték, mint a GUI
 # párjaik - az MRO-ban a GUI változat nyert volna, tehát a CLI-beliek NÉMÁN HOLT KÓDDÁ
 # váltak volna. Egy holt kód, ami élőnek látszik, ennek a projektnek a visszatérő hibája
 # (lásd CLAUDE.md, Build 192), ezért inkább ki sem kerülnek a listába: a menü közvetlenül

@@ -2344,7 +2344,7 @@ Vagyis **ezen a gépen EGYETLEN SMBIOS mező sem hordozza a gyártót**; az egye
 **Cleanup runs in a `finally`**: everything *we* added this run (printer/port/staged driver, tracked via `we_added_printer`/`staged_driver_published_name`) is removed on success AND failure (a half-added leftover port broke the next attempt — hence also the individual if-not-exists guards); pre-existing printers/drivers are never touched; cleanup first waits up to 60s for the queue to drain (Sumatra returns before the spooler actually sends).
 - **Net Blokkoló Script** (`app/blockscript_core.py`, thin wrappers in `app/gui/blockscript.py` + `app/cli/blockscript.py`): downloads `block.bat` from a GitHub release URL into `_app_data_dir()` — download only, **never executes it**. Deliberately `.bat`, not `.ps1` (exempt from PowerShell execution policy; self-elevates via UAC). Same fresh-Windows cert fallback as stresstools (verification stays on).
 - **BitLocker manager** (`app/gui/bitlocker.py`, GUI-only view): status via `Get-BitLockerVolume`, mapped to Hungarian status text + a `color` key — the mapping keyword-matches the *Hungarian* text, so rewording the strings silently breaks the badge colors. `disable_bitlocker` issues `Disable-BitLocker` and reports "decryption started" (background decryption; status re-emitted after 2s). Both refuse offline mode.
-- **Temp Fájlok Törlése** (`app/tempclean_core.py` core + thin `clean_temp_files` in both API classes): `_temp_clean_category_defs(sys_drive)` returns `(key, label, [paths], [services_to_stop_first], default_checked)` (user/Windows TEMP + WU cache are the only defaults; DO cache, WER, D3DSCache, CBS logs, crash dumps, INetCache, color profiles are opt-in), `_clean_folder_contents()` deletes contents entry-by-entry (one locked file doesn't abort the rest), `_empty_recycle_bin()` wraps `SHQueryRecycleBinW`+`SHEmptyRecycleBinW`. New category → add to `_temp_clean_category_defs` once. Service-locked categories (WU → `wuauserv`+`bits`, DO → `DoSvc`, color profiles → `Spooler`) stop the service once per batch, restart once after.
+- **Temp Fájlok Törlése / Rendszer karbantartás** — **2026-09-22-ÉN ÁTDOLGOZVA, lásd [lent](#rendszer-karbantartás-átdolgozva-2026-09-22-mérve); az alábbi az eredeti leírás, két állítása MEGDŐLT (jelölve).** (`app/tempclean_core.py` core + thin `clean_temp_files` in both API classes): `_temp_clean_category_defs(sys_drive)` returns `(key, label, [paths], [services_to_stop_first], default_checked)` (user/Windows TEMP + WU cache are the only defaults; DO cache, WER, D3DSCache, CBS logs, crash dumps, INetCache ~~, color profiles~~ are opt-in), `_clean_folder_contents()` deletes contents entry-by-entry ~~(one locked file doesn't abort the rest)~~ **[HAMIS VOLT: almappán belül egy zárolt fájl az EGÉSZ almappát bent hagyta — mérve 50-ből 50]**, `_empty_recycle_bin()` wraps `SHQueryRecycleBinW`+`SHEmptyRecycleBinW`. New category → add to `_temp_clean_category_defs` once. Service-locked categories (WU → `wuauserv`+`bits`, DO → `DoSvc`, color profiles → `Spooler`) stop the service once per batch, restart once after.
 
 #### A TEMP-TAKARÍTÁS MINDIG MINDENT TÖRÖL — ide SOHA ne tegyél kivétel-listát (explicit user decision, 2026-09-22)
 
@@ -2365,6 +2365,33 @@ Vagyis **ezen a gépen EGYETLEN SMBIOS mező sem hordozza a gyártót**; az egye
 **AMI A NAPLÓBÓL TÉNY MARAD, és amit a felhasználó ezt tudva vállal** (nem építünk rá védelmet, csak leírjuk, hogy egy jövőbeli bejelentés megválaszolható legyen):
 - a `%TEMP%` takarítása elviszi a `DriverVarázsló_Stress` mappát és a `stresstools.zip`-et, tehát a következő riport/stresszteszt **újra letölti a 621 MB-ot** (mérve: 10,6 mp gyors neten). Ez a takarítás dolga, nem hiba;
 - a takarítás a **futó exe `_MEI<pid>` mappáját** is törölni próbálja. A `shutil.rmtree` nem atomikus, és a Windows csak a DLL/pyd fájlokat zárolja — az adatfájlokat (`ui.html`) nem. A 2026-09-22-i futásban nem lett kár (ellenőrizve: 50 fájl, `ui.html` és `base_library.zip` megvan), mert a bejárás előbb ütközött a zárolt `base_library.zip`-be. **Ha valaha egy „takarítás után elszállt/üres lett a felület" bejelentés jön, itt kezdd** — de a válasz akkor sem kivétel-lista, hanem legfeljebb az, hogy a takarítás után a program figyelmeztet/újraindul.
+
+#### RENDSZER KARBANTARTÁS: ÁTDOLGOZVA (2026-09-22, mérve)
+
+**Explicit user decision:** a felhasználó átnézést kért (*„azt még egy régi gemini modellel csináltam… minden megfelelően működik azon a pagen?"*), majd a jelentés alapján mind a négy javaslatot kérte: hibák javítása, méret kategóriánként + szabad hely, új kategóriák, a színprofil-kategória kivétele. **Az egyszerűség szándékos** (*„tetszik, hogy ilyen faék egyszerű"*) — a nézet továbbra is: pipáld ki → törlés.
+
+**A MÉRT HIBÁK, és mi lett velük:**
+
+| # | hiba | mérés | javítás |
+|---|---|---|---|
+| 1 | **egy zárolt fájl az EGÉSZ almappát bent hagyta** — almappánként `shutil.rmtree`, ami az első hibánál megáll | almappa 50 fájllal, 1 zárolt → **0 törlődött, 50/50 maradt**, a kiírás „1 kihagyva" | `_delete_contents`: fájlonként, alulról felfelé; ugyanaz a próba most **51 törölve, 1 kihagyva** (csak a zárolt) |
+| 2 | a felszabadított hely csak teljes siker esetén számolódott | — | fájlonként számol, **és** a végén a meghajtó szabad helyét előtte–utána is méri (az az igazság) |
+| 3 | a szolgáltatások visszaindítása nem volt `finally`-ben, és MINDENT elindított | a fejlesztői gépen a `wuauserv`/`bits`/`DoSvc` **eleve le volt állítva** — a régi kód takarítás után elindította volna őket | `stop_services` felméri, mi FUTOTT előtte, `finally`-ben csak azokat indítja vissza, és visszaolvassa; ami nem indult el, azt kiírja |
+| 4 | Lomtár: „kiürítve" ellenőrzés nélkül, üresen is +1 elem | — | előtte/utána `SHQueryRecycleBinW`; üres Lomtárnál „már üres volt" |
+| 5 | a színprofil-kategória szövege: „a Windows sRGB-je is törlődik" | `icacls`: a Rendszergazdáknak csak **RX** joguk van a Windows színfájljaira (TrustedInstaller) — **nem törlődtek** | a kategória **kikerült**: a Kijelző nézet gyári visszaállítása tisztábban csinálja (a hozzárendeléseket is leszedi, árva bejegyzést nem hagy) |
+| 6 | a miniatűr-gyorsítótár zárolt fájljai szó nélkül maradtak ki | 30-ból **10 zárolt** (a Windows Intéző tartja) | a kiírás megnevezi: „az Intéző használja, kijelentkezés után törölhetők" |
+| 7 | `app/cli/tempclean.py` holt kód, a folyamat-ablak címe a régi | — | törölve / „Rendszer karbantartás" |
+
+**MAPPA-LINKET SOHA NEM KÖVETÜNK (`_is_reparse`, `FILE_ATTRIBUTE_REPARSE_POINT`):** a %TEMP%-ben lévő junction/symlink **maga törlődik**, a célja nem. Mérve: egy kifelé mutató junction a %TEMP%-próbában törlődött, a cél-mappa fájlja érintetlen maradt. **Ez NEM kivétel a törlésből** (a fenti szabály szerint ide kivétel-lista nem kerülhet): a link a takarított mappa tartalma és törlődik — a CÉLJA viszont nem az, és a követése a %TEMP%-ből bárhová kinyúlhatna.
+
+**MÉRET-ELŐNÉZET (`measure_categories`, `scan_temp_sizes` → `tempclean_sizes` esemény):** a nézetbe lépéskor és minden takarítás után lefut (mérve ~2 mp). Ha egy mappa NEM OLVASHATÓ, a méret `None` → „nem olvasható", **nem 0** (3. elv; a nem emelt jogú teszt-shellben a Windows\Temp így jelent meg — az első változat 0 B-t írt). A komponenstár mérete olcsón nem kérdezhető le (a DISM-elemzés percekig tart) → „futtatáskor derül ki". Alul: kiválasztott összeg + a meghajtó szabad/teljes helye.
+
+**ÚJ KATEGÓRIÁK (mind alapból KI):**
+- **Böngésző-gyorsítótárak** — Chrome/Edge/Brave (`Default` és `Profile N`: `Cache`, `Code Cache`, `GPUCache`) + Firefox (`cache2`). **Csak a gyorsítótár**: süti, előzmény, jelszó, könyvjelző NEM. Mérve a fejlesztői gépen: **1,6 GB** — több, mint a %TEMP%.
+- **Komponenstár-takarítás** — `DISM /Online /Cleanup-Image /StartComponentCleanup`, 30 perces korláttal. **Szándékosan /ResetBase NÉLKÜL**: az minden telepített frissítést eltávolíthatatlanná tenne.
+- a **felhasználói** hibajelentések (`%LOCALAPPDATA%\Microsoft\Windows\WER`) a meglévő WER-kategóriába kerültek.
+
+A nem-mappa lépések (miniatűr, Lomtár, komponenstár) egy helyen: `SPECIAL_CATEGORIES`; a GUI és a CLI is abból dolgozik. **Ellenőrizve:** a törlés a zárolt/junction/írásvédett/mély-mappa próbán (bájtra pontos), a méret-felmérés élőben, a két szolgáltatás-szkript szintaxisa (PSParser, 0 hiba) és logikája csonkkal, a nézet DOM-meghajtással (a törlés gomb pontosan a kipipált kategóriákat küldi) és képernyőképpel. **Nem futott élőben** (nem emelt jogú shell): maga a szolgáltatás-leállítás és a DISM.
 
 ## Git / release rules (IMPORTANT)
 

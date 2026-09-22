@@ -1126,22 +1126,23 @@ def _menu_maintenance(api):
 def _tempclean_flow(api):
     """A kategóriák UGYANABBÓL a definícióból jönnek, amit a GUI is használ
     (`tempclean_core._temp_clean_category_defs`), tehát a két felület nem csúszhat szét."""
-    from app.tempclean_core import _temp_clean_category_defs
-    defs = _temp_clean_category_defs(api.sys_drive)
-    rows = [[str(i), label, 'BE' if default else '-']
-            for i, (key, label, paths, svcs, default) in enumerate(defs, 1)]
-    rows.append([str(len(defs) + 1), 'Miniatűr-gyorsítótár (thumbnail cache)', '-'])
-    rows.append([str(len(defs) + 2), 'Lomtár ürítése', '-'])
-    ui.table(['#', 'Kategória', 'Alapból'], rows, widths=[4, 50, 10])
-    ui.dim('Az alapból BE jelölésűek a biztonságos törzs-tartalom.')
-    sel = ui.pick_indices("Melyeket törölje? (ENTER = az alapértelmezettek)", len(defs) + 2)
-    opts = {}
-    if sel:
-        for i, (key, label, paths, svcs, default) in enumerate(defs):
-            opts[key] = i in sel
-        opts['thumbnail_cache'] = (len(defs)) in sel
-        opts['recycle_bin'] = (len(defs) + 1) in sel
-    api.clean_temp_files(opts or None)
+    from app import tempclean_core as tc
+    ui.info('Méretek felmérése...')
+    meas = tc.measure_categories(api.sys_drive)
+    sizes = meas.get('sizes', {})
+    items = [(k, l, d) for k, l, _p, _s, d in tc._temp_clean_category_defs(api.sys_drive)] + list(tc.SPECIAL_CATEGORIES)
+
+    def sz(k):
+        b = (sizes.get(k) or {}).get('bytes')
+        return 'futáskor derül ki' if b is None else tc._fmt_bytes(b)
+    rows = [[str(i), label, sz(key), 'BE' if default else '-'] for i, (key, label, default) in enumerate(items, 1)]
+    ui.table(['#', 'Kategória', 'Méret', 'Alapból'], rows, widths=[4, 52, 16, 8])
+    free = (meas.get('disk') or {}).get('free')
+    if free is not None:
+        ui.dim(f'Szabad hely most: {tc._fmt_bytes(free)}. Az alapból BE jelölésűek a biztonságos törzs-tartalom.')
+    sel = ui.pick_indices("Melyeket törölje? (ENTER = az alapértelmezettek)", len(items))
+    opts = {key: (i in sel) for i, (key, _l, _d) in enumerate(items)} if sel else None
+    api.clean_temp_files(opts)
 
 
 def _bitlocker_flow(api):

@@ -837,6 +837,22 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .stress-dl-box{padding:14px 18px;margin-bottom:16px;flex-direction:column;gap:8px}
 .stress-dl-label{font-size:12.5px;color:var(--text2);font-weight:600}
 .tool-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:12px}
+/* --- Rendszer karbantartás (2026-09-22): kategória-sor mérettel, összesítő sáv --- */
+.tc-refresh{margin-left:auto}
+.tc-group-t{font-size:11px;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.6px;margin:6px 0 8px}
+.tc-list{display:flex;flex-direction:column;gap:6px;margin-bottom:18px}
+.tc-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 14px;border-radius:10px;
+  border:1px solid rgba(180,100,255,0.16);background:rgba(38,22,66,0.4);transition:border-color var(--t),background var(--t)}
+.tc-row:hover{border-color:var(--glass-border-hover);background:rgba(50,30,85,0.5)}
+.tc-row .toggle{flex:1;min-width:0}
+.tc-size{flex:0 0 auto;font-size:12.5px;font-weight:700;color:#ecd6ff;font-family:var(--mono);white-space:nowrap}
+.tc-size.big{color:#ffc978}
+.tc-size.dim{color:var(--muted);font-weight:500}
+.tc-foot{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--glass-border)}
+.tc-sum{display:flex;gap:28px;flex-wrap:wrap}
+.tc-sum>div{display:flex;flex-direction:column}
+.tc-sum-l{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+.tc-sum-v{font-size:18px;font-weight:800;color:#fff}
 /* =====================================================================
    KIJELZŐ & SZÍNKEZELÉS (2026-09-22-i teljes újraírás, explicit user decision:
    *"legyen professzionális de egyszerű és átlátható, jól strukturált"*).
@@ -1973,82 +1989,74 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             <div class="vh-chips">
               <span class="hero-chip">👤 TEMP mappák</span>
               <span class="hero-chip">🔄 WU gyorsítótár</span>
-              <span class="hero-chip">🎨 Színprofil-szemét (HP!)</span>
+              <span class="hero-chip">🌐 Böngésző-gyorsítótár</span>
+              <span class="hero-chip">📏 Méret előre</span>
               <span class="hero-chip">🗑️ Lomtár</span>
             </div>
           </div>
         </div>
+        <!-- 2026-09-22: minden kategória mellett a MÉRETE (a Python méri, `scan_temp_sizes`),
+             alul a kiválasztott összeg és a meghajtó szabad helye. A színprofil-kategória
+             kikerült (a Kijelző nézet gyári visszaállítása csinálja tisztábban); új: a
+             böngésző-gyorsítótárak és a komponenstár-takarítás. Az azonosítók (tc-*) a régiek. -->
         <div class="panel glass">
-          <div class="panel-title"><span class="emoji">☑️</span> Válaszd ki, mit takarítson ki</div>
+          <div class="panel-title"><span class="emoji">☑️</span> Válaszd ki, mit takarítson ki
+            <span class="tc-refresh"><button class="btn btn-sm" onclick="scanTempSizes()" id="btn-tc-scan">🔄 Méretek frissítése</button></span></div>
 
-          <div style="display:flex; flex-direction:column; gap:14px; margin-bottom:20px;">
-            <label class="toggle" title="A jelenlegi felhasználó ideiglenes fájljai (%TEMP% mappa) - böngésző/telepítő/egyéb programok által hátrahagyott törmelék.">
-              <input type="checkbox" id="tc-user-temp" checked>
-              <span class="toggle-track"></span>
-              👤 Felhasználói TEMP mappa (%TEMP%)
-            </label>
-            <label class="toggle" title="A rendszerszintű C:\Windows\Temp mappa tartalma - telepítők és rendszerfolyamatok ideiglenes fájljai.">
-              <input type="checkbox" id="tc-windows-temp" checked>
-              <span class="toggle-track"></span>
-              🖥️ Rendszer TEMP mappa (Windows\Temp)
-            </label>
-            <label class="toggle" title="A Windows Update letöltött (de már telepített/felesleges) frissítés-csomagjai. Biztonságos: a Windows Update magától újraépíti, ha kell.">
-              <input type="checkbox" id="tc-wu-cache" checked>
-              <span class="toggle-track"></span>
-              🔄 Windows Update letöltési gyorsítótár
-            </label>
+          <div class="tc-group-t">Alap takarítás — biztonságos, alapból bekapcsolva</div>
+          <div class="tc-list">
+            <div class="tc-row" title="A jelenlegi felhasználó ideiglenes fájljai (%TEMP% mappa) - böngésző/telepítő/egyéb programok által hátrahagyott törmelék. A zárolt (épp használt) fájlok kimaradnak.">
+              <label class="toggle"><input type="checkbox" id="tc-user-temp" checked onchange="tcUpdateTotal()"><span class="toggle-track"></span>👤 Felhasználói TEMP mappa (%TEMP%)</label>
+              <span class="tc-size" id="tcs-user_temp">…</span></div>
+            <div class="tc-row" title="A rendszerszintű C:\Windows\Temp mappa tartalma - telepítők és rendszerfolyamatok ideiglenes fájljai.">
+              <label class="toggle"><input type="checkbox" id="tc-windows-temp" checked onchange="tcUpdateTotal()"><span class="toggle-track"></span>🖥️ Rendszer TEMP mappa (Windows\Temp)</label>
+              <span class="tc-size" id="tcs-windows_temp">…</span></div>
+            <div class="tc-row" title="A Windows Update letöltött (de már telepített/felesleges) frissítés-csomagjai. Biztonságos: a Windows Update magától újraépíti, ha kell.">
+              <label class="toggle"><input type="checkbox" id="tc-wu-cache" checked onchange="tcUpdateTotal()"><span class="toggle-track"></span>🔄 Windows Update letöltési gyorsítótár</label>
+              <span class="tc-size" id="tcs-wu_cache">…</span></div>
           </div>
 
-          <p style="margin:4px 0 10px; color: var(--text3); font-size:12px;">További, alapból KIKAPCSOLT extra kategóriák - csak akkor pipáld be, ha tudod, hogy kell:</p>
-          <div style="display:flex; flex-direction:column; gap:14px; margin-bottom:20px;">
-            <label class="toggle" title="Fájl-/mappaikonok és előnézeti képek gyorsítótára - törlés után a Windows Intéző újra legenerálja, amikor szükség van rá (első megnyitáskor kicsit lassabb lehet).">
-              <input type="checkbox" id="tc-thumbnail-cache">
-              <span class="toggle-track"></span>
-              🖼️ Miniatűr (thumbnail) gyorsítótár
-            </label>
-            <label class="toggle" title="FIGYELEM: ez véglegesen kiüríti a Lomtárat - a benne lévő fájlok utólag NEM állíthatók vissza!">
-              <input type="checkbox" id="tc-recycle-bin">
-              <span class="toggle-track"></span>
-              🗑️ Lomtár (Recycle Bin) ürítése
-            </label>
-            <label class="toggle" title="A P2P Windows Update letöltési gyorsítótára (Delivery Optimization). Biztonságos: a szolgáltatás magától újraépíti.">
-              <input type="checkbox" id="tc-delivery-opt">
-              <span class="toggle-track"></span>
-              📦 Delivery Optimization gyorsítótár
-            </label>
-            <label class="toggle" title="Összegyűlt programösszeomlás-jelentések (Windows Error Reporting) - diagnosztikai adat, biztonságosan törölhető.">
-              <input type="checkbox" id="tc-wer">
-              <span class="toggle-track"></span>
-              ⚠️ Hibajelentések (Windows Error Reporting)
-            </label>
-            <label class="toggle" title="Videokártya driver által legenerált shader-gyorsítótár - törlés után játékok/appok újra legenerálják (első indításkor kicsit lassabb betöltés jöhet).">
-              <input type="checkbox" id="tc-shader-cache">
-              <span class="toggle-track"></span>
-              🎮 DirectX Shader Cache
-            </label>
-            <label class="toggle" title="Windows telepítési/frissítési naplófájlok (CBS logok) - csak diagnosztikai adat, hibakereséshez szokott kelleni.">
-              <input type="checkbox" id="tc-cbs-logs">
-              <span class="toggle-track"></span>
-              📜 Windows telepítési naplók (CBS logok)
-            </label>
-            <label class="toggle" title="Programösszeomláskor keletkezett memória-dump fájlok (%LOCALAPPDATA%\CrashDumps) - hibakereséshez szokott kelleni, egyébként simán törölhető.">
-              <input type="checkbox" id="tc-crash-dumps">
-              <span class="toggle-track"></span>
-              💥 Programösszeomlás-dumpok (Crash Dumps)
-            </label>
-            <label class="toggle" title="Az elavult Internet Explorer/Edge (legacy) böngésző-gyorsítótára.">
-              <input type="checkbox" id="tc-inet-cache">
-              <span class="toggle-track"></span>
-              🌐 Internet Explorer/Edge (legacy) gyorsítótár
-            </label>
-            <label class="toggle" title="A C:\Windows\System32\spool\drivers\color mappa tartalma - főleg nyomtatódriverek (tipikusan HP) szemetelik tele akár több GB színprofillal. FIGYELEM: a monitor/nyomtató telepített ICC színprofiljai is törlődnek - a driverek újratelepítése visszateszi őket.">
-              <input type="checkbox" id="tc-color-profiles">
-              <span class="toggle-track"></span>
-              🎨 Színprofilok (spool\drivers\color)
-            </label>
+          <div class="tc-group-t">Extra — alapból kikapcsolva, csak ha tudod, hogy kell</div>
+          <div class="tc-list">
+            <div class="tc-row" title="A Chrome, Edge, Brave és Firefox GYORSÍTÓTÁRA minden profilban (Cache, Code Cache, GPUCache, cache2). Sütik, előzmények, jelszavak, könyvjelzők NEM törlődnek. Ha a böngésző épp fut, a zárolt fájlok kimaradnak - érdemes előtte bezárni.">
+              <label class="toggle"><input type="checkbox" id="tc-browser-cache" onchange="tcUpdateTotal()"><span class="toggle-track"></span>🌐 Böngésző-gyorsítótárak (Chrome, Edge, Brave, Firefox)</label>
+              <span class="tc-size" id="tcs-browser_cache">…</span></div>
+            <div class="tc-row" title="Fájl-/mappaikonok és előnézeti képek gyorsítótára - a Windows Intéző újra legenerálja. Az épp használt fájlokat az Intéző zárolja, azok kijelentkezés után törölhetők.">
+              <label class="toggle"><input type="checkbox" id="tc-thumbnail-cache" onchange="tcUpdateTotal()"><span class="toggle-track"></span>🖼️ Miniatűr (thumbnail) gyorsítótár</label>
+              <span class="tc-size" id="tcs-thumbnail_cache">…</span></div>
+            <div class="tc-row" title="FIGYELEM: ez véglegesen kiüríti a Lomtárat - a benne lévő fájlok utólag NEM állíthatók vissza!">
+              <label class="toggle"><input type="checkbox" id="tc-recycle-bin" onchange="tcUpdateTotal()"><span class="toggle-track"></span>🗑️ Lomtár ürítése</label>
+              <span class="tc-size" id="tcs-recycle_bin">…</span></div>
+            <div class="tc-row" title="A régi, már lecserélt Windows-frissítések maradéka a komponenstárban (DISM /StartComponentCleanup). 5-20 percig is tarthat. A mérete csak futtatáskor derül ki. A már telepített frissítések eltávolíthatósága megmarad (nem /ResetBase).">
+              <label class="toggle"><input type="checkbox" id="tc-component-cleanup" onchange="tcUpdateTotal()"><span class="toggle-track"></span>🧩 Régi Windows-frissítések maradéka (komponenstár)</label>
+              <span class="tc-size" id="tcs-component_cleanup">…</span></div>
+            <div class="tc-row" title="A P2P Windows Update letöltési gyorsítótára (Delivery Optimization). Biztonságos: a szolgáltatás magától újraépíti.">
+              <label class="toggle"><input type="checkbox" id="tc-delivery-opt" onchange="tcUpdateTotal()"><span class="toggle-track"></span>📦 Delivery Optimization gyorsítótár</label>
+              <span class="tc-size" id="tcs-delivery_opt">…</span></div>
+            <div class="tc-row" title="Összegyűlt programösszeomlás-jelentések (Windows Error Reporting) - a gépszintűek és a felhasználóiak is. Diagnosztikai adat.">
+              <label class="toggle"><input type="checkbox" id="tc-wer" onchange="tcUpdateTotal()"><span class="toggle-track"></span>⚠️ Hibajelentések (Windows Error Reporting)</label>
+              <span class="tc-size" id="tcs-wer">…</span></div>
+            <div class="tc-row" title="Videokártya driver által legenerált shader-gyorsítótár - törlés után játékok/appok újra legenerálják (első indításkor kicsit lassabb betöltés jöhet).">
+              <label class="toggle"><input type="checkbox" id="tc-shader-cache" onchange="tcUpdateTotal()"><span class="toggle-track"></span>🎮 DirectX Shader Cache</label>
+              <span class="tc-size" id="tcs-shader_cache">…</span></div>
+            <div class="tc-row" title="Windows telepítési/frissítési naplófájlok (CBS logok) - csak diagnosztikai adat, hibakereséshez szokott kelleni.">
+              <label class="toggle"><input type="checkbox" id="tc-cbs-logs" onchange="tcUpdateTotal()"><span class="toggle-track"></span>📜 Windows telepítési naplók (CBS logok)</label>
+              <span class="tc-size" id="tcs-cbs_logs">…</span></div>
+            <div class="tc-row" title="Programösszeomláskor keletkezett memória-dump fájlok (%LOCALAPPDATA%\CrashDumps) - hibakereséshez szokott kelleni, egyébként simán törölhető.">
+              <label class="toggle"><input type="checkbox" id="tc-crash-dumps" onchange="tcUpdateTotal()"><span class="toggle-track"></span>💥 Programösszeomlás-dumpok (Crash Dumps)</label>
+              <span class="tc-size" id="tcs-crash_dumps">…</span></div>
+            <div class="tc-row" title="Az Internet Explorer és a régi (nem Chromium-alapú) Edge gyorsítótára - a mai Edge-é a böngésző-kategóriában van.">
+              <label class="toggle"><input type="checkbox" id="tc-inet-cache" onchange="tcUpdateTotal()"><span class="toggle-track"></span>🌍 Internet Explorer / régi Edge gyorsítótár</label>
+              <span class="tc-size" id="tcs-inet_cache">…</span></div>
           </div>
 
-          <button class="btn btn-big btn-primary" onclick="cleanTempFiles()" id="btn-tempclean">🧹 Kiválasztott Kategóriák Törlése</button>
+          <div class="tc-foot">
+            <div class="tc-sum">
+              <div><span class="tc-sum-l">Kiválasztva</span><span class="tc-sum-v" id="tc-total">…</span></div>
+              <div><span class="tc-sum-l">Szabad hely</span><span class="tc-sum-v" id="tc-disk">…</span></div>
+            </div>
+            <button class="btn btn-big btn-primary" onclick="cleanTempFiles()" id="btn-tempclean">🧹 Kiválasztott Kategóriák Törlése</button>
+          </div>
         </div>
 
         <!-- AZ ELAVULT DRIVER-DUPLIKATUMOK PANELJE INNEN ATKERULT a "Driverek kezelese"
@@ -2895,6 +2903,9 @@ window.handlePyEvent = function(payload) {
     case 'display_info':
       renderDisplayInfo(data);
       break;
+    case 'tempclean_sizes':
+      renderTempSizes(data);
+      break;
     case 'color_reset_result':
       cmShowResetResult(data);
       break;
@@ -2944,6 +2955,7 @@ function switchView(name) {
   if (name === 'drivers' && driverUsage === null && !driverUsageError && !driverUsageOffline) loadDriverUsage(true);
   if (name === 'benchmark') loadBenchmarkView();
   if (name === 'display') loadDisplayView();
+  if (name === 'tempclean') scanTempSizes();
   // A KEZDŐLAP a naplók-kártyát is tartalmazza (2026-09-18), ezért itt fut a letöltési
   // mappa útvonalának kiírása. Nem drága: egy szinkron API-hívás.
   if (name === 'home') loadLogsViewInfo();
@@ -6244,30 +6256,100 @@ async function deleteGhostDevices() {
   }
 }
 
+/* ========== RENDSZER KARBANTARTÁS (2026-09-22) ==========
+   A kategória-kulcsok és az azonosítók párosítása EGY helyen - a törlés és a méret-kijelzés
+   is ebből dolgozik, így nem csúszhat szét. A kulcsok a Python oldal
+   (tempclean_core._temp_clean_category_defs + SPECIAL_CATEGORIES) kulcsai. */
+const TC_KEYS = [
+  ['user_temp', 'tc-user-temp'], ['windows_temp', 'tc-windows-temp'], ['wu_cache', 'tc-wu-cache'],
+  ['browser_cache', 'tc-browser-cache'], ['thumbnail_cache', 'tc-thumbnail-cache'],
+  ['recycle_bin', 'tc-recycle-bin'], ['component_cleanup', 'tc-component-cleanup'],
+  ['delivery_opt', 'tc-delivery-opt'], ['wer', 'tc-wer'], ['shader_cache', 'tc-shader-cache'],
+  ['cbs_logs', 'tc-cbs-logs'], ['crash_dumps', 'tc-crash-dumps'], ['inet_cache', 'tc-inet-cache'],
+];
+let tcSizes = null;
+
+function tcFmt(n) {
+  if (n === null || n === undefined) return '—';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0; let v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return (i === 0 ? Math.round(v) : v.toFixed(1)) + ' ' + u[i];
+}
+
+function scanTempSizes() {
+  TC_KEYS.forEach(function (p) {
+    const el = document.getElementById('tcs-' + p[0]);
+    if (el) { el.textContent = '⏳'; el.className = 'tc-size'; }
+  });
+  const b = document.getElementById('btn-tc-scan');
+  if (b) b.disabled = true;
+  api().scan_temp_sizes();
+}
+
+function renderTempSizes(d) {
+  tcSizes = d || {};
+  const b = document.getElementById('btn-tc-scan');
+  if (b) b.disabled = false;
+  const s = tcSizes.sizes || {};
+  TC_KEYS.forEach(function (p) {
+    const el = document.getElementById('tcs-' + p[0]);
+    if (!el) return;
+    const v = s[p[0]];
+    if (p[0] === 'component_cleanup') {
+      el.textContent = 'futtatáskor derül ki';
+      el.className = 'tc-size dim';
+    } else if (!v || v.bytes === null || v.bytes === undefined) {
+      el.textContent = 'nem olvasható';
+      el.className = 'tc-size dim';
+    } else {
+      el.textContent = tcFmt(v.bytes) + (v.files ? ' · ' + v.files + (p[0] === 'recycle_bin' ? ' elem' : ' fájl') : '');
+      el.className = 'tc-size' + (v.bytes >= 500 * 1048576 ? ' big' : (v.bytes === 0 ? ' dim' : ''));
+    }
+  });
+  tcUpdateTotal();
+}
+
+function tcUpdateTotal() {
+  const tot = document.getElementById('tc-total');
+  const dk = document.getElementById('tc-disk');
+  if (!tot || !dk) return;
+  if (!tcSizes || !tcSizes.sizes) { tot.textContent = '…'; dk.textContent = '…'; return; }
+  let sum = 0; let unknown = false;
+  TC_KEYS.forEach(function (p) {
+    const cb = document.getElementById(p[1]);
+    if (!cb || !cb.checked) return;
+    const v = tcSizes.sizes[p[0]];
+    if (!v || v.bytes === null || v.bytes === undefined) unknown = true;
+    else sum += v.bytes;
+  });
+  tot.textContent = 'kb. ' + tcFmt(sum) + (unknown ? ' + ismeretlen' : '');
+  const disk = tcSizes.disk || {};
+  dk.textContent = disk.free !== null && disk.free !== undefined
+    ? tcFmt(disk.free) + ' / ' + tcFmt(disk.total) : '—';
+}
+
 async function cleanTempFiles() {
-  const options = {
-    user_temp: document.getElementById('tc-user-temp').checked,
-    windows_temp: document.getElementById('tc-windows-temp').checked,
-    wu_cache: document.getElementById('tc-wu-cache').checked,
-    thumbnail_cache: document.getElementById('tc-thumbnail-cache').checked,
-    recycle_bin: document.getElementById('tc-recycle-bin').checked,
-    delivery_opt: document.getElementById('tc-delivery-opt').checked,
-    wer: document.getElementById('tc-wer').checked,
-    shader_cache: document.getElementById('tc-shader-cache').checked,
-    cbs_logs: document.getElementById('tc-cbs-logs').checked,
-    crash_dumps: document.getElementById('tc-crash-dumps').checked,
-    inet_cache: document.getElementById('tc-inet-cache').checked,
-    color_profiles: document.getElementById('tc-color-profiles').checked,
-  };
+  const options = {};
+  TC_KEYS.forEach(function (p) {
+    const cb = document.getElementById(p[1]);
+    options[p[0]] = !!(cb && cb.checked);
+  });
   if (!Object.values(options).some(v => v)) {
     toast('⚠️ Válassz ki legalább egy kategóriát!', 'warning');
     return;
   }
-  let msg = 'Biztosan törlöd a kiválasztott ideiglenes fájlokat?';
+  let msg = 'Biztosan törlöd a kiválasztott kategóriák tartalmát?';
   if (options.recycle_bin) {
     msg += '\n\n⚠️ FIGYELEM: a Lomtár ürítése is be van jelölve - az abban lévő fájlok utólag NEM állíthatók vissza!';
   }
-  const ok = await showConfirm('Temp fájlok és gyorsítótárak törlése', msg);
+  if (options.browser_cache) {
+    msg += '\n\n🌐 Böngésző-gyorsítótár: érdemes előtte bezárni a böngészőket (a zárolt fájlok kimaradnak). Sütik, előzmények, jelszavak NEM törlődnek.';
+  }
+  if (options.component_cleanup) {
+    msg += '\n\n🧩 A komponenstár-takarítás 5-20 percig is tarthat - a folyamat-ablakban látod, hogy dolgozik.';
+  }
+  const ok = await showConfirm('Rendszer karbantartás', msg);
   if (ok) {
     try {
       await api().clean_temp_files(options);
