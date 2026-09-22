@@ -936,17 +936,19 @@ def _menu_display(api):
             ])
         ui.write('')
         cal = data.get('calibration')
-        ui.kv('Profil-betöltés', 'LETILTVA' if cal == 0 else 'engedélyezve', label_w=30)
-        ui.kv('Autom. színkezelés tartós zár', 'BE (minden bejelentkezéskor kikapcsol)'
-              if data.get('acm_guard') else 'nincs', label_w=30)
+        ui.kv('Profil-betöltés', ('TARTÓSAN LETILTVA' + ('' if data.get('profile_guard')
+                                                          else ' (a bejelentkezéskori zár HIÁNYZIK)'))
+              if cal == 0 else 'engedélyezve', label_w=30)
+        ui.kv('Automatikus színkezelés', 'TARTÓSAN LETILTVA (bejelentkezéskor kikapcsol)'
+              if data.get('acm_guard') else 'engedélyezve (a Windows dönt)', label_w=30)
         if data.get('broken') or data.get('orphans'):
             ui.warn(f"{data.get('broken', 0)} törött regisztráció, {len(data.get('orphans') or [])} árva "
                     f"társítás (a 7. menüpont javítja).")
         c = ui.menu([
             ('1', 'HDR be/ki', None),
             ('2', 'Automatikus színkezelés (ACM) be/ki', None),
-            ('3', 'ACM tartós kikapcsolása (zár) be/ki', None),
-            ('4', 'Profil-betöltés engedélyezése / letiltása', 'Tiltáskor minden profil lekerül'),
+            ('3', 'Automatikus színkezelés engedélyezése / tartós letiltása', None),
+            ('4', 'Profil-betöltés engedélyezése / tartós letiltása', 'Tiltáskor minden profil lekerül'),
             ('5', 'Színprofil aktiválása / levétele', None),
             ('6', 'Színprofil törlése', None),
             ('7', 'Hibás bejegyzések javítása', None),
@@ -975,11 +977,12 @@ def _menu_display(api):
                 on = ui.confirm('Bekapcsoljam az automatikus színkezelést?', False)
                 _run_screen(api, 'ACM', lambda: api.set_display_acm(m['index'], on))
         elif c == '3':
-            on = ui.confirm('Kapcsoljam ki TARTÓSAN az automatikus színkezelést (zár)?', not data.get('acm_guard'))
-            _run_screen(api, 'ACM-zár', lambda: api.set_acm_lock(on))
+            allow = ui.confirm('ENGEDÉLYEZZEM az automatikus színkezelést? (Nem = tartós letiltás)',
+                               bool(data.get('acm_guard')))
+            _run_screen(api, 'Automatikus színkezelés', lambda: api.set_acm_lock(not allow))
         elif c == '4':
-            on = ui.confirm('ENGEDÉLYEZZEM a profil-betöltést? (Nem = letiltás, minden profil lekerül)',
-                            cal == 0)
+            on = ui.confirm('ENGEDÉLYEZZEM a profil-betöltést? (Nem = tartós letiltás, minden profil lekerül '
+                            'most és minden bejelentkezéskor)', cal == 0)
             _run_screen(api, 'Profil-betöltés', lambda: api.set_profile_loading(on))
         elif c == '5':
             m = pick_mon()

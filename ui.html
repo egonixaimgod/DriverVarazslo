@@ -1288,8 +1288,8 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
     <button class="nav-btn" onclick="switchView('tempclean')" data-view="tempclean"><span class="icon">🧹</span>Rendszer karbantartás</button>
     <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Driver Fix</button>
     <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stress Teszt &amp; Szervíz Programok</button>
-    <button class="nav-btn" onclick="switchView('benchmark')" data-view="benchmark"><span class="icon">🏆</span>Benchmark</button>
     <button class="nav-btn" onclick="switchView('display')" data-view="display"><span class="icon">🎨</span>Kijelző &amp; Színkezelés</button>
+    <button class="nav-btn" onclick="switchView('benchmark')" data-view="benchmark"><span class="icon">🏆</span>Benchmark</button>
     <!-- A NET BLOKKOLO SCRIPT MENUPONTJA KIKERULT (2026-09-18, explicit user decision:
          *"a net blokkoló script is átmehetne az operációs rendszerbe, felesleges külön
          menüpont"*) - a kartya a "Operacios rendszer" nezet 4. szakasza. Ez is a
@@ -3163,14 +3163,17 @@ function cmRenderMonitor() {
 
   const acmNa = !h.wcg_supported;
   const locked = !!displayState.acm_guard;
-  const acmDis = acmNa || h.enabled;
+  /* Tartós tiltás alatt a kijelzőnkénti kapcsoló le van tiltva: a zár a következő
+     frissítéskor (és bejelentkezéskor) úgyis visszakapcsolná - egy kapcsoló, ami
+     egy pillanatra működni látszik, rosszabb, mint egy letiltott. */
+  const acmDis = acmNa || h.enabled || locked;
   const acmCard = '<div class="cm-ctl"' + (h.wcg_enabled ? ' data-warn="1"' : '') + (acmNa ? ' data-na="1"' : '') + '>' +
     '<div class="cm-ctl-top"><div class="cm-ctl-t">🎨 Automatikus színkezelés<small>Windows: „Automatically manage color for apps”</small></div>' +
     cmSwitch(h.wcg_enabled, acmDis, 'cmToggleAcm(this)') + '</div>' +
     '<div class="cm-ctl-v">' + (acmNa ? 'Nem elérhető' : (h.enabled ? 'HDR-ben nem értelmezett'
       : (h.wcg_enabled ? 'BEKAPCSOLVA' : 'Kikapcsolva'))) + '</div>' +
     '<div class="cm-ctl-h">' + (acmNa ? 'Windows 11 24H2 és támogató kijelző kell hozzá.'
-      : (locked ? '🔒 <b>Tartós zár aktív</b> — bejelentkezéskor mindig kikapcsolja (2. rész).'
+      : (locked ? '⛔ <b>Tartósan letiltva</b> — a 2. résznél engedélyezheted újra.'
                 : 'A Windows színkezeli az appokat; széles gamutú panelen tompíthatja a színeket.')) + '</div></div>';
 
   const gr = m.gamma_ramp;
@@ -3293,27 +3296,38 @@ function cmDetails(m) {
 }
 
 function cmRenderSystem() {
+  /* KÉT EGYFORMA LOGIKÁJÚ KÁRTYA (2026-09-22, explicit user decision: "alapból legyen
+     bekapcsolva és zöld, viszont ha kikapcsolom akkor legyen piros mivel le van tiltva"):
+     a kapcsoló BE = ENGEDÉLYEZVE (zöld, a Windows alapállapota), KI = TARTÓSAN LETILTVA
+     (piros): azonnal hat, ÉS egy bejelentkezéskori zár tartja is. */
   const d = displayState;
+  const cut = function (t) { t = t || ''; return t.length > 95 ? t.slice(0, 95) + '…' : t; };
   const calOn = d.calibration !== 0;
-  const guard = !!d.acm_guard;
-  let last = d.acm_guard_last || '';
-  if (last.length > 90) last = last.slice(0, 90) + '…';
+  const pGuard = !!d.profile_guard;
+  const pLast = cut(d.profile_guard_last);
   const card1 = '<div class="cm-sys" data-on="' + (calOn ? '1' : '0') + '">' +
-    '<div class="cm-sys-body"><div class="cm-sys-t">' + (calOn ? '✅ PROFIL-BETÖLTÉS ENGEDÉLYEZVE' : '🔒 PROFIL-BETÖLTÉS LETILTVA') + '</div>' +
+    '<div class="cm-sys-body"><div class="cm-sys-t">' + (calOn ? '✅ PROFIL-BETÖLTÉS ENGEDÉLYEZVE' : '⛔ PROFIL-BETÖLTÉS TARTÓSAN LETILTVA') + '</div>' +
     '<div class="cm-sys-h">' + (calOn
-      ? 'A kijelzőkre tett ICC-profilok betöltődnek (a Windows alapállapota).'
-      : 'Egyetlen profil sem töltődik be — a panel natív, korrekció nélküli képet ad. Profilt aktiválni csak engedélyezés után lehet.') +
-    '<small>' + (calOn ? 'Letiltáskor minden profil azonnal lekerül a kijelzőkről, a gamma lineáris lesz.'
-                       : 'Engedélyezéskor semmi nem kerül vissza magától — utána választasz profilt.') + '</small></div></div>' +
-    cmSwitch(calOn, false, 'cmToggleLoading(this)') + '</div>';
-  const card2 = '<div class="cm-sys"' + (guard ? ' data-on="1"' : '') + '>' +
-    '<div class="cm-sys-body"><div class="cm-sys-t">' + (guard ? '🔒 AUTOMATIKUS SZÍNKEZELÉS TARTÓSAN KI'
-                                                                : '🎨 Automatikus színkezelés: a Windows dönt') + '</div>' +
-    '<div class="cm-sys-h">' + (guard
-      ? 'Minden bejelentkezéskor ellenőrzi és kikapcsolja az összes kijelzőn — véletlenül sem kapcsolhat vissza.'
-      : 'Kapcsold be, és a Windows soha többé nem kapcsolhatja vissza magától — csak ha itt feloldod, vagy gyári visszaállítást futtatsz.') +
-    (guard ? '<small>Utolsó ellenőrzés: ' + (last ? dispEsc(last) : 'még nem futott (a következő bejelentkezéskor fut)') + '</small>' : '') +
-    '</div></div>' + cmSwitch(guard, false, 'cmToggleLock(this)') + '</div>';
+      ? 'A kijelzőkre tett ICC-profilok betöltődnek — ez a Windows alapállapota.'
+      : 'Egyetlen profil sem töltődik be, a panel natív képet ad. Minden bejelentkezéskor a program újra leszed minden profilt, és visszaállítja a tiltást, ha valami visszakapcsolta.') +
+    '<small>' + (calOn
+      ? 'Kikapcsolva: minden profil azonnal lekerül, a gamma lineáris lesz, és tartósan így is marad.'
+      : (pGuard ? 'Utolsó ellenőrzés: ' + (pLast ? dispEsc(pLast) : 'még nem futott (a következő bejelentkezéskor fut)')
+                : '⚠️ A bejelentkezéskori zár NINCS telepítve (korábbi verzióval tiltottad le). ' +
+                  '<a href="#" onclick="cmLoadingGuardFix();return false" style="color:#ffc978">Telepítés most</a>')) +
+    '</small></div></div>' + cmSwitch(calOn, false, 'cmToggleLoading(this)') + '</div>';
+  const aGuard = !!d.acm_guard;
+  const aLast = cut(d.acm_guard_last);
+  const card2 = '<div class="cm-sys" data-on="' + (aGuard ? '0' : '1') + '">' +
+    '<div class="cm-sys-body"><div class="cm-sys-t">' + (aGuard ? '⛔ AUTOMATIKUS SZÍNKEZELÉS TARTÓSAN LETILTVA'
+                                                                 : '✅ AUTOMATIKUS SZÍNKEZELÉS ENGEDÉLYEZVE') + '</div>' +
+    '<div class="cm-sys-h">' + (aGuard
+      ? 'Minden kijelzőn ki van kapcsolva, és minden bejelentkezéskor újra kikapcsolja — a Windows sem kapcsolhatja vissza.'
+      : 'A Windows dönt, kijelzőnként pedig kézzel is kapcsolhatod (1. rész).') +
+    '<small>' + (aGuard
+      ? 'Utolsó ellenőrzés: ' + (aLast ? dispEsc(aLast) : 'még nem futott (a következő bejelentkezéskor fut)')
+      : 'Kikapcsolva: most minden kijelzőn kikapcsol, és tartósan így is marad.') +
+    '</small></div></div>' + cmSwitch(!aGuard, false, 'cmToggleAcmAllowed(this)') + '</div>';
   const nb = (d.registered || []).filter(function (r) { return r.missing; }).length;
   const no = (d.orphans || []).length;
   const chips = '<div class="cm-health">' +
@@ -3399,14 +3413,15 @@ function cmToggleAcm(el) {
   cmAct('Automatikus színkezelés...', function () { api().set_display_acm(m.index, want); });
 }
 
-function cmToggleLock(el) {
-  const want = el.checked;
-  el.checked = !want;
-  const msg = want
-    ? 'Az automatikus színkezelés MOST kikapcsol az összes kijelzőn, és a program egy ütemezett feladattal minden bejelentkezéskor ellenőrzi és újra kikapcsolja — így a Windows (frissítés, új monitor) sem kapcsolhatja vissza.\n\nFeloldás: ugyanez a kapcsoló, vagy a gyári visszaállítás. Folytatod?'
-    : 'A tartós zár megszűnik: az ütemezett feladat törlődik, és az automatikus színkezelést újra a Windows (vagy te, a kijelző kapcsolójával) kezeli. Folytatod?';
-  showConfirm(want ? '🔒 Automatikus színkezelés tartós kikapcsolása' : '🔓 Zár feloldása', msg).then(function (ok) {
-    if (ok) cmAct('Zár...', function () { api().set_acm_lock(want); });
+/* A kapcsoló BE = engedélyezve (nincs zár), KI = tartósan letiltva (zár). */
+function cmToggleAcmAllowed(el) {
+  const allow = el.checked;
+  el.checked = !allow;
+  const msg = allow
+    ? 'A tartós tiltás megszűnik: a bejelentkezéskori zár törlődik, és az automatikus színkezelésről újra a Windows dönt (kijelzőnként kézzel is kapcsolhatod). Folytatod?'
+    : 'Az automatikus színkezelés MOST kikapcsol az összes kijelzőn, és a program minden bejelentkezéskor ellenőrzi és újra kikapcsolja — így a Windows (frissítés, új monitor) sem kapcsolhatja vissza.\n\nVisszakapcsolás: ugyanez a kapcsoló, vagy a gyári visszaállítás. Folytatod?';
+  showConfirm(allow ? '✅ Automatikus színkezelés engedélyezése' : '⛔ Automatikus színkezelés tartós letiltása', msg).then(function (ok) {
+    if (ok) cmAct(allow ? 'Engedélyezés...' : 'Letiltás...', function () { api().set_acm_lock(!allow); });
   });
 }
 
@@ -3417,9 +3432,15 @@ function cmToggleLoading(el) {
     cmAct('Engedélyezés...', function () { api().set_profile_loading(true); });
     return;
   }
-  showConfirm('🔒 Profil-betöltés letiltása',
-    'Ezzel MINDEN kijelzőről lekerül minden ICC-profil (SDR és HDR is), a gamma azonnal lineáris lesz, és amíg a tiltás él, semmilyen profil nem töltődhet be — a panel natív képet ad.\n\nA profilfájlok a gépen maradnak, az engedélyezés után újra aktiválhatod őket. Folytatod?')
+  showConfirm('⛔ Profil-betöltés tartós letiltása',
+    'Ezzel MINDEN kijelzőről lekerül minden ICC-profil (SDR és HDR is), a gamma azonnal lineáris lesz, és amíg a tiltás él, semmilyen profil nem töltődhet be — a panel natív képet ad.\n\nMinden bejelentkezéskor a program újra leszed minden profilt, amit közben bármi rátett.\n\nA profilfájlok a gépen maradnak, engedélyezés után újra aktiválhatod őket. Folytatod?')
     .then(function (ok) { if (ok) cmAct('Letiltás...', function () { api().set_profile_loading(false); }); });
+}
+
+/* Régebbi verzióval letiltott gépen a zár hiányzik: a tiltás újrafuttatása idempotens,
+   leszedi a profilokat és felteszi a zárat. */
+function cmLoadingGuardFix() {
+  cmAct('Zár telepítése...', function () { api().set_profile_loading(false); });
 }
 
 function cmActivate(slot) {
@@ -3508,6 +3529,7 @@ function cmRenderResetPlan(p) {
   (p.hdr_on || []).forEach(function (n) { live.push(n + ': HDR kikapcsolása'); });
   (p.acm_on || []).forEach(function (n) { live.push(n + ': automatikus színkezelés kikapcsolása'); });
   if (p.acm_guard) live.push('Az automatikus színkezelés tartós zárjának feloldása');
+  if (p.profile_guard) live.push('A profil-betöltés tartós tiltásának (bejelentkezéskori zár) feloldása');
   const files = (p.files || []).map(function (f) { return f.desc + ' (' + f.file + ')' + (f.hdr ? ' · HDR' : ''); });
   const other = [];
   if (p.calibration === 0) other.push('Profil-betöltés engedélyezése (most le van tiltva)');

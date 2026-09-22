@@ -93,7 +93,7 @@ def read_hdr_state(adapter_id, target_id):
     Visszaad: dict (soha nem None; hibánál 'supported': False)."""
     out = {'supported': False, 'enabled': False, 'bits': None, 'encoding': None,
            'mode': None, 'wcg_supported': False, 'wcg_enabled': False,
-           'limited_by_policy': False, 'api': None}
+           'limited_by_policy': False, 'api': None, 'raw': ''}
     aci = w32._DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO()
     if _device_info(aci, w32.DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO,
                     adapter_id, target_id) == 0:
@@ -102,20 +102,28 @@ def read_hdr_state(adapter_id, target_id):
                    limited_by_policy=bool(v & 0x8),
                    bits=aci.bitsPerColorChannel,
                    encoding=w32.DISPLAY_COLOR_ENCODING.get(aci.colorEncoding, str(aci.colorEncoding)),
-                   api='legacy')
+                   api='legacy', raw=f'aci9=0x{v:X}')
     aci2 = w32._DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2()
     if _device_info(aci2, w32.DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO_2,
                     adapter_id, target_id) == 0:
         v = aci2.value
-        out.update(supported=bool(v & 0x10) or bool(v & 0x1),
-                   enabled=bool(v & 0x20) or bool(v & 0x2),
+        # A HDR-t CSAK a HDR-bitek és az aktív színmód jelzik - a 0x1 (advancedColorSupported)
+        # és a 0x2 (advancedColorActive) az ACM/WCG módban IS igaz. TEREPEN MÉRVE
+        # 2026-09-22: bekapcsolt ACM + kikapcsolt HDR mellett value=0xD7, activeColorMode=1
+        # (WCG), a 0x20 NINCS beállítva - a régi `or (v & 0x2)` ebből "HDR BEKAPCSOLVA"-t
+        # olvasott, a nézet HDR-t mutatott, az ACM-kapcsolót letiltotta, a HDR-kikapcsolás
+        # pedig "nem sikerült"-tel bukott. A régi ACI(9) ágon (Win11 24H2 előtt) nincs ACM,
+        # ott a 0x2 valóban a HDR - azt a fenti tartalék-ág kezeli.
+        out.update(supported=bool(v & 0x10),
+                   enabled=bool(v & 0x20) or aci2.activeColorMode == 2,
                    limited_by_policy=bool(v & 0x8),
                    wcg_supported=bool(v & 0x40), wcg_enabled=bool(v & 0x80),
                    bits=aci2.bitsPerColorChannel,
                    encoding=w32.DISPLAY_COLOR_ENCODING.get(aci2.colorEncoding, str(aci2.colorEncoding)),
                    mode=w32.DISPLAY_ADVANCED_COLOR_MODE.get(aci2.activeColorMode,
                                                             str(aci2.activeColorMode)),
-                   api='win11')
+                   api='win11',
+                   raw=out.get('raw', '') + f' aci2=0x{v:X} mód={aci2.activeColorMode}')
     return out
 
 
@@ -152,6 +160,15 @@ def set_hdr(adapter_id, target_id, enable):
                  f"{'BE' if state['enabled'] else 'KI'}")
     if state['enabled'] == want:
         return True, state
+    # A régi SET_ADVANCED_COLOR_STATE(10) Win11 24H2-n az egész "advanced color"-t kapcsolja,
+    # vagyis az ACM-et (WCG) is - ott TILOS tartaléknak használni, mert a HDR helyett az
+    # ACM-et kapcsolná ki/be. Csak ott hívjuk, ahol az új (ACI2) API nincs meg: ott ACM
+    # nem is létezik, és a 10-es hívás valóban a HDR.
+    if state.get('api') == 'win11':
+        logging.error(f"[DISPLAY] A HDR átkapcsolása NEM sikerült (kért: {want}, tényleges: "
+                      f"{state['enabled']}, rc={rc_new}); a régi tartalék-hívás Win11 24H2-n az "
+                      f"ACM-et is kapcsolná, ezért kihagyva.")
+        return False, state
 
     s2 = w32._DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE()
     s2.header.type = w32.DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE

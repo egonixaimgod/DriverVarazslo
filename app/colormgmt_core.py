@@ -99,10 +99,7 @@ DATASTORE_COLOR_VALUES = ('HDREnabled', 'SDRWhiteLevel', 'AutoColorManagementEna
 # (a Windows újra létrehozza, alapból kikapcsolva). Kijelentkezés után él teljesen.
 NIGHT_LIGHT_MARKER = 'windows.data.bluelightreduction'
 
-# Az ACM-zár ütemezett feladata és szkriptje (lásd install_acm_guard).
-ACM_GUARD_TASK = 'DriverVarazsloColorGuard'
-ACM_GUARD_SCRIPT = 'color_guard.ps1'
-ACM_GUARD_LOG = 'color_guard.log'
+# Az ACM-zár és a profil-zár leírói lent vannak (ACM_GUARD / PROFILE_GUARD).
 
 
 # ============================================================================
@@ -667,32 +664,48 @@ def delete_profile(profile_file):
 # Profil-betöltés engedélyezése / tiltása
 # ============================================================================
 
-def set_profile_loading(enabled, displays):
+def set_profile_loading(enabled, run, displays):
     """A Windows profil-betöltésének (CalibrationManagementEnabled) kapcsolása.
+
     TILTÁSKOR (explicit user decision, 2026-09-22: *"miután letiltja nyilván bármi icc
-    profil ami van a monitoron azt is szedje le róla"*): minden kijelző-társítás törlődik
-    és a gamma MOST lineárisra áll - nem csak a következő bejelentkezéskor.
-    ENGEDÉLYEZÉSKOR semmi nem kerül vissza: csak újra LEHET profilt aktiválni.
-    Visszaad: dict(ok, prev, removed, gamma)."""
+    profil ami van a monitoron azt is szedje le róla"*, majd *"minden bejelentkezéskor"*):
+    minden kijelző-társítás törlődik, a gamma MOST lineárisra áll, és felkerül a PROFIL-ZÁR
+    (bejelentkezéskor újra leszed mindent és visszaállítja a tiltást, ha valami - pl. a
+    `dccw` - visszakapcsolta). ENGEDÉLYEZÉSKOR a zár lekerül, és semmi nem kerül vissza:
+    csak újra LEHET profilt aktiválni. A tiltás többszöri hívása ártalmatlan (idempotens) -
+    ezzel pótolható a zár egy régebbi verzióval letiltott gépen.
+    Visszaad: dict(ok, prev, removed, gamma, guard_ok, guard_msg)."""
     ok, prev = display_core.set_calibration_management(bool(enabled))
-    out = {'ok': ok, 'prev': prev, 'removed': [], 'gamma': []}
-    if not ok or enabled:
+    out = {'ok': ok, 'prev': prev, 'removed': [], 'gamma': [], 'guard_ok': True, 'guard_msg': ''}
+    if not ok:
+        return out
+    if enabled:
+        if guard_installed(run, PROFILE_GUARD):
+            out['guard_ok'] = remove_guard(run, PROFILE_GUARD)
         return out
     out['removed'] = remove_all_associations('a profil-betöltés letiltása')
     for d in displays:
         g_ok, g_msg = reset_gamma(d.get('gdi_name', ''), 'profil-betöltés letiltva')
         out['gamma'].append((d.get('name'), g_ok, g_msg))
+    out['guard_ok'], out['guard_msg'] = install_guard(run, PROFILE_GUARD)
     return out
 
 
 # ============================================================================
-# ACM-zár: az automatikus színkezelés tartós kikapcsolása
+# Bejelentkezéskori ZÁRAK: az ACM és a profil-betöltés tartós tiltása
 # ============================================================================
+# KÉT külön ütemezett feladat, mert KÜLÖN jogkör kell hozzájuk (2026-09-22):
+#   - ACM-zár: a DisplayConfig a felhasználó ASZTALÁN dolgozik, tehát a felhasználó
+#     munkamenetében kell futnia (SYSTEM-ként nem látja a kijelzőt);
+#   - profil-zár: a gépszintű (HKLM) társításokat és a CalibrationManagementEnabled-et
+#     csak rendszergazda írhatja, a felhasználók HKCU-ját pedig csak SYSTEM éri el mind
+#     (HKEY_USERS\<SID>) - ezért SYSTEM-ként fut.
+# A regisztráló/eltávolító/állapot-logika KÖZÖS (install_guard/remove_guard/guard_installed):
+# két másolat ennek a projektnek a legrégebbi visszatérő hibája.
 
-# A zár-szkript minden bejelentkezéskor lefut (a felhasználó munkamenetében, mert a
-# DisplayConfig a felhasználó asztalán dolgozik), és minden kijelzőn, ahol az ACM BE van
-# (és nem HDR módban), kikapcsolja. A C# a win32.py struktúráit tükrözi: PATH_INFO = 72
-# bájt, a target LUID a 20., a target id a 28. bájton (ctypes-szal lemérve 2026-09-22).
+# A zár-szkript minden bejelentkezéskor lefut, és minden kijelzőn, ahol az ACM BE van (és
+# nem HDR módban), kikapcsolja. A C# a win32.py struktúráit tükrözi: PATH_INFO = 72 bájt,
+# a target LUID a 20., a target id a 28. bájton (ctypes-szal lemérve 2026-09-22).
 ACM_GUARD_PS = r'''
 $ErrorActionPreference = 'Continue'
 $log = Join-Path $PSScriptRoot 'color_guard.log'
@@ -732,41 +745,84 @@ public static class DvAcmGuard {
 try { Add-Type -TypeDefinition $src -ErrorAction Stop; W ([DvAcmGuard]::Run()) } catch { W ("HIBA: " + $_.Exception.Message) }
 '''
 
+# A profil-zár SYSTEM-ként fut minden bejelentkezéskor: (1) ha a CalibrationManagementEnabled
+# nem 0 (pl. a dccw visszaállította 1-re), újra 0; (2) minden kijelző-társítás (SDR+HDR)
+# törlése HKLM-ből ÉS minden bejelentkezett felhasználó hive-jából (HKEY_USERS\S-1-5-21-*).
+# Minden törlést NÉVVEL naplóz (profile_guard.log) - rombolás, a "hova tűnt a profilom?"
+# kérdésre ez a válasz.
+PROFILE_GUARD_PS = r'''
+$ErrorActionPreference = 'Continue'
+$log = Join-Path $PSScriptRoot 'profile_guard.log'
+function W($m) { try { if ((Test-Path $log) -and ((Get-Item $log).Length -gt 65536)) { Remove-Item $log -Force }
+  Add-Content -Path $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' ' + $m) } catch {} }
+$cal = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM\Calibration'
+try {
+  $cur = (Get-ItemProperty -Path $cal -Name 'CalibrationManagementEnabled' -ErrorAction SilentlyContinue).CalibrationManagementEnabled
+  if ($cur -ne 0) {
+    if (-not (Test-Path $cal)) { New-Item -Path $cal -Force | Out-Null }
+    Set-ItemProperty -Path $cal -Name 'CalibrationManagementEnabled' -Value 0 -Type DWord -ErrorAction Stop
+    W ("profil-betoltes visszakapcsolva volt (" + $cur + ") -> 0")
+  }
+} catch { W ("HIBA (CalibrationManagementEnabled): " + $_.Exception.Message) }
+$roots = @('HKLM:\SOFTWARE')
+Get-ChildItem 'Registry::HKEY_USERS' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^S-1-5-21-[0-9-]+$' } |
+  ForEach-Object { $roots += ('Registry::HKEY_USERS\' + $_.PSChildName + '\SOFTWARE') }
+$n = 0
+foreach ($r in $roots) {
+  $p = $r + '\Microsoft\Windows NT\CurrentVersion\ICM\ProfileAssociations\Display'
+  if (-not (Test-Path $p)) { continue }
+  foreach ($k in @(Get-ChildItem -Path $p -Recurse -ErrorAction SilentlyContinue)) {
+    foreach ($v in @('ICMProfile', 'ICMProfileAC')) {
+      $val = $k.GetValue($v)
+      if ($val -and (@($val) -join '').Trim()) {
+        W ("TORLES: " + $k.Name + " [" + $v + "] = " + (@($val) -join ', '))
+        try { Remove-ItemProperty -Path $k.PSPath -Name $v -ErrorAction Stop; $n++ } catch { W ("HIBA: " + $_.Exception.Message) }
+      }
+    }
+  }
+}
+W ("kesz - " + $n + " tarsitas torolve, " + $roots.Count + " registry-gyoker atnezve")
+'''
 
-def guard_script_path():
-    return os.path.join(_app_data_dir(), ACM_GUARD_SCRIPT)
+# A két zár leírója: feladatnév, szkript, napló, szkript-tartalom, jogkör, felirat.
+ACM_GUARD = {'task': 'DriverVarazsloColorGuard', 'script': 'color_guard.ps1', 'log': 'color_guard.log',
+             'ps': ACM_GUARD_PS, 'principal': 'users',
+             'desc': 'DriverVarazslo: az automatikus szinkezeles (ACM) tartos kikapcsolasa.',
+             'label': 'ACM-zár'}
+PROFILE_GUARD = {'task': 'DriverVarazsloProfileGuard', 'script': 'profile_guard.ps1', 'log': 'profile_guard.log',
+                 'ps': PROFILE_GUARD_PS, 'principal': 'system',
+                 'desc': 'DriverVarazslo: a szinprofil-betoltes tartos tiltasa (bejelentkezeskor leszedi a profilokat).',
+                 'label': 'profil-zár'}
+# Visszafelé kompatibilis nevek (a régi hívók és a CLAUDE.md ezeket említi).
+ACM_GUARD_TASK = ACM_GUARD['task']
+ACM_GUARD_SCRIPT = ACM_GUARD['script']
+ACM_GUARD_LOG = ACM_GUARD['log']
 
 
-def guard_log_path():
-    return os.path.join(_app_data_dir(), ACM_GUARD_LOG)
-
-
-def acm_guard_installed(run):
-    """Él-e az ACM-zár ütemezett feladata. schtasks /query - gyors (nem PowerShell)."""
-    res = run(['schtasks', '/query', '/tn', ACM_GUARD_TASK], timeout=20, ok_codes=(0, 1))
+def guard_installed(run, g):
+    """Él-e a zár ütemezett feladata. schtasks /query - gyors (nem PowerShell)."""
+    res = run(['schtasks', '/query', '/tn', g['task']], timeout=20, ok_codes=(0, 1))
     return getattr(res, 'returncode', 1) == 0
 
 
-def acm_guard_last_line():
+def guard_last_line(g):
     try:
-        with open(guard_log_path(), 'r', encoding='utf-8', errors='replace') as fh:
+        with open(os.path.join(_app_data_dir(), g['log']), 'r', encoding='utf-8', errors='replace') as fh:
             lines = [l.strip() for l in fh if l.strip()]
         return lines[-1] if lines else ''
     except OSError:
         return ''
 
 
-def install_acm_guard(run):
-    """Az ACM-zár telepítése: szkript az adatmappába + bejelentkezéskor futó ütemezett
-    feladat MINDEN felhasználóra (Users csoport, korlátozott jogkör - a DisplayConfig
-    WCG-kapcsolásához nem kell rendszergazda). Tartós rendszerváltozás, ezért a nézet
-    mindig kiírja, hogy él, és a gyári visszaállítás eltávolítja. Visszaad: (ok, uzenet)."""
-    path = guard_script_path()
-    logging.warning(f"[COLOR] ACM-ZÁR TELEPÍTÉSE: {path} + ütemezett feladat '{ACM_GUARD_TASK}' "
-                    f"(minden bejelentkezéskor kikapcsolja az automatikus színkezelést).")
+def install_guard(run, g):
+    """Egy zár telepítése: szkript az adatmappába + bejelentkezéskor futó ütemezett feladat.
+    Tartós rendszerváltozás, ezért a nézet mindig kiírja, hogy él, és a gyári visszaállítás
+    eltávolítja. Visszaad: (ok, uzenet)."""
+    path = os.path.join(_app_data_dir(), g['script'])
+    logging.warning(f"[COLOR] {g['label'].upper()} TELEPÍTÉSE: {path} + ütemezett feladat '{g['task']}'.")
     try:
         with open(path, 'w', encoding='utf-8-sig', newline='\r\n') as fh:
-            fh.write(ACM_GUARD_PS.strip() + '\n')
+            fh.write(g['ps'].strip() + '\n')
     except OSError as e:
         logging.error(f"[COLOR] A zár-szkript nem írható: {e}")
         return False, f'a szkript nem írható: {e}'
@@ -774,47 +830,66 @@ def install_acm_guard(run):
     # NEM-VÉGZETES, és egy utána álló 'OK' akkor is kiíródna - az első változat pontosan
     # így jelentett sikert egy "Access is denied"-ra (mérve 2026-09-22). A verdikt ráadásul
     # nem is ez a szöveg, hanem a regisztráció UTÁNI schtasks /query.
-    # Elsőként MINDEN felhasználóra (Users csoport) - ehhez rendszergazda kell, a program
-    # az; ha mégsem megy, az aktuális felhasználóra esünk vissza (a szerviz gépein ez a
-    # tipikus egyetlen fiók).
-    ps = (
+    common = (
         "$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "
         f"'-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{path}\"'; "
         "$t = New-ScheduledTaskTrigger -AtLogOn; $t.Delay = 'PT15S'; "
         "$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
         "-StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 5); "
-        "$d = 'DriverVarazslo: az automatikus szinkezeles (ACM) tartos kikapcsolasa. "
-        "Eltavolitas: a program Kijelzo nezete.'; "
-        "try { $p = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited; "
-        f"Register-ScheduledTask -TaskName '{ACM_GUARD_TASK}' -Action $a -Trigger $t -Principal $p "
-        "-Settings $s -Description $d -Force -ErrorAction Stop | Out-Null; 'REG:minden-felhasznalo' } "
-        "catch { 'GROUPFAIL:' + $_.Exception.Message; "
-        "try { $p = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited; "
-        "$t = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME; $t.Delay = 'PT15S'; "
-        f"Register-ScheduledTask -TaskName '{ACM_GUARD_TASK}' -Action $a -Trigger $t -Principal $p "
-        "-Settings $s -Description $d -Force -ErrorAction Stop | Out-Null; 'REG:aktualis-felhasznalo' } "
-        "catch { 'FAIL:' + $_.Exception.Message } }"
+        f"$d = '{g['desc']} Eltavolitas: a program Kijelzo nezete.'; "
     )
+    reg = (f"Register-ScheduledTask -TaskName '{g['task']}' -Action $a -Trigger $t -Principal $p "
+           "-Settings $s -Description $d -Force -ErrorAction Stop | Out-Null; ")
+    if g['principal'] == 'system':
+        ps = common + ("try { $p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount "
+                       "-RunLevel Highest; " + reg + "'REG:system' } catch { 'FAIL:' + $_.Exception.Message }")
+    else:
+        # Elsőként MINDEN felhasználóra (Users csoport) - ehhez rendszergazda kell, a program
+        # az; ha mégsem megy, az aktuális felhasználóra esünk vissza.
+        ps = common + (
+            "try { $p = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited; "
+            + reg + "'REG:minden-felhasznalo' } catch { 'GROUPFAIL:' + $_.Exception.Message; "
+            "try { $p = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited; "
+            "$t = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME; $t.Delay = 'PT15S'; "
+            + reg + "'REG:aktualis-felhasznalo' } catch { 'FAIL:' + $_.Exception.Message } }")
     res = run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], timeout=60)
     out = (getattr(res, 'stdout', '') or '').strip()
-    logging.info(f"[COLOR] ACM-zár regisztráció kimenete: {out[:400]}")
-    if not acm_guard_installed(run):
-        logging.error(f"[COLOR] Az ACM-zár feladata a regisztráció után NEM létezik: {out[:400]} "
+    logging.info(f"[COLOR] {g['label']} regisztráció kimenete: {out[:400]}")
+    if not guard_installed(run, g):
+        logging.error(f"[COLOR] A(z) {g['label']} feladata a regisztráció után NEM létezik: {out[:400]} "
                       f"{(getattr(res, 'stderr', '') or '')[:300]}")
         return False, 'az ütemezett feladat nem jött létre (részletek a naplóban)'
-    return True, 'minden felhasználóra' if 'REG:minden' in out else 'az aktuális felhasználóra'
+    return True, ('SYSTEM-ként, minden bejelentkezéskor' if 'REG:system' in out
+                  else 'minden felhasználóra' if 'REG:minden' in out else 'az aktuális felhasználóra')
+
+
+def remove_guard(run, g):
+    path = os.path.join(_app_data_dir(), g['script'])
+    logging.warning(f"[COLOR] {g['label'].upper()} ELTÁVOLÍTÁSA: '{g['task']}' + {path}")
+    run(['schtasks', '/delete', '/tn', g['task'], '/f'], timeout=30, ok_codes=(0, 1))
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError as e:
+        logging.warning(f"[COLOR] {path} nem törölhető: {e}")
+    return not guard_installed(run, g)
+
+
+# Az ACM-zár régi nevű belépési pontjai (a mixin és a gyári visszaállítás ezeket hívja).
+def acm_guard_installed(run):
+    return guard_installed(run, ACM_GUARD)
+
+
+def acm_guard_last_line():
+    return guard_last_line(ACM_GUARD)
+
+
+def install_acm_guard(run):
+    return install_guard(run, ACM_GUARD)
 
 
 def remove_acm_guard(run):
-    logging.warning(f"[COLOR] ACM-ZÁR ELTÁVOLÍTÁSA: '{ACM_GUARD_TASK}' + {guard_script_path()}")
-    run(['schtasks', '/delete', '/tn', ACM_GUARD_TASK, '/f'], timeout=30, ok_codes=(0, 1))
-    for p in (guard_script_path(),):
-        try:
-            if os.path.exists(p):
-                os.remove(p)
-        except OSError as e:
-            logging.warning(f"[COLOR] {p} nem törölhető: {e}")
-    return not acm_guard_installed(run)
+    return remove_guard(run, ACM_GUARD)
 
 
 def enforce_acm_off(displays, reason):
@@ -951,6 +1026,7 @@ def factory_reset_plan(run, displays):
         'gamma_modified': [d.get('name') for d in displays
                            if d.get('gamma_ramp') and not d['gamma_ramp'].get('linear')],
         'acm_guard': acm_guard_installed(run),
+        'profile_guard': guard_installed(run, PROFILE_GUARD),
         'datastore': [f'{m} · {v}={val}' for m, v, val in _datastore_changes(displays)],
         'night_light': bool(_night_light_keys()),
         'color_filter': _color_filter_state(),
@@ -959,7 +1035,7 @@ def factory_reset_plan(run, displays):
                  f"{len(plan['files'])} hozzáadott profil + {len(plan['printer_files'])} nyomtató-profil, "
                  f"{len(plan['registered'])} regisztráció-eltérés, HDR BE: {plan['hdr_on']}, "
                  f"ACM BE: {plan['acm_on']}, módosított gamma: {plan['gamma_modified']}, "
-                 f"ACM-zár: {plan['acm_guard']}, datastore: {len(plan['datastore'])}, "
+                 f"ACM-zár: {plan['acm_guard']}, profil-zár: {plan['profile_guard']}, datastore: {len(plan['datastore'])}, "
                  f"éjszakai fény kulcs: {plan['night_light']}, színszűrő: {plan['color_filter']}.")
     return plan
 
@@ -1012,9 +1088,13 @@ def factory_reset(run, displays, delete_printer_profiles=True, log=None):
         return ', '.join(out) or 'már alapállapotban'
     step('HDR / ACM', _live)
 
-    # 2) ACM-zár eltávolítása (a felhasználó szerint a gyári gomb oldja fel).
+    # 2) Mindkét zár eltávolítása (a felhasználó szerint a gyári gomb oldja fel őket). A
+    #    profil-zárnak a 6. lépés ELŐTT kell mennie: különben a következő bejelentkezéskor
+    #    visszatiltaná a profil-betöltést, amit a visszaállítás épp engedélyez.
     step('ACM-zár', lambda: ('eltávolítva' if remove_acm_guard(run) else 'NEM sikerült eltávolítani')
          if plan['acm_guard'] else '')
+    step('Profil-zár', lambda: ('eltávolítva' if remove_guard(run, PROFILE_GUARD) else 'NEM sikerült eltávolítani')
+         if plan['profile_guard'] else '')
 
     # 3) Minden kijelző-társítás (élő és árva példányok, SDR+HDR, HKCU+HKLM).
     step('Profil-társítások', lambda: f"{len(remove_all_associations('gyári visszaállítás'))} törölve")

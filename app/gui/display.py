@@ -49,7 +49,7 @@ class GuiDisplayMixin:
         EDID vagy olvashatatlan profil nem viheti el az egész nézetet."""
         st = {'displays': [], 'library': [], 'profile_dir': '', 'calibration': None,
               'registered': [], 'broken': 0, 'orphans': [], 'acm_guard': False,
-              'acm_guard_last': '', 'modern_api': colormgmt_core._API_ADD is not None, 'errors': []}
+              'acm_guard_last': '', 'profile_guard': False, 'profile_guard_last': '', 'modern_api': colormgmt_core._API_ADD is not None, 'errors': []}
         try:
             st['displays'] = display_core.enumerate_displays()
         except Exception as e:
@@ -90,14 +90,22 @@ class GuiDisplayMixin:
         try:
             st['acm_guard'] = colormgmt_core.acm_guard_installed(self._run)
             st['acm_guard_last'] = colormgmt_core.acm_guard_last_line()
+            st['profile_guard'] = colormgmt_core.guard_installed(self._run, colormgmt_core.PROFILE_GUARD)
+            st['profile_guard_last'] = colormgmt_core.guard_last_line(colormgmt_core.PROFILE_GUARD)
         except Exception as e:
             logging.warning(f"[DISPLAY] ACM-zár állapota nem olvasható: {e}")
         logging.info(f"[DISPLAY] Állapot: {len(st['displays'])} kijelző, "
-                     + '; '.join(f"{d.get('name')}: SDR={d['profiles'].get('active_sdr') or '-'} "
-                                 f"HDR={d['profiles'].get('active_hdr') or '-'} "
-                                 f"ACM={'BE' if (d.get('hdr') or {}).get('wcg_enabled') else 'KI'}"
+                     # Az ÁLLAPOT (HDR/ACM be-ki) és a PROFIL külön nevet kap, és a nyers Windows-érték
+                     # is kimegy: 2026-09-22-én egy "HDR=-" mezőről nem derült ki, hogy az a HDR-profil
+                     # volt, és a félreolvasott HDR-bit csak a nyers értékből látszott (lásd CLAUDE.md).
+                     + '; '.join(f"{d.get('name')}: mód={(d.get('hdr') or {}).get('mode') or '?'} "
+                                 f"HDR-állapot={'BE' if (d.get('hdr') or {}).get('enabled') else 'KI'} "
+                                 f"ACM-állapot={'BE' if (d.get('hdr') or {}).get('wcg_enabled') else 'KI'} "
+                                 f"SDR-profil={d['profiles'].get('active_sdr') or '-'} "
+                                 f"HDR-profil={d['profiles'].get('active_hdr') or '-'} "
+                                 f"[nyers:{(d.get('hdr') or {}).get('raw', '')}]"
                                  for d in st['displays'])
-                     + f" | profil-betöltés={st['calibration']}, ACM-zár={st['acm_guard']}, "
+                     + f" | profil-betöltés={st['calibration']}, profil-zár={st.get('profile_guard')}, ACM-zár={st['acm_guard']}, "
                        f"árva={len(st['orphans'])}, törött regisztráció={st['broken']}")
         return st
 
@@ -206,7 +214,8 @@ class GuiDisplayMixin:
                                                + ' - minden bejelentkezéskor ellenőrizzük.', 'type': 'success'})
             else:
                 ok = colormgmt_core.remove_acm_guard(self._run)
-                self.emit('toast', {'message': '🔓 ACM-zár feloldva - a kapcsoló újra szabadon használható.'
+                self.emit('toast', {'message': '✅ Automatikus színkezelés ENGEDÉLYEZVE - a Windows dönt, '
+                                               'kijelzőnként kézzel is kapcsolhatod.'
                                     if ok else '❌ A zár nem távolítható el (részletek a naplóban).',
                                     'type': 'success' if ok else 'error'})
         self._display_action('acm-lock', run)
@@ -218,19 +227,25 @@ class GuiDisplayMixin:
         logging.info(f"[API] set_profile_loading(enabled={enabled})")
 
         def run():
-            res = colormgmt_core.set_profile_loading(bool(enabled), display_core.enumerate_displays())
+            res = colormgmt_core.set_profile_loading(bool(enabled), self._run, display_core.enumerate_displays())
             if not res['ok']:
                 self.emit('toast', {'message': '❌ A profil-betöltés nem állítható át (részletek a naplóban).',
                                     'type': 'error'})
             elif enabled:
-                self.emit('toast', {'message': '✅ Profil-betöltés ENGEDÉLYEZVE - most már aktiválhatsz profilt.',
-                                    'type': 'success'})
+                self.emit('toast', {'message': '✅ Profil-betöltés ENGEDÉLYEZVE (a bejelentkezéskori zár lekerült) - '
+                                               'most már aktiválhatsz profilt.'
+                                    if res['guard_ok'] else '⚠️ Profil-betöltés engedélyezve, de a zár feladata NEM '
+                                    'távolítható el (részletek a naplóban).',
+                                    'type': 'success' if res['guard_ok'] else 'warning'})
             else:
                 bad = [g[0] for g in res['gamma'] if not g[1]]
+                guard = ('minden bejelentkezéskor újra leszedi a profilokat' if res['guard_ok']
+                         else f"⚠️ a bejelentkezéskori zár NEM települt: {res['guard_msg']}")
                 self.emit('toast', {'message': f"🔒 Profil-betöltés LETILTVA - {len(res['removed'])} profil-társítás "
                                                f"leszedve, a gamma lineáris"
-                                               + (f" (NEM sikerült: {', '.join(bad)})" if bad else '') + '.',
-                                    'type': 'warning' if bad else 'success'})
+                                               + (f" (NEM sikerült: {', '.join(bad)})" if bad else '')
+                                               + f'; {guard}.',
+                                    'type': 'warning' if bad or not res['guard_ok'] else 'success'})
         self._display_action('profile-loading', run)
 
     def activate_color_profile(self, index, slot, profile_file):
