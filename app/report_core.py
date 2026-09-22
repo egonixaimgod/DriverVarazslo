@@ -26,6 +26,109 @@ from datetime import datetime
 # === /AUTO-IMPORTS ===
 
 
+# === RAM GYÁRTÓ-FELISMERÉS ===================================================
+# MÉRT TÉNY (2026-09-22, ASRock B450M Pro4 + G.Skill F4-3200C16-16GIS): ezen a gépen
+# EGYETLEN SMBIOS mező sem hordozza a RAM gyártóját. A teljes SMBIOS táblát kiolvasva
+# (GetSystemFirmwareTable('RSMB') - a registry `mssmbios\Data` csonkolt, Type 17 rekord
+# nincs is benne) a Type 17 rekord így néz ki:
+#     Manufacturer (string)      -> 'Unknown'     <- a BIOS szó szerint ezt írja bele
+#     ModuleManufacturerID (0x4D)-> 0x0000        <- a numerikus JEDEC kód is ÜRES
+#     PartNumber (string)        -> 'F4-3200C16-16GIS'
+# Vagyis az EGYETLEN információhordozó a CIKKSZÁM. Az SPD chip közvetlen kiolvasása
+# (SMBus) kernel-driver nélkül nem lehetséges, ilyet pedig ügyfélgépre nem teszünk.
+# Ezért a sorrend: (1) értelmes gyártó-string, (2) JEDEC hex kód feloldása,
+# (3) a cikkszám prefixe, (4) ha semmi: NINCS gyártó - lásd a `ram_vendor` None-ágát.
+
+# A Windows néha a nyers JEDEC azonosítót teszi a Manufacturer mezőbe ('802C', '80AD'...).
+RAM_JEDEC_IDS = {
+    "802C": "Micron", "80AD": "SK Hynix", "80CE": "Samsung", "859B": "Crucial",
+    "04CB": "A-DATA", "04CD": "G.Skill", "0198": "Kingston", "0298": "Kingston",
+    "029E": "Corsair", "00CE": "Samsung", "014F": "Transcend", "02FE": "Elpida",
+    "0D0B": "Crucial", "830B": "Crucial", "8551": "Patriot", "04EF": "Team Group",
+    "0194": "Smart Modular", "83FE": "Elpida", "80B5": "Netlist", "0443": "Ramaxel",
+}
+
+# Cikkszám-prefixek. A SORREND SZÁMÍT: a HOSSZABB (specifikusabb) prefix áll elöl,
+# különben a rövidebb elnyelné (pl. 'NTB' Netac vs 'NT' Nanya, 'BLS' vs 'BL').
+# Ugyanaz a csapda, mint a GVLK-táblánál (winact_core) - ne rendezd át ABC-be!
+RAM_PART_PREFIXES = (
+    ("KHX", "Kingston"), ("KVR", "Kingston"), ("KCP", "Kingston"), ("KSM", "Kingston"),
+    ("KF", "Kingston"), ("HX", "Kingston"),                      # HyperX = Kingston
+    ("CMK", "Corsair"), ("CMW", "Corsair"), ("CMH", "Corsair"), ("CMT", "Corsair"),
+    ("CMV", "Corsair"), ("CMSO", "Corsair"), ("CMSX", "Corsair"), ("CMU", "Corsair"),
+    ("CMD", "Corsair"), ("CMG", "Corsair"), ("CMP", "Corsair"), ("CMZ", "Corsair"),
+    ("BLS", "Crucial"), ("BLT", "Crucial"), ("BLM", "Crucial"), ("BLE", "Crucial"),
+    ("BL", "Crucial"), ("CT", "Crucial"),
+    ("F5-", "G.Skill"), ("F4-", "G.Skill"), ("F3-", "G.Skill"),
+    ("HMA", "SK Hynix"), ("HMT", "SK Hynix"), ("HMC", "SK Hynix"), ("HMB", "SK Hynix"),
+    ("MTA", "Micron"), ("MT", "Micron"),
+    ("M378", "Samsung"), ("M471", "Samsung"), ("M393", "Samsung"), ("M425", "Samsung"),
+    ("M323", "Samsung"), ("M321", "Samsung"),
+    ("AX5U", "ADATA XPG"), ("AX4U", "ADATA XPG"), ("AX3U", "ADATA XPG"),
+    ("AD5U", "ADATA"), ("AD4U", "ADATA"), ("AU", "Apacer"),
+    ("TF", "Team Group"), ("TED", "Team Group"), ("TLD", "Team Group"),
+    ("TDZ", "Team Group"), ("TTZ", "Team Group"),
+    ("PVS", "Patriot"), ("PVE", "Patriot"), ("PVB", "Patriot"), ("PSD", "Patriot"),
+    ("NTB", "Netac"), ("NTS", "Netac"), ("NT", "Nanya"),
+    ("TS", "Transcend"), ("GN4", "GeIL"), ("GP4", "GeIL"),
+    ("MLA", "Mushkin"), ("MLB", "Mushkin"), ("LD4", "Lexar"), ("LD5", "Lexar"),
+    ("RMUA", "Ramaxel"), ("RMSA", "Ramaxel"), ("EBJ", "Elpida"),
+)
+
+# Amit gyártónévként KI KELL DOBNI: a BIOS-ok ezekkel töltik ki a mezőt, ha nem tudják.
+RAM_VENDOR_PLACEHOLDERS = {
+    "", "unknown", "undefined", "n/a", "na", "none", "null", "other",
+    "to be filled by o.e.m.", "to be filled by oem", "not specified",
+    "manufacturer", "manufacturer0", "manufacturer1", "default string",
+    "00000000", "000000000000", "ffffffff", "0000", "unknown manufacturer",
+}
+
+
+def ram_vendor(manufacturer, part_number):
+    """A RAM modul gyártójának feloldása, vagy None, ha nem állapítható meg.
+
+    TISZTA FÜGGVÉNY (offline tesztelhető). Szándékosan ad None-t a
+    'nem tudjuk' esetre: a riportban az 'Unknown' szó gyártóként KIÍRVA egy
+    nemtudást állít ténynek - a hívó ilyenkor inkább csak a cikkszámot írja ki.
+    """
+    man = (manufacturer or "").strip()
+    part = (part_number or "").strip()
+
+    # A '0x' prefixet le kell venni a hexa-vizsgálat ELŐTT is: enélkül a '0x80CE' nem
+    # számít hexának (az 'x' miatt), és nyers kódként íródna ki gyártónévnek.
+    hx = man[2:] if man[:2].lower() == "0x" else man
+    hexish = 0 < len(hx) <= 8 and all(c in "0123456789ABCDEFabcdef" for c in hx)
+
+    # 1) Valódi gyártónév? (nem placeholder és nem csak hexa/számjegy)
+    if man.lower() not in RAM_VENDOR_PLACEHOLDERS and not hexish:
+        return man
+
+    # 2) JEDEC hexa kód a Manufacturer mezőben ('802C', '0x802C', '80AD'...)
+    if len(hx) >= 4 and all(c in "0123456789ABCDEFabcdef" for c in hx[:4]):
+        vendor = RAM_JEDEC_IDS.get(hx[:4].upper())
+        if vendor:
+            return vendor
+
+    # 3) A cikkszám prefixe - ezen a gépen ez az EGYETLEN forrás (lásd a fenti mérést)
+    up = part.upper()
+    for prefix, vendor in RAM_PART_PREFIXES:
+        if up.startswith(prefix):
+            return vendor
+
+    # 4) Nem tudjuk - és ezt nem írjuk ki 'Unknown'-ként.
+    return None
+
+
+def ram_type_name(smbios_type):
+    """SMBIOSMemoryType -> 'DDR4' / 'DDR5' ... vagy None, ha ismeretlen a kód."""
+    try:
+        code = int(smbios_type)
+    except (TypeError, ValueError):
+        return None
+    return {20: "DDR", 21: "DDR2", 24: "DDR3", 26: "DDR4", 34: "DDR5",
+            17: "SDRAM", 18: "EDO", 19: "DDR"}.get(code)
+
+
 def find_smartctl(stress_dir):
     """A smartctl.exe megkeresése a kicsomagolt stresstools mappában (vagy None)."""
     if not stress_dir:
@@ -251,7 +354,7 @@ $data = @{}
 try { $data.CS = Get-CimInstance Win32_ComputerSystem | Select-Object Manufacturer, Model | ConvertTo-Json -Compress } catch {}
 try { $data.BB = Get-CimInstance Win32_BaseBoard | Select-Object Manufacturer, Product | ConvertTo-Json -Compress } catch {}
 try { $data.CPU = Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors | ConvertTo-Json -Compress } catch {}
-try { $data.RAM = @(Get-CimInstance Win32_PhysicalMemory | Select-Object Capacity, Speed, Manufacturer, PartNumber) | ConvertTo-Json -Compress } catch {}
+try { $data.RAM = @(Get-CimInstance Win32_PhysicalMemory | Select-Object Capacity, Speed, Manufacturer, PartNumber, SMBIOSMemoryType) | ConvertTo-Json -Compress } catch {}
 try { $data.RAMTotal = Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory | ConvertTo-Json -Compress } catch {}
 try {
     # Win32_VideoController.AdapterRAM egy 32 bites (UInt32) WMI mezo, ami max. kb. 4 GB-ot
@@ -333,7 +436,12 @@ ConvertTo-Json $data
     # nehogy egy '<'/'>'/'&'-et tartalmazó modell-/gyártónév eltörje a HTML-t.
     def g(d, key, default='?'):
         v = d.get(key, default)
-        return default if v is None else v
+        if v is None:
+            return default
+        # A WMI több mezőt szóközökkel tölt ki fix hosszúra (a Win32_Processor.Name pl.
+        # 'AMD Ryzen 5 5600 6-Core Processor              ' alakban jön) - HTML-ben ez nem
+        # látszik, de bemásolva/PDF-be mentve igen, ezért a szöveges értékeket trimmeljük.
+        return v.strip() if isinstance(v, str) else v
 
     def e(value):
         return html_escape(str(value))
@@ -410,28 +518,43 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
     except Exception as ex:
         logging.debug(f"[REPORT] RAM-összeg értelmezési hiba ('Ismeretlen' marad): {ex}")
 
-    html += f"<p style='margin: 0 0 8px 0;'><strong>Összes fizikai memória:</strong> {tot_gb} ({len(ram_list)} db modul)</p>"
+    # A modulok típusa (DDR4/DDR5) és gyártója - a fejlécben csak akkor, ha MINDEN modulra
+    # ugyanaz jött ki: egy vegyes gépen a "63.9 GB DDR4, G.Skill" összevonás hazudna.
+    ram_types = {ram_type_name(r.get('SMBIOSMemoryType')) for r in ram_list} if ram_list else set()
+    ram_type = ram_types.pop() if len(ram_types) == 1 else None
+    ram_vendors = {ram_vendor(r.get('Manufacturer'), r.get('PartNumber')) for r in ram_list} if ram_list else set()
+    ram_brand = ram_vendors.pop() if len(ram_vendors) == 1 else None
+
+    head_bits = [tot_gb]
+    if ram_type:
+        head_bits.append(ram_type)
+    ram_head = " ".join(head_bits)
+    ram_detail = f"{len(ram_list)} db modul" + (f", {ram_brand}" if ram_brand else "")
+    html += f"<p style='margin: 0 0 8px 0;'><strong>Összes fizikai memória:</strong> {e(ram_head)} ({e(ram_detail)})</p>"
     if ram_list:
-        jedec_map = {
-            "80AD": "SK Hynix", "80CE": "Samsung", "802C": "Micron",
-            "0198": "Kingston", "029E": "Corsair", "04CB": "A-DATA",
-            "00CE": "Samsung", "014F": "Transcend", "02FE": "Elpida",
-            "0D0B": "Crucial", "0298": "Kingston"
-        }
         html += "<table><tr><th>Gyártó / Cikkszám</th><th>Kapacitás</th><th>Sebesség</th></tr>"
         for r in ram_list:
             cap = r.get('Capacity')
             cap_gb = f"{round(int(cap)/(1024**3), 1)} GB" if cap else "?"
 
-            man = str(g(r, 'Manufacturer')).strip()
-            if len(man) >= 4 and all(c in '0123456789ABCDEFabcdef' for c in man[:4]):
-                hex_pfx = man[:4].upper()
-                if hex_pfx in jedec_map:
-                    man = jedec_map[hex_pfx]
-
-            man_part = f"{man} {g(r, 'PartNumber')}".strip()
-            html += f"<tr><td>{e(man_part)}</td><td>{e(cap_gb)}</td><td>{e(g(r, 'Speed'))} MHz</td></tr>"
+            # A gyártó a Manufacturer mezőből, a JEDEC kódból VAGY a cikkszám prefixéből
+            # (sok BIOS szó szerint 'Unknown'-t ír a mezőbe - lásd a ram_vendor mérését).
+            vendor = ram_vendor(r.get('Manufacturer'), r.get('PartNumber'))
+            part = str(g(r, 'PartNumber', '')).strip()
+            if vendor and part:
+                cell = f"<b>{e(vendor)}</b> {e(part)}"
+            elif vendor:
+                cell = f"<b>{e(vendor)}</b>"
+            else:
+                # Ismeretlen gyártó: a cikkszámot MAGÁBAN írjuk ki - az 'Unknown' szó
+                # gyártóként kiírva egy nemtudást állítana ténynek.
+                cell = e(part) if part else "<i>nincs adat</i>"
+            html += f"<tr><td>{cell}</td><td>{e(cap_gb)}</td><td>{e(g(r, 'Speed'))} MHz</td></tr>"
         html += "</table>"
+        logging.info("[REPORT] RAM: %d modul, típus=%s, gyártó=%s (Manufacturer='%s', PartNumber='%s')",
+                     len(ram_list), ram_type or "ismeretlen", ram_brand or "ismeretlen",
+                     str(g(ram_list[0], 'Manufacturer', '')).strip(),
+                     str(g(ram_list[0], 'PartNumber', '')).strip())
 
     html += """</div>
     </div>
@@ -526,7 +649,7 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
         ("🖥️", "Alaplap", pc_model),
         ("🧠", "Processzor", g(cpu, 'Name', 'Ismeretlen')),
         ("🎮", "Videokártya", ", ".join(gpu_summary_list) if gpu_summary_list else "Nincs adat"),
-        ("🧩", "Memória", f"{tot_gb} ({len(ram_list)} db modul)"),
+        ("🧩", "Memória", f"{ram_head} ({ram_detail})"),
         ("💾", "Háttértár", ", ".join(storage_summary_list) if storage_summary_list else "Nincs adat"),
         ("🪟", "Operációs rendszer", f"{g(os_info, 'Caption', 'Ismeretlen')} ({g(os_info, 'OSArchitecture', 'Ismeretlen')})"),
     ]

@@ -32,7 +32,11 @@ def _clean_folder_contents(folder, cancel_check=None):
     így egy zárolt (épp használatban lévő) fájl/almappa nem akasztja meg a többi elem
     törlését, csak kimarad a számlálásból. cancel_check: opcionális () -> bool (a GUI
     megszakítás-jelzőjéhez) - CLI hívásnál nincs ilyen, ott sosem szakad meg félúton.
-    Visszaadja: (felszabadított_bájt, törölt_elemek, kihagyott_elemek)."""
+    Visszaadja: (felszabadított_bájt, törölt_elemek, kihagyott_elemek).
+
+    A MAPPA TARTALMÁT MINDEN ESETBEN TÖRLI - ITT SOHA NEM LEHET KIVÉTEL-LISTA
+    (explicit user decision, 2026-09-22). Részletek és a visszavont kísérlet:
+    lásd a CLAUDE.md "A TEMP-TAKARÍTÁS MINDIG MINDENT TÖRÖL" szekcióját."""
     freed = 0
     removed = 0
     failed = 0
