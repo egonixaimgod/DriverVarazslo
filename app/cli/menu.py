@@ -1109,7 +1109,8 @@ def _menu_maintenance(api):
             _run_screen(api, 'Temp törlés', lambda: _tempclean_flow(api))
         elif c == '2':
             _run_screen(api, 'Rendszer riport', lambda: api.generate_system_report(
-                ui.ask('Megjegyzés a riportra (nem kötelező)')))
+                ui.ask('Megjegyzés a riportra (nem kötelező)'),
+                ui.confirm('Teszt-SSD-ről fut a rendszer? (a futó Windows lemeze kimarad a riportból)')))
         elif c == '3':
             _run_screen(api, 'Bolti nyomtatás', lambda: api.print_via_store_printer())
         elif c == '4':

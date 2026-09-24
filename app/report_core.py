@@ -16,6 +16,7 @@ Fontos, terepen bizonyított szabályok (lásd CLAUDE.md):
 
 # === AUTO-IMPORTS ===
 import os
+import re
 import time
 import logging
 import json
@@ -157,9 +158,75 @@ def find_existing_smartctl():
     return find_smartctl(find_existing_stresstools_dir())
 
 
-def _collect_smart_data(run, smartctl_exe):
+# A riportot futtató Windows lemeze (2026-09-24, explicit user decision: a szerviz egy
+# USB-s TESZT-SSD-ről futtatja a programot, és a riport a gép saját lemezei közé azt is
+# beírta). A Get-Disk a PhysicalDrive számát adja - a smartctl Windowson a /dev/sdX
+# nevet pontosan erre képezi ("a" = PhysicalDrive0), ez USB-hídon át is igaz, míg a
+# sorozatszám ott a HÍD-é lehet, nem a lemezé. Ezért mindkettő jel, bármelyik elég.
+SYSTEM_DISK_PS = r"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+try {
+    $d = Get-Partition -DriveLetter ($env:SystemDrive.TrimEnd(':')) -ErrorAction Stop | Get-Disk -ErrorAction Stop
+    @{Number=$d.Number; Serial=$d.SerialNumber; Model=$d.FriendlyName; Bus="$($d.BusType)"} | ConvertTo-Json -Compress
+} catch {}
+"""
+
+
+def find_system_disk(run):
+    """A futó Windows lemezének azonosítója: {'number','serial','model','bus'} vagy None,
+    ha nem állapítható meg (akkor a hívó SEMMIT nem hagy ki - nemtudásra nem törlünk)."""
+    try:
+        res = run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", SYSTEM_DISK_PS],
+                  encoding='utf-8')
+        out = (res.stdout or '').strip()
+        data = json.loads(out) if out else None
+    except Exception as ex:
+        logging.warning(f"[REPORT] A rendszerlemez azonosítása elbukott: {ex}")
+        return None
+    if not isinstance(data, dict) or data.get('Number') is None:
+        logging.warning(f"[REPORT] A rendszerlemez nem azonosítható (kimenet: {out[:200]!r})")
+        return None
+    disk = {'number': int(data['Number']), 'serial': (data.get('Serial') or '').strip(),
+            'model': (data.get('Model') or '').strip(), 'bus': (data.get('Bus') or '').strip()}
+    logging.info(f"[REPORT] Rendszerlemez: PhysicalDrive{disk['number']} {disk['model']!r} "
+                 f"(sorozatszám={disk['serial'] or '-'}, busz={disk['bus'] or '?'})")
+    return disk
+
+
+def smartctl_drive_number(dev_name):
+    """A smartctl Windows-os /dev/sdX (/dev/sdXY) nevének PhysicalDrive-száma, vagy None
+    (pl. /dev/nvme0, /dev/csmi... - azokat nem lehet biztosan PhysicalDrive-ra képezni)."""
+    m = re.fullmatch(r'/dev/sd([a-z]{1,2})', (dev_name or '').strip().lower())
+    if not m:
+        m2 = re.fullmatch(r'/dev/pd(\d+)', (dev_name or '').strip().lower())
+        return int(m2.group(1)) if m2 else None
+    letters = m.group(1)
+    if len(letters) == 1:
+        return ord(letters) - ord('a')
+    return (ord(letters[0]) - ord('a') + 1) * 26 + (ord(letters[1]) - ord('a'))
+
+
+def _norm_serial(s):
+    return re.sub(r'[\s\-_.]', '', str(s or '')).upper()
+
+
+def is_system_disk(system_disk, dev_name, serial):
+    """Ez a smartctl-eszköz a futó Windows lemeze-e? Az ok szövegét adja vissza, vagy None-t."""
+    if not system_disk:
+        return None
+    num = smartctl_drive_number(dev_name)
+    if num is not None and num == system_disk.get('number'):
+        return f"{dev_name} = PhysicalDrive{num}"
+    a, b = _norm_serial(serial), _norm_serial(system_disk.get('serial'))
+    if a and b and len(a) >= 6 and a == b:
+        return f"egyező sorozatszám ({serial})"
+    return None
+
+
+def _collect_smart_data(run, smartctl_exe, system_disk=None, excluded=None):
     """S.M.A.R.T. adatok begyűjtése smartctl-lel. Üres lista, ha nincs smartctl vagy
-    nem talált lemezt."""
+    nem talált lemezt. `system_disk` megadásakor a futó Windows lemezét kihagyja, és a
+    kihagyottak nevét az `excluded` listába teszi."""
     smart_data = []
     if not smartctl_exe:
         return smart_data
@@ -196,6 +263,13 @@ def _collect_smart_data(run, smartctl_exe):
             dev_name = dev.get("name")
             dev_scan_type = dev.get("type", "")
             if dev_name:
+                why = is_system_disk(system_disk, dev_name, None)
+                if why:
+                    logging.warning(f"[REPORT] KIHAGYVA a riportból - a futó Windows lemeze ({why}), "
+                                    f"a technikus kérésére (teszt-SSD).")
+                    if excluded is not None:
+                        excluded.append(f"{system_disk.get('model') or dev_name} ({why})")
+                    continue
                 logging.info(f"[REPORT] Adatok lekérése: {dev_name} (type={dev_scan_type or '?'})")
                 info_data = {}
                 for info_attempt in range(1, 3):
@@ -215,6 +289,14 @@ def _collect_smart_data(run, smartctl_exe):
                         time.sleep(2)
 
                 serial = info_data.get("serial_number", "")
+                why = is_system_disk(system_disk, None, serial)
+                if why:
+                    model_name = (info_data.get("model_name") or dev_name).strip()
+                    logging.warning(f"[REPORT] KIHAGYVA a riportból - a futó Windows lemeze: {model_name} "
+                                    f"[{dev_name}] ({why}), a technikus kérésére (teszt-SSD).")
+                    if excluded is not None:
+                        excluded.append(f"{model_name} ({why})")
+                    continue
                 if serial and serial in seen_serials:
                     logging.info(f"[REPORT] Duplikált lemez átugrása (serial: {serial})")
                     continue
@@ -314,10 +396,27 @@ def _collect_smart_data(run, smartctl_exe):
     return smart_data
 
 
-def generate_system_report(run, smartctl_exe=None, note=None):
+def generate_system_report(run, smartctl_exe=None, note=None, skip_system_disk=False, report=None):
     """A teljes HTML rendszer-riport generálása. Visszatérés: a mentett fájl útvonala
-    (az _app_data_dir()-ben); hibánál kivételt dob."""
-    smart_data = _collect_smart_data(run, smartctl_exe)
+    (az _app_data_dir()-ben); hibánál kivételt dob.
+
+    skip_system_disk: a futó Windows lemezét (a szerviz USB-s teszt-SSD-jét) kihagyja a
+    háttértárak közül. Ha a rendszerlemez nem azonosítható, NEM hagy ki semmit - ezt a
+    `report` dict 'system_disk_unknown' kulcsa jelzi a hívónak, a kihagyott lemezeket
+    pedig az 'excluded_disks' lista."""
+    if report is None:
+        report = {}
+    report['excluded_disks'] = []
+    report['system_disk_unknown'] = False
+    system_disk = None
+    if skip_system_disk:
+        system_disk = find_system_disk(run)
+        report['system_disk_unknown'] = system_disk is None
+    smart_data = _collect_smart_data(run, smartctl_exe, system_disk, report['excluded_disks'])
+    if system_disk and not report['excluded_disks'] and smartctl_exe:
+        logging.warning(f"[REPORT] A rendszerlemez (PhysicalDrive{system_disk['number']}, "
+                        f"{system_disk['model']!r}) egyik smartctl-eszközzel sem párosítható - "
+                        f"nem hagytunk ki semmit.")
 
     # Akkumulátor információk
     batt_script = r"""
@@ -611,7 +710,10 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
             <h2>💾 Háttértárak (S.M.A.R.T. Adatok)</h2>"""
 
     storage_summary_list = []
-    if not smart_data:
+    if not smart_data and report['excluded_disks']:
+        # Mindent kihagytunk, ami volt: a "nem olvasható a S.M.A.R.T." itt valótlan lenne.
+        html += "<p>Nem található más háttértár a gépben.</p>"
+    elif not smart_data:
         html += "<p>Nem található háttértár információ vagy nem olvasható a S.M.A.R.T.</p>"
     else:
         smart_blocks = []
@@ -650,7 +752,8 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
         ("🧠", "Processzor", g(cpu, 'Name', 'Ismeretlen')),
         ("🎮", "Videokártya", ", ".join(gpu_summary_list) if gpu_summary_list else "Nincs adat"),
         ("🧩", "Memória", f"{ram_head} ({ram_detail})"),
-        ("💾", "Háttértár", ", ".join(storage_summary_list) if storage_summary_list else "Nincs adat"),
+        ("💾", "Háttértár", ", ".join(storage_summary_list) if storage_summary_list
+         else ("Nincs más háttértár" if report['excluded_disks'] else "Nincs adat")),
         ("🪟", "Operációs rendszer", f"{g(os_info, 'Caption', 'Ismeretlen')} ({g(os_info, 'OSArchitecture', 'Ismeretlen')})"),
     ]
     summary_items = "".join(

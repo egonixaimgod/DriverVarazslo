@@ -53,14 +53,19 @@ class GuiReportMixin:
 
         return cb
 
-    def generate_system_report(self, note=None):
+    def generate_system_report(self, note=None, skip_system_disk=False):
         """Rendszer Riport generálása. Visszatérés: {'success': True, 'path': <html>}.
 
         Szinkron marad (a ui.html a visszatérési értékből veszi az útvonalat), de minden
-        fázist naplóz és a felületre is kiír - lásd a modul fejlécét."""
+        fázist naplóz és a felületre is kiír - lásd a modul fejlécét.
+
+        skip_system_disk: a futó Windows lemeze (a szerviz USB-s teszt-SSD-je) nem kerül
+        a riport háttértárai közé (2026-09-24, explicit user decision)."""
         task = 'report'
+        skip_system_disk = bool(skip_system_disk)
         logging.info(f"[REPORT] === Rendszer Riport generálás INDUL (megjegyzés: "
-                     f"{'igen' if note else 'nem'}) ===")
+                     f"{'igen' if note else 'nem'}, rendszerlemez kihagyása: "
+                     f"{'IGEN' if skip_system_disk else 'nem'}) ===")
         t_all = time.monotonic()
         self.emit('task_start', {'task': task, 'title': 'Rendszer Riport készítése'})
         try:
@@ -88,8 +93,20 @@ class GuiReportMixin:
             self.emit('task_progress', {'task': task, 'log': '🔎 Hardver-adatok begyűjtése és a riport összeállítása (gyengébb gépen 1-2 perc)...', 'indeterminate': True})
             logging.info("[REPORT] 3/4 - adatgyűjtés + HTML-generálás indul...")
             t0 = time.monotonic()
-            final_path = report_core.generate_system_report(self._run, smartctl_exe, note)
+            info = {}
+            final_path = report_core.generate_system_report(self._run, smartctl_exe, note,
+                                                            skip_system_disk=skip_system_disk, report=info)
             gen_s = time.monotonic() - t0
+            if skip_system_disk:
+                # Ha nem tudtuk azonosítani, NEM hagytunk ki semmit - ezt ki kell mondani,
+                # különben a technikus azt hinné, a riportban nincs benne a teszt-SSD.
+                if info.get('system_disk_unknown'):
+                    self.emit('task_progress', {'task': task, 'log': '⚠️ A futó rendszer lemezét nem sikerült azonosítani - a riport minden háttértárat tartalmaz.'})
+                elif info.get('excluded_disks'):
+                    for d in info['excluded_disks']:
+                        self.emit('task_progress', {'task': task, 'log': f'🧪 Kihagyva a riportból (a futó rendszer lemeze): {d}'})
+                elif smartctl_exe:
+                    self.emit('task_progress', {'task': task, 'log': '⚠️ A futó rendszer lemeze nem szerepelt a S.M.A.R.T. listában - nem kellett kihagyni semmit.'})
             try:
                 size_kb = os.path.getsize(final_path) / 1024.0
             except Exception:

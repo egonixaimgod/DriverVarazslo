@@ -1408,6 +1408,15 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           </div>
           <div class="vh-actions">
             <button class="btn btn-big btn-success" onclick="generateSystemReport()" id="btn-report">📄 HTML Riport Generálása</button>
+            <!-- 2026-09-24, explicit user decision: ha a program a szerviz USB-s TESZT-SSD-jéről
+                 fut, a riport a gép saját lemezei közé azt is beírta. Bepipálva a futó Windows
+                 lemeze kimarad. Alapból KI: az ügyfél saját Windowsán futtatva az a gép valódi
+                 lemeze, és egy bent felejtett pipa kivenné a riportból. -->
+            <label class="toggle" title="Bepipálva a riport NEM sorolja fel azt a lemezt, amelyről a Windows épp fut (pl. a szerviz USB-s teszt-SSD-jét). Csak akkor kapcsold be, ha nem a gép saját Windowsáról futtatod a programot.">
+              <input type="checkbox" id="report-skip-sysdisk">
+              <span class="toggle-track"></span>
+              🧪 Teszt-SSD-ről fut: a rendszerlemez kihagyása
+            </label>
           </div>
         </div>
 
@@ -5457,7 +5466,8 @@ async function generateSystemReport() {
   document.getElementById('btn-report').disabled = true;
   document.getElementById('btn-report').textContent = '⏳ Adatok letapogatása...';
   try {
-    const res = await api().generate_system_report(note);
+    const skipEl = document.getElementById('report-skip-sysdisk');
+    const res = await api().generate_system_report(note, !!(skipEl && skipEl.checked));
     if (res && res.success) {
       const choice = await showConfirm3('Kész!', 'A rendszer riport sikeresen elkészült:\n' + res.path + '\n\nMegnyitod most a fájlt a böngésződben?', 'Megnyitás böngészőben', '🖨️ Microstore bolti nyomtatóval nyomtatás', 'Mégse', 'btn-warning');
       if (choice === true) {
