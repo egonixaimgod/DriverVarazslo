@@ -1264,6 +1264,47 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:rgba(180,100,255,0.25);border-radius:4px}
 ::-webkit-scrollbar-thumb:hover{background:rgba(180,100,255,0.4)}
+
+/* ============ BOLTI TÁBLA NYOMTATÁS (2026-09-25) ============
+   Két gép kártyája egymás mellett (egy A4 = két A5 tábla), mindegyikben előbb a TÍPUS
+   (laptop / asztali), és csak utána jelennek meg a mezők - explicit user decision: a
+   laptop két plusz sora (billentyűzet, akku) asztali gépnél be sem kérhető. */
+.sl-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:16px}
+@media (max-width:1100px){.sl-grid{grid-template-columns:minmax(0,1fr)}}
+.sl-card{padding:18px 20px}
+.sl-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.sl-card-title{font-size:16px;font-weight:800}
+.sl-kinds{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.sl-kind{padding:14px 10px;border-radius:var(--r);border:2px solid var(--glass-border);background:rgba(20,10,36,0.55);
+  color:var(--text2);font:700 15px var(--font);cursor:pointer;transition:var(--t);text-align:center}
+.sl-kind:hover{border-color:var(--glass-border-hover);color:#fff}
+.sl-kind.on{border-color:#2ee08a;background:rgba(46,224,138,0.14);color:#66ffb2;box-shadow:0 0 18px rgba(46,224,138,0.22)}
+.sl-pick-hint{font-size:12.5px;color:var(--text3);text-align:center;padding:18px 6px 8px}
+.sl-row{display:grid;grid-template-columns:118px minmax(0,1fr);gap:10px;align-items:center;margin-bottom:8px}
+.sl-row label{text-align:right;font-weight:700;color:var(--text3);font-size:12.5px}
+.sl-row.sl-big label{color:var(--text2)}
+.sl-input{width:100%;min-width:0;padding:8px 10px;border-radius:8px;background:rgba(20,10,36,0.85);color:#fff;
+  border:1px solid var(--glass-border);font:13px var(--font);outline:none;transition:var(--t)}
+.sl-input:focus{border-color:var(--accent);box-shadow:0 0 12px rgba(212,136,255,0.25)}
+.sl-input::placeholder{color:rgba(200,180,230,0.38)}
+.sl-row.sl-big .sl-input{font-size:15px;font-weight:700}
+.sl-input.sl-missing{border-color:#ff4d5e;box-shadow:0 0 10px rgba(255,77,94,0.3)}
+.sl-sep{height:1px;background:var(--glass-border);opacity:0.5;margin:10px 0 12px}
+.sl-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:16px 20px}
+.sl-bar .sl-bar-label{font-weight:700;color:var(--text2)}
+.sl-bar select{flex:1 1 260px;min-width:0;padding:10px 12px;border-radius:8px;background:rgba(20,10,36,0.85);color:#fff;
+  border:1px solid var(--glass-border);font:14px var(--font);cursor:pointer}
+.sl-bar select.sl-missing{border-color:#ff4d5e}
+.sl-print{flex:0 0 auto;min-width:300px;justify-content:center;font-size:16px;padding:14px 22px;
+  background:linear-gradient(135deg,#2ee08a,#14b869);border-color:transparent;color:#04361f;font-weight:800;
+  text-shadow:none;box-shadow:0 0 26px rgba(46,224,138,0.28)}
+.sl-print:hover:not(:disabled){background:linear-gradient(135deg,#5cf0a8,#1ad07a);border-color:transparent;box-shadow:0 0 38px rgba(46,224,138,0.5)}
+.sl-print:disabled{opacity:1;background:rgba(120,120,140,0.14);border-color:rgba(180,160,220,0.25);color:var(--text3);box-shadow:none}
+.sl-note{font-size:12px;color:var(--text3);width:100%}
+.sl-result{margin-top:12px;padding:12px 14px;border-radius:var(--r);font-size:13px;line-height:1.55;white-space:pre-wrap}
+.sl-result.ok{background:rgba(46,224,138,0.10);border:1px solid rgba(46,224,138,0.45);color:#9dffcf}
+.sl-result.bad{background:rgba(255,77,94,0.10);border:1px solid rgba(255,77,94,0.45);color:#ffb3ba}
+.sl-warn{margin-bottom:14px;padding:12px 14px;border-radius:var(--r);background:rgba(255,179,71,0.10);border:1px solid rgba(255,179,71,0.45);color:#ffd9a0}
 </style>
 </head>
 <body>
@@ -1305,6 +1346,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
     <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Driver Fix</button>
     <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stress Teszt &amp; Szervíz Programok</button>
     <button class="nav-btn" onclick="switchView('display')" data-view="display"><span class="icon">🎨</span>Kijelző &amp; Színkezelés</button>
+    <button class="nav-btn" onclick="switchView('shoplabel')" data-view="shoplabel"><span class="icon">🏷️</span>Bolti tábla nyomtatás</button>
     <button class="nav-btn" onclick="switchView('benchmark')" data-view="benchmark"><span class="icon">🏆</span>Benchmark</button>
     <!-- A NET BLOKKOLO SCRIPT MENUPONTJA KIKERULT (2026-09-18, explicit user decision:
          *"a net blokkoló script is átmehetne az operációs rendszerbe, felesleges külön
@@ -2145,6 +2187,37 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
       </div>
 
       <!-- VIEW: Benchmark -->
+      <!-- BOLTI TÁBLA NYOMTATÁS (2026-09-25). A sablon a bolt saját Word-fájlja
+           (bolti_tabla_sablon.docx), a program csak kitölti, és a Worddel nyomtatja
+           "laponként 2 oldal + adott papírméretre A4" beállítással. Lásd app/shoplabel_core.py. -->
+      <div class="view" id="view-shoplabel">
+        <div class="view-hero vh-teal" data-emoji="🏷️">
+          <div class="vh-text">
+            <div class="vh-title">🏷️ Bolti tábla nyomtatás</div>
+            <div class="vh-sub">Két gép árlapja egy lapon: add meg a típust (laptop vagy asztali PC), töltsd ki az adatokat, válaszd ki a nyomtatót — a program a bolt Word-sablonjával készíti el és nyomtatja ki, <b>A5-ös oldalanként, laponként 2 oldal, A4-re méretezve</b>.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">📄 A bolt saját Word-sablonja</span>
+              <span class="hero-chip">🗂️ 2 × A5 → 1 × A4</span>
+              <span class="hero-chip">🖨️ Választható nyomtató</span>
+            </div>
+          </div>
+        </div>
+        <div class="sl-warn" id="sl-warn" style="display:none"></div>
+        <div class="sl-grid">
+          <div class="panel glass sl-card" id="sl-card-0"></div>
+          <div class="panel glass sl-card" id="sl-card-1"></div>
+        </div>
+        <div class="panel glass sl-bar">
+          <span class="sl-bar-label">🖨️ Nyomtató:</span>
+          <select id="sl-printer" onchange="slPrinterChanged()"><option value="">Nyomtatók betöltése...</option></select>
+          <button class="btn btn-sm" onclick="loadShopLabelView(true)" title="Nyomtató-lista frissítése">↻</button>
+          <button class="btn btn-sm" onclick="slClearAll()" title="Mindkét gép adatainak törlése a mezőkből">🧹 Mezők ürítése</button>
+          <button class="btn sl-print" id="btn-sl-print" onclick="slPrint()">🖨️ Nyomtatás (2 × A5 → A4)</button>
+          <div class="sl-note">A lista a Windowsban hozzáadott nyomtatók közül választ. A program <b>nem</b> állítja át az alapértelmezett nyomtatót.</div>
+          <div class="sl-result" id="sl-result" style="display:none"></div>
+        </div>
+      </div>
+
       <div class="view" id="view-benchmark">
         <div class="bench-hero">
           <div class="bench-hero-text">
@@ -2891,6 +2964,9 @@ window.handlePyEvent = function(payload) {
     case 'stress_dl_progress':
       onStressDlProgress(data);
       break;
+    case 'shoplabel_result':
+      onShopLabelResult(data);
+      break;
     case 'officeact_result':
       onOfficeActResult(data);
       break;
@@ -2939,6 +3015,172 @@ function goHome() {
   try { checkForUpdatesManual(); } catch (e) { /* a navigáció nem bukhat el rajta */ }
 }
 
+/* ============ BOLTI TÁBLA NYOMTATÁS ============
+   Az állapot EGY objektumban él (slState), a mezők csak megjelenítik: a típusváltás
+   (laptop <-> asztali) így nem veszíti el a már beírt adatokat, a két laptop-sor
+   pedig asztali gépnél egyszerűen nem kerül a küldött adatba. */
+let slInfo = null;
+let slState = [slEmpty(), slEmpty()];
+let slBusy = false;
+function slEmpty() { return {kind: null, name: '', price: '', values: {}}; }
+
+async function loadShopLabelView(refresh) {
+  slRenderCards();
+  const a = api(); if (!a) return;
+  try {
+    slInfo = await a.get_shop_label_info();
+  } catch (e) {
+    slInfo = null;
+    document.getElementById('sl-printer').innerHTML = '<option value="">A nyomtatók lekérdezése nem sikerült</option>';
+    return;
+  }
+  slRenderCards();
+  slRenderPrinters();
+  const warn = [];
+  if (!slInfo.word_installed) warn.push('⚠️ A Microsoft Word nincs telepítve ezen a gépen — a bolti tábla a Worddel nyomtat, ezért itt nem nyomtatható. Futtasd a bolti gépről.');
+  if (!slInfo.template_found) warn.push('⚠️ A bolti tábla sablonja hiányzik a programból.');
+  if (slInfo.printers_error) warn.push('⚠️ A nyomtatók listáját nem sikerült lekérdezni — próbáld a ↻ gombbal.');
+  const w = document.getElementById('sl-warn');
+  w.innerHTML = warn.map(esc).join('<br>');
+  w.style.display = warn.length ? 'block' : 'none';
+  if (refresh) toast('🖨️ Nyomtató-lista frissítve', 'info');
+}
+
+function slRenderPrinters() {
+  const sel = document.getElementById('sl-printer');
+  const prev = sel.value;
+  const list = (slInfo && slInfo.printers) || [];
+  // Első használatkor SZÁNDÉKOSAN nincs előre kiválasztva semmi (az alapértelmezett sem):
+  // a technikus kifejezetten nem az alapértelmezetten akar nyomtatni.
+  const want = prev || (slInfo && slInfo.last_printer) || '';
+  let html = '<option value="">— Válassz nyomtatót —</option>';
+  list.forEach(p => {
+    const tag = (p.default ? ' (Windows alapértelmezett)' : '') + (p.offline ? ' (offline)' : '');
+    html += '<option value="' + esc(p.name) + '"' + (p.name === want ? ' selected' : '') + '>' + esc(p.name + tag) + '</option>';
+  });
+  if (!list.length) html = '<option value="">Nincs hozzáadott nyomtató a Windowsban</option>';
+  sel.innerHTML = html;
+}
+
+function slPrinterChanged() { document.getElementById('sl-printer').classList.remove('sl-missing'); }
+
+function slFieldsFor(kind) {
+  const f = (slInfo && slInfo.fields) || [];
+  return f.filter(x => kind === 'laptop' || !x.laptop_only);
+}
+
+function slRenderCards() {
+  for (let i = 0; i < 2; i++) {
+    const st = slState[i];
+    const card = document.getElementById('sl-card-' + i);
+    if (!card) continue;
+    let h = '<div class="sl-card-head"><div class="sl-card-title">' + (i === 0 ? '1. gép — bal oldal' : '2. gép — jobb oldal') + '</div></div>';
+    h += '<div class="sl-kinds">'
+      + '<button class="sl-kind' + (st.kind === 'laptop' ? ' on' : '') + '" onclick="slSetKind(' + i + ',\'laptop\')">💻 Laptop</button>'
+      + '<button class="sl-kind' + (st.kind === 'desktop' ? ' on' : '') + '" onclick="slSetKind(' + i + ',\'desktop\')">🖥️ Asztali PC</button>'
+      + '</div>';
+    if (!st.kind) {
+      h += '<div class="sl-pick-hint">Válaszd ki, laptop vagy asztali gép — utána jönnek a mezők.</div>';
+    } else if (!slInfo) {
+      h += '<div class="sl-pick-hint">Betöltés...</div>';
+    } else {
+      h += slRow(i, 'name', 'Gép neve', (slInfo.name_example || ''), st.name, true);
+      h += '<div class="sl-sep"></div>';
+      slFieldsFor(st.kind).forEach(f => { h += slRow(i, 'v:' + f.key, f.label, f.example, st.values[f.key] || '', false); });
+      h += '<div class="sl-sep"></div>';
+      h += slRow(i, 'price', 'Ár (Ft)', slInfo.price_example || '', st.price, true);
+    }
+    card.innerHTML = h;
+  }
+}
+
+function slRow(i, key, label, example, value, big) {
+  return '<div class="sl-row' + (big ? ' sl-big' : '') + '"><label>' + esc(label) + '</label>'
+    + '<input class="sl-input" data-sl="' + i + '|' + esc(key) + '" value="' + esc(value || '') + '" placeholder="pl. ' + esc(example) + '" oninput="slInput(this)"></div>';
+}
+
+function slInput(el) {
+  const [i, key] = el.getAttribute('data-sl').split('|');
+  const st = slState[+i];
+  if (key.startsWith('v:')) st.values[key.slice(2)] = el.value;
+  else st[key] = el.value;
+  el.classList.remove('sl-missing');
+}
+
+function slSetKind(i, kind) {
+  slState[i].kind = kind;
+  slRenderCards();
+  const first = document.querySelector('#sl-card-' + i + ' .sl-input');
+  if (first && !first.value) first.focus();
+}
+
+function slClearAll() {
+  if (slBusy) return;
+  slState = [slEmpty(), slEmpty()];
+  slRenderCards();
+  const r = document.getElementById('sl-result'); r.style.display = 'none';
+}
+
+function slMissing() {
+  // Ugyanaz a szabály, mint a Pythonban (shoplabel_core.validate_machines) - ott is
+  // ellenőrzünk, ez itt csak azért van, hogy a hiányzó mező PIROSAN látszódjon.
+  const miss = [];
+  document.querySelectorAll('#view-shoplabel .sl-input').forEach(el => {
+    if (!el.value.trim()) { el.classList.add('sl-missing'); miss.push(el); }
+  });
+  for (let i = 0; i < 2; i++) if (!slState[i].kind) miss.push('kind' + i);
+  return miss;
+}
+
+async function slPrint() {
+  if (slBusy) return;
+  const a = api(); if (!a) return;
+  const miss = slMissing();
+  const printer = document.getElementById('sl-printer').value;
+  if (miss.length) {
+    const noKind = [0, 1].filter(i => !slState[i].kind).map(i => (i + 1) + '. gép');
+    toast(noKind.length ? '⚠️ Válaszd ki a típust: ' + noKind.join(', ') : '⚠️ Tölts ki minden mezőt (pirossal jelölve)', 'warning');
+    return;
+  }
+  if (!printer) {
+    document.getElementById('sl-printer').classList.add('sl-missing');
+    toast('⚠️ Válassz nyomtatót!', 'warning');
+    return;
+  }
+  const machines = slState.map(st => {
+    const values = {};
+    slFieldsFor(st.kind).forEach(f => { values[f.key] = (st.values[f.key] || '').trim(); });
+    return {kind: st.kind, name: st.name.trim(), price: st.price.trim(), values};
+  });
+  slSetBusy(true);
+  let r;
+  try { r = await a.print_shop_labels(machines, printer); }
+  catch (e) { r = {started: false, error: String(e)}; }
+  if (!r || !r.started) {
+    slSetBusy(false);
+    slShowResult(false, (r && r.error) || 'A nyomtatás nem indult el.');
+  }
+}
+
+function slSetBusy(on) {
+  slBusy = on;
+  const b = document.getElementById('btn-sl-print');
+  b.disabled = on;
+  b.textContent = on ? '⏳ Nyomtatás a Worddel...' : '🖨️ Nyomtatás (2 × A5 → A4)';
+}
+
+function slShowResult(ok, msg) {
+  const r = document.getElementById('sl-result');
+  r.className = 'sl-result ' + (ok ? 'ok' : 'bad');
+  r.textContent = (ok ? '✅ ' : '❌ ') + msg;
+  r.style.display = 'block';
+}
+
+function onShopLabelResult(d) {
+  slSetBusy(false);
+  slShowResult(!!(d && d.ok), (d && d.message) || '');
+}
+
 function switchView(name) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -2965,6 +3207,7 @@ function switchView(name) {
   if (name === 'benchmark') loadBenchmarkView();
   if (name === 'display') loadDisplayView();
   if (name === 'tempclean') scanTempSizes();
+  if (name === 'shoplabel') loadShopLabelView();
   // A KEZDŐLAP a naplók-kártyát is tartalmazza (2026-09-18), ezért itt fut a letöltési
   // mappa útvonalának kiírása. Nem drága: egy szinkron API-hívás.
   if (name === 'home') loadLogsViewInfo();

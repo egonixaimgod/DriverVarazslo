@@ -1102,6 +1102,7 @@ def _menu_maintenance(api):
             ('5', 'BCD boot-javító letöltése (BootFixer.cmd)', 'Csak letöltés, nem futtatja'),
             ('6', 'Net Blokkoló script letöltése (block.bat)', 'Csak letöltés, nem futtatja'),
             ('7', 'Naplók letöltése a szerviz Drive-járól', None),
+            ('8', 'Bolti tábla nyomtatás', 'Két gép A5-ös árlapja egy A4-es lapra, a bolti Word-sablonnal'),
         ], back_label='Vissza a főmenübe')
         if c == '0':
             return
@@ -1122,6 +1123,59 @@ def _menu_maintenance(api):
         elif c == '7':
             _run_screen(api, 'Naplók letöltése', lambda: api.download_uploaded_logs(
                 ui.ask('Jelszó')))
+        elif c == '8':
+            _shoplabel_flow(api)
+
+
+def _shoplabel_flow(api):
+    """Bolti tábla: két gép adatai -> a bolti Word-sablon kitöltése -> nyomtatás a
+    kiválasztott (NEM feltétlenül az alapértelmezett) nyomtatóra. Ugyanazt a
+    `print_shop_labels`-t hívja, mint a GUI, tehát a két felület nem csúszhat szét."""
+    from app import shoplabel_core as sc
+    _header(api, 'Bolti tábla nyomtatás')
+    info = api.get_shop_label_info() or {}
+    if not info.get('word_installed'):
+        ui.err('A Microsoft Word nincs telepítve ezen a gépen - a bolti tábla a Worddel nyomtat.')
+        ui.pause()
+        return
+    printers = info.get('printers') or []
+    if not printers:
+        ui.err('Nincs hozzáadott nyomtató a Windowsban (vagy a lista nem kérdezhető le).')
+        ui.pause()
+        return
+    machines = []
+    for i in (1, 2):
+        ui.write('')
+        ui.title(f'{i}. gép' + (' (bal oldal)' if i == 1 else ' (jobb oldal)'))
+        kind = sc.KIND_LAPTOP if ui.confirm('Laptop? (nem = asztali PC)', True) else sc.KIND_DESKTOP
+        m = {'kind': kind, 'values': {}}
+        while not m.get('name'):
+            m['name'] = ui.ask(f'Gép neve (pl. {sc.NAME_EXAMPLE})')
+        for key, label, ex in sc.fields_for(kind):
+            v = ''
+            while not v:
+                v = ui.ask(f'{label} (pl. {ex})')
+            m['values'][key] = v
+        while not m.get('price'):
+            m['price'] = ui.ask(f'Ár Ft-ban (pl. {sc.PRICE_EXAMPLE})')
+        machines.append(m)
+    ui.write('')
+    last = info.get('last_printer') or ''
+    rows = [[str(n), p['name'] + ('  (Windows alapért.)' if p.get('default') else '')
+             + ('  <- legutóbb' if p['name'] == last else '')] for n, p in enumerate(printers, 1)]
+    ui.table(['#', 'Nyomtató'], rows, widths=[4, 70])
+    choice = ''
+    while not (choice.isdigit() and 1 <= int(choice) <= len(printers)):
+        choice = ui.ask('Melyik nyomtatón? (sorszám)')
+    printer = printers[int(choice) - 1]['name']
+    api._cli_reset_events()
+    r = _sync(api, api.print_shop_labels, machines, printer) or {}
+    if not r.get('started'):
+        ui.err(r.get('error') or 'A nyomtatás nem indult el.')
+    # Az eredményt a mixin toast-ja már kiírta (a bridge konzolra fordítja); az adat-
+    # eseményt csak kivesszük, hogy a következő képernyőre ne maradjon ott.
+    api._cli_take('shoplabel_result')
+    ui.pause()
 
 
 def _tempclean_flow(api):
