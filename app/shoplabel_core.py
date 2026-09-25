@@ -72,6 +72,43 @@ FIELDS = [
 NAME_EXAMPLE = 'Dell Latitude 7410'
 PRICE_EXAMPLE = '140000'
 
+# ELŐRE KITÖLTÖTT SÉMÁK (2026-09-25, explicit user decision: *"legyen alapbol ott a szoveg
+# felig kitoltve en meg töltsem ki a másik felét"*). A mezők a géptípus kiválasztásakor
+# ezzel a szöveggel töltődnek, a `|` (SLOT) jelöli azt a helyet, ahová a technikusnak be
+# kell írnia - a felületen a kurzor oda ugrik, a jel maga sosem látszik. Ahol NINCS `|`, az
+# egy kész, átírható alapérték (ha nem nyúlnak hozzá, így nyomtatódik).
+#
+# KÉT SZABÁLY, AMI NÉLKÜL A SÉMA ROSSZABB LENNE A SEMMINÉL:
+#   - Egy KI NEM EGÉSZÍTETT séma (pl. puszta "GB DDR4") HIÁNYZÓ MEZŐNEK számít, nem
+#     kitöltöttnek (`unfilled_texts`, `validate_machines`) - különben egy elfelejtett mező
+#     "GB SSD"-ként kerülne a bolti táblára (4. elv: néma hamis siker).
+#   - Kész alapérték csak ott van, ahol a GYENGÉBB állítás az alapeset: a billentyűzet
+#     alapból "Magyar", nem "Magyar világító" (egy nem világító gépre ráírni hamis állítás
+#     lenne a vevő felé), a világítót egy kattintás adja (PRESETS).
+# Laptopon és asztali gépen UGYANAZ a séma (explicit kérés: "asztali gépnél is ugyan ez") -
+# a különbség csak az, hogy asztali gépnél a billentyűzet/akku sor nincs.
+SLOT = '|'
+PREFILL = {
+    'cpu': 'Intel® Core™ i|',
+    'ram': '|GB DDR4',
+    'storage': '|GB SSD',
+    'gpu': 'Intel® HD Graphics',
+    'display': '|" 1920x1080 60Hz',
+    'keyboard': 'Magyar',
+    'battery': '|%',
+    'condition': 'Szép állapot!',
+    'warranty': '6 hónap',
+}
+# Egy kattintásos séma-váltók a mező alatt: (felirat, séma). Főleg a ® és ™ jelek miatt
+# vannak - azokat billentyűzetről beírni a legnehezebb.
+PRESETS = {
+    'cpu': [('Intel', 'Intel® Core™ i|'), ('AMD', 'AMD Ryzen™ |')],
+    'storage': [('SSD', '|GB SSD'), ('HDD', '|GB HDD')],
+    'gpu': [('Intel HD', 'Intel® HD Graphics'), ('Intel UHD', 'Intel® UHD Graphics'),
+            ('AMD', 'AMD Radeon™ |'), ('NVIDIA', 'NVIDIA® GeForce® |')],
+    'keyboard': [('Magyar', 'Magyar'), ('Magyar világító', 'Magyar világító')],
+}
+
 # Word nyomtatási paraméterek: A4 twipben (1 mm = 56,69 twip) - "Adott papírméretre: A4".
 A4_TWIPS = (11906, 16838)
 PAGES_PER_SHEET = (2, 1)          # PrintZoomColumn, PrintZoomRow = "Laponként 2 oldal"
@@ -93,6 +130,37 @@ def fields_for(kind):
     """Az adott géptípushoz bekérendő sorok (kulcs, címke, példa)."""
     return [(k, lab, ex) for k, lab, laptop_only, ex in FIELDS
             if kind == KIND_LAPTOP or not laptop_only]
+
+
+def template_text(tpl):
+    """A séma látható szövege (a SLOT jel nélkül)."""
+    return str(tpl or '').replace(SLOT, '')
+
+
+def unfilled_texts(key):
+    """A mező KI NEM EGÉSZÍTETT sémái (minden SLOT-os séma szövege, a gyorsválasztókéi is).
+    Ha a beírt érték ezek egyike, a mező hiányzónak számít."""
+    tpls = [PREFILL.get(key)] + [t for _lab, t in PRESETS.get(key, [])]
+    return sorted({template_text(t).strip() for t in tpls if t and SLOT in t})
+
+
+def apply_template(template, typed):
+    """CLI: a beírt szöveg + a mező sémája -> a végleges érték (None = még kell adat).
+
+      - üres bevitel: a séma, ha kész alapérték; ha van benne kitöltendő hely, None;
+      - `=`-lel kezdve: a teljes értéket írják át (pl. `=AMD Ryzen 5 3500U`);
+      - egyébként, ha a sémában van kitöltendő hely, a beírt szöveg oda kerül;
+        ha nincs, a beírt szöveg a teljes új érték.
+    Tiszta függvény (offline tesztelhető)."""
+    t = str(typed or '').strip()
+    tpl = str(template or '')
+    if t.startswith('='):
+        return t[1:].strip() or None
+    if not t:
+        return None if (not tpl or SLOT in tpl) else tpl
+    if SLOT in tpl:
+        return tpl.replace(SLOT, t, 1)
+    return t
 
 
 def _xml_text(s):
@@ -277,8 +345,11 @@ def validate_machines(machines):
             missing.append(f"{i}. gép: név")
         vals = m.get('values') or {}
         for key, label, _ex in fields_for(kind):
-            if not str(vals.get(key) or '').strip():
+            v = str(vals.get(key) or '').strip()
+            if not v:
                 missing.append(f"{i}. gép: {label}")
+            elif v in unfilled_texts(key):
+                missing.append(f"{i}. gép: {label} (a séma nincs kiegészítve: '{v}')")
         if not str(m.get('price') or '').strip():
             missing.append(f"{i}. gép: ár")
     return missing

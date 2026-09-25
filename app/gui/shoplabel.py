@@ -70,8 +70,15 @@ class GuiShopLabelMixin:
             'word_installed': word,
             'template_found': os.path.isfile(resource_path(sc.TEMPLATE_FILENAME)),
             'kinds': [{'key': k, 'label': v} for k, v in sc.KIND_LABELS.items()],
-            'fields': [{'key': k, 'label': lab, 'laptop_only': lo, 'example': ex}
+            # `prefill`/`presets`: az előre kitöltött séma és a gyorsválasztók (SLOT = a
+            # kurzor helye); `unfilled`: a ki nem egészített sémák szövege - ezeket a
+            # felület is hiányzónak jelöli, ugyanazzal a szabállyal, mint validate_machines.
+            'fields': [{'key': k, 'label': lab, 'laptop_only': lo, 'example': ex,
+                        'prefill': sc.PREFILL.get(k, ''),
+                        'presets': [{'label': pl, 'template': pt} for pl, pt in sc.PRESETS.get(k, [])],
+                        'unfilled': sc.unfilled_texts(k)}
                        for k, lab, lo, ex in sc.FIELDS],
+            'slot': sc.SLOT,
             'name_example': sc.NAME_EXAMPLE,
             'price_example': sc.PRICE_EXAMPLE,
         }

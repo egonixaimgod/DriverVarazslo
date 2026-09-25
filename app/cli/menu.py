@@ -1109,9 +1109,13 @@ def _menu_maintenance(api):
         if c == '1':
             _run_screen(api, 'Temp törlés', lambda: _tempclean_flow(api))
         elif c == '2':
+            # Ugyanaz az alapállapot, mint a GUI-ban: USB-s rendszerlemeznél alapból IGEN.
+            usb = bool((api.get_report_defaults() or {}).get('system_disk_usb'))
+            if usb:
+                ui.info('A Windows USB-s lemezről fut - a rendszerlemez kihagyása alapból IGEN.')
             _run_screen(api, 'Rendszer riport', lambda: api.generate_system_report(
                 ui.ask('Megjegyzés a riportra (nem kötelező)'),
-                ui.confirm('Teszt-SSD-ről fut a rendszer? (a futó Windows lemeze kimarad a riportból)')))
+                ui.confirm('Teszt-SSD-ről fut a rendszer? (a futó Windows lemeze kimarad a riportból)', usb)))
         elif c == '3':
             _run_screen(api, 'Bolti nyomtatás', lambda: api.print_via_store_printer())
         elif c == '4':
@@ -1144,6 +1148,8 @@ def _shoplabel_flow(api):
         ui.pause()
         return
     machines = []
+    ui.dim("A [ ] közt a bolt sémája. Enter = elfogadod; ahol _ áll, amit beírsz, oda kerül; "
+           "'='-lel kezdve a teljes értéket írod át; /1, /2 ... a felsorolt sémára vált.")
     for i in (1, 2):
         ui.write('')
         ui.title(f'{i}. gép' + (' (bal oldal)' if i == 1 else ' (jobb oldal)'))
@@ -1151,11 +1157,8 @@ def _shoplabel_flow(api):
         m = {'kind': kind, 'values': {}}
         while not m.get('name'):
             m['name'] = ui.ask(f'Gép neve (pl. {sc.NAME_EXAMPLE})')
-        for key, label, ex in sc.fields_for(kind):
-            v = ''
-            while not v:
-                v = ui.ask(f'{label} (pl. {ex})')
-            m['values'][key] = v
+        for key, label, _ex in sc.fields_for(kind):
+            m['values'][key] = _shoplabel_ask_field(sc, key, label)
         while not m.get('price'):
             m['price'] = ui.ask(f'Ár Ft-ban (pl. {sc.PRICE_EXAMPLE})')
         machines.append(m)
@@ -1176,6 +1179,27 @@ def _shoplabel_flow(api):
     # eseményt csak kivesszük, hogy a következő képernyőre ne maradjon ott.
     api._cli_take('shoplabel_result')
     ui.pause()
+
+
+def _shoplabel_ask_field(sc, key, label):
+    """Egy mező bekérése a bolt sémájával (a GUI előtöltésének CLI-párja). A ki nem
+    egészített séma (pl. puszta "GB DDR4") nem fogadható el - ugyanaz a szabály, mint a
+    `validate_machines`-ben."""
+    tpl = sc.PREFILL.get(key, '')
+    presets = sc.PRESETS.get(key, [])
+    unfilled = sc.unfilled_texts(key)
+    extra = ('   ' + ' · '.join(f'/{n} {lab}' for n, (lab, _t) in enumerate(presets, 1))) if presets else ''
+    while True:
+        raw = ui.ask(f"{label} [{tpl.replace(sc.SLOT, '_')}]{extra}")
+        r = raw.strip()
+        if r.startswith('/') and r[1:].isdigit() and 1 <= int(r[1:]) <= len(presets):
+            tpl = presets[int(r[1:]) - 1][1]
+            if sc.SLOT not in tpl:
+                return tpl          # kész alapérték, nincs mit kiegészíteni
+            continue
+        v = sc.apply_template(tpl, raw)
+        if v and v.strip() not in unfilled:
+            return v
 
 
 def _tempclean_flow(api):

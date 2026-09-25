@@ -1056,6 +1056,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .vh-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .hero-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;background:rgba(180,100,255,0.14);border:1px solid rgba(180,100,255,0.3);font-size:11.5px;color:var(--text2);white-space:nowrap}
 .vh-actions{display:flex;flex-direction:column;gap:10px;align-items:stretch;position:relative;z-index:1}
+.report-sysdisk-hint{font-size:12px;color:#9dffcf;max-width:320px;line-height:1.4}
 /* Színvariánsok a funkció karakteréhez (piros=veszélyes/blokkoló, kék=Windows/rendszer, zöldeskék=mentés/riport) */
 .view-hero.vh-red{background:linear-gradient(135deg,rgba(255,100,90,0.15),rgba(150,50,90,0.12) 55%,var(--glass));border-color:rgba(255,100,90,0.4)}
 .view-hero.vh-blue{background:linear-gradient(135deg,rgba(90,160,255,0.15),rgba(60,80,200,0.12) 55%,var(--glass));border-color:rgba(100,180,255,0.4)}
@@ -1288,6 +1289,15 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .sl-input:focus{border-color:var(--accent);box-shadow:0 0 12px rgba(212,136,255,0.25)}
 .sl-input::placeholder{color:rgba(200,180,230,0.38)}
 .sl-row.sl-big .sl-input{font-size:15px;font-weight:700}
+.sl-cell{min-width:0}
+.sl-row.sl-has-presets{align-items:start}
+.sl-row.sl-has-presets label{padding-top:9px}
+.sl-presets{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
+.sl-preset{padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:700;cursor:pointer;
+  border:1px solid var(--glass-border);background:rgba(20,10,36,0.55);color:var(--text3)}
+.sl-preset:hover{border-color:var(--glass-border-hover);color:#fff}
+.sl-preset.on{border-color:rgba(46,224,138,0.6);background:rgba(46,224,138,0.12);color:#66ffb2}
+.sl-input.sl-todo{border-color:rgba(255,179,71,0.6);box-shadow:inset 3px 0 0 rgba(255,179,71,0.85)}
 .sl-input.sl-missing{border-color:#ff4d5e;box-shadow:0 0 10px rgba(255,77,94,0.3)}
 .sl-sep{height:1px;background:var(--glass-border);opacity:0.5;margin:10px 0 12px}
 .sl-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:16px 20px}
@@ -1452,13 +1462,16 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             <button class="btn btn-big btn-success" onclick="generateSystemReport()" id="btn-report">📄 HTML Riport Generálása</button>
             <!-- 2026-09-24, explicit user decision: ha a program a szerviz USB-s TESZT-SSD-jéről
                  fut, a riport a gép saját lemezei közé azt is beírta. Bepipálva a futó Windows
-                 lemeze kimarad. Alapból KI: az ügyfél saját Windowsán futtatva az a gép valódi
-                 lemeze, és egy bent felejtett pipa kivenné a riportból. -->
-            <label class="toggle" title="Bepipálva a riport NEM sorolja fel azt a lemezt, amelyről a Windows épp fut (pl. a szerviz USB-s teszt-SSD-jét). Csak akkor kapcsold be, ha nem a gép saját Windowsáról futtatod a programot.">
+                 lemeze kimarad. 2026-09-25 óta az alapállapotot a GÉP dönti el
+                 (`ensureReportDefaults`): ha a futó Windows USB-s lemezről megy, bepipálva
+                 jelenik meg; minden más esetben (belső lemez, vagy nem azonosítható) KI marad -
+                 az ügyfél saját Windowsán futtatva az a gép valódi lemeze. -->
+            <label class="toggle" title="Bepipálva a riport NEM sorolja fel azt a lemezt, amelyről a Windows épp fut (pl. a szerviz USB-s teszt-SSD-jét). Ha a program USB-s lemezről fut, magától bepipálódik.">
               <input type="checkbox" id="report-skip-sysdisk">
               <span class="toggle-track"></span>
               🧪 Teszt-SSD-ről fut: a rendszerlemez kihagyása
             </label>
+            <div class="report-sysdisk-hint" id="report-sysdisk-hint" style="display:none"></div>
           </div>
         </div>
 
@@ -2194,7 +2207,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
         <div class="view-hero vh-teal" data-emoji="🏷️">
           <div class="vh-text">
             <div class="vh-title">🏷️ Bolti tábla nyomtatás</div>
-            <div class="vh-sub">Két gép árlapja egy lapon: add meg a típust (laptop vagy asztali PC), töltsd ki az adatokat, válaszd ki a nyomtatót — a program a bolt Word-sablonjával készíti el és nyomtatja ki, <b>A5-ös oldalanként, laponként 2 oldal, A4-re méretezve</b>.</div>
+            <div class="vh-sub">Két gép árlapja egy lapon: add meg a típust (laptop vagy asztali PC), töltsd ki az adatokat, válaszd ki a nyomtatót — a program a bolt Word-sablonjával készíti el és nyomtatja ki, <b>A5-ös oldalanként, laponként 2 oldal, A4-re méretezve</b>. A mezők előre ki vannak töltve a bolt sémájával — a <b>sárga szélű</b> mezőkben csak a hiányzó részt kell beírni, a kurzor oda ugrik.</div>
             <div class="vh-chips">
               <span class="hero-chip">📄 A bolt saját Word-sablonja</span>
               <span class="hero-chip">🗂️ 2 × A5 → 1 × A4</span>
@@ -2839,6 +2852,9 @@ window.addEventListener('pywebviewready', async () => {
        ezért itt kell egyszer kitölteni. E nélkül a lapon a HTML-be írt alapértelmezett
        útvonal állna, ami egy nem szokványos rendszerlemeznél (vagy WinPE-ben) HAZUDNA. */
     loadLogsViewInfo();
+    // A riport "teszt-SSD" pipájának alapállapota (USB-s rendszerlemez?). AutoFix-lábon
+    // kimarad (senki nem nézi), ott a kezdőlapra lépés / a riport gomb futtatja utólag.
+    if (!isResumeLeg) ensureReportDefaults();
     document.querySelector('.sidebar-title').classList.add('on-home');
     
     if (data.resume_mode || data.resume_step1) {
@@ -3086,7 +3102,12 @@ function slRenderCards() {
     } else {
       h += slRow(i, 'name', 'Gép neve', (slInfo.name_example || ''), st.name, true);
       h += '<div class="sl-sep"></div>';
-      slFieldsFor(st.kind).forEach(f => { h += slRow(i, 'v:' + f.key, f.label, f.example, st.values[f.key] || '', false); });
+      slFieldsFor(st.kind).forEach(f => {
+        // Előtöltés a bolt sémájával - CSAK ha a mezőhöz még sosem nyúltak (undefined).
+        // Egy kézzel kiürített mező ('') üres marad, és a típusváltás sem írja felül.
+        if (st.values[f.key] === undefined) st.values[f.key] = slTplText(f.prefill);
+        h += slRow(i, 'v:' + f.key, f.label, f.example, st.values[f.key] || '', false, f);
+      });
       h += '<div class="sl-sep"></div>';
       h += slRow(i, 'price', 'Ár (Ft)', slInfo.price_example || '', st.price, true);
     }
@@ -3094,16 +3115,94 @@ function slRenderCards() {
   }
 }
 
-function slRow(i, key, label, example, value, big) {
-  return '<div class="sl-row' + (big ? ' sl-big' : '') + '"><label>' + esc(label) + '</label>'
-    + '<input class="sl-input" data-sl="' + i + '|' + esc(key) + '" value="' + esc(value || '') + '" placeholder="pl. ' + esc(example) + '" oninput="slInput(this)"></div>';
+function slRow(i, key, label, example, value, big, field) {
+  const presets = (field && field.presets) || [];
+  const todo = field && slIsUnfilled(field, value);
+  let h = '<div class="sl-row' + (big ? ' sl-big' : '') + (presets.length ? ' sl-has-presets' : '') + '"><label>' + esc(label) + '</label>'
+    + '<div class="sl-cell"><input class="sl-input' + (todo ? ' sl-todo' : '') + '" data-sl="' + i + '|' + esc(key) + '" value="' + esc(value || '')
+    + '" placeholder="pl. ' + esc(example) + '" oninput="slInput(this)" onfocus="slFocus(this)">';
+  if (presets.length) {
+    // A mousedown-os preventDefault miatt a gomb nem veszi el a fókuszt a mezőtől.
+    h += '<div class="sl-presets">' + presets.map((p, n) =>
+      '<button type="button" class="sl-preset' + (slPresetOn(p.template, value) ? ' on' : '') + '" data-n="' + n
+      + '" onmousedown="event.preventDefault()" onclick="slPreset(' + i + ',\'' + esc(field.key) + '\',' + n + ')">' + esc(p.label) + '</button>').join('') + '</div>';
+  }
+  return h + '</div></div>';
+}
+
+/* ELŐRE KITÖLTÖTT SÉMÁK (2026-09-25). A sémák a Pythonban élnek (shoplabel_core.PREFILL /
+   PRESETS), a SLOT jel (`|`) a kurzor helye, és sosem kerül a mezőbe. Egy KI NEM
+   EGÉSZÍTETT séma (pl. puszta "GB DDR4") sárga szélű, nyomtatáskor pedig HIÁNYZÓ mező -
+   ugyanaz a szabály, mint a Pythonban (validate_machines), különben egy elfelejtett mező
+   "GB SSD"-ként kerülne a táblára. */
+function slSlot() { return (slInfo && slInfo.slot) || '|'; }
+function slTplText(t) { return String(t || '').split(slSlot()).join(''); }
+function slField(key) { return ((slInfo && slInfo.fields) || []).find(f => f.key === key) || null; }
+function slIsUnfilled(field, value) { return (field.unfilled || []).indexOf(String(value || '').trim()) >= 0; }
+
+function slPresetOn(tpl, value) {
+  const v = String(value || ''), k = tpl.indexOf(slSlot());
+  if (k < 0) return v.trim() === tpl.trim();
+  const pre = tpl.slice(0, k), post = tpl.slice(k + slSlot().length);
+  return v.length >= pre.length + post.length && v.startsWith(pre) && v.endsWith(post);
+}
+
+function slCaretFor(field, value) {
+  // Csak a még ÉRINTETLEN sémában ugrik a kurzor - egy már kiegészített mezőben oda kerül,
+  // ahova a technikus kattint.
+  const tpls = [field.prefill].concat((field.presets || []).map(p => p.template));
+  for (const t of tpls) {
+    if (t && t.indexOf(slSlot()) >= 0 && slTplText(t) === value) return t.indexOf(slSlot());
+  }
+  return -1;
+}
+
+function slSetCaret(el, pos) {
+  // setTimeout: a böngésző a fókusz UTÁN teszi a kurzort a kattintás helyére / jelöli ki a
+  // teljes szöveget Tab-bal érkezve - ezt kell felülírni.
+  setTimeout(() => { try { el.setSelectionRange(pos, pos); } catch (e) { /* nem szöveges mező */ } }, 0);
+}
+
+function slFocus(el) {
+  const key = el.getAttribute('data-sl').split('|')[1];
+  const f = key.startsWith('v:') ? slField(key.slice(2)) : null;
+  if (!f) return;
+  const pos = slCaretFor(f, el.value);
+  if (pos >= 0) slSetCaret(el, pos);
+}
+
+function slSyncField(el, f) {
+  el.classList.toggle('sl-todo', slIsUnfilled(f, el.value));
+  const box = el.parentNode && el.parentNode.querySelector('.sl-presets');
+  if (box) box.querySelectorAll('.sl-preset').forEach(b => {
+    const p = f.presets[+b.getAttribute('data-n')];
+    b.classList.toggle('on', !!p && slPresetOn(p.template, el.value));
+  });
+}
+
+function slPreset(i, key, n) {
+  const f = slField(key);
+  const p = f && f.presets[n];
+  if (!p) return;
+  slState[i].values[key] = slTplText(p.template);
+  const el = document.querySelector('#sl-card-' + i + ' [data-sl="' + i + '|v:' + key + '"]');
+  if (!el) { slRenderCards(); return; }
+  el.value = slState[i].values[key];
+  el.classList.remove('sl-missing');
+  slSyncField(el, f);
+  el.focus();
+  const k = p.template.indexOf(slSlot());
+  slSetCaret(el, k >= 0 ? k : el.value.length);
 }
 
 function slInput(el) {
   const [i, key] = el.getAttribute('data-sl').split('|');
   const st = slState[+i];
-  if (key.startsWith('v:')) st.values[key.slice(2)] = el.value;
-  else st[key] = el.value;
+  if (key.startsWith('v:')) {
+    st.values[key.slice(2)] = el.value;
+    const f = slField(key.slice(2));
+    if (f) slSyncField(el, f);
+  } else st[key] = el.value;
   el.classList.remove('sl-missing');
 }
 
@@ -3126,7 +3225,9 @@ function slMissing() {
   // ellenőrzünk, ez itt csak azért van, hogy a hiányzó mező PIROSAN látszódjon.
   const miss = [];
   document.querySelectorAll('#view-shoplabel .sl-input').forEach(el => {
-    if (!el.value.trim()) { el.classList.add('sl-missing'); miss.push(el); }
+    const key = el.getAttribute('data-sl').split('|')[1];
+    const f = key.startsWith('v:') ? slField(key.slice(2)) : null;
+    if (!el.value.trim() || (f && slIsUnfilled(f, el.value))) { el.classList.add('sl-missing'); miss.push(el); }
   });
   for (let i = 0; i < 2; i++) if (!slState[i].kind) miss.push('kind' + i);
   return miss;
@@ -3139,7 +3240,7 @@ async function slPrint() {
   const printer = document.getElementById('sl-printer').value;
   if (miss.length) {
     const noKind = [0, 1].filter(i => !slState[i].kind).map(i => (i + 1) + '. gép');
-    toast(noKind.length ? '⚠️ Válaszd ki a típust: ' + noKind.join(', ') : '⚠️ Tölts ki minden mezőt (pirossal jelölve)', 'warning');
+    toast(noKind.length ? '⚠️ Válaszd ki a típust: ' + noKind.join(', ') : '⚠️ Hiányzó adat a pirossal jelölt mezőkben (üres, vagy a séma nincs kiegészítve)', 'warning');
     return;
   }
   if (!printer) {
@@ -3210,7 +3311,7 @@ function switchView(name) {
   if (name === 'shoplabel') loadShopLabelView();
   // A KEZDŐLAP a naplók-kártyát is tartalmazza (2026-09-18), ezért itt fut a letöltési
   // mappa útvonalának kiírása. Nem drága: egy szinkron API-hívás.
-  if (name === 'home') loadLogsViewInfo();
+  if (name === 'home') { loadLogsViewInfo(); ensureReportDefaults(); }
 
   const targetBar = document.querySelector('.target-bar');
   if (targetBar) {
@@ -5703,7 +5804,32 @@ async function resumeWu() {
 }
 
 /* ========== HTML REPORT ========== */
+/* A "teszt-SSD" pipa alapállapota (2026-09-25, explicit user decision): ha a futó Windows
+   USB-s lemezről megy (a szerviz teszt-SSD-je adapterben), bepipálva jelenik meg. Egyszer
+   fut munkamenetenként - ha a technikus utána kiveszi a pipát, az úgy marad. A riport
+   generálása előtt MEGVÁRJUK, így egy gyors kattintás sem előzheti meg a felismerést. */
+let reportDefaultsPromise = null;
+function ensureReportDefaults() {
+  if (reportDefaultsPromise) return reportDefaultsPromise;
+  const a = api();
+  if (!a) return Promise.resolve(null);
+  reportDefaultsPromise = a.get_report_defaults().then(d => {
+    if (d && d.system_disk_usb) {
+      const cb = document.getElementById('report-skip-sysdisk');
+      const hint = document.getElementById('report-sysdisk-hint');
+      if (cb) cb.checked = true;
+      if (hint) {
+        hint.textContent = '🔌 A Windows USB-s lemezről fut' + (d.model ? ' (' + d.model + ')' : '') + ' — ezért alapból bepipálva.';
+        hint.style.display = 'block';
+      }
+    }
+    return d;
+  }).catch(e => { console.error('report defaults', e); reportDefaultsPromise = null; return null; });
+  return reportDefaultsPromise;
+}
+
 async function generateSystemReport() {
+  await ensureReportDefaults();
   const note = await showPromptTextarea('Rendszer Riport Generálása', 'Írhatsz egy rövid megjegyzést a géphez (pl. amit tapasztaltál), ami bekerül a riportba is - vagy hagyd üresen és nyomd meg a gombot.');
   if (note === null) return;
   document.getElementById('btn-report').disabled = true;

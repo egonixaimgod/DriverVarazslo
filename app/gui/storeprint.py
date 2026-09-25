@@ -10,6 +10,7 @@ import shutil
 import tempfile
 from app.common import _ps_quote
 from app.common import CMD_TIMEOUT_RETURNCODE
+from app import report_core
 # === /AUTO-IMPORTS ===
 
 
@@ -498,6 +499,20 @@ class GuiStorePrintMixin:
                         "Tipp: zárd be a futó Edge/Chrome ablakokat, majd próbáld újra - a riport HTML-je "
                         f"közben megnyitható és onnan kézzel is nyomtatható: {report_path}"
                     )
+
+                # 3/b) A riport SOSEM lehet 2 oldalas (2026-09-25, explicit user decision).
+                # A riport saját JS-e becsüli a kiférést; a verdikt viszont a KÉSZ PDF
+                # oldalszáma (4. elv) - egy átlógó megjegyzés-rész nem mehet ki papírra.
+                pages = report_core.pdf_page_count(pdf_path)
+                logging.info(f"[STOREPRINT] A riport PDF oldalszáma: {pages}")
+                if pages is not None and pages > 1:
+                    logging.error(f"[STOREPRINT] A riport {pages} oldalas lett - NEM nyomtatjuk ({pdf_path})")
+                    raise Exception(
+                        f"A riport {pages} oldalas lett 1 helyett - NEM nyomtattam ki, mert a riportnak "
+                        f"mindig 1 lapon kell lennie. Rövidítsd a megjegyzést, és generáld újra. "
+                        f"A PDF megnézhető: {pdf_path}")
+                if pages is None:
+                    logging.warning("[STOREPRINT] A riport PDF oldalszáma nem állapítható meg - nyomtatás ellenőrzés nélkül.")
 
                 # 4) PDF -> néma nyomtatás a bolti nyomtatóra.
                 # A SumatraPDF a stresstools.zip-ben van, amit itt SZÜKSÉG ESETÉN LETÖLTÜNK -

@@ -53,6 +53,20 @@ class GuiReportMixin:
 
         return cb
 
+    def get_report_defaults(self):
+        """A riport-kártya alapállapota: USB-s lemezről fut-e a Windows. Ha igen, a
+        "teszt-SSD" pipa alapból bepipálva jelenik meg (2026-09-25, explicit user decision).
+
+        Csak a DETEKTÁLT USB kapcsolja be: ha a rendszerlemez nem azonosítható, a pipa KI
+        marad - egy tévesen bepipált kapcsoló az ügyfél saját lemezét venné ki a riportból."""
+        disk = report_core.find_system_disk(self._run)
+        usb = report_core.system_disk_is_usb(disk)
+        logging.info(f"[REPORT] Alapállapot: a futó Windows lemeze "
+                     f"{'USB-s -> a teszt-SSD pipa BEPIPÁLVA' if usb else ('nem USB-s' if usb is False else 'nem azonosítható')}"
+                     f"{(' (' + disk.get('model', '') + ', busz=' + disk.get('bus', '') + ')') if disk else ''}")
+        return {'system_disk_usb': bool(usb), 'system_disk_known': usb is not None,
+                'model': (disk or {}).get('model') or '', 'bus': (disk or {}).get('bus') or ''}
+
     def generate_system_report(self, note=None, skip_system_disk=False):
         """Rendszer Riport generálása. Visszatérés: {'success': True, 'path': <html>}.
 

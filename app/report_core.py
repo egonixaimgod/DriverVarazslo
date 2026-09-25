@@ -193,6 +193,18 @@ def find_system_disk(run):
     return disk
 
 
+def system_disk_is_usb(system_disk):
+    """USB-n csatolt lemezről fut-e a Windows (a szerviz teszt-SSD-je USB-adapterben)?
+    True / False, vagy None, ha a rendszerlemez nem azonosítható (a nemtudás nem "nem").
+
+    A `Get-Disk` BusType-ja az UAS (USB Attached SCSI) adaptereknél is `USB` - a szerviz
+    USB-s SSD-dobozai tipikusan ilyenek. (2026-09-25, explicit user decision: ha a futó
+    Windows USB-s lemezről megy, a riport "teszt-SSD" pipája alapból legyen bepipálva.)"""
+    if not system_disk:
+        return None
+    return str(system_disk.get('bus') or '').strip().upper() == 'USB'
+
+
 def smartctl_drive_number(dev_name):
     """A smartctl Windows-os /dev/sdX (/dev/sdXY) nevének PhysicalDrive-száma, vagy None
     (pl. /dev/nvme0, /dev/csmi... - azokat nem lehet biztosan PhysicalDrive-ra képezni)."""
@@ -396,6 +408,27 @@ def _collect_smart_data(run, smartctl_exe, system_disk=None, excluded=None):
     return smart_data
 
 
+def pdf_page_count(pdf_path):
+    """Egy PDF oldalszáma, külső csomag nélkül. Visszatérés: int, vagy None, ha nem
+    állapítható meg (a nemtudás nem 1 oldal - 3. elv).
+
+    Két független jel: a lapfa gyökerének `/Count`-ja (a legnagyobb, mert a gyökér az
+    összeset számolja) és a `/Type /Page` objektumok száma. A Chromium (Skia) PDF-je
+    tömörítetlen objektumokat ír, tehát mindkettő olvasható; ha a kettő ellentmond,
+    a nagyobbat adjuk (egy második lap letagadása a rosszabb tévedés)."""
+    try:
+        with open(pdf_path, 'rb') as f:
+            data = f.read()
+    except OSError as e:
+        logging.warning(f"[REPORT] A PDF nem olvasható az oldalszámhoz ({pdf_path}): {e}")
+        return None
+    counts = [int(x) for x in re.findall(rb'/Type\s*/Pages\b[^>]*?/Count\s+(\d+)', data)]
+    counts += [int(x) for x in re.findall(rb'/Count\s+(\d+)[^>]*?/Type\s*/Pages\b', data)]
+    pages = len(re.findall(rb'/Type\s*/Page(?![a-zA-Z])', data))
+    best = max(counts + [pages]) if (counts or pages) else 0
+    return best or None
+
+
 def generate_system_report(run, smartctl_exe=None, note=None, skip_system_disk=False, report=None):
     """A teljes HTML rendszer-riport generálása. Visszatérés: a mentett fájl útvonala
     (az _app_data_dir()-ben); hibánál kivételt dob.
@@ -581,6 +614,10 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
 .note-section h2 {{ margin: 0 0 6px 0; color: #46286e; font-size: 14px; }}
 .note-content {{ font-family: 'Roboto', 'Segoe UI', -apple-system, sans-serif; font-weight: 500; font-size: 19px; color: #2a2a2a; }}
 .note-line {{ min-height: 28px; line-height: 28px; border-bottom: 1px solid #ccc; white-space: pre-wrap; word-break: break-word; }}
+/* flow-root: a gyerekek margója (a h1 16 px-es felső margója) NEM csúszhat ki a gyökérből,
+különben a scrollHeight nem számolja, és az egyoldalas mérés ennyivel alulbecsül - mérve
+2026-09-25: 5-7 beírt megjegyzés-sornál emiatt lett 2 oldalas a nyomtatás. */
+#report-root {{ display: flow-root; }}
 </style>
 </head>
 <body>
@@ -784,10 +821,26 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
 
     # Egy oldalra kényszerítő "shrink-to-fit": #page-ruler egy 267mm-es (A4 mínusz a
     # @page 15mm margói) rejtett elem, aminek a lemért px-magassága adja a valódi
-    # nyomtatható területet DPI-találgatás nélkül. A root.scrollHeight ehhez képest
-    # méri a tényleges tartalmat, és ha túlcsordulna, zsugorítja - de csak 0.75-ös
-    # olvashatósági padlóig, az alatt inkább szépen 2. oldalra csúszik (lásd .section/
-    # .item-block page-break-inside:avoid), mintsem olvashatatlanná váljon.
+    # nyomtatható területet DPI-találgatás nélkül. A tényleges tartalom végét a gyökér
+    # UTÁN álló #fit-end jelző mutatja (a gyökér zoomján kívül van, tehát a kicsinyített
+    # magasságot adja), és a méret VALÓDI méréssel, felezéses kereséssel dől el - nem
+    # arányos becsléssel (lásd a szkript kommentjét).
+    #
+    # A RIPORT SOSEM LEHET 2 OLDALAS (2026-09-25, explicit user decision: *"NE LEHESSEN
+    # 2 oldalas riportot nyomtatni! ... a 4 sor helyett legyen 3 sor vagy 2 sor vagy 1 sor
+    # de olyan sose lehessen h atmegy a masik oldalra a megjegyzes"*, és: *"a riport szépen
+    # rezponzívan töltse ki az 1 oldalt de mindig rá kell férnie 1 oldalra! a megjegyzéssel
+    # is"*). A régi kód 0.75-ös padló alatt hagyta a megjegyzést a 2. oldalra csúszni - ez
+    # VISSZAVONVA. A megjegyzés üres sorai a "rugalmas" rész:
+    #   1) ha a riport kifér: a megjegyzés üres sorokat kap a lap aljáig (kitölti a lapot);
+    #   2) ha nem fér ki: a megjegyzés ÜRES sorai jönnek le hátulról, egyenként,
+    #      legfeljebb 1 sorig (a beírt szöveg sorai sosem);
+    #   3) ha még így sem: arányos kicsinyítés, padló nélkül - a kisebb betű is jobb, mint
+    #      egy második lap.
+    # A mérésnél biztonsági ráhagyás van (FIT_SLACK_PX): a képernyős és a nyomtatási
+    # tördelés között pár px eltérés lehet, és egy "épp hogy kifér" mérés nyomtatva
+    # átlóghat. A nyomtatott PDF oldalszámát a bolti nyomtatós út vissza is olvassa
+    # (pdf_page_count) - ott a verdikt a PDF, nem ez a becslés.
     # FONTOS: ez `zoom`-mal megy, NEM `transform: scale()`-lel - élesben tesztelve
     # (Chrome headless --print-to-pdf) kiderült, hogy a transform pusztán vizuális
     # (nem befolyásolja a nyomtatási lapszámítást, ami a transzformáció ELŐTTI
@@ -801,20 +854,63 @@ th {{ background: #eee8f8; color: #46286e; width: 35%; font-weight: 600; }}
     <div class="note-content">{note_lines_html}</div>
 </div>
 </div>
+<div id="fit-end"></div>
 <script>
 (function() {{
     var root = document.getElementById('report-root');
     var ruler = document.getElementById('page-ruler');
-    if (!root || !ruler) return;
-    var bodyStyle = getComputedStyle(document.body);
-    var vPad = parseFloat(bodyStyle.paddingTop) + parseFloat(bodyStyle.paddingBottom);
-    var targetHeight = ruler.getBoundingClientRect().height - vPad;
-    var actualHeight = root.scrollHeight;
-    var MIN_SCALE = 0.75;
-    if (targetHeight > 0 && actualHeight > targetHeight) {{
-        var scale = Math.max(MIN_SCALE, targetHeight / actualHeight);
-        root.style.zoom = scale;
+    var end = document.getElementById('fit-end');
+    var box = root && root.querySelector('.note-content');
+    if (!root || !ruler || !end || !box) return;
+    var FIT_SLACK_PX = 12;
+    var MAX_FILL_LINES = 40;
+    // A nyomtatható terület alja (a lap tetejétől), a body alsó paddingja és a ráhagyás nélkül.
+    var limit = ruler.getBoundingClientRect().height
+        - parseFloat(getComputedStyle(document.body).paddingBottom) - FIT_SLACK_PX;
+    if (!(limit > 0)) return;
+    // VALÓDI MÉRÉS, nem arányos becslés: kicsinyítéskor a tartalom szélesebben tördel, tehát
+    // JOBBAN összemegy, mint az arány mondaná (mérve 2026-09-25: az arányos becslés üres sávot
+    // hagyott a lap alján). A #fit-end a gyökér UTÁN, a zoomon KÍVÜL áll, így a teteje
+    // pontosan ott van, ahol a (kicsinyített) tartalom véget ér.
+    function fitsAt(z) {{
+        root.style.zoom = z;
+        return end.getBoundingClientRect().top - ruler.getBoundingClientRect().top <= limit;
     }}
+    function lastEmptyLine() {{
+        var all = box.querySelectorAll('.note-line');
+        if (all.length <= 1) return null;
+        for (var i = all.length - 1; i >= 0; i--) if (!all[i].textContent.trim()) return all[i];
+        return null;
+    }}
+    var z = 1, removed = 0, added = 0;
+    if (fitsAt(1)) {{
+        // 1) KITÖLTÉS: ha marad hely, a megjegyzés-rész üres sorokat kap a lap aljáig
+        while (added < MAX_FILL_LINES) {{
+            var extra = document.createElement('div');
+            extra.className = 'note-line';
+            box.appendChild(extra);
+            if (!fitsAt(1)) {{ extra.remove(); break; }}
+            added++;
+        }}
+    }} else {{
+        // 2) nem fér ki: előbb a megjegyzés ÜRES sorai fogynak, egyenként, legfeljebb 1 sorig
+        while (!fitsAt(1)) {{
+            var ln = lastEmptyLine();
+            if (!ln) break;
+            ln.remove();
+            removed++;
+        }}
+        // 3) ha így sem: arányos kicsinyítés, padló nélkül - a legnagyobb méret, ami kifér
+        if (!fitsAt(1)) {{
+            var lo = 0.9, hi = 1;
+            while (lo > 0.05 && !fitsAt(lo)) {{ hi = lo; lo = lo * 0.85; }}
+            for (var i = 0; i < 16; i++) {{ var mid = (lo + hi) / 2; if (fitsAt(mid)) lo = mid; else hi = mid; }}
+            z = lo;
+        }}
+    }}
+    root.style.zoom = z < 1 ? z : '';
+    document.body.setAttribute('data-fit', 'zoom=' + z.toFixed(3) + ';removed_note_lines=' + removed
+        + ';added_note_lines=' + added);
 }})();
 </script>
 </body></html>"""
