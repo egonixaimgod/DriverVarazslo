@@ -2693,15 +2693,34 @@ try {
             t = re.sub(r'^\s*MS Katal[oó]gus:\s*', '', t or '', flags=re.IGNORECASE)
             return (re.split(r'[\s\-,.]+', t.strip().lower()) or [''])[0]
 
+        def _title_class(t):
+            """A csomag-cím driver-osztálya: 'Gyártó - System - ...' vagy 'Gyártó System
+            Driver Update (x)' alakból. A WUA `DriverClass` mezője erre NEM jó: terepen mérve
+            (2026-09-27, Build 343) minden AMD chipset-csomagnál 'OtherHardware' (a WUA saját
+            osztályneve), miközben a címekben 'System' / 'SecurityDevices' áll - a régi
+            összevetés ezért az öt régi AMD WU-csomagot "más fajtának" látta, és a lánc
+            felrakta őket a katalógus újabb kiadása mellé."""
+            t = re.sub(r'^\s*MS Katal[oó]gus:\s*', '', t or '', flags=re.IGNORECASE)
+            m = re.search(r'\s-\s*([A-Za-z][A-Za-z ]*?)\s*-\s', t)
+            if not m:
+                m = re.search(r'\b([A-Za-z]+)\s+Driver\s+Update\b', t, flags=re.IGNORECASE)
+            c = m.group(1).strip().lower() if m else ''
+            # "Advanced Micro Devices, Inc driver update for AMD SMBus": itt a cégjogi farok
+            # állna a szó helyén - az nem osztály.
+            return '' if c in ('inc', 'corp', 'corporation', 'ltd', 'co', 'llc', 'gmbh') else c
+
         def same_kind(w, hit):
             ht = hit.get('wu_title') or ''
             if package_family(w.get('wu_title')) == package_family(ht):
                 return True
+            if _vendor(w.get('wu_title')) != _vendor(ht):
+                return False
+            wc, hc = _title_class(w.get('wu_title')), _title_class(ht)
+            if wc and hc and wc == hc:
+                return True
             raw = (wu_by_uid or {}).get(w.get('update_id')) or {}
             cls = (raw.get('DriverClass') or '').strip().lower()
-            if cls and re.search(r'\b' + re.escape(cls) + r'\b', ht.lower()):
-                return _vendor(w.get('wu_title')) == _vendor(ht)
-            return False
+            return bool(cls and re.search(r'\b' + re.escape(cls) + r'\b', ht.lower()))
 
         drop_uids, kept_hits = set(), []
         for hit in cat_hits or []:

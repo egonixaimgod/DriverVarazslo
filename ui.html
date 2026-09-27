@@ -1371,8 +1371,11 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
   </nav>
 
   <div class="main">
-    <!-- Target Bar -->
-    <div class="target-bar">
+    <!-- Target Bar. A program a rejtett KEZDŐLAPPAL indul, és a `switchView('home')` induláskor
+         NEM fut le (a kezdőlap a HTML-ben aktív) - ezért a sáv rejtett alapállapota IDE kell,
+         különben induláskor látszik, a logóra kattintva pedig eltűnik (2026-09-27, terepi hiba).
+         A megjelenítést kizárólag a switchView dönti el (drivers / backup nézet). -->
+    <div class="target-bar" style="display:none">
       <span class="target-label online" id="target-label">JELENLEGI RENDSZER</span>
       <!-- CLI MÓD: a régi/lassú gépeken a grafikus felület használhatatlan, ezért egy
            kattintással át lehet váltani szöveges módba (a program új konzolablakban

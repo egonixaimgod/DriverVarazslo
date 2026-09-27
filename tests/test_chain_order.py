@@ -33,7 +33,10 @@ class _Chain(DriverToolApi):
 DEV = {'id': r'PCI\VEN_1022&DEV_790B&SUBSYS_FFFF1849&REV_61', 'pnp_id': r'PCI\VEN_1022&DEV_790B\3&1',
        'name': 'AMD SMBus', 'err_code': 0, 'pclass': 'System'}
 WU = [{'uid': 'u1', 'title': 'Advanced Micro Devices, Inc - System - 8/30/2017 12:00:00 AM - 5.12.0.38', 'device': DEV}]
-WU_BY_UID = {'u1': {'DriverVerDate': '2017-08-30', 'DriverClass': 'System'}}
+# A WUA a DriverClass-t a SAJÁT osztálynevén adja: terepen (Build 343) minden AMD
+# chipset-csomagnál 'OtherHardware' volt, nem 'System' - a korábbi teszt 'System'-mel
+# futott, ezért nem vette észre, hogy az egyeztetés élesben vak.
+WU_BY_UID = {'u1': {'DriverVerDate': '2017-08-30', 'DriverClass': 'OtherHardware'}}
 HIT = {'hwid': DEV['id'], 'name': 'AMD SMBus', 'cat_guid': 'g1',
        'wu_title': 'MS Katalógus: Advanced Micro Devices, Inc - System - 2.0.0.29', 'wu_date': '2026-07-08'}
 
@@ -58,6 +61,28 @@ class ChainOrder(unittest.TestCase):
         rest, halasztott = _Chain([real])._defer_wu_to_newer_catalog(list(WU), WU_BY_UID, {})
         self.assertEqual(rest, [])
         self.assertEqual(len(halasztott), 1)
+
+    def test_build343_mind_az_ot_amd_eset(self):
+        # A Build 343-as napló öt valódi címpárja: mind UGYANOLYAN fajta, a katalógusé újabb.
+        from app.gui.hwscan import GuiHwScanMixin
+        pairs = [
+            ('Advanced Micro Devices Inc. - SecurityDevices - 5.17.0.0', '2021-06-11',
+             'MS Katalógus: Advanced Micro Devices Inc. SecurityDevices Driver Update (5.46.0.0)', '2026-06-03'),
+            ('Advanced Micro Devices, Inc - System - 8/30/2017 12:00:00 AM - 5.12.0.38', '2017-08-30',
+             'MS Katalógus: Advanced Micro Devices, Inc System Driver Update (2.0.0.29)', '2026-07-07'),
+            ('Advanced Micro Devices, Inc. - System - 8/29/2017 12:00:00 AM - 2.0.1.0', '2017-08-29',
+             'MS Katalógus: Advanced Micro Devices, Inc. System Driver Update (3.0.5.0)', '2025-11-09'),
+            ('Advanced Micro Devices, Inc - System - 2.2.0.121', '2019-09-29',
+             'MS Katalógus: Advanced Micro Devices, Inc System Driver Update (2.2.0.137)', '2026-03-21'),
+            ('Advanced Micro Devices - System - 1.0.0.83', '2021-05-18',
+             'MS Katalógus: Advanced Micro Devices System Driver Update (1.0.0.90)', '2025-09-08'),
+        ]
+        for i, (wt, wd, ct, cd) in enumerate(pairs):
+            pool = [{'update_id': f'u{i}', 'hwid': 'H', 'wu_title': wt, 'wu_date': wd}]
+            hits = [{'hwid': 'H', 'name': 'x', 'cat_guid': f'g{i}', 'wu_title': ct, 'wu_date': cd}]
+            out = GuiHwScanMixin._reconcile_wu_catalog(
+                pool, hits, {f'u{i}': {'DriverClass': 'OtherHardware'}})
+            self.assertEqual([p.get('update_id') for p in out if p.get('update_id')], [], wt)
 
     def test_mas_fajta_csomag_nem_valtja_ki(self):
         # A WU pl. egy Extension-t ad, a katalógus egy más gyártó/fajta csomagot - mindkettő kell.
