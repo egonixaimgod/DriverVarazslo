@@ -475,7 +475,7 @@ def parse_inf_facts(text):
     A 145 futó szolgáltatásból 143-nak EGYEDI a .sys fájlneve, tehát ez a jó horgony."""
     empty = {'services': [], 'sys_files': [], 'inf_class': '', 'provider': '',
              'descriptions': [], 'hwid_count': 0, 'buses': [], 'usb_vids': [],
-             'pci_vens': [], 'hdaudio_vens': []}
+             'pci_vens': [], 'hdaudio_vens': [], 'hwids': []}
     if not text:
         return empty
     strings = {m.group(1).lower(): m.group(2) for m in _STRING_DEF_RE.finditer(text)}
@@ -520,6 +520,8 @@ def parse_inf_facts(text):
         'provider': models['version'].get('provider', ''),
         'descriptions': models['descriptions'][:INF_DESCRIPTION_MAX],
         'hwid_count': len(hwids),
+        # A kiegészítő (Extension) INF-ek használat-felismeréséhez kell (lásd build_usage).
+        'hwids': list(hwids),
         'buses': sorted(buses),
         'usb_vids': sorted(usb_vids),
         'pci_vens': sorted(pci_vens),
@@ -595,6 +597,39 @@ def build_usage(raw, inf_facts, published_names=None, originals=None):
 
     names = list(published_names) if published_names is not None else list(inf_facts.keys())
     orig_map = {_norm_inf(k): _norm_inf(v) for k, v in (originals or {}).items()}
+
+    # HATODIK JEL: A KIEGÉSZÍTŐ (EXTENSION) INF-EK (2026-09-27).
+    # A Windows egy Extension INF-et MINDEN olyan eszköz mellé betölt, amelyre a
+    # hardver-azonosítója illik - de ezt a kötést az eszköz `DriverInfPath`-ja NEM mutatja
+    # (az a fő driveré), szolgáltatást pedig egy kiegészítő INF jellemzően nem telepít.
+    # Enélkül egy ténylegesen használt gyártói kiegészítő (hangkártya-effektek, OEM-
+    # beállítások) "semmi nem használja"-ként jelent meg a Driverek nézetben - pontosan a
+    # "most akkor fos drivert rakott fel?" kérdés, amit a terepi felhasználó feltett. Az
+    # eszközfa (`nodes`) hordozza az eszközök azonosítóit; a PowerShell-tartalékon nincs
+    # ilyen adat, ott a jel néma marad (a besorolás a régi).
+    ext_present, ext_absent = {}, {}
+    nodes = raw.get('nodes') or []
+    ext_pubs = [_norm_inf(p) for p in names
+                if ((inf_facts.get(_norm_inf(p)) or {}).get('inf_class') or '').strip().lower() == 'extension']
+    if nodes and ext_pubs:
+        try:
+            from app.wu_core import _hwid_matches
+            for pub in ext_pubs:
+                ids = [h for h in ((inf_facts.get(pub) or {}).get('hwids') or []) if '&CC_' not in h.upper()]
+                if not ids:
+                    continue
+                for n in nodes:
+                    dev_ids = list(n.get('hwids') or []) + list(n.get('compat') or [])
+                    if not dev_ids or not any(_hwid_matches(i, x) for i in ids for x in dev_ids):
+                        continue
+                    nm = (n.get('friendly') or n.get('desc') or n.get('id') or '').strip()
+                    bucket = ext_present if n.get('present') else ext_absent
+                    lst = bucket.setdefault(pub, [])
+                    if nm and nm not in lst:
+                        lst.append(nm)
+        except Exception as e:
+            logging.warning(f"[USAGE] A kiegészítő (Extension) INF-ek párosítása nem sikerült: {e}")
+
     out = {}
     for pub_raw in names:
         pub = _norm_inf(pub_raw)
@@ -604,6 +639,8 @@ def build_usage(raw, inf_facts, published_names=None, originals=None):
         own_origin = orig_map.get(pub)
         present = list(dev_present.get(pub, []))
         absent = list(dev_absent.get(pub, []))
+        ext_on = [x for x in ext_present.get(pub, []) if x not in present]
+        ext_off = [x for x in ext_absent.get(pub, []) if x not in absent] if not ext_on else []
 
         def _belongs(e):
             """Ez a futó szolgáltatás TÉNYLEG ehhez a csomaghoz tartozik?
@@ -664,10 +701,17 @@ def build_usage(raw, inf_facts, published_names=None, originals=None):
         if in_spooler and not printer_use:
             reasons.append('Nyomtató-driver: be van jegyezve a nyomtatósor-kezelőbe '
                            '(Spooler), de jelenleg nincs hozzá telepített nyomtató.')
+        if ext_on:
+            reasons.append('Kiegészítő (Extension) INF, egy jelenlévő eszközre illik - a Windows '
+                           'a fő driver mellé tölti be: ' + ', '.join(ext_on[:3])
+                           + (f' (+{len(ext_on) - 3})' if len(ext_on) > 3 else ''))
+        elif ext_off:
+            reasons.append('Kiegészítő (Extension) INF egy most NEM csatlakoztatott eszközhöz: '
+                           + ', '.join(ext_off[:3]))
 
-        if present or running or printer_use:
+        if present or running or printer_use or ext_on:
             state = USAGE_ACTIVE
-        elif absent or stopped or filt or in_spooler:
+        elif absent or stopped or filt or in_spooler or ext_off:
             state = USAGE_STANDBY
         else:
             state = USAGE_UNUSED
@@ -684,8 +728,11 @@ def build_usage(raw, inf_facts, published_names=None, originals=None):
             'printers': list(printer_use or []),
             'in_spooler': in_spooler,
             'reasons': reasons,
-            'summary': _summary(state, present, running, absent, stopped, filt,
-                                printer_use, in_spooler),
+            'summary': (f'kiegészítő: {ext_on[0]}' if (ext_on and not (present or running or printer_use))
+                        else f'kiegészítő (kihúzva): {ext_off[0]}'
+                        if (ext_off and state == USAGE_STANDBY and not (absent or stopped or filt or in_spooler))
+                        else _summary(state, present, running, absent, stopped, filt,
+                                      printer_use, in_spooler)),
         }
     return out
 
@@ -907,6 +954,16 @@ def collect_usage_context(run_fn, packages=None, inf_dir=None, node_fn=None, cla
     for pub, entry in sorted(usage.items()):
         if entry['state'] == USAGE_ACTIVE:
             logging.debug(f"[USAGE] {pub}: HASZNÁLATBAN - {'; '.join(entry['reasons'])}")
+    # A NEM HASZNÁLT ÉS KÉSZENLÉTI CSOMAGOK IS NÉVVEL (2026-09-27): a felület "⚪ Nem
+    # használt 3"-at írt, a naplóból viszont nem derült ki, MELYIK 3 - pedig egy "miért
+    # nem használja a gép?" kérdés pontosan ezen múlik. Állapotonként EGY sor (nem
+    # csomagonként), az eredeti INF-névvel, mert az `oemNN.inf` szám önmagában semmit
+    # nem mond.
+    for st in (USAGE_STANDBY, USAGE_UNUSED):
+        names = [f"{pub} ({originals.get(pub) or '?'})" for pub, e in sorted(usage.items())
+                 if e['state'] == st]
+        if names:
+            logging.info(f"[USAGE] {USAGE_LABELS.get(st, st)} ({len(names)}): {names}")
     return {'usage': usage, 'raw': raw, 'facts': facts, 'published': names,
             'originals': originals}
 

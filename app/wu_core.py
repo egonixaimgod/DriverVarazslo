@@ -415,6 +415,15 @@ def _filter_wu_scan_devices(pnp_data):
             dropped['osztály'].append(f"{n} [{pclass}]")
             continue
 
+        if not hwids_list and '\\' in pid:
+            # ÜRES HardwareID-LISTA (2026-09-26): az azonosító eddig a PÉLDÁNY-útvonal lett
+            # (`PCI\VEN_..&DEV_..&SUBSYS_..&REV_..\3&11583659&0&A0`), és ez ment a katalógusba
+            # keresőkulcsnak - a példányszámos farokra a katalógus soha nem ad sort, az
+            # INF-vizsgálat és a letöltés előtti szűrő pedig üres azonosító-listával dolgozott.
+            # A példány-útvonal első két eleme maga az eszköz hardver-azonosítója (a Windows
+            # ebből képzi a legspecifikusabb HardwareID-t), tehát azt használjuk.
+            hwids_list = ['\\'.join(pid.split('\\')[:2])]
+            logging.debug(f"[PNP] Üres HardwareID-lista, a példány-útvonalból pótolva: {n} -> {hwids_list[0]}")
         hwid_clean = hwids_list[0] if hwids_list else pid
         if not hwid_clean:
             continue
@@ -616,6 +625,44 @@ def class_code_only_match(dev_ids, supported_ids):
     return True, sorted(kozos)[0]
 
 
+def catalog_supports_device(dev_ids, supported_ids):
+    """TÁMOGATJA-E a katalógus-csomag (a részletlap azonosító-listája szerint) az ESZKÖZT?
+
+    Visszatérés: `(igen, csak_osztalykod_azonosito)` - a második tag akkor nem üres, ha a
+    csomag AZÉRT esik ki, mert az eszközre KIZÁRÓLAG osztálykódos (`&CC_`) azonosítón
+    illeszkedik (a 2026-09-21-i AlpsAlpine-eset, lásd `class_code_only_match`).
+
+    UGYANAZ AZ ILLESZTÉSI SZABÁLY, MINT A WINDOWSÉ ÉS A SAJÁT INF-VIZSGÁLATUNKÉ (2026-09-26).
+    A letöltés előtti szűrő eddig PONTOS SZÖVEG-egyezést nézett (`dev_ids & supported`) - a
+    gyártók viszont a csomagban gyakran a csupasz `PCI\\VEN_xxxx&DEV_yyyy` alakot deklarálják,
+    ami az eszköznek KOMPATIBILIS azonosítója (a `Win32_PnPEntity.HardwareID` listában nincs
+    benne), és amire a Windows a drivert KÖTI is. A szűrő így szigorúbb volt a Windowsnál, és
+    JÓ drivereket zárt ki letöltés előtt. Élőben mérve (ASRock B450M Pro4), mind ugyanaz:
+        AMD SMBUS    2.0.0.26 fent  <- 'System Driver Update (2.0.0.29)' [2026-07-07]  KIZÁRVA
+        AMD PSP 11.0 5.44 [03-16]   <- 'SecurityDevices Driver Update' [2026-06-03]    KIZÁRVA
+        AMD PCI (x2)                <- '... (1.0.0.90)'                                 KIZÁRVA
+    mind `pci\\ven_1022&dev_XXXX` alakú listával, amit a `_hwid_matches` (és a telepítés utáni
+    `inf_package_applies`) rendben illeszkedőnek talál. A két vizsgálat ELLENTMONDOTT egymásnak.
+
+    A részhalmaz-szabály itt a LAZÁBB irányba téved (egy más revíziós, szűkebb azonosító is
+    illeszkedhet), és ez a helyes irány: egy téves MEGTARTÁS egy letöltés, amit az INF-vizsgálat
+    elkap; egy téves KIZÁRÁS egy csendben elveszett driver. A COL-lánc és a 2-tokenes alsó
+    korlát a `_hwid_matches`-ben marad érvényben.
+
+    Az osztálykód-szabály változatlan értelmű, csak az illesztés lett azonos: ha az eszközre
+    illeszkedő csomag-azonosítók MIND `&CC_`-sek, a gyártó a FAJTÁRA írta, nem erre a gépre."""
+    sup = [str(s).strip().lower() for s in (supported_ids or ()) if s]
+    devs = [str(d).strip().lower() for d in (dev_ids or ()) if d]
+    if not sup or not devs:
+        return False, ''
+    illo = [s for s in sup if any(_hwid_matches(s, d) for d in devs)]
+    if not illo:
+        return False, ''
+    if all('&cc_' in s for s in illo):
+        return False, sorted(illo)[0]
+    return True, ''
+
+
 # INF-ből kiolvasható hardver-azonosító: BUSZ\TOKEN&TOKEN... alak. A `_` megkövetelése
 # zárja ki a registry-utakat (SYSTEM\CurrentControlSet\...), amikben nincs VEN_/DEV_-szerű tag.
 _INF_HWID_RE = re.compile(r'\b([A-Z0-9]{2,12}\\[A-Z0-9_&\.\-]{4,})', re.IGNORECASE)
@@ -627,6 +674,20 @@ def extract_inf_hardware_ids(text):
     for m in _INF_HWID_RE.finditer(text or ''):
         cand = m.group(1).strip().upper().rstrip('.,;')
         if '_' in cand:
+            out.add(cand)
+            continue
+        # AZ ACPI RÖVID ALAKJA (`ACPI\AMDIF030`, `ACPI\LEN009B`) ALÁHÚZÁS NÉLKÜLI - és a fenti
+        # `_` követelmény miatt eddig SOSEM jött ki az INF-ből (2026-09-26, élőben mérve az
+        # 'AMD System Driver Update (3.0.5.0)' csomagon: `amdgpio3.inf` -> 0 azonosító,
+        # holott a sora `%GPIO.DeviceDesc% = GPIO_Inst,ACPI\AMDIF030`). Három néma
+        # következménye volt minden ACPI-eszközön (AMD GPIO/I2C, tapipadok, Intel ISH):
+        # az INF-vizsgálat "nem eldönthető"-t adott, az INF-szűkítés nem működött, és az
+        # újrakötés-kör a gépen lévő gyári csomagot nem párosította az eszközhöz (a
+        # CLAUDE.md a T580 tapipadjánál ezt már leírta, csak javítás nélkül). A registry-
+        # útvonalak (`SYSTEM\CurrentControlSet`) ettől nem jönnek be: csak az `ACPI\`
+        # busz, csak a gyártókód+hexa modellkód alak.
+        bus, _sep, rest = cand.partition('\\')
+        if bus == 'ACPI' and _HWID_ACPI_ID_RE.match(rest):
             out.add(cand)
     return out
 
@@ -742,6 +803,28 @@ def inf_package_applies(ext_dir, dev_hwids):
     return False
 
 
+def _pnp_prefix_match(wu_hwid, dev_pnp):
+    """A WU-azonosító az eszköz PÉLDÁNY-azonosítójának eleje-e - TAG-HATÁRON, legalább 2 taggal.
+
+    Ez a tartalék-egyezés azokra az eszközökre kell, amiknek üres a HardwareID-listája (a
+    példány-azonosító viszont tartalmazza a hardver-azonosítót). A régi alak egy NYERS
+    `startswith` volt, mindkét irányban - vagyis pont azt a hibát hozta vissza, amit a
+    `_hwid_matches` 2026-07-ben kijavított: egy `PCI\\VEN_8086` a gép ÖSSZES Intel
+    PCI-eszközére illeszkedett volna, a `PCI\\VEN_8086&DEV_A1` pedig a `DEV_A123`-ra is (a
+    tag KÖZEPÉN vágva). A csomag így egy tetszőleges eszközhöz rendelődhetett, és a
+    "telepítve: X" kijelzés meg a downgrade-védelem a ROSSZ eszköz adatait nézte.
+    A fordított irány (`wu_hwid.startswith(dev_pnp)`) sosem lehetett valódi egyezés: a
+    példány-azonosító mindig HOSSZABB a hardver-azonosítónál."""
+    w = str(wu_hwid or '').strip().upper()
+    d = str(dev_pnp or '').strip().upper()
+    if not w or not d or not d.startswith(w):
+        return False
+    if len(d) > len(w) and d[len(w)] not in ('\\', '&'):
+        return False
+    wt = _hwid_tokens(w)
+    return bool(wt) and len(wt[1]) >= 2
+
+
 def _match_wu_updates_to_devices(wu_results, devices, exclude_uids=None):
     """WU-találatok párosítása a jelenlévő eszközökhöz. A "legjobb mindkettőből" logika:
     - elsődlegesen HWID-egyezés (`_hwid_matches`: prefix VAGY azonos buszon token-részhalmaz;
@@ -771,7 +854,7 @@ def _match_wu_updates_to_devices(wu_results, devices, exclude_uids=None):
             dev_pnp_upper = (dev.get('pnp_id') or '').upper()
             for wu_h in hwids_upper:
                 if any(_hwid_matches(wu_h, dh) for dh in dev_hwids_upper) or \
-                   (dev_pnp_upper and (dev_pnp_upper.startswith(wu_h) or wu_h.startswith(dev_pnp_upper))):
+                   _pnp_prefix_match(wu_h, dev_pnp_upper):
                     matched_dev = dev
                     break
             if matched_dev:
@@ -1051,11 +1134,42 @@ def firmware_declared_port(pnp_id, code):
 # A hátsó lezárás `(?![0-9A-Z])` azért kell, hogy a 3-as hossz ne harapjon bele egy 4
 # karakteres kódba (VEN_8086 -> "808" + "6" nem lehet találat két külön tokenként).
 _HWID_VENDOR_TOKEN_RE = re.compile(r'(?:VEN|VID)_?[0-9A-Z]{3,4}(?![0-9A-Z])', re.IGNORECASE)
-_HWID_GENERIC_PNP_RE = re.compile(r'^(?:VEN_PNP&DEV_[0-9A-F]{3,4}|PNP[0-9A-F]{3,4})(?:&.*)?$',
+# ÁLTALÁNOS (nem gyártót jelölő) ACPI/PnP "gyártókódok". A PNP a Plug and Play típuskód, az
+# ACPI az ACPI-specifikáció saját eszközei (ACPI0003 = hálózati adapter, ACPI000C = processzor-
+# aggregátor), az MSFT pedig a Microsoft által definiált ÁLTALÁNOS eszközfajták (MSFT0101 = TPM
+# 2.0, MSFT0001 = HID-billentyűzet I2C-n) - egyik sem egy konkrét gyártó konkrét eszköze. A
+# `VEN_xxx&DEV_` alakjukat is ide soroljuk: a `VEN_` minta különben gyártókódnak nézné őket.
+# MÉRVE (2026-09-26, élő katalógus): `ACPI\VEN_MSFT&DEV_0101` és `ACPI\MSFT0101` -> 0 sor, tehát
+# a kizárás nem veszít találatot, viszont egy TPM-re sosem jöhet be más gyártó TPM-FIRMWARE
+# csomagja egy típuskódon át.
+_HWID_GENERIC_VENDORS = ('PNP', 'ACPI', 'MSFT')
+_HWID_GENERIC_PNP_RE = re.compile(r'^(?:VEN_(?:PNP|ACPI|MSFT)&DEV_[0-9A-F]{3,4}|PNP[0-9A-F]{3,4})(?:&.*)?$',
                                   re.IGNORECASE)
-# ACPI gyártókód: 3 betűs gyártó-előtag + hexa modellkód (ACPI\INT3F0D = Intel). A
-# PNP-előtagot a fenti minta már kiszűrte, az az általános ("Plug and Play") gyártókód.
-_HWID_ACPI_VENDOR_RE = re.compile(r'^[A-Z]{3}[0-9A-F]{3,4}', re.IGNORECASE)
+# ACPI-AZONOSÍTÓ RÖVID ALAKBAN: 3 betűs PnP-gyártókód VAGY 4 karakteres ACPI-gyártókód +
+# 4 hexa modellkód (ACPI\HPQ6001, ACPI\INTC1043, ACPI\AMDIF030, ACPI\ELAN0501, ACPI\WCOM508E).
+#
+# A RÉGI MINTA (`^[A-Z]{3}[0-9A-F]{3,4}`) CSAK A 3 BETŰS KÓDOT ISMERTE - és ez egy VALÓDI, ÉLŐBEN
+# MÉRT DRIVER-VESZTESÉG VOLT (2026-09-26, ASRock B450M Pro4). Az AMD GPIO-vezérlő két azonosítója:
+#     ACPI\VEN_AMDI&DEV_F030   -> a program EZT kérdezte (gyártó-kódos),  katalógus: 0 sor
+#     ACPI\AMDIF030            -> "típuskódnak" nézte, SOHA nem kérdezte, katalógus: 1000 sor
+# A gépen 2.0.1.0 [2017-08-29] futott, a katalógusban 'AMD System Driver Update (3.0.5.0)'
+# [2025-11-09] várt rá. Az Intel kód (INTC1043) csak VÉLETLENÜL ment át (a 'C' hexa betű, így
+# "INT"+"C104" illeszkedett), az AMD (AMDI), ELAN, Wacom (WCOM), Surface (MSHW), FocalTech (FTSC)
+# ACPI-eszközök viszont mind kiestek. A katalógus a RÖVID alakot indexeli - a VEN_/DEV_ alakra
+# ugyanott 0 sort ad -, tehát a rövid alak kihagyása ezekre az eszközökre a TELJES katalógust
+# elzárta.
+# A lusta `{2,3}?` előbb a 3 betűs kódot próbálja (HPQ6001 = "HPQ"+"6001"), és csak ha az nem
+# illik, a 4 karakterest (AMDIF030 = "AMDI"+"F030"); a hátsó lezárás miatt az INTC1043 sem
+# esik szét "INT"+"C104"+"3"-ra.
+_HWID_ACPI_ID_RE = re.compile(r'^([A-Z][A-Z0-9]{2,3}?)([0-9A-F]{4})(?![0-9A-Z])', re.IGNORECASE)
+# A BLUETOOTH-AZONOSÍTÓK (`BTHENUM\{szolgáltatás-GUID}_VID&0002054C_PID&0E46`) SZÁNDÉKOSAN NEM
+# SPECIFIKUSAK, és ez MÉRT döntés, nem mulasztás (2026-09-26, élő katalógus, ezen a gépen egy
+# Sony kontroller): a `{...}`-t tartalmazó keresést a katalógus NEM TUDJA VÉGREHAJTANI - a
+# válaszlapon se találati sor, se "nincs találat" szöveg nincs, csak az üres fejléc -, a
+# zárójelek nélküli `VID&0002054c_PID&0e46` alakra pedig 0 sort ad. Egy ilyen kulccsal
+# kérdezni tehát csak kérés-pazarlás, és a hibaoldal-felismerés szempontjából zaj. (Az első
+# változatom felvette őket, az élő futás mutatta meg, hogy semmit nem hoznak.) A BT-eszköz
+# ettől nem marad ki: a kontroller USB-n (`USB\VID_054C&PID_0CE6`) rendesen kereshető.
 
 
 def is_specific_hwid(hwid):
@@ -1075,8 +1189,10 @@ def is_specific_hwid(hwid):
         return True
     if bus == 'MONITOR' and re.match(r'^[A-Z0-9]{5,}', rest):
         return True
-    if bus == 'ACPI' and _HWID_ACPI_VENDOR_RE.match(rest):
-        return True
+    if bus == 'ACPI':
+        m = _HWID_ACPI_ID_RE.match(rest)
+        if m and m.group(1).upper() not in _HWID_GENERIC_VENDORS:
+            return True
     return False
 
 
@@ -1591,6 +1707,18 @@ def is_newer_release(cand_date, cand_version, cur_date, cur_version):
     esünk vissza a verzió-összehasonlításra (ez a régi viselkedés)."""
     cd, cur_d = _iso_date_or_none(cand_date), _iso_date_or_none(cur_date)
     cv, cur_v = _parse_driver_version(cand_version), _parse_driver_version(cur_version)
+    # AZONOS VERZIÓSZÁM = UGYANAZ A KIADÁS, a dátumtól függetlenül (2026-09-26).
+    # A dátum-elsőbbség az ÖSSZEHASONLÍTHATATLAN verziósémák miatt született (AMD SMBus
+    # 5.12 vs 2.0, Realtek 1168.x vs 10.79.x) - két SZÓ SZERINT azonos verziónál viszont
+    # nincs mit összehasonlítani. A katalógus "Last Updated" dátuma ugyanis a KÖZZÉTÉTEL
+    # dátuma, és egy csomag újra-közzététele (új OS-ág, új bejegyzés) frissebb dátumot ad
+    # UGYANANNAK a drivernek. A dátum-szabály ezt "újabbnak" látta, a telepítő a
+    # "már a rendszerben van" no-op-ot kihagyottnak könyvelte, és a következő szken ugyanazt
+    # megint felajánlotta - a "felrakom, mégis újra felajánlja" kör egyik forrása. Az
+    # egyezés a TELJES tuple-re vonatkozik (legalább 3 tag, lásd `_parse_driver_version`),
+    # tehát egy "2.2.0.121" nem esik egybe a "2.2.0.137"-tel.
+    if cv is not None and cur_v is not None and cv == cur_v:
+        return False
     if cd and cur_d:
         if cd != cur_d:
             return cd > cur_d
@@ -1674,6 +1802,23 @@ def catalog_title_family(title):
     return ' '.join(t.lower().split())
 
 
+def package_family(title):
+    """Egy WU-/katalógus-cím csomagcsaládja a VERZIÓSZÁM HELYÉTŐL FÜGGETLENÜL.
+
+    A `catalog_title_family` csak a zárójeles, cím végi verziót vágja le ("... (6.0.10007.1)"),
+    a WU viszont a verziót gyakran kötőjel után írja ("Realtek Semiconductor Corp. -
+    Extension - 10.0.22621.31255"). A kézi szken WU<->katalógus egyeztetésénél
+    (`_reconcile_wu_catalog`) mindkét alakot össze kell tudni vetni, ezért itt MINDEN
+    legalább 3 tagú verziószám kiesik, az írásjelek pedig szóközzé válnak. Konzervatív:
+    két eltérő írásmódú cím ("Realtek - MEDIA - ..." vs "... MEDIA Driver Update (...)")
+    NEM lesz azonos családú - olyankor a hívó a driver-osztályt nézi, és ha az sem dönt,
+    mindkét ajánlat megmarad (egy fölösleges ajánlat jobb egy elhallgatottnál)."""
+    t = re.sub(r'^\s*MS Katal[oó]gus:\s*', '', (title or ''), flags=re.IGNORECASE)
+    t = re.sub(r'\bv?\d+(?:\.\d+){2,}\b', ' ', t)
+    t = re.sub(r'[^0-9a-záéíóöőúüű]+', ' ', t.lower())
+    return ' '.join(t.split())
+
+
 # ============================================================================
 # COMPOSITE USB SZÜLŐ: a gyerek-interfészeken van a gyári driver
 # ============================================================================
@@ -1749,9 +1894,20 @@ def package_bound_to_device_family(stdout, dev):
     gyerek-interfészre)? A kötés-ellenőrzés ezt fogadja el sikerként akkor is, ha maga
     a lekérdezett (szülő) eszköz INF-je nem változott."""
     stems = _hwid_family_stems(dev)
-    if not stems:
-        return False
+    # MAGA AZ ESZKÖZ IS ELÉG BIZONYÍTÉK, nem csak a családja (2026-09-26). A családtörzs
+    # csak USB/PCI/HDAUDIO alakot ismer, tehát egy ACPI- vagy HID-eszköznél (tapipad,
+    # AMD GPIO/I2C, Wacom) a függvény MINDIG hamisat adott - akkor is, ha a pnputil szó
+    # szerint kiírta, hogy a csomag épp erre a példányra ment fel. Két következménye volt:
+    # a szűkített INF-telepítés ezeknél MINDIG "nem volt elég"-nek látszott és a teljes
+    # csomag is felment (pont az a 212 INF-es kerülő, amit a szűkítés megspórolna), a
+    # kötés-ellenőrzés pedig a gyerek-interfész esetén hamis "nem vette át"-ot adhatott.
+    # A példány-azonosító (vagy egy saját hardver-azonosító + `\\` + példányszám) egyezése
+    # nem következtetés, hanem maga a tény.
+    own = {(dev or {}).get('pnp_id', '').strip().upper()} - {''}
+    own_hw = [str(h).strip().upper() for h in ((dev or {}).get('all_hwids') or []) if h]
     for inst in pnputil_bound_devices(stdout):
+        if inst in own or any(inst.startswith(h + '\\') for h in own_hw):
+            return True
         for stem in stems:
             if inst.startswith(stem + '&') or inst.startswith(stem + '\\') or inst == stem:
                 return True
@@ -1976,7 +2132,17 @@ try {
     $Searcher.ServiceID = "7971f918-a847-4430-9279-4a52d1efe18d"
     Write-Output "SEARCH: Driver frissítések keresése..."
     $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
-    if ($Result.Updates.Count -eq 0) { Write-Output "EMPTY: Nem található elérhető driver frissítés."; return }
+    # OPCIONÁLIS (BrowseOnly=1) driverek KIFEJEZETT keresése is (2026-09-27): így a
+    # kijelölt opcionális driver akkor is megvan, ha az alap-feltétel kihagyná - az
+    # UpdateID-szerinti összevonás miatt kétszer semmi nem kerül be. Lásd _search_wu_api.
+    $AllUpdates = New-Object System.Collections.ArrayList
+    $seenUid = @{}
+    foreach ($U in $Result.Updates) { $seenUid[$U.Identity.UpdateID] = $true; [void]$AllUpdates.Add($U) }
+    try {
+        $Opt = $Searcher.Search("IsInstalled=0 and Type='Driver' and BrowseOnly=1")
+        foreach ($U in $Opt.Updates) { if (-not $seenUid.ContainsKey($U.Identity.UpdateID)) { $seenUid[$U.Identity.UpdateID] = $true; [void]$AllUpdates.Add($U) } }
+    } catch {}
+    if ($AllUpdates.Count -eq 0) { Write-Output "EMPTY: Nem található elérhető driver frissítés."; return }
 
     $systemHWIDs = @()
     if ($MatchSystemDevices) {
@@ -1990,7 +2156,7 @@ try {
     }
 
     $ToInstall = New-Object -ComObject Microsoft.Update.UpdateColl
-    foreach ($U in $Result.Updates) {
+    foreach ($U in $AllUpdates) {
         $matchFound = $false
         if ($TargetUIDs.Count -gt 0 -and $TargetUIDs -contains $U.Identity.UpdateID) { $matchFound = $true }
         if (-not $matchFound -and $TargetHWIDs.Count -gt 0) {

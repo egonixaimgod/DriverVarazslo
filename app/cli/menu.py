@@ -545,6 +545,23 @@ def _hwscan_flow(api):
         ui.warn('A Windows Update nem válaszolt (időtúllépés) — az eredmény csak a katalógusból van.')
     elif res.get('catalog_skipped'):
         ui.dim('Gyors mód: csak a Windows Update-et kérdeztük meg.')
+    unreached = res.get('catalog_unreached') or []
+    if unreached:
+        # Ugyanaz, mint a grafikus felületen: ezekről NEM tudjuk, hogy naprakészek-e.
+        ui.warn(f'{len(unreached)} eszközről nem tudtuk ellenőrizni, van-e újabb driver (a katalógus '
+                f'nem válaszolt, vagy a telepített driverek nem voltak lekérdezhetők): {", ".join(unreached[:6])}'
+                f'{", ..." if len(unreached) > 6 else ""}. Futtasd újra pár perc múlva.')
+    hidden = res.get('wu_hidden') or []
+    if hidden:
+        ui.warn(f'{len(hidden)} driver-frissítés el van rejtve a Windows Update-ben (valaki letiltotta, '
+                f'ezért nem telepítjük): {", ".join(hidden[:5])}{", ..." if len(hidden) > 5 else ""}')
+    # A driverek által kért, de hiányzó Store-alkalmazások (ugyanaz, mint a GUI 🛍️ sora).
+    store_missing = res.get('store_apps_missing') or []
+    if store_missing:
+        ui.warn(f'{len(store_missing)} driver-alkalmazás hiányzik a Microsoft Store-ból: '
+                + ', '.join(a.get('name', '?') for a in store_missing))
+        if ui.confirm('Telepítsem most őket?', True):
+            _sync(api, api.install_driver_store_apps)
     _hwscan_table(api, res.get('pool'))
     probs = res.get('problems') or []
     if probs:

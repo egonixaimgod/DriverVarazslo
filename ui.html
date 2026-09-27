@@ -1341,6 +1341,11 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
          takarításon túl már nem csak temp fájlokról szól. -->
     <button class="nav-btn" onclick="switchView('drivers')" data-view="drivers"><span class="icon">💿</span>Driverek kezelése</button>
     <button class="nav-btn" onclick="switchView('hw')" data-view="hw"><span class="icon">🖥️</span>Driver Keresés és Telepítés</button>
+    <!-- A SORREND (2026-09-27, explicit user decision): Driverek kezelése, Driver Keresés,
+         Mentés és Visszaállítás, 1 katt fix, Operációs rendszer, Kijelző, Rendszer
+         karbantartás, Bolti tábla, Stress teszt, Benchmark (MINDIG a legalja). -->
+    <button class="nav-btn" onclick="switchView('backup')" data-view="backup"><span class="icon">💾</span>Mentés és Visszaállítás</button>
+    <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Driver Fix</button>
     <!-- AZ IKON A WINDOWS 11 LOGÓ, INLINE SVG-KÉNT (2026-09-18, explicit user decision
          képpel megjelölve: a négy kék négyzet). SZÁNDÉKOSAN NEM EMOJI, és ez a lényeg:
          egy SVG-nek nincs betűkészlet-függése, tehát a "tofu" (üres téglalap) kockázat
@@ -1351,12 +1356,10 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
          (valódi WebView2-ben MŰKÖDIK - mérve -, de nem a kért logó).
          A 17px a `.nav-btn .icon` betűméretével egyezik, így a sor magassága nem változik. -->
     <button class="nav-btn" onclick="switchView('os')" data-view="os"><span class="icon"><svg class="winlogo" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1"/><rect x="13" y="1" width="10" height="10" rx="1"/><rect x="1" y="13" width="10" height="10" rx="1"/><rect x="13" y="13" width="10" height="10" rx="1"/></svg></span>Operációs rendszer</button>
-    <button class="nav-btn" onclick="switchView('backup')" data-view="backup"><span class="icon">💾</span>Mentés és Visszaállítás</button>
-    <button class="nav-btn" onclick="switchView('tempclean')" data-view="tempclean"><span class="icon">🧹</span>Rendszer karbantartás</button>
-    <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Driver Fix</button>
-    <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stress Teszt &amp; Szervíz Programok</button>
     <button class="nav-btn" onclick="switchView('display')" data-view="display"><span class="icon">🎨</span>Kijelző &amp; Színkezelés</button>
+    <button class="nav-btn" onclick="switchView('tempclean')" data-view="tempclean"><span class="icon">🧹</span>Rendszer karbantartás</button>
     <button class="nav-btn" onclick="switchView('shoplabel')" data-view="shoplabel"><span class="icon">🏷️</span>Bolti tábla nyomtatás</button>
+    <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stress Teszt &amp; Szervíz Programok</button>
     <button class="nav-btn" onclick="switchView('benchmark')" data-view="benchmark"><span class="icon">🏆</span>Benchmark</button>
     <!-- A NET BLOKKOLO SCRIPT MENUPONTJA KIKERULT (2026-09-18, explicit user decision:
          *"a net blokkoló script is átmehetne az operációs rendszerbe, felesleges külön
@@ -2952,6 +2955,9 @@ window.handlePyEvent = function(payload) {
       break;
     case 'hw_scan_result':
       onHwScanResult(data);
+      break;
+    case 'store_apps_state':
+      if (hwScanMeta) { hwScanMeta.store_apps_missing = data.missing || []; hwScanMeta.store_apps_unknown = false; renderHwSummary(); }
       break;
     case 'bitlocker_status':
       const blEl = document.getElementById('bl-status');
@@ -5154,12 +5160,53 @@ function renderHwSummary() {
     note = '⚡ <b>Gyors mód:</b> csak a Windows Update-et kérdeztük meg. Ha kevés a találat, '
          + 'kapcsold be a teljes keresést a fenti kártyán.';
   }
+  // AMIRŐL A KATALÓGUS NEM VÁLASZOLT (2026-09-26): ezekről NEM tudjuk, hogy naprakészek-e.
+  // Két újrapróbálás után is elérhetetlenek maradtak - ha nem mondjuk ki, a "Naprakész"
+  // fülön állnának, és a program egy le sem futott kérdésre adott volna magabiztos választ.
+  const unreached = Array.isArray(d.catalog_unreached) ? d.catalog_unreached : [];
+  if (unreached.length) {
+    note += (note ? '<br>' : '')
+         + '🌐 <b>' + unreached.length + ' eszközről nem tudtuk ellenőrizni, van-e újabb driver</b> '
+         + '(a Microsoft katalógus nem válaszolt, vagy a telepített driverek nem voltak lekérdezhetők): '
+         + esc(unreached.slice(0, 6).join(', ')) + (unreached.length > 6 ? ', …' : '')
+         + '. Futtasd újra a szkennelést pár perc múlva.';
+  }
+  // ELREJTETT WU driver-frissítések (2026-09-27): a program NEM telepíti őket (az elrejtés
+  // jellemzően szándékos blokkolás), de kimondja, hogy léteznek.
+  const hid = Array.isArray(d.wu_hidden) ? d.wu_hidden : [];
+  if (hid.length) {
+    note += (note ? '<br>' : '')
+         + '🙈 <b>' + hid.length + ' driver-frissítés el van rejtve a Windows Update-ben</b> (valaki korábban '
+         + 'letiltotta őket, ezért a program nem telepíti): ' + esc(hid.slice(0, 5).join(', '))
+         + (hid.length > 5 ? ', …' : '') + '.';
+  }
+  // A DRIVEREK ÁLTAL KÉRT, DE HIÁNYZÓ STORE-ALKALMAZÁSOK (2026-09-27): a Windows ezeket a
+  // fix után magától nem rakja fel (a lánc a "gyártói alkalmazások letöltése" kapcsolót is
+  // kikapcsolja), ezért a program telepíti őket - itt egy gombbal. A 🛍️ sor csak akkor
+  // jelenik meg, ha VAN teendő; a nem eldönthető állapotot külön kimondjuk.
+  const sm = Array.isArray(d.store_apps_missing) ? d.store_apps_missing : [];
+  let store = '';
+  if (sm.length) {
+    store = '<div class="hw-sum-note hw-store-note">🛍️ <b>' + sm.length + ' driver-alkalmazás hiányzik a Microsoft Store-ból</b> '
+          + '(a telepített driverek kérik őket, pl. vezérlőpult): '
+          + esc(sm.map(a => a.name + (a.installed ? ' (' + a.installed + ' → ' + (a.min_version || '?') + ')' : '')).join(', '))
+          + ' <button class="btn btn-sm btn-primary" id="btn-store-apps" onclick="installDriverStoreApps()">🛍️ Telepítés</button></div>';
+  } else if (d.store_apps_unknown) {
+    store = '<div class="hw-sum-note">🛍️ A driverekhez tartozó Store-alkalmazások állapota nem volt lekérdezhető.</div>';
+  }
   box.innerHTML =
       '<div class="hw-sum-main">'
     +   '<span class="hw-sum-machine">' + esc(d.machine || '') + '</span>'
     +   '<span class="hw-sum-meta">' + esc(meta.join(' · ')) + '</span>'
     + '</div>'
-    + (note ? '<div class="hw-sum-note">' + note + '</div>' : '');
+    + (note ? '<div class="hw-sum-note">' + note + '</div>' : '')
+    + store;
+}
+
+function installDriverStoreApps() {
+  const b = document.getElementById('btn-store-apps');
+  if (b) b.disabled = true;
+  api().install_driver_store_apps();
 }
 
 /* SZŰRŐ-FÜLEK. Egy lista, felette állapot-fülek - a korábbi külön dobozok (hibás
@@ -5489,7 +5536,11 @@ function hwInstalledRowHtml(it) {
     : '<span class="hw-inst-none">nincs k\u00fcl\u00f6n driver-bejegyz\u00e9s</span>';
   return '<div class="hw-item">'
     + '<span></span>'
-    + '<span class="name" title="'+esc(it.name)+'">'+esc(it.name)+'</span>'
+    + '<span class="name" title="'+esc(it.name)+'">'+esc(it.name)
+    // NEM ELLENŐRIZHETŐ (2026-09-26): a katalógus nem válaszolt rá, vagy a telepített driverek
+    // nem voltak lekérdezhetők - a sor itt áll, de NEM állítjuk róla, hogy naprakész.
+    +   (it.unverified ? ' <span class="hw-inst-meta" title="Erről az eszközről most nem tudtuk ellenőrizni, van-e újabb driver - futtasd újra a szkennelést.">🌐 nem ellenőrizhető</span>' : '')
+    + '</span>'
     + '<span class="wu">' + drv + '</span>'
     + '<span class="hwid" title="'+esc(it.id||'')+'">'+esc(it.id||'')+'</span></div>';
 }

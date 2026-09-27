@@ -334,6 +334,11 @@ class GuiRebindMixin:
         az egész funkció készült. Ugyanez a laza illesztés viszont a `hdbusext.inf`-et
         ráhúzta a HD Audio vezérlőre. Az INF-alapú párosítás tehát rossz alapon állt:
         egyszerre volt vak és túl bőkezű.
+        [2026-09-26: a VAKSÁG fele JAVÍTVA - az `extract_inf_hardware_ids` azóta az ACPI rövid
+        alakját (`ACPI\\LEN009B`, `ACPI\\AMDIF030`) is kiolvassa, élőben mérve az AMD GPIO
+        csomagján (0 -> 2 azonosító). Az alábbi döntés (a Windows válasszon, ne mi) ettől
+        változatlanul helyes; a `_staged_vendor_inf_for` szigorú párosítása viszont most már
+        az ACPI-eszközökhöz is megtalálja a stage-elt gyári csomagot.]
 
         AMIT HELYETTE CSINÁLUNK - pontosan az, ami a lemez ki-be pakolásakor történik:
         nem mi választunk csomagot, hanem ELTÁVOLÍTJUK a csomópontot, és az újraindítás
@@ -452,14 +457,21 @@ class GuiRebindMixin:
             for inf_id in ids:
                 if not is_specific_hwid(inf_id):
                     continue
-                if rev_conflict(inf_id, dev_revs):
-                    logging.debug(f"[REBIND] Kihagyva (MÁS hardver-revízió): {dev.get('name')} "
-                                  f"{sorted(dev_revs)} <- {orig} [{inf_id}]")
-                    continue
                 for hw in hwids:
-                    if _strict_hwid_match(inf_id, hw):
-                        logging.info(f"[REBIND] Egyezés: {dev.get('name')} [{hw}] <- {orig} [{inf_id}]")
-                        return path, orig
+                    if not _strict_hwid_match(inf_id, hw):
+                        continue
+                    # A REV-ütközést CSAK egy egyébként illeszkedő párra nézzük (és csak
+                    # ilyenkor naplózzuk). 2026-09-27, terepen mérve: a pár ELŐTT futó
+                    # ellenőrzés MINDEN idegen INF-azonosítóra (USB-egér vs. PCI-s Realtek
+                    # NIC INF) írt egy DEBUG-sort - egyetlen záró körben 70 015 sort, 3 mp
+                    # alatt, ami a teljes 15 MB-os naplót teleírta, és a lánc TELJES
+                    # történetét kitolta a rotációból.
+                    if rev_conflict(inf_id, dev_revs):
+                        logging.debug(f"[REBIND] Kihagyva (MÁS hardver-revízió): {dev.get('name')} "
+                                      f"{sorted(dev_revs)} <- {orig} [{inf_id}]")
+                        break
+                    logging.info(f"[REBIND] Egyezés: {dev.get('name')} [{hw}] <- {orig} [{inf_id}]")
+                    return path, orig
         return None, ''
 
     # ------------------------------------------------------------------
@@ -533,7 +545,9 @@ class GuiRebindMixin:
         # egyetlen eszközhöz sem volt csomag. A technikus ebből azt olvasta ki, hogy N
         # drivert fog visszakapni, holott a többségnél a Windows ugyanazt az inbox drivert
         # köti majd vissza (ami nem hiba, csak nem javulás).
-        self.emit('task_progress', {'task': task_id, 'log': f'\n🔧 {len(todo)} eszközhöz VAN gyári csomag a gépen, de a Windows alapdriverén futnak - ezeket felderíttetjük újra, hogy a gyári csomag rájuk kössön:'})
+        # Szám után egyes szám (2026-09-27): a régi "1 eszközhöz ... futnak - ezeket"
+        # nyelvtanilag hibás volt, és egyetlen eszköznél pont ez az alak jön ki.
+        self.emit('task_progress', {'task': task_id, 'log': f'\n🔧 {len(todo)} eszköz a Windows alapdriverén fut, pedig VAN hozzá gyári csomag a gépen - újra felderíttetjük, hogy a gyári csomag rákössön:'})
         if REBIND_ONLY_WITH_PACKAGE and len(candidates) > len(todo):
             self.emit('task_progress', {'task': task_id, 'log': f'   • további {len(candidates) - len(todo)} db alapdriveres eszközhöz nincs csomag a gépen - azokat NEM bántjuk, mert a Windows úgyis ugyanazt adná vissza (a záró jelentés felsorolja őket).'})
         for i, (d, info, path, orig) in enumerate(todo, 1):

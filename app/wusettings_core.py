@@ -186,6 +186,155 @@ Start-Service wuauserv -ErrorAction SilentlyContinue
         set_wu_driver_policy(run, disabled=False)
 
 
+# =====================================================================
+# IDEIGLENES KERESÉSI ABLAK SZÜNETELTETETT WU MELLETT (2026-09-27, mérve)
+# =====================================================================
+# A MÉRÉS (a fejlesztői gépen, rendszergazdaként, ugyanazzal a Microsoft Update
+# ServiceID-vel, amit a program használ):
+#     szüneteltetve (a fix 10 éves szünete):        driver 0 db, BÁRMI 0 db
+#     a szüneteltetési értékek törlése után:        driver 0 db, BÁRMI 5 db (biztonsági)
+#     + a driver-tiltás (Exclude...) törlése után:  driver 0 db, BÁRMI 5 db
+# Vagyis a SZÜNETELTETÉS a WUA API keresését is elvakítja (létező frissítéseket tagad le),
+# a driver-tiltás a keresésre nem hatott. A fix a keresés előtt mindig feloldott, a KÉZI
+# szken viszont soha - tehát minden gépen, amin korábban lefutott a fix, a kézi szken WU-
+# része vak volt. Szolgáltatás-újraindítás NEM kellett: az értékek puszta törlése elég volt.
+_UX_SETTINGS_KEY = r'SOFTWARE\Microsoft\WindowsUpdate\UX\Settings'
+_AU_POLICY_KEY = r'SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU'
+WU_PAUSE_VALUE_NAMES = ('PauseUpdatesExpiryTime', 'PauseUpdatesStartTime',
+                        'PauseFeatureUpdatesStartTime', 'PauseFeatureUpdatesEndTime',
+                        'PauseQualityUpdatesStartTime', 'PauseQualityUpdatesEndTime')
+
+
+def _reg_read(root_key, sub, name):
+    try:
+        with winreg.OpenKey(root_key, sub, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as k:
+            return winreg.QueryValueEx(k, name)
+    except OSError:
+        return None
+
+
+def _reg_write(sub, name, value, vtype):
+    with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, sub, 0,
+                            winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY) as k:
+        winreg.SetValueEx(k, name, 0, vtype, value)
+
+
+def _reg_delete(sub, name):
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, sub, 0,
+                            winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY) as k:
+            winreg.DeleteValue(k, name)
+    except FileNotFoundError:
+        pass
+
+
+def open_search_window(marker_path):
+    """Ha a WU szüneteltetve van: menti a pontos értékeket (a lemezre is - összeomlás
+    esetén a következő indulás innen állít vissza), NoAutoUpdate=1 biztosítékot tesz (a
+    fix is így csinálja: a feloldás pillanatában a Windows ne kezdjen magától
+    frissíteni), majd törli a szüneteltetést. Nem szüneteltetett gépen None (nincs dolga).
+    A visszaállítás a close_search_window dolga - a hívó `finally`-ben hívja."""
+    import json
+    pause = {}
+    for n in WU_PAUSE_VALUE_NAMES:
+        v = _reg_read(winreg.HKEY_LOCAL_MACHINE, _UX_SETTINGS_KEY, n)
+        if v is not None:
+            pause[n] = v[0]
+    if not pause:
+        logging.info("[WU_WINDOW] A WU nincs szüneteltetve - a keresés változtatás nélkül fut.")
+        return None
+    noau = _reg_read(winreg.HKEY_LOCAL_MACHINE, _AU_POLICY_KEY, 'NoAutoUpdate')
+    state = {'pause': pause, 'noau_prev': noau[0] if noau else None}
+    try:
+        with open(marker_path, 'w', encoding='utf-8') as f:
+            json.dump(state, f)
+    except OSError as e:
+        # Mentés nélkül NEM nyúlunk hozzá: egy összeomlás után nem tudnánk visszaállítani.
+        logging.warning(f"[WU_WINDOW] A visszaállítási mentés nem írható ({e}) - a szüneteltetést "
+                        f"nem oldjuk fel, a WU-keresés vak maradhat.")
+        return None
+    logging.warning(f"[WU_WINDOW] A WU szüneteltetve ({pause.get('PauseUpdatesExpiryTime', '?')}-ig) - "
+                    f"a keresés idejére IDEIGLENESEN feloldjuk (mentés: {marker_path}).")
+    try:
+        _reg_write(_AU_POLICY_KEY, 'NoAutoUpdate', 1, winreg.REG_DWORD)
+        for n in pause:
+            _reg_delete(_UX_SETTINGS_KEY, n)
+    except OSError as e:
+        logging.warning(f"[WU_WINDOW] A feloldás részben elbukott ({e}) - azonnali visszaállítás.")
+        close_search_window(state, marker_path)
+        return None
+    return state
+
+
+def close_search_window(state, marker_path):
+    """A pontos előző állapot visszaírása + visszaolvasás. Igaz, ha minden visszaállt."""
+    if not state:
+        return True
+    ok = True
+    # CSAK AZT ÍRJUK, AMI ELTÉR: ha a feloldás el sem indult (pl. jog nélkül az első írás
+    # elbukott), nincs mit visszaírni - és egy fölösleges írási kísérlet hamis "NEM teljes"
+    # hibát adna (mérve 2026-09-27, nem emelt jogú futásnál).
+    for n, v in (state.get('pause') or {}).items():
+        cur = _reg_read(winreg.HKEY_LOCAL_MACHINE, _UX_SETTINGS_KEY, n)
+        if cur and cur[0] == v:
+            continue
+        try:
+            _reg_write(_UX_SETTINGS_KEY, n, v, winreg.REG_SZ)
+        except OSError as e:
+            ok = False
+            logging.error(f"[WU_WINDOW] {n} visszaírása SIKERTELEN: {e}")
+    cur = _reg_read(winreg.HKEY_LOCAL_MACHINE, _AU_POLICY_KEY, 'NoAutoUpdate')
+    if (cur[0] if cur else None) != state.get('noau_prev'):
+        try:
+            if state.get('noau_prev') is None:
+                _reg_delete(_AU_POLICY_KEY, 'NoAutoUpdate')
+            else:
+                _reg_write(_AU_POLICY_KEY, 'NoAutoUpdate', int(state['noau_prev']), winreg.REG_DWORD)
+        except OSError as e:
+            ok = False
+            logging.error(f"[WU_WINDOW] A NoAutoUpdate visszaállítása SIKERTELEN: {e}")
+    # VISSZAOLVASÁS - a verdikt nem az írás, hanem hogy tényleg ott van-e.
+    for n, v in (state.get('pause') or {}).items():
+        cur = _reg_read(winreg.HKEY_LOCAL_MACHINE, _UX_SETTINGS_KEY, n)
+        if not cur or cur[0] != v:
+            ok = False
+            logging.error(f"[WU_WINDOW] Visszaolvasva {n} = {cur[0] if cur else None}, várt: {v}")
+    cur = _reg_read(winreg.HKEY_LOCAL_MACHINE, _AU_POLICY_KEY, 'NoAutoUpdate')
+    if (cur[0] if cur else None) != state.get('noau_prev'):
+        ok = False
+        logging.error(f"[WU_WINDOW] Visszaolvasva NoAutoUpdate = {cur[0] if cur else None}, "
+                      f"várt: {state.get('noau_prev')}")
+    if ok:
+        logging.info("[WU_WINDOW] A WU szüneteltetése pontosan visszaállítva.")
+        try:
+            os.remove(marker_path)
+        except OSError as e:
+            logging.debug(f"[WU_WINDOW] A mentés törlése nem sikerült: {e}")
+    else:
+        logging.error(f"[WU_WINDOW] A visszaállítás NEM teljes - a mentés megmarad ({marker_path}), "
+                      f"a következő induláskor újrapróbáljuk.")
+    return ok
+
+
+def restore_stranded_search_window(marker_path):
+    """Induláskor: ha egy keresési ablak nyitva maradt (összeomlás), visszaállítjuk."""
+    import json
+    if not os.path.exists(marker_path):
+        return None
+    try:
+        with open(marker_path, encoding='utf-8') as f:
+            state = json.load(f)
+    except Exception as e:
+        logging.warning(f"[WU_WINDOW] Nyitva maradt keresési ablak mentése olvashatatlan ({e}) - törölve.")
+        try:
+            os.remove(marker_path)
+        except OSError:
+            pass
+        return False
+    logging.warning("[WU_WINDOW] Egy korábbi WU-keresés ablaka nyitva maradt (összeomlás?) - visszaállítás.")
+    return close_search_window(state, marker_path)
+
+
 def _clear_software_distribution(run, retries=4):
     """A SoftwareDistribution mappa törlése újrapróbálásokkal, végső PS fallbackkal.
     Visszatérés: sikerült-e Python-oldalról törölni (a PS fallback után is lehet kész)."""

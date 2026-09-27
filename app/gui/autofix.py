@@ -78,6 +78,7 @@ from app.common import CMD_TIMEOUT_RETURNCODE
 from app.drivers_core import DELETE_DRIVER_TIMEOUT
 from app.gui.hwscan import PNP_ERROR_CODE_DESCRIPTIONS
 from app.gui.hwscan import _device_stem
+from app.gui.hwscan import _nb_title
 from datetime import datetime
 # === /AUTO-IMPORTS ===
 
@@ -730,9 +731,11 @@ class GuiAutofixMixin:
         mondat pont az ellenkezőjét állította a valóságnak. (Ugyanennek a függvénynek a
         letöltési hibáról szóló kommentje már 2026-09-03 óta "valótlan"-nak nevezi ezt a
         szöveget; csak az INF-vétós ág maradt ki az akkori javításból.)"""
+        # A kulcs ugyanaz, amivel a hívó építi a `wrong_pkg_keys`-t: (törzs, előtag nélküli
+        # cím) - lásd a katalógus-zárókör 2026-09-26-i indoklását.
         n_wrong = sum(1 for h in (kihagyott or [])
-                      if ((h.get('pnp_id') or '').upper(),
-                          h.get('wu_title') or '') in (wrong_pkg_keys or set()))
+                      if (_device_stem(h.get('pnp_id')), _nb_title(h.get('wu_title')))
+                      in (wrong_pkg_keys or set()))
         n_other = len(kihagyott or []) - n_wrong
         okok = []
         if n_wrong:
@@ -843,6 +846,14 @@ class GuiAutofixMixin:
             wu_search_raw = self._search_wu_api()
             wu_search_failed = wu_search_raw is None
             wu_results = wu_search_raw or []
+            # ELREJTETT driver-frissítések: nem telepítjük (szándékos blokkolás lehet), de a
+            # láncban is kimondjuk - körönként csak az elsőnél, hogy ne ismétlődjön.
+            _hid = getattr(self, '_wu_hidden', None) or []
+            if _hid and loop_idx == 1:
+                self.emit('task_progress', {'task': 'autofix', 'log':
+                    f"🙈 {len(_hid)} driver-frissítés el van rejtve a Windows Update-ben (valaki "
+                    f"korábban letiltotta, ezért nem telepítjük): "
+                    + ', '.join(h['title'] for h in _hid[:5]) + (', …' if len(_hid) > 5 else '')})
             if wu_search_failed:
                 # A KONKRÉT HIBAKÓD A KÉPERNYŐRE IS KIMEGY (2026-09-07): eddig minden
                 # WU-bukás ugyanazt az "időtúllépés vagy WUA hiba" mondatot kapta, pedig
@@ -1196,6 +1207,17 @@ class GuiAutofixMixin:
                                  f"(hibás={len(problem_devs)}, generikus={len(generic_devs)}, mély={deep_extra})")
                     self.emit('task_progress', {'task': task_id, 'log': f'\n--- KATALÓGUS-ZÁRÓKÖR: {" + ".join(detail)} eszköz keresése a Microsoft Update Catalogban ({len(cat_devs)} db)... ---'})
                     found = self._catalog_search_collect(cat_devs, inst_info)
+                    # AMIRE A KATALÓGUS KÉT MENET UTÁN SEM VÁLASZOLT (2026-09-26): nem "nincs
+                    # hozzá csomag", hanem "nem tudtuk megkérdezni". A következő láb (vagy egy
+                    # kézi szken) újra megkérdezi - a gyorsítótár a hibát szándékosan nem tette el.
+                    _unreached = getattr(self, '_catalog_unreached', None) or []
+                    if _unreached:
+                        self.emit('task_progress', {'task': task_id, 'log':
+                                  f'🌐 {len(_unreached)} eszközről nem tudtuk ellenőrizni, van-e újabb '
+                                  f'driver (a katalógus nem válaszolt, vagy a telepített driverek nem '
+                                  f'voltak lekérdezhetők) - a következő kör újra megpróbálja: '
+                                  f'{", ".join((d.get("name") or "?") for d in _unreached[:6])}'
+                                  f'{", ..." if len(_unreached) > 6 else ""}'})
                     # (2026-09-04 és 2026-09-21 között itt egy külön szűrés állt, ami a
                     #  `class_code_only`-val megjelölt csomagokat vette ki az AutoFix
                     #  köréből, miközben a kézi szken felajánlotta őket. Ez VISSZA VAN
@@ -1212,7 +1234,14 @@ class GuiAutofixMixin:
                     # Terepen (2026-07-25) ez az NVIDIA-csomag KÉTSZERI letöltését jelentette
                     # (~1,2 GB, 2,5 perc a semmiért). A tiltólista a lánc végéig él.
                     tried = self._autofix_stats_get('catalog_no_bind') or []
-                    tried_keys = {(t.get('pnp', ''), t.get('title', '')) for t in tried}
+                    # A KULCS A TARTÓS TÖRZS + a megjelenítési előtag nélküli cím (2026-09-26).
+                    # A lánc a TELJES példány-azonosítót tette a kulcsba, a lánc saját
+                    # újrafelderítései (regresszió-javítás, újrakötés: `pnputil /remove-device`)
+                    # viszont LÉPTETIK a példányszámot - ugyanaz a hiba, amit a tartós no-bind
+                    # tár 2026-08-31-én már megtanult (`_device_stem`). A cím az `MS Katalógus:`
+                    # előtag nélkül: a tartalék-jelöltek nyers címmel jegyződnek fel.
+                    _k = lambda pnp, title: (_device_stem(pnp), _nb_title(title))
+                    tried_keys = {_k(t.get('pnp', ''), t.get('title', '')) for t in tried}
 
                     # EGY LÁNCON BELÜL EGY CSOMAGOT EGY ESZKÖZRE CSAK EGYSZER PRÓBÁLUNK.
                     #
@@ -1236,7 +1265,7 @@ class GuiAutofixMixin:
                     # catalog_no_bind). A lánc végén a lista a stats-fájllal együtt törlődik,
                     # tehát egy KÉSŐBBI fix újra megpróbálja.
                     done = self._autofix_stats_get('catalog_done') or []
-                    done_keys = {(t.get('pnp', ''), t.get('title', '')) for t in done}
+                    done_keys = {_k(t.get('pnp', ''), t.get('title', '')) for t in done}
                     # A KÉT OK KÜLÖN, MERT A KÉPERNYŐN NEM MONDHATNAK UGYANAZT (2026-09-08,
                     # terepen mérve). A `tried_keys` HÁROM, gyökeresen különböző esetet fog
                     # össze, és a régi egységes szöveg ("már felment, de az eszköz nem vette
@@ -1252,14 +1281,14 @@ class GuiAutofixMixin:
                     # ellenkezőjét állította a valóságnak. Ugyanennek a függvénynek a lentebbi
                     # kommentje (a letöltési hibáról) már nevén nevezi ezt a szöveget
                     # "valótlan"-ként - csak az INF-vétós ág maradt ki a javításból.
-                    wrong_pkg_keys = {(t.get('pnp', ''), t.get('title', '')) for t in tried
+                    wrong_pkg_keys = {_k(t.get('pnp', ''), t.get('title', '')) for t in tried
                                       if 'nem alkalmazható' in (t.get('reason') or '')}
                     tried_keys |= done_keys
                     skipped_known = 0
                     if tried_keys:
                         before = len(found)
                         kihagyott = [h for h in found
-                                     if ((h.get('pnp_id') or '').upper(), h.get('wu_title') or '') in tried_keys]
+                                     if _k(h.get('pnp_id'), h.get('wu_title')) in tried_keys]
                         found = [h for h in found if h not in kihagyott]
                         skipped_known = before - len(found)
                         if skipped_known:
@@ -1292,11 +1321,11 @@ class GuiAutofixMixin:
                         # el egyszerre (HD Graphics, Management Engine, SMBus, AMT SOL,
                         # Alaplap erőforrásai, HD Audio vezérlő) - a technikus pedig azt
                         # látta, hogy "hiába telepítgetem, sose lesz minden naprakész".
-                        dl_bad = [((d.get('pnp_id') or '').upper(), d.get('wu_title') or '')
+                        dl_bad = [_k(d.get('pnp_id'), d.get('wu_title'))
                                   for d in (getattr(self, '_catalog_dl_failed', None) or [])]
                         if dl_bad:
                             keep = [t for t in (self._autofix_stats_get('catalog_done') or [])
-                                    if (t.get('pnp', ''), t.get('title', '')) not in set(dl_bad)]
+                                    if _k(t.get('pnp', ''), t.get('title', '')) not in set(dl_bad)]
                             self._autofix_stats_set('catalog_done', keep)
                             logging.warning(f"[AUTOFIX] {len(dl_bad)} csomag CSAK a letöltésen bukott el "
                                             f"(hálózat) - a 'már próbáltuk' jelölést visszavontuk, a "
@@ -1977,6 +2006,28 @@ class GuiAutofixMixin:
             return False
         return True
 
+    @staticmethod
+    def _health_remedy_text(pclasses):
+        """A záró jelentés `🏭 Windows-alapdriveren maradt` listájának TEENDŐ-mondata,
+        az eszközök FAJTÁJA szerint (tiszta függvény, offline tesztelhető).
+
+        Csak az kerül bele, ami a listán tényleg szerepel: egy monitorra ne az
+        alaplapgyártó oldalát ajánljuk, egy hangkártyára ne a monitorét."""
+        cls = {(p or '').strip().upper() for p in pclasses or []}
+        parts = []
+        if 'MONITOR' in cls:
+            parts.append('Monitor: a monitor gyártójának oldaláról pótolható, típusszám alapján '
+                         '(a kép enélkül is jó, a gyári driver főleg a gyári színprofilt hozza).')
+        if cls & {'MEDIA', 'NET', 'SYSTEM', 'USB', 'HDC', 'SCSIADAPTER', 'BLUETOOTH'}:
+            parts.append('Alaplapi hang/LAN/chipset: az alaplap- vagy gépgyártó letöltőoldaláról pótolható, kézzel.')
+        if cls & {'PRINTER', 'IMAGE'}:
+            parts.append('Nyomtató/szkenner: a nyomtató gyártójának oldaláról pótolható.')
+        if 'DISPLAY' in cls:
+            parts.append('Videokártya: az NVIDIA/AMD/Intel oldaláról pótolható.')
+        if not parts:
+            parts.append('Az eszköz gyártójának letöltőoldaláról pótolható, kézzel.')
+        return ' '.join(parts)
+
     def _emit_driver_health(self, devices, task_id='autofix'):
         """DRIVER-EGÉSZSÉGJELENTÉS: mely eszközök maradtak a fix végén a Windows BEÉPÍTETT
         (inbox) driverén, gyári helyett.
@@ -2092,7 +2143,12 @@ class GuiAutofixMixin:
                     self.emit('task_progress', {'task': task_id, 'log': f"   • {dev['name']} [{dev.get('cat', '')}] - {inf} {ver}"})
                 # Nem hivatkozunk "gyártói kártyákra" - azok 2026-09-02/09-18-án kikerültek
                 # a programból (lásd a `_emit_missing_packages` azonos javítását).
-                self.emit('task_progress', {'task': task_id, 'log': '👉 Ezekhez sem a Windows Update, sem a Microsoft Update Catalog nem adott gyári csomagot. Alaplapi hang/LAN/chipset esetén az alaplap- vagy gépgyártó letöltőoldaláról pótolható, kézzel.'})
+                # A TEENDŐ AZ ESZKÖZ FAJTÁJÁHOZ IGAZODIK (2026-09-27, terepi naplóból): a
+                # régi, egyetlen mondat mindenre az "alaplapi hang/LAN/chipset -> alaplap-
+                # gyártó" teendőt írta, egy monitornál is - ami ott valótlan útmutatás.
+                self.emit('task_progress', {'task': task_id, 'log':
+                          '👉 Ezekhez sem a Windows Update, sem a Microsoft Update Catalog nem adott gyári csomagot. '
+                          + self._health_remedy_text([d.get('pclass') for d, _i in worth])})
             if skipped_by_user:
                 names = ', '.join(f"{d['name']}" for d, _i in skipped_by_user[:4])
                 more = f" (és további {len(skipped_by_user) - 4})" if len(skipped_by_user) > 4 else ''
@@ -2342,7 +2398,7 @@ class GuiAutofixMixin:
                 for p in problems:
                     desc = PNP_ERROR_CODE_DESCRIPTIONS.get(p['err_code'], f"Hibakód: {p['err_code']}")
                     self.emit('task_progress', {'task': task_id, 'log': f"   • {p['name']} - {desc} (kód {p['err_code']})"})
-                self.emit('task_progress', {'task': task_id, 'log': 'Ezekhez a "Driver Keresés és Telepítés" menü Problémás eszközök szekciója adhat még megoldást.'})
+                self.emit('task_progress', {'task': task_id, 'log': 'Ezekhez a "Driver Keresés és Telepítés" nézet 🔴 Hibás fülén soronként ott a teendő.'})
             else:
                 self.emit('task_progress', {'task': task_id, 'log': '✅ Nem maradt hibakódos eszköz a rendszerben!'})
             # Egészségjelentés: mi maradt Windows-alapdriveren (a leg csendesebb hiány).
@@ -2375,7 +2431,19 @@ class GuiAutofixMixin:
             # decision), tehát ez az ígéret azóta valótlan lett volna. A tény, ami maradt:
             # a lánc WU + katalógus forrásból dolgozik, a gyári GPU-driver pedig ezeknél
             # újabb szokott lenni - ezt kimondjuk, de már nem ígérünk hozzá funkciót.
-            self.emit('task_progress', {'task': task_id, 'log': '\n💡 TIPP: a videokártyához a Windows Update és a katalógus rendszerint nem a legfrissebb drivert adja. Ha a gépbe dedikált videokártya kerül, a gyártó oldaláról (NVIDIA/AMD/Intel) érdemes kézzel felrakni a legújabbat.'})
+            # A TIPP A GÉPBEN LÉVŐ KÁRTYÁT NEVEZI MEG (2026-09-27): a régi szöveg feltételes
+            # módban beszélt ("ha a gépbe dedikált videokártya kerül") egy RTX 5070-es
+            # gépen is. Csak NVIDIA/AMD/Intel PCI-grafikánál írjuk ki - Microsoft Basic
+            # Display Adapteren vagy virtuális kijelzőn nincs mire vonatkoznia.
+            gpus = [d.get('name') for d in all_devs
+                    if (d.get('pclass') or '').strip().upper() == 'DISPLAY'
+                    and re.search(r'PCI\\VEN_(10DE|1002|8086)', d.get('pnp_id') or '', re.I)]
+            logging.info(f"[AUTOFIX] Videokártya-tipp: {gpus or 'nincs NVIDIA/AMD/Intel grafika - kimarad'}")
+            if gpus:
+                self.emit('task_progress', {'task': task_id, 'log':
+                          f'\n💡 TIPP ({", ".join(gpus)}): a Windows Update és a katalógus a videokártyához '
+                          f'rendszerint nem a legfrissebb drivert adja. A legújabbat a gyártó oldaláról '
+                          f'(NVIDIA/AMD/Intel) érdemes kézzel felrakni.'})
         except Exception as e:
             logging.warning(f"[AUTOFIX] Összefoglaló hiba (nem kritikus): {e}")
 
@@ -3263,31 +3331,22 @@ class GuiAutofixMixin:
                     self._emit_autofix_summary(chain_total,
                                                pre_packages=pre_packages, no_bind=no_bind)
 
-                    self.emit('task_progress', {'task': 'autofix', 'log': 'DCH alkalmazások (Microsoft Store) frissítésének elindítása...'})
-                    try:
-                        # A DCH-driverekhez tartozó Store-alkalmazások (Intel Graphics Command
-                        # Center, Realtek Audio Console...) frissítése. Ez NEM driver-telepítés,
-                        # a driverek addigra fent vannak.
-                        #
-                        # Explicit user decision (Build 228): VÁRUNK rá, max 10 percig. A régi
-                        # fire-and-forget Popen azért volt rossz, mert a lánc végén NINCS
-                        # reboot, a felhasználó pedig előbb-utóbb bezárja az appot - az
-                        # exitkori cleanup_zombies() `taskkill /F /T` viszont a teljes
-                        # process-fát kilövi, így a háttérbe küldött Store-sync gyakran
-                        # sosem futott végig. Ezért most SZINKRON, a saját 10 perces
-                        # időkorlátjával (_run elnyeli a TimeoutExpired-et -> CMD_TIMEOUT_
-                        # RETURNCODE, nem dob kivételt): ha időben végez, "kész"; ha a 10 percet
-                        # túllépi, jelezzük, hogy a háttérben folytatódhat, és továbblépünk.
-                        ws_script = r"Get-CimInstance -Namespace 'Root\cimv2\mdm\dmmap' -ClassName 'MDM_EnterpriseModernAppManagement_AppManagement01' | Invoke-CimMethod -MethodName UpdateScanMethod"
-                        self.emit('task_progress', {'task': 'autofix', 'log': '⏳ Store App-ok szinkronizálása folyamatban (legfeljebb 10 percig várunk rá)...', 'indeterminate': True})
-                        ws_res = self._run(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ws_script], timeout=600)
-                        if ws_res.returncode == CMD_TIMEOUT_RETURNCODE:
-                            self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ A Store-szinkron 10 perc alatt nem fejeződött be - a Windows a háttérben magától folytatja. Továbblépünk.'})
-                        else:
-                            self.emit('task_progress', {'task': 'autofix', 'log': '✅ Store App-ok szinkronizálása kész.'})
-                    except Exception as e:
-                        logging.debug(f"[AUTOFIX] Store App sync error: {e}")
-                        self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ A Store-szinkront nem sikerült elindítani (nem kritikus, a driverek fent vannak).'})
+                    # A DRIVEREKHEZ TARTOZÓ STORE-ALKALMAZÁSOK (NVIDIA Vezérlőpult, Intel
+                    # Graphics Command Center, Realtek Audio Console...) - 2026-09-27.
+                    #
+                    # A régi lépés CSAK az MDM UpdateScanMethod-ot futtatta: az a MÁR FENT
+                    # lévő alkalmazásokat frissíti, hiányzót NEM telepít, és a visszatérési
+                    # értékét sem nézte (mindig "✅ kész"). Közben a lánc SearchOrderConfig=0-t
+                    # ír, ami a Windows "gyártói alkalmazások automatikus letöltése" kapcsolóját
+                    # is kikapcsolja - vagyis a fix után a Windows SOHA nem rakta fel ezeket.
+                    # Most a driverek INF-jéből kiolvassuk, mit kérnek, és a hiányzókat mi
+                    # telepítjük (lásd app/storeapps_core.py). Az általános frissítés-keresés
+                    # (update_all) MARAD, most már ellenőrzött visszatérési értékkel.
+                    #
+                    # Explicit user decision (Build 228): VÁRUNK rá, max 10 percig (a régi
+                    # fire-and-forget Popen-t a kilépéskori taskkill kilőtte) - ezt a
+                    # run_store_update_scan saját időkorlátja tartja.
+                    self._sync_driver_store_apps('autofix', update_all=True)
                     
                     # ZÁRÓ WINDOWS UPDATE-ÁLLAPOT (a fix indításakor bepipálható választás).
                     # A lánc ALATT a WU mindenképp szüneteltetve van - enélkül a Windows a

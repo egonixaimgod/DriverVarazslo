@@ -16,9 +16,10 @@ import traceback
 import queue
 from app.common import _ps_quote, _app_data_dir
 from app import dupdrivers_core
+from app import wusettings_core
 from app.wu_core import WU_PNP_QUERY_PS
 from app.wu_core import WuProcessAborted
-from app.wu_core import class_code_only_match
+from app.wu_core import catalog_supports_device
 from app.wu_core import wu_search_error_text
 from app.wu_core import _build_wu_install_ps
 from app.wu_core import _filter_wu_scan_devices
@@ -38,6 +39,7 @@ from app.wu_core import unoffered_requested_titles
 from app.wu_core import is_specific_hwid
 from app.wu_core import driver_model_rank
 from app.wu_core import catalog_title_family
+from app.wu_core import package_family
 from app.wu_core import package_bound_to_device_family
 from app.wu_core import is_composite_parent
 from app.wu_core import device_risk_marker
@@ -112,7 +114,10 @@ PNP_ERROR_CODE_REMEDIES = {
     19: 'Sérült registry-bejegyzés. Az "Eszközök újrakötése" gomb újraépíti; ha nem elég, az 1 kattintásos fix megoldja.',
     21: 'A Windows épp eltávolítja — várj pár másodpercet, majd szkennelj újra. Ha marad, indítsd újra a gépet.',
     22: 'Az eszköz le van tiltva. Kattints a sor melletti "Engedélyezés" gombra.',
-    24: 'A készülék nincs a gépben (kihúzott/leszerelt eszköz maradványa). Ha kell: dugd vissza. Ha nem kell: Szellemeszközök menü → törlés, ettől eltűnik a listáról.',
+    # (A "Szellemeszközök menü" 2026-09-18-án kikerült az oldalsávból - a sor melletti
+    #  "👻 Szellem törlése" gomb az egy-kattintásos út, a teljes kör a Driverek kezelése nézet
+    #  karbantartó paneljén él.)
+    24: 'A készülék nincs a gépben (kihúzott/leszerelt eszköz maradványa). Ha kell: dugd vissza. Ha nem kell: a sor melletti „Szellem törlése” gomb (vagy Driverek kezelése → Karbantartás → Szellemeszközök törlése), ettől eltűnik a listáról.',
     28: 'Nincs rá driver. Futtasd a szkennelést; ha az sem talál, a gép/alaplap gyártójának oldaláról kell letölteni.',
     31: 'Telepíts újabb drivert, vagy nyomd meg az "Eszközök újrakötése" gombot, hogy a Windows újraválassza.',
     32: 'A driver szolgáltatása le van tiltva. Telepítsd újra a drivert — ez visszaállítja az indítási módot.',
@@ -122,6 +127,12 @@ PNP_ERROR_CODE_REMEDIES = {
     52: 'Aláíratlan driver. Vagy a gyártó hivatalos (aláírt) csomagját telepítsd, vagy kapcsold ki az aláírás-kényszerítést.',
 }
 
+
+# Azok a hibakódok, amiket egy driver (újra)telepítése helyrehozhat - a katalógus-kereső
+# ezeknél a kiadás-kaput "van-e bármi, ami megjavítja" értelemben alkalmazza (lásd
+# `_catalog_find_driver`, `err_now`). A 24/22/14/21/12 szándékosan nincs benne: ott a
+# teendő nem egy driver (kihúzott eszköz, letiltott eszköz, újraindítás, erőforrás).
+DRIVER_FIXABLE_ERROR_CODES = {1, 3, 10, 18, 19, 28, 31, 32, 37, 39, 43, 52}
 
 # A WUA-keresés (`_search_wu_api`) időkorlátja másodpercben.
 #
@@ -140,7 +151,9 @@ PNP_ERROR_CODE_REMEDIES = {
 # NE MENJ ENNÉL LEJJEBB mérés nélkül: a projekt elve itt "inkább hosszabb, mint rövidebb"
 # - egy elvágott, egyébként sikeres keresés azt jelenti, hogy a gép WU-s driverei
 # kimaradnak, és azt a naplóból utólag alig lehet megkülönböztetni a valódi WU-hibától.
-WU_SEARCH_TIMEOUT = 180
+# 2026-09-27: +20 mp, mert a szkript azóta két rövid PLUSZ keresést is futtat (opcionális
+# BrowseOnly=1 és elrejtett IsHidden=1 driverek, mérve ~5 mp/db) - a ráhagyás így marad.
+WU_SEARCH_TIMEOUT = 200
 
 # --- Microsoft Update Catalog: lapozás, rendezés, holtverseny-kezelés ---
 #
@@ -431,7 +444,10 @@ class GuiHwScanMixin:
         def worker():
             try:
                 _start = time.monotonic()
-                
+                # Az előző szken eredménye nem szivároghat át (a katalógus-kör írja felül,
+                # de gyors módban/WU-hibánál lehet, hogy le sem fut).
+                self._catalog_unreached = []
+
                 # Internet ellenőrzés
                 self.emit('hw_scan_progress', {'status': '1/6 · Internetkapcsolat ellenőrzése', 'detail': '', 'determinate': False})
                 if not self._check_internet():
@@ -507,6 +523,9 @@ class GuiHwScanMixin:
                 self.emit('hw_scan_progress', {'status': '2/6 · Eszközlista szűrése', 'detail': ''})
 
                 devices_to_check = _filter_wu_scan_devices(pnp_data)
+                # A tároló/firmware-kapu ELŐTTI teljes lista: a Store-alkalmazás igények
+                # kimutatásához kell (nem telepít drivert, tehát a tiltás rá nem vonatkozik).
+                all_present_devs = list(devices_to_check)
 
                 # KOCKÁZATOS OSZTÁLYOK KAPUJA - A TELJES ESZKÖZLISTÁRA, EGY HELYEN.
                 # Ugyanaz a lecke, mint az AutoFix katalógus-zárókörében (CLAUDE.md,
@@ -541,7 +560,9 @@ class GuiHwScanMixin:
                 self.emit('hw_scan_progress', {'status': '3/6 · Telepített driver-verziók felmérése', 'detail': 'dism /Get-Drivers — 15-50 mp'})
                 inst_info = self._get_installed_driver_info()
 
-                # Közvetlen WU API lekérdezés (a COM objektum ezen kulcs módosítása nélkül is látja a drivereket)
+                # Közvetlen WU API lekérdezés. A driver-TILTÁS (ExcludeWUDriversInQualityUpdate)
+                # a keresést nem zavarja, a SZÜNETELTETÉS viszont igen (mérve 2026-09-27: 0 vs 5
+                # frissítés) - ezért a _search_wu_api szüneteltetett gépen ideiglenesen felold.
                 self.emit('hw_scan_progress', {'status': '4/6 · Windows Update kérdezése', 'detail': 'Ez a leghosszabb szakasz — akár 2-5 perc is lehet, közben a Windows nem ad jelzést. Az óra fut: a program dolgozik.', 'determinate': False})
                 wu_results = self._search_wu_api()
                 wu_api_success = wu_results is not None
@@ -687,13 +708,29 @@ class GuiHwScanMixin:
                     # de `risky` jelzővel, piros figyelmeztetéssel és ELŐRE BE NEM JELÖLVE.
                     # Itt ember dönt, és a szerelőnek látnia kell, HOGY LÉTEZIK csomag, még
                     # ha a telepítése mérlegelendő is. Lásd wu_core.DEEP_CATALOG_RISKY_CLASSES.
+                    # A WU ÁLTAL MÁR KISZOLGÁLT ESZKÖZÖK IS BEKERÜLNEK (2026-09-26).
+                    #
+                    # Eddig a `matched_hwids` KIZÁRTA az eszközt a katalógus-körből, ha a WU
+                    # BÁRMIT ajánlott rá. Két valódi veszteség jött ebből:
+                    #  - a WU jellemzően csak az EGYIK csomagot ajánlja (pl. a Realtek
+                    #    "Extension" INF-et a hangkártyára), a gyártó alap-driverének újabb
+                    #    kiadása viszont csak a katalógusban van - azt soha nem kérdeztük meg;
+                    #  - a WU a telepítettnél RÉGEBBI csomagot is ajánlhat (a felület ezt
+                    #    "⚠️ régebbi" jelöléssel mutatja) - ilyenkor az eszközre pont a
+                    #    frissebb katalógus-csomag lenne a helyes ajánlat, és azt is elrejtettük.
+                    # Az 1 kattintásos fix katalógus-köre ezeket az eszközöket régóta
+                    # megkérdezi (`devices_now`, szűrés nélkül) - a kézi szken tehát UGYANARRA
+                    # a gépre KEVESEBBET talált, mint a fix. A kettőnek egyformán kell működnie.
+                    # A kettős ajánlatot a kör utáni egyeztetés (`_reconcile_wu_catalog`) szedi
+                    # rendbe: ami a WU-éval azonos vagy nem újabb, az kiesik; ami újabb, az
+                    # marad, és a vele egy családba tartozó régebbi WU-ajánlatot kiváltja.
                     rest = wu_core_deep_candidates(
-                        [d for d in devices_to_check if d['id'] not in matched_hwids],
+                        list(devices_to_check),
                         inst_info, include_risky=allow_storage,
                         include_firmware=allow_firmware) if deep else []
                     todo, todo_ids = [], set()
                     for d in leftover + generic_devs + rest:
-                        if d['id'] in matched_hwids or d['id'] in todo_ids:
+                        if d['id'] in todo_ids:
                             continue
                         todo_ids.add(d['id'])
                         todo.append(d)
@@ -710,7 +747,9 @@ class GuiHwScanMixin:
                         self.emit('hw_scan_progress', {'status': f'6/6 · Microsoft Update Catalog — {len(todo)} eszköz',
                                                        'detail': f'Forrás: {" + ".join(parts)}',
                                                        'determinate': True, 'current': 0, 'total': len(todo)})
-                        self._catalog_search(todo, installed_info=inst_info)
+                        cat_hits = self._catalog_search_collect(todo, installed_info=inst_info)
+                        self.hw_updates_pool = self._reconcile_wu_catalog(
+                            self.hw_updates_pool, cat_hits, wu_by_uid)
 
                 # A "telepített/naprakész" lista: minden eszköz, amire végül nincs találat.
                 #
@@ -721,6 +760,10 @@ class GuiHwScanMixin:
                 # pedig a `inst_info` már a memóriában van (a találatok "telepítve: X"
                 # cimkéjéhez amúgy is lekérdeztük), tehát ez nulla extra munka.
                 pool_hwids = {p.get('hwid') for p in self.hw_updates_pool}
+                # AMIT NEM TUDTUNK ELLENŐRIZNI (a katalógus nem válaszolt / a telepített
+                # driverek nem voltak lekérdezhetők): ezek a sorok NEM "naprakészek", csak
+                # nincs róluk adat - a felület soronként is jelöli őket (2026-09-26).
+                unverified_ids = {d.get('id') for d in (getattr(self, '_catalog_unreached', None) or [])}
                 self._hw_installed_devs = []
                 for dev in devices_to_check:
                     if dev['id'] in pool_hwids:
@@ -728,6 +771,7 @@ class GuiHwScanMixin:
                     inst = inst_info.get((dev.get('pnp_id') or '').upper()) or {}
                     self._hw_installed_devs.append({
                         **dev,
+                        'unverified': dev['id'] in unverified_ids,
                         'installed_version': inst.get('version') or '',
                         'installed_date': inst.get('date') or '',
                         'installed_provider': inst.get('provider') or '',
@@ -854,7 +898,17 @@ class GuiHwScanMixin:
                              f"eszköz ({len(inbox_worth)} érdemi, {inbox_by_design} ehhez gyári "
                              f"driver nem is létezik). Érdemiek: {[i['name'] for i in inbox_worth]}")
 
+                # A DRIVEREK ÁLTAL KÉRT, DE HIÁNYZÓ STORE-ALKALMAZÁSOK (2026-09-27). Hálózat
+                # nélkül, a már lekérdezett driver-listából: a felület egy gombbal telepíti
+                # őket (install_driver_store_apps). None = nem eldönthető (nem "nincs hiány").
+                store_missing = self.check_driver_store_apps(installed_info=inst_info,
+                                                             devices=all_present_devs)
                 self.emit('hw_scan_result', {
+                    'store_apps_missing': store_missing if store_missing is not None else [],
+                    'store_apps_unknown': store_missing is None,
+                    # ELREJTETT WU driver-frissítések: nem telepítjük (szándékos blokkolás lehet),
+                    # de néven nevezzük - lásd _search_wu_api.
+                    'wu_hidden': [h['title'] for h in (getattr(self, '_wu_hidden', None) or [])],
                     'pool': self.hw_updates_pool, 'installed': self._hw_installed_devs,
                     'problems': problems, 'sys_info': final_sys, 'time': time_str,
                     # A FEJLÉC-CSÍK STRUKTURÁLT ADATAI (2026-09-03). A `sys_info` egyetlen,
@@ -869,6 +923,12 @@ class GuiHwScanMixin:
                     # a kettő együtt azt jelenti, hogy egyik forrás sem futott.
                     'catalog_skipped': (not use_catalog),
                     'wu_failed': (not wu_api_success),
+                    # AMIRŐL A KATALÓGUS NEM VÁLASZOLT (2026-09-26): ezekről a program NEM
+                    # tudja, hogy naprakészek-e - a felület ezért néven nevezi őket, ahelyett,
+                    # hogy csendben a "Naprakész" fülre kerülnének. (A második menet után is
+                    # elérhetetlen eszközök - lásd _catalog_search_collect.)
+                    'catalog_unreached': [d.get('name') or d.get('id') or '?'
+                                          for d in (getattr(self, '_catalog_unreached', None) or [])],
                 })
                 self._hw_loaded = True
 
@@ -920,7 +980,24 @@ class GuiHwScanMixin:
             self._task_busy = None
             self.emit('hw_scan_result', {'pool': [], 'installed': [], 'sys_info': '❌ Thread hiba', 'time': ''})
 
+    def _wu_window_path(self):
+        return os.path.join(_app_data_dir(), 'wu_search_window.json')
+
     def _search_wu_api(self):
+        """A WU-keresés, SZÜNETELTETETT gépen ideiglenesen feloldott szüneteltetéssel.
+
+        MÉRVE (2026-09-27): szüneteltetve a WUA a program kérdésére is letagadja a
+        frissítéseket (0 db a létező 5 helyett). A fix a keresés előtt mindig feloldott,
+        a kézi szken soha - tehát egy korábban fixelt gépen a kézi szken WU-része VAK volt.
+        Az ablak a pontos előző állapotot állítja vissza (lásd wusettings_core). A fixben
+        ilyenkor nincs dolga: ott a szüneteltetés addigra már fel van oldva."""
+        win = wusettings_core.open_search_window(self._wu_window_path())
+        try:
+            return self._search_wu_api_inner()
+        finally:
+            wusettings_core.close_search_window(win, self._wu_window_path())
+
+    def _search_wu_api_inner(self):
         logging.info("[WU_API] _search_wu_api() indult...")
         try:
             ps_cmd = r"""
@@ -935,8 +1012,21 @@ try {
     $Searcher.ServerSelection = 3
     $Searcher.ServiceID = "7971f918-a847-4430-9279-4a52d1efe18d"
     $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
+    # OPCIONÁLIS (BrowseOnly=1) driverek KIFEJEZETT keresése (2026-09-27). Hogy az alap-
+    # feltétel tartalmazza-e őket, a fejlesztői gépen NEM volt mérhető (0 frissítés), ezért
+    # olyan megoldás kell, ami mindkét esetben helyes: UpdateID szerint összevonjuk, és a
+    # WUOPTEXTRA sor megmondja, hány plusz jött - az első terepi napló eldönti a kérdést.
+    $AllUpdates = New-Object System.Collections.ArrayList
+    $seenUid = @{}
+    foreach ($U in $Result.Updates) { $seenUid[$U.Identity.UpdateID] = $true; [void]$AllUpdates.Add($U) }
+    try {
+        $Opt = $Searcher.Search("IsInstalled=0 and Type='Driver' and BrowseOnly=1")
+        $extra = 0
+        foreach ($U in $Opt.Updates) { if (-not $seenUid.ContainsKey($U.Identity.UpdateID)) { $seenUid[$U.Identity.UpdateID] = $true; [void]$AllUpdates.Add($U); $extra++ } }
+        [Console]::Error.WriteLine("WUOPTEXTRA|$extra|" + $Opt.Updates.Count)
+    } catch { [Console]::Error.WriteLine("WUOPTEXTRA_ERR|" + $_.Exception.Message) }
     $updates = @()
-    foreach ($U in $Result.Updates) {
+    foreach ($U in $AllUpdates) {
         $dvd = ''; try { $dvd = ([datetime]$U.DriverVerDate).ToString('yyyy-MM-dd') } catch {}
         $updates += [PSCustomObject]@{
             Title = $U.Title; DriverModel = $U.DriverModel; HardwareID = $U.DriverHardwareID
@@ -946,6 +1036,13 @@ try {
     }
     if ($updates.Count -eq 0) { Write-Output "[]" }
     else { $updates | ConvertTo-Json -Depth 2 -Compress }
+    # ELREJTETT driver-frissítések (2026-09-27): az alap-feltétel (IsHidden=0 implicit) ezeket
+    # kihagyja. NEM telepítjük őket - az elrejtés jellemzően szándékos blokkolás -, de néven
+    # nevezzük, hogy a technikus tudjon róluk. Külön csatornán (stderr), a fő JSON érintetlen.
+    try {
+        $Hid = $Searcher.Search("IsInstalled=0 and Type='Driver' and IsHidden=1")
+        foreach ($U in $Hid.Updates) { [Console]::Error.WriteLine("WUHIDDEN|" + $U.Title + "|" + $U.DriverHardwareID) }
+    } catch { [Console]::Error.WriteLine("WUHIDDEN_ERR|" + $_.Exception.Message) }
 } catch {
     # A HIBAKÓD A LÉNYEG, ÉS A `Write-Error` ELTAKARTA (2026-09-07, terepi naplóból).
     # A Write-Error a hibás parancs KONTEXTUSÁT is kiírja - a napló stderr-jébe így a
@@ -966,22 +1063,45 @@ try {
     [Console]::Error.WriteLine("WUERROR|$hex|" + $_.Exception.Message)
 }
 """
+            self._wu_hidden = []
             res = self._run(["powershell", "-NoProfile", "-Command", ps_cmd],
                             timeout=WU_SEARCH_TIMEOUT, encoding='utf-8')
             out = res.stdout.strip()
-            if not out and res.stderr:
+            err_lines = (res.stderr or '').splitlines()
+            for line in err_lines:
+                if line.startswith('WUHIDDEN|'):
+                    parts = line.split('|', 2)
+                    self._wu_hidden.append({'title': parts[1] if len(parts) > 1 else '?',
+                                            'hwid': parts[2] if len(parts) > 2 else ''})
+                elif line.startswith('WUHIDDEN_ERR|'):
+                    logging.warning(f"[WU_API] Az elrejtett frissítések lekérdezése nem sikerült: {line[13:300]}")
+                elif line.startswith('WUOPTEXTRA|'):
+                    parts = line.split('|')
+                    logging.info(f"[WU_API] Opcionális (BrowseOnly=1) driverek: {parts[2] if len(parts) > 2 else '?'} db, "
+                                 f"ebből az alap-keresés NEM tartalmazta: {parts[1]} db")
+                elif line.startswith('WUOPTEXTRA_ERR|'):
+                    logging.warning(f"[WU_API] Az opcionális driverek külön keresése nem sikerült: {line[15:300]}")
+            if self._wu_hidden:
+                logging.warning(f"[WU_API] {len(self._wu_hidden)} ELREJTETT driver-frissítés (nem "
+                                f"telepítjük, csak jelezzük): {[h['title'] for h in self._wu_hidden]}")
+            else:
+                logging.info("[WU_API] Elrejtett driver-frissítés nincs.")
+            # A WUHIDDEN sorok nem hibák - a hibaág csak a valódi hibaüzenetet lássa.
+            res_err = '\n'.join(l for l in err_lines
+                                if not l.startswith(('WUHIDDEN', 'WUOPTEXTRA'))).strip()
+            if not out and res_err:
                 # A HIBAKÓDOT KIMONDJUK - eddig egy 200 karakterre vágott, kontextussal
                 # teli stderr-részlet ment a naplóba, amiben a lényeg (a HRESULT) épp
                 # nem fért bele. A `self._wu_search_error` a hívó ágaknak szól, hogy a
                 # KÉPERNYŐN is a konkrét ok jelenjen meg, ne csak "WUA hiba".
-                code, hint = wu_search_error_text(res.stderr)
+                code, hint = wu_search_error_text(res_err)
                 self._wu_search_error = (code, hint)
                 if code:
                     logging.error(f"[WU_API] A WU-keresés hibakóddal állt le: {code}"
                                   f"{(' - ' + hint) if hint else ''}")
                 else:
                     logging.warning(f"[WU_API] A WU-keresés hiba nélküli kód nélkül bukott el. "
-                                    f"Stderr: {res.stderr[:400]}")
+                                    f"Stderr: {res_err[:400]}")
                 return None
             if out:
                 data = json.loads(out)
@@ -1039,7 +1159,19 @@ try {
             ps = ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
                   "Get-WmiObject Win32_PnPSignedDriver | Where-Object { $_.DeviceID -and $_.DriverVersion } | "
                   "Select-Object DeviceID, DriverVersion, DriverDate, DriverProviderName, InfName | ConvertTo-Json -Compress")
-            res = self._run(["powershell", "-NoProfile", "-Command", ps], encoding='utf-8', timeout=120)
+            # EGY ÚJRAPRÓBÁLÁS (2026-09-26). Egy élő Windowson MINDIG van telepített driver
+            # (tucatnyi), tehát az üres válasz a LEKÉRDEZÉS bukása, nem eredmény - ugyanaz az
+            # elv, mint a `get_active_published_infs`-nél. És itt különösen drága a bukás: a
+            # katalógus kiadás-kapuja ebből tudja, mi van fent, nélküle MINDEN eszközre a
+            # legújabb csomagot ajánlaná (lásd `_catalog_search_collect` védőhálóját).
+            res = None
+            for probe in range(2):
+                res = self._run(["powershell", "-NoProfile", "-Command", ps], encoding='utf-8', timeout=120)
+                if res and (res.stdout or '').strip():
+                    break
+                logging.warning(f"[CATALOG] A telepített driverek lekérdezése üres választ adott "
+                                f"({probe + 1}/2, kód={getattr(res, 'returncode', '?')})"
+                                + (' - újrapróbálás.' if not probe else '.'))
             data = json.loads(res.stdout) if res and res.stdout.strip() else []
             if isinstance(data, dict):
                 data = [data]
@@ -1246,8 +1378,38 @@ try {
                 + urllib.parse.quote(hwid))
 
         def fetch(url):
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            return urllib.request.urlopen(req, context=ssl_ctx, timeout=30).read().decode('utf-8')
+            """Egy találati lap letöltése ÚJRAPRÓBÁLÁSSAL és TARTALOM-ELLENŐRZÉSSEL.
+
+            MIÉRT KELL MINDKETTŐ (2026-09-26):
+             1. A katalógus 10 párhuzamos szálat kap tőlünk, és terhelés alatt időnként
+                időtúllépéssel/bontással válaszol. A régi kód EGYETLEN próbát tett: egy
+                elhasalt kérés után az adott HWID sorai egyszerűen hiányoztak, és a hívó
+                csak egy DEBUG sort írt - vagyis egy pillanatnyi hálózati hiba egy eszközt
+                "nincs hozzá csomag"-gá változtatott, nyom nélkül.
+             2. A szerver 200-as kóddal is adhat HIBAOLDALT ("The website has encountered
+                a problem"). Abban nincs találati sor, tehát a parse 0 sort adott, és a
+                program ezt TÉNYKÉNT, 6 órára (CATALOG_ROWS_TTL) eltette a gyorsítótárba -
+                pontosan az, amit a gyorsítótár saját szabálya tilt ("hibát sosem teszünk
+                el"). Élőben mérve a valódi "nincs találat" lap MINDIG tartalmazza a
+                `ctl00_catalogBody_noResultText` elemet, a találati lap pedig a `_link`
+                azonosítókat - ha egyik sincs benne, az nem válasz, hanem hiba."""
+            last = None
+            for probe in range(3):
+                if probe:
+                    time.sleep(2 * probe)      # 2 mp, majd 4 mp: a torlódás oldódjon
+                try:
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    html = urllib.request.urlopen(req, context=ssl_ctx, timeout=30).read().decode('utf-8', 'replace')
+                    # `searchString`: a keresés LEFUTOTT, csak nem hozott sort. Élőben mérve
+                    # ez a helyzet, ha a kulcsban `{}` van (a katalógus nem tudja keresni) -
+                    # érvényes, üres válasz, nem hiba; a hibaoldalon ez az elem nincs ott.
+                    if '_link' in html or 'noResultText' in html or 'ctl00_catalogBody_searchString' in html:
+                        return html
+                    last = IOError(f"a katalógus nem találati lapot adott ({len(html)} bájt)")
+                except Exception as e:
+                    last = e
+                logging.debug(f"[CATALOG] Lekérdezési hiba, {probe + 1}/3 ({hwid}): {last}")
+            raise last
 
         try:
             html = fetch(base + CATALOG_SORT_QS)
@@ -1259,6 +1421,7 @@ try {
             sorted_ok = False
 
         rows = self._catalog_parse_rows(html)
+        page_failed = False
         total_m = re.search(r'(\d+)\s*-\s*(\d+)\s+of\s+(\d+)', html)
         total = int(total_m.group(3)) if total_m else len(rows)
         pages, stop = 1, 'egy lap elég'
@@ -1284,6 +1447,9 @@ try {
                     more = self._catalog_parse_rows(fetch(f"{base}{CATALOG_SORT_QS}&p={pages}"))
                 except Exception as e:
                     stop = f'a {pages + 1}. lap nem jött le ({e})'
+                    # A HIÁNYOS lista nem kerülhet a gyorsítótárba (lásd lent): 6 órán át
+                    # azt állítaná, hogy a katalógusban csak ennyi sor van.
+                    page_failed = True
                     break
                 if not more:
                     stop = f'a {pages + 1}. lap üres'
@@ -1315,7 +1481,7 @@ try {
         # Eltesszük - de CSAK a rendezett (teljes értékű) választ. Egy rendezetlen
         # tartalék-lekérdezés a régi, gyengébb mintát adja; azt hat órára bebetonozni
         # rosszabb lenne, mint legközelebb újra megkérdezni.
-        if cache_key and sorted_ok:
+        if cache_key and sorted_ok and not page_failed:
             with _CATALOG_ROWS_LOCK:
                 self._catalog_rows_cache()[cache_key] = {'t': now, 'rows': [list(r) for r in rows]}
                 self._cat_rows_dirty = True
@@ -1335,15 +1501,27 @@ try {
         if guid in tar:
             return tar[guid]
         import urllib.request
-        try:
-            req = urllib.request.Request(
-                'https://www.catalog.update.microsoft.com/ScopedViewInline.aspx?updateid=' + guid,
-                headers={'User-Agent': 'Mozilla/5.0'})
-            html = urllib.request.urlopen(req, context=ssl_ctx, timeout=30).read().decode('utf-8', 'replace')
-        except Exception as e:
-            logging.debug(f"[CATALOG] Részletlap nem jött le ({guid}): {e}")
-            html = ''
-        tar[guid] = html
+        # HIBÁT NEM TESZÜNK EL, ÉS EGYSZER ÚJRAPRÓBÁLJUK (2026-09-26). A régi kód a
+        # sikertelen letöltést üres stringként a tárba írta - a tár pedig a PÉLDÁNYON él,
+        # vagyis a GUI egész futására. Egyetlen pillanatnyi hálózati hiba így az adott
+        # csomagot a program élete végéig "nem eldönthető"-vé tette: a letöltés előtti
+        # alkalmazhatóság-ellenőrzés kiesett rá, és a bizonyíthatóan nem ide való csomag is
+        # letöltésre került (hangnál 11 MB, videokártyánál 1,2 GB).
+        html = ''
+        for probe in range(2):
+            if probe:
+                time.sleep(2)
+            try:
+                req = urllib.request.Request(
+                    'https://www.catalog.update.microsoft.com/ScopedViewInline.aspx?updateid=' + guid,
+                    headers={'User-Agent': 'Mozilla/5.0'})
+                html = urllib.request.urlopen(req, context=ssl_ctx, timeout=30).read().decode('utf-8', 'replace')
+                break
+            except Exception as e:
+                logging.debug(f"[CATALOG] Részletlap nem jött le ({guid}, {probe + 1}/2): {e}")
+                html = ''
+        if html:
+            tar[guid] = html
         return html
 
     def _catalog_supported_hwids(self, guid, ssl_ctx):
@@ -1591,6 +1769,13 @@ try {
         # "Gyári driver a generikus helyett": CSAK a mark_generic_replace_candidates
         # által megjelölt eszközöknél lép életbe (lásd ott, hogy miért nem globális).
         replace_inbox = bool(item.get('generic_ok')) and _is_inbox_driver(inst)
+        # Hibakódos-e most az eszköz. Ennél a kiadás-kapu mást jelent: nem "van-e újabb",
+        # hanem "van-e bármi, ami helyrehozza" - lásd a két `err_now` ágat lentebb.
+        # CSAK azok a kódok, amiket egy driver-(újra)telepítés TÉNYLEG helyrehozhat: a 24
+        # (az eszköz nincs a gépben), 22 (letiltva), 14 (újraindítás kell), 21 (épp
+        # eltávolítják), 12 (erőforrás-ütközés) nem driver-hiba - ezekre egy csomag
+        # felajánlása csak egy olyan telepítést jelentene, ami definíció szerint nem köthet rá.
+        err_now = int(item.get('err_code') or 0) in DRIVER_FIXABLE_ERROR_CODES
 
         rows_by_guid = {}
         # MELYIK KULCS HOZTA A SORT? A `hwids` lista SPECIFIKUS -> ÁLTALÁNOS sorrendű (az
@@ -1612,6 +1797,7 @@ try {
         # kiadások is valódi jelöltek - az általános kulcson viszont ezerszám állnak más
         # gyártók OEM-változatai, ott a mélyítés puszta kéréspazarlás lenne.
         deep_ok = _is_inbox_driver(inst)
+        failed_keys = []
         for spec, hwid in enumerate(hwids[:4]):
             deep = deep_ok and 'SUBSYS_' in (hwid or '').upper()
             try:
@@ -1621,7 +1807,24 @@ try {
                     if spec < spec_by_guid.get(g, 99):
                         spec_by_guid[g] = spec
             except Exception as e:
+                failed_keys.append(hwid)
                 logging.debug(f"[CATALOG] Lekérdezési hiba ({hwid}): {e}")
+        # A LEKÉRDEZÉSI HIBA NEM "NINCS HOZZÁ CSOMAG" (2026-09-26). A két eset eddig
+        # egyformán `None`-nal ért véget, és a naplóban csak egy DEBUG sor különböztette
+        # meg őket - vagyis egy katalógus-kiesés alatt az eszköz CSENDBEN "naprakész"
+        # lett a listán. A CLAUDE.md "nincs hozzá driver csak akkor mondható, ha tényleg
+        # mindent végigpróbáltunk" szabálya szerint ez a legrosszabb fajta állítás: egy
+        # le sem futott kérdésre adott magabiztos válasz. A hívó (_catalog_search_collect)
+        # a teljesen elhasalt eszközöket újrapróbálja, a maradékot pedig NÉVVEL jelenti.
+        if failed_keys:
+            sink = getattr(self, '_catalog_query_failed', None)
+            if sink is not None:
+                sink.append({'dev': item, 'keys': list(failed_keys),
+                             'total': not rows_by_guid})
+            if rows_by_guid:
+                logging.info(f"[CATALOG] {item['name']}: {len(failed_keys)}/{len(hwids[:4])} kulcs "
+                             f"lekérdezése elhasalt ({failed_keys}) - a döntés a többi kulcs "
+                             f"soraiból születik, lehet hiányos.")
         if not rows_by_guid:
             return None
 
@@ -1699,8 +1902,27 @@ try {
         #     kimondani, és egy szerveroldali formátumváltozás nem tehet ilyen állítást.
         #  3. Csak a néhány legjobb jelöltet ellenőrizzük (`CATALOG_HWID_PROBE_MAX`),
         #     hogy egy 25 soros holtverseny ne jelentsen 25 kérést.
+        # AZ OS-PONTSZÁM SORRENDI SZEMPONT, NEM KAPU (2026-09-26).
+        #
+        # A régi sor `cands = [c for c in pool if c[0] == best_score]` volt: nyertes CSAK a
+        # legmagasabb pontszámú sorok közül lehetett. Windows 11-en a "windows 11" sor 3
+        # pont, a "Windows 10 and later drivers" sor 2, a "Windows 10, version 1903 and
+        # later" is 2 - vagyis ha a katalógusban akár EGYETLEN, akár évekkel régebbi
+        # "windows 11" sor volt, az összes frissebb "windows 10 and later" csomag KIESETT a
+        # nyertes-választásból. A kiadás-kapu ezután a régi Win11-sorra azt mondta, hogy
+        # "nem újabb", és az eszköz naprakésznek látszott, miközben egy frissebb, a gépen
+        # tökéletesen futó csomag ott állt a sorok közt. Ugyanezt a hibát 2026-09-01-én a
+        # TARTALÉK-listán már felismertük és javítottuk ("a 0-3 csak PREFERENCIA, a None
+        # a valódi kizárás") - a nyertes-választásból viszont kimaradt.
+        #
+        # AZ ÚJ SZABÁLY: a valóban KIZÁRT sorok (None: arm64 x64-en, Win11-only Win10-en)
+        # eddig is kiestek. A maradékból a KLIENS-sorok (pont >= 1) mind jelöltek, és a
+        # DÁTUM dönt (a projekt egységes "melyik az újabb" szabálya), a pontszám csak azonos
+        # dátumnál - ahol jellemzően UGYANANNAK a csomagnak az OS-áganként külön bejegyzései
+        # állnak, és ott tényleg a gépre legjobban illő ágat érdemes letölteni. A csak
+        # Server-re szóló sorok (0) csak akkor jelöltek, ha kliens-sor egyáltalán nincs.
         best_score = max(s for s, _g, _t, _d in pool)
-        cands = [c for c in pool if c[0] == best_score]
+        cands = [c for c in pool if c[0] >= 1] or list(pool)
         dev_ids = {str(h).lower() for h in (item.get('all_hwids') or []) if h}
         # A BIZONYÍTOTTAN KIZÁRT CSOMAGOK GUID-JAI - a TARTALÉK-listák is ezt használják.
         # Enélkül a szűrés eredménye elveszett: a tartalékok a teljes `scored` halmazból
@@ -1848,12 +2070,11 @@ try {
                 felsorolja (mérve: `...&CC_0C0500`, `...&CC_0C05`), tehát a metszet akkor
                 sem üres, ha a gyártó listájában a gép eszközéről szó sincs - csak a
                 "bármely Intel A123 SMBus vezérlő" kategóriáról."""
-                if not tamogatott:
-                    return False, ''
-                if not (dev_ids & set(tamogatott)):
-                    return False, ''
-                cc_ok, cc_id = class_code_only_match(dev_ids, tamogatott)
-                return (not cc_ok), (cc_id if cc_ok else '')
+                # 2026-09-26: a pontos szöveg-metszet helyett a Windows-féle tag-részhalmaz
+                # (`wu_core.catalog_supports_device`) - a pontos egyezés JÓ csomagokat zárt ki
+                # (AMD SMBUS 2.0.0.29, AMD PSP, AMD PCI: a gyártó a csupasz VEN&DEV-et
+                # deklarálja, ami kompatibilis azonosító). Lásd a függvény mérési adatait.
+                return catalog_supports_device(dev_ids, tamogatott)
 
             illik, eldonthetetlen, kizart = [], [], []
             for c in kepviselok:
@@ -1926,12 +2147,15 @@ try {
                                     f"a részletlap {n} támogatott azonosítója közt nincs ott az eszközé")
                                  + (f" (a katalógusban {db} bejegyzés alatt)." if db > 1 else "."))
                 if jelentsunk:
+                    # >>> CSAK A NAPLÓBA (2026-09-27, terepen mérve, ASRock B450M, Build 339). <<<
+                    # Ugyanaz a "nincs teendő" diagnosztika, mint a 2026-09-21-én már
+                    # naplóba tett `🚫 ... egyik jelöltje sem` sor: a technikusnak nincs vele
+                    # dolga (a program megspórolt egy letöltést). Lábanként újra kiment,
+                    # a 2-5. lábon már a gyorsítótárból - egy láncban 5x szó szerint ugyanaz,
+                    # sőt a kézi szken (ami nem task) is a folyamat-ablakba küldte.
                     n_bejegyzes = sum(db for _c, _n, db in kizart)
-                    self.emit('task_progress', {'task': 'hw_scan', 'log':
-                              f'  ⏭️ {item["name"]}: {len(kizart)} katalógus-csomag kizárva letöltés '
-                              f'nélkül (a gyártó saját listája szerint nem ehhez az eszközhöz valók)'
-                              + (f' - a katalógusban {n_bejegyzes} bejegyzés alatt szerepelnek.'
-                                 if n_bejegyzes != len(kizart) else '.')})
+                    logging.info(f"[CATALOG] {item['name']}: {len(kizart)} katalógus-csomag kizárva "
+                                 f"letöltés nélkül ({n_bejegyzes} katalógus-bejegyzés).")
             # MI MARAD JELÖLTNEK: ami illik, ami nem volt eldönthető, és amire NEM JUTOTT
             # VERDIKT (a keret elfogyott, vagy egy korábbi hívás már megtartotta). A
             # BIZONYÍTOTTAN kizártak nem. A `maradek` GUID-alapú, nem (cím, dátum)-alapú:
@@ -2050,7 +2274,8 @@ try {
         # 1168.19.704.2024 "nyerne" - pedig több mint egy évvel régebbi csomag. A
         # kiadási dátum viszont mindkét sémán át értelmes, és a két terepi esetben
         # (Realtek audio + Realtek LAN) is a helyes csomagot választja.
-        ordered = sorted(cands, key=lambda c: ((c[3] or ''), _parse_driver_version(c[2]) or ()),
+        # Dátum -> OS-illeszkedés -> verzió (lásd a `cands` fölötti indoklást).
+        ordered = sorted(cands, key=lambda c: ((c[3] or ''), c[0], _parse_driver_version(c[2]) or ()),
                          reverse=True)
         best = ordered[0]
         best_ver = _parse_driver_version(best[2])
@@ -2075,6 +2300,21 @@ try {
             # fut, így a következő szkennen már nem jelölt (is_generic_replace_candidate).
             logging.info(f"[CATALOG] Generikus -> gyári csere jelölt: {item['name']} "
                          f"(most: {inst.get('provider') or '?'} {inst_ver_str} / {inst.get('inf') or '?'}) -> '{best_title}'")
+        elif err_now and _is_inbox_driver(inst):
+            # HIBAKÓDOS ESZKÖZ A WINDOWS SAJÁT DRIVERÉN (2026-09-26). Ez az eset eddig a
+            # következő `elif` ágra esett, ami a VERZIÓSZÁMOT veti össze - csakhogy az inbox
+            # driver verziója a Windows buildje (10.0.26100.x), a gyári csomagé pedig a saját
+            # sémája (6.0.x, 2.2.x), tehát a gyári csomag MINDIG "régebbinek" látszott, és a
+            # függvény `None`-t adott. Egy Code 10/31/43-mal álló eszköz, aminek a Windows
+            # generikus drivere NEM MŰKÖDIK, így soha nem kapott gyári ajánlatot a
+            # katalógusból - miközben a projekt szabálya épp az, hogy hibakódos eszköznél
+            # bármely driver jobb a semminél (lásd `_filter_wu_downgrades`, a WU-ágon ez
+            # régóta így van). A `generic_ok` jelölés azért nem fedte le, mert a
+            # `is_generic_replace_candidate` a hibakódos eszközöket SZÁNDÉKOSAN kihagyja
+            # ("azokat a hívó a saját ágán kezeli") - ez az ág volt a "saját ág", ami hiányzott.
+            logging.info(f"[CATALOG] Hibakódos ({item.get('err_code')}) eszköz a Windows "
+                         f"alapdriverén - a gyári csomagot verzió-összevetés nélkül felajánljuk: "
+                         f"{item['name']} (most: {inst.get('inf') or '?'} {inst_ver_str}) -> '{best_title}'")
         elif _is_inbox_driver(inst):
             # A telepített driver a Windows BEÉPÍTETT generikusa, de az eszköz nem jelölt a
             # gyári cserére (különben a fenti `replace_inbox` ág vitte volna). Ilyenkor a
@@ -2156,9 +2396,9 @@ try {
                 # nyertes kiadás-kapuja mondja ki, nem a szűrő.
                 alt_pool, _ = _hwid_elloszures(alt_pool)
                 if alt_pool:
-                    alt_best = max(s for s, _g, _t, _d in alt_pool)
-                    alt_cands = [c for c in alt_pool if c[0] == alt_best]
-                    alt_cands.sort(key=lambda c: ((c[3] or ''), _parse_driver_version(c[2]) or ()),
+                    # Ugyanaz a szabály, mint a fő ágon: a pontszám sorrend, nem kapu.
+                    alt_cands = [c for c in alt_pool if c[0] >= 1] or list(alt_pool)
+                    alt_cands.sort(key=lambda c: ((c[3] or ''), c[0], _parse_driver_version(c[2]) or ()),
                                    reverse=True)
                     a_bs, a_id, a_title, a_date = alt_cands[0]
                     if is_newer_release(a_date, a_title, inst.get('date'), inst_ver_str) is not False:
@@ -2173,7 +2413,21 @@ try {
                         _bs, best_id, best_title, best_date = best
                         best_ver = _parse_driver_version(best_title)
                         newer = True
-            if newer is False:
+            if newer is False and err_now:
+                # HIBAKÓDOS ESZKÖZ GYÁRI DRIVEREN: A KATALÓGUS-CSOMAG AKKOR IS JAVÍTÁS, HA
+                # NEM ÚJABB (2026-09-26). A Code 18/19/31/32/37/39 mind azt jelenti, hogy a
+                # telepített driver sérült vagy hiányzik a DriverStore-ból - a program saját
+                # teendő-szövege is azt mondja: "Telepítsd újra a drivert: szkennelés →
+                # jelöld be az eszközt → Telepítés". A kiadás-kapu viszont épp ezt tiltotta: a
+                # katalógusban lévő, VELE AZONOS kiadás "nem újabb", tehát a szken nem
+                # ajánlotta fel - a felület egy olyan teendőt írt ki, amit maga lehetetlenné
+                # tett. A WU-ág ugyanitt régóta enged (`_filter_wu_downgrades`: hibakódos
+                # eszközt sosem szűrünk), a katalógus-ág most ugyanazt a szabályt követi.
+                logging.info(f"[CATALOG] Hibakódos ({item.get('err_code')}) eszköz - a csomag nem "
+                             f"újabb a telepítettnél, de a driver ÚJRAtelepítése a javítás, ezért "
+                             f"felajánljuk: {item['name']} - telepített {inst_ver_str} "
+                             f"[{inst.get('date') or '?'}] -> '{best_title}' [{best_date or '?'}]")
+            elif newer is False:
                 logging.debug(f"[CATALOG] Kihagyva (nem újabb kiadás - telepített {inst_ver_str} "
                               f"[{inst.get('date') or '?'}] vs katalógus '{best_title}' [{best_date or '?'}]): {item['name']}")
                 return None
@@ -2459,6 +2713,9 @@ try {
             # A risk_label a listába való RÖVID felirat: a felület korábban minden `risky`
             # találatra a tárolóvezérlős szöveget írta ki, firmware-re is.
             "risky": bool(item.get('risky')),
+            # A telepítőnek tudnia kell, hogy HIBÁS eszközt javítunk: ha a csomag már fent van
+            # a gépen, az nem "naprakész" (az eszköz hibás!), hanem kötés-hiány -> újrakötés.
+            "err_code": int(item.get('err_code') or 0),
             "risk_label": item.get('risk_label') or '',
             "risk_reason": item.get('risk_reason') or '',
             # (A `class_code_only` / `class_code_key` mezők 2026-09-21-én MEGSZŰNTEK -
@@ -2476,6 +2733,23 @@ try {
         ssl_ctx = ssl.create_default_context()
         if installed_info is None:
             installed_info = self._get_installed_driver_info()
+        # VAKON NEM AJÁNLUNK (2026-09-26). Ha a telepített driverek lekérdezése (két próba
+        # után is) üres, a kiadás-kapu minden eszközre "nem eldönthető"-t mondana, és a kör
+        # a gép ÖSSZES eszközére felajánlaná a katalógus legújabb csomagját - hibátlanul
+        # működő, frissebb gyári driverek fölé is (visszalépés), az AutoFix pedig ezt
+        # felügyelet nélkül telepítené. Ilyenkor csak a HIBAKÓDOS eszközökre keresünk (ott
+        # bármely driver jobb a semminél), a többit NÉVVEL jelentjük a hívónak - nem
+        # rejtjük el, és nem állítjuk róluk, hogy naprakészek.
+        self._catalog_installed_unknown = []
+        if not installed_info and devices_to_check:
+            vak = [d for d in devices_to_check if not d.get('err_code')]
+            if vak:
+                logging.error(f"[CATALOG] A telepített driverek NEM kérdezhetők le - a katalógus-kör "
+                              f"csak a {len(devices_to_check) - len(vak)} hibakódos eszközre fut; "
+                              f"{len(vak)} eszközről nem tudjuk eldönteni, van-e újabb driver: "
+                              f"{[d.get('name') for d in vak][:15]}")
+                self._catalog_installed_unknown = vak
+                devices_to_check = [d for d in devices_to_check if d.get('err_code')]
         # A tartós no-bind tár EGYSZER olvasva (nem eszközönként/szálanként): eszközönként
         # azok a katalógus-GUID-ok, amiket egy korábbi futás már letöltött és az INF-vizsgálat
         # elvetett. Ezeket a jelöltválasztás átugorja - így nem tölthetjük le másodszor
@@ -2489,6 +2763,10 @@ try {
         q = queue.Queue()
         for dev in devices_to_check:
             q.put(dev)
+        # A LEKÉRDEZÉSI HIBÁK GYŰJTŐJE (2026-09-26) - a `_catalog_find_driver` ide írja,
+        # melyik eszköz melyik kulcsa nem jött le. Lásd a kör utáni második menetet.
+        self._catalog_query_failed = []
+        self._catalog_unreached = []
 
         # ÉLŐ VISSZAJELZÉS (2026-08-29, explicit user decision). Ez a kör a szken leghosszabb
         # szakasza: 90+ eszköz, eszközönként max 4 HTTP-lekérdezés, 10 szálon - percekig tart.
@@ -2558,6 +2836,63 @@ try {
         if alive:
             logging.warning(f"[CATALOG] {len(alive)} szál még fut a {join_timeout}s plafon után - "
                             f"a találati lista hiányos lehet ({len(found)} db).")
+        # MÁSODIK MENET A TELJESEN ELHASALT ESZKÖZÖKRE (2026-09-26).
+        #
+        # Egy eszköz, aminek MINDEN kulcsa hibára futott, nem "nincs hozzá csomag", hanem "nem
+        # tudtuk megkérdezni" - a CLAUDE.md szerint ezt a kettőt szét kell választani, és az
+        # utóbbiból tartós következmény nem lehet. A lekérdezések már magukban is
+        # háromszor próbálkoznak (`_catalog_fetch_rows` / `fetch`), de azok a próbák a 10
+        # szálas csúcsterhelés KÖZEPÉN futnak; a második menet a kör UTÁN, rövid szünettel,
+        # kisebb párhuzamossággal fut, amikor a szerver már nincs tőlünk leterhelve. Ami
+        # így sem jön le, azt néven nevezzük (`_catalog_unreached`) - a hívó kiírja.
+        total_fail = [f['dev'] for f in list(self._catalog_query_failed) if f.get('total')]
+        if total_fail and not getattr(self, '_cancel_flag', False):
+            logging.warning(f"[CATALOG] {len(total_fail)} eszköz katalógus-lekérdezése teljesen "
+                            f"elhasalt - második menet 5 mp múlva: {[d.get('name') for d in total_fail][:10]}")
+            time.sleep(5)
+            self._catalog_query_failed = []
+            q2 = queue.Queue()
+            for dev in total_fail:
+                q2.put(dev)
+
+            def retry_worker():
+                while True:
+                    try:
+                        dev = q2.get_nowait()
+                    except Exception:
+                        break
+                    try:
+                        hit = self._catalog_find_driver(dev, installed_info, ssl_ctx,
+                                                        known_no_bind=bad_by_pnp)
+                        if hit:
+                            with lock:
+                                found.append(hit)
+                    except Exception as e:
+                        logging.warning(f"[CATALOG] Kivétel a második menetben: {dev.get('name')} - {e}",
+                                        exc_info=True)
+            rthreads = [threading.Thread(target=retry_worker, daemon=True, name=f"catalog-retry-{i}")
+                        for i in range(3)]
+            for t in rthreads:
+                t.start()
+            for t in rthreads:
+                t.join(timeout=min(600, max(60, len(total_fail) * 20)))
+            still = [f['dev'] for f in list(self._catalog_query_failed) if f.get('total')]
+            recovered = len(total_fail) - len(still)
+            logging.info(f"[CATALOG] Második menet: {recovered}/{len(total_fail)} eszköz lekérdezése "
+                         f"most sikerült" + (f"; továbbra sem: {[d.get('name') for d in still]}" if still else "."))
+            self._catalog_unreached = still
+        else:
+            self._catalog_unreached = []
+        # A "nem eldönthető" eszközök (a telepített driverek lekérdezése bukott el) UGYANEBBE
+        # a listába kerülnek: a hívónak mindkét esetben ugyanazt kell mondania - ezekről NEM
+        # tudjuk, hogy naprakészek-e -, és a naplóban a két ok külön sorban áll.
+        self._catalog_unreached = list(self._catalog_unreached) + list(
+            getattr(self, '_catalog_installed_unknown', None) or [])
+        if self._catalog_unreached:
+            logging.warning(f"[CATALOG] {len(self._catalog_unreached)} eszközről NEM TUDJUK, van-e újabb driver "
+                            f"(a katalógus nem válaszolt, vagy a telepített driverek nem kérdezhetők le) - ezekről a "
+                            f"program NEM mondja, hogy naprakészek: "
+                            f"{[d.get('name') for d in self._catalog_unreached]}")
         # A kör alatt összegyűlt katalógus-válaszok kiírása, EGY írással. Ez az, ami a
         # következő láb zárókörének megspórolja ugyanezt a néhány száz HTTP-kérést -
         # a lábak külön folyamatok, memóriában semmi nem élné túl az újraindítást.
@@ -2640,6 +2975,79 @@ try {
                      + (f" ({len(found) - len(deduped)} duplikált csomag összevonva)" if len(found) != len(deduped) else ""))
         return deduped
 
+    @staticmethod
+    def _reconcile_wu_catalog(pool, cat_hits, wu_by_uid):
+        """A WU-ajánlatok és a katalógus-találatok EGYEZTETÉSE ugyanarra az eszközre.
+
+        2026-09-26 óta a kézi szken a WU által már kiszolgált eszközökre is megkérdezi a
+        katalógust (lásd `start_hw_scan`) - ugyanazt teszi, mint az 1 kattintásos fix. Így
+        egy eszközre két forrásból is jöhet ajánlat, és ezt rendbe kell tenni, különben a
+        technikus ugyanazt a drivert kétszer látná (és kétszer telepítené).
+
+        Tiszta függvény (offline tesztelhető). Szabályok, sorrendben:
+          1. a katalógus-tétel GUID-ja = egy WU-ajánlat UpdateID-ja -> UGYANAZ A CSOMAG
+             (a katalógus a WU háttértára, az azonosító közös), a katalógus-tétel kiesik;
+          2. UGYANOLYAN FAJTA csomag (azonos cím-család, VAGY azonos driver-osztály + azonos
+             gyártó): a DÁTUM dönt (a projekt egységes szabálya, `release_rank`) - ha a
+             katalógus nem újabb, kiesik; ha újabb, a vele egy fajtába tartozó RÉGEBBI
+             WU-ajánlat esik ki (nincs értelme egy régebbit is feltenni előtte);
+          3. MÁS fajta csomag (pl. a WU a Realtek "Extension"-t, a katalógus az alap
+             "MEDIA" drivert adja): MINDKETTŐ marad - mindkettő kell az eszköznek.
+
+        Visszatérés: az új pool (a WU-elemek sorrendje megmarad, a katalógus-tételek a
+        végére kerülnek, ahogy eddig)."""
+        wu_by_hwid = {}
+        for p in pool or []:
+            if p.get('update_id'):
+                wu_by_hwid.setdefault(p.get('hwid'), []).append(p)
+
+        def _vendor(t):
+            t = re.sub(r'^\s*MS Katal[oó]gus:\s*', '', t or '', flags=re.IGNORECASE)
+            return (re.split(r'[\s\-,.]+', t.strip().lower()) or [''])[0]
+
+        def same_kind(w, hit):
+            ht = hit.get('wu_title') or ''
+            if package_family(w.get('wu_title')) == package_family(ht):
+                return True
+            raw = (wu_by_uid or {}).get(w.get('update_id')) or {}
+            cls = (raw.get('DriverClass') or '').strip().lower()
+            if cls and re.search(r'\b' + re.escape(cls) + r'\b', ht.lower()):
+                return _vendor(w.get('wu_title')) == _vendor(ht)
+            return False
+
+        drop_uids, kept_hits = set(), []
+        for hit in cat_hits or []:
+            wus = wu_by_hwid.get(hit.get('hwid')) or []
+            if not wus:
+                kept_hits.append(hit)
+                continue
+            guid = (hit.get('cat_guid') or '').lower()
+            if guid and any((w.get('update_id') or '').lower() == guid for w in wus):
+                logging.info(f"[HW_SCAN] {hit.get('name')}: a katalógus-találat UGYANAZ a csomag, mint "
+                             f"a WU-ajánlat ('{hit.get('wu_title')}') - csak egyszer ajánljuk fel.")
+                continue
+            rokon = [w for w in wus if same_kind(w, hit)]
+            if not rokon:
+                logging.info(f"[HW_SCAN] {hit.get('name')}: a WU mellett a katalógus egy MÁSIK fajta "
+                             f"csomagot is ad ('{hit.get('wu_title')}' vs WU {[w.get('wu_title') for w in wus]}) "
+                             f"- mindkettő felajánlva.")
+                kept_hits.append(hit)
+                continue
+            cat_rank = release_rank(hit.get('wu_date'), hit.get('wu_title'))
+            wu_best = max(release_rank(w.get('wu_date'), w.get('wu_title')) for w in rokon)
+            if cat_rank <= wu_best:
+                logging.info(f"[HW_SCAN] {hit.get('name')}: a katalógus-csomag ('{hit.get('wu_title')}' "
+                             f"[{hit.get('wu_date') or '?'}]) nem újabb a WU-ajánlatnál - a WU-é marad.")
+                continue
+            for w in rokon:
+                drop_uids.add(w.get('update_id'))
+            logging.info(f"[HW_SCAN] {hit.get('name')}: a katalógusban ÚJABB kiadás van "
+                         f"('{hit.get('wu_title')}' [{hit.get('wu_date') or '?'}]), mint amit a WU ajánl "
+                         f"({[(w.get('wu_title'), w.get('wu_date')) for w in rokon]}) - a katalógusé "
+                         f"kerül a listára, a régebbi WU-ajánlat kiesik.")
+            kept_hits.append(hit)
+        return [p for p in (pool or []) if p.get('update_id') not in drop_uids] + kept_hits
+
     def _catalog_search(self, devices_to_check, installed_info=None):
         """Katalógus-keresés a manuális szkenhez: a találatok a self.hw_updates_pool-ba
         KERÜLNEK HOZZÁ (nem törli a meglévőt, így a hibrid kiegészítő mód is ezt hívja).
@@ -2680,6 +3088,10 @@ try {
             self.emit('task_start', {'task': 'wu_install', 'title': f'Driver Telepítés ({total} db)'})
             # Az OKRB (újraindítás szükséges) jelzést a _install_wu_api_sync állítja be.
             self._wu_reboot_required = False
+            # A "kötés nélkül maradt" lista CSAK a katalógus-telepítéskor frissül - ha most
+            # csak WU-elem van, egy KORÁBBI telepítés listája maradna itt, és a végén egy
+            # nem létező problémára ajánlanánk fel újrakötést + újraindítást (2026-09-26).
+            self._catalog_staged_nobind = []
             success = fail = 0
             cancelled = False
             # Biztonsági háló a manuális telepítés elé is (az AutoFix eddig is csinálta):
@@ -2716,6 +3128,9 @@ try {
                     lambda m: self.emit('task_progress', {'task': 'wu_install', 'log': m}),
                     self._get_third_party_drivers,
                     check_cancel=self._check_cancel)
+                # A frissen felrakott driverek által kért Store-alkalmazások (vezérlőpultok)
+                # - ugyanaz a közös mag, mint a fix végén (app/storeapps_core.py).
+                self._sync_driver_store_apps('wu_install')
             reboot_needed = getattr(self, '_wu_reboot_required', False)
             msg = f'Kész! Sikeres: {success}, Sikertelen: {fail}'
             if reboot_needed:
@@ -2780,6 +3195,15 @@ try {
         self._safe_thread('wu_install', worker)
 
     def _install_wu_api_sync(self, selected_pool):
+        """A kézi WU-telepítés, ugyanazzal az ideiglenes keresési ablakkal, mint a keresés
+        (a telepítő szkript maga is keres - szüneteltetve semmit nem találna)."""
+        win = wusettings_core.open_search_window(self._wu_window_path())
+        try:
+            return self._install_wu_api_sync_inner(selected_pool)
+        finally:
+            wusettings_core.close_search_window(win, self._wu_window_path())
+
+    def _install_wu_api_sync_inner(self, selected_pool):
         """A kijelölt WU-s (update_id-s) elemek telepítése a KÖZÖS _build_wu_install_ps
         scripttel. A diszpécser (install_selected_wu) worker-szálán fut, task_start/
         task_complete NÉLKÜL. Visszatérés: (sikeres, sikertelen, megszakítva)."""
@@ -3379,8 +3803,16 @@ try {
             korábbi bukás oka az INF-vizsgálat volt (az "ez az INF nem ismeri ezt az
             eszközt" tény; a "felment, de nem vette át" viszont változhat).
             A találat ettől még LISTÁRA KERÜL a kézi szkenben (megjelölve, be nem
-            jelölve) - itt csak a fölösleges LETÖLTÉST spóroljuk meg."""
-            for rec in prev_bad.get((pnp or '').upper()) or []:
+            jelölve) - itt csak a fölösleges LETÖLTÉST spóroljuk meg.
+
+            A KULCS A TÖRZS, NEM A PÉLDÁNY-AZONOSÍTÓ (2026-09-26). A `prev_bad` a
+            `_device_stem` szerint épül (2026-08-31 óta), ez a keresés viszont a TELJES
+            példány-azonosítóval nézett bele (`...\\5&337FEF56&0&0001`) - a kettő soha nem
+            egyezett, vagyis ez a függvény a 2026-08-31-i stem-átállás óta MINDIG False-t
+            adott. Következmény: minden, amit egy korábbi futás letöltött és az INF-vizsgálat
+            elvetett, a következő futáson ÚJRA letöltődött (a no-bind tár, amiért ez az egész
+            van, a telepítő oldalán halott volt)."""
+            for rec in prev_bad.get(_device_stem(pnp)) or []:
                 if url and rec.get('url') == url:
                     return True
                 if guid and rec.get('guid') == guid:
@@ -3708,8 +4140,12 @@ try {
                         # MINDEN megbukott jelölt bekerül a no-bind emlékezetbe (GUID-dal),
                         # így a következő futás nem tölti le újra ugyanezt a csomagot.
                         with counter_lock:
+                            # `url=cand_url`: a TARTALÉK jelölt SAJÁT letöltési linkje. E
+                            # nélkül a `drv` NYERTES url-je öröklődött a bejegyzésbe, így a
+                            # tartalék csomag (a legerősebb kulcs szerint) sosem jegyződött
+                            # fel, és egy másik katalógus-bejegyzésen át újra letöltődhetett.
                             no_bind.append(dict(drv, wu_title=cand_title, wu_date=cand_date,
-                                                cat_guid=cand_guid,
+                                                cat_guid=cand_guid, url=cand_url,
                                                 no_bind_reason='nem alkalmazható (más gépre szabott INF)'))
                         continue
                     chosen = (cand_guid, cand_title, cand_date, cand_url)
@@ -3899,7 +4335,13 @@ try {
                         # átkötött). Ezért a reboot-jelzést külön visszük.
                         reboot_pending = (res.returncode == 3010
                                           or 'reboot is needed' in (res.stdout or '').lower())
-                        if drv.get('pnp_id') and drv.get('installed_inf') and not is_offline:
+                        # A DRIVER NÉLKÜLI (Code 28) ESZKÖZ IS ELLENŐRZÉST KAP (2026-09-26).
+                        # Eddig a feltétel `drv.get('installed_inf')` is volt, tehát pont
+                        # annál az eszköznél maradt el a kötés-ellenőrzés, ahol a legtöbbet
+                        # számít: egy driver nélküli eszközre felment csomag MINDIG
+                        # "✅ telepítve" lett, akkor is, ha az eszköz továbbra is driver
+                        # nélkül állt - néma hamis siker (4. elv).
+                        if drv.get('pnp_id') and not is_offline:
                             # A pnputil kimenete is elmegy: abból derül ki, ha a csomag egy
                             # GYEREK-INTERFÉSZRE kötött rá (composite USB), miközben maga a
                             # lekérdezett szülő - helyesen - usb.inf-en maradt.
@@ -3927,17 +4369,24 @@ try {
                     # Windows alapdriverén fut. Ez nem "naprakész": a driver a gépen van, a
                     # kötés hiányzik, és arra KONKRÉT teendő van (újrakötés / újraindítás).
                     # A "nincs új csomag" ág viszont valóban naprakészt jelent.
-                    if all_already and drv.get('generic_replace'):
+                    # HIBAKÓDOS eszköznél is ez a helyes olvasat (2026-09-26): a csomag
+                    # fent van, az eszköz mégis hibás -> a KÖTÉS a gond, nem a telepítés.
+                    # Eddig ilyenkor "↷ már naprakész" jelent meg egy hibás eszköz mellett.
+                    if all_already and (drv.get('generic_replace') or drv.get('err_code')):
                         _mark('staged_nobind', name)
                         with counter_lock:
                             staged_nobind.append(name)
                         self.emit('task_progress', {'task': task_id, 'log':
                                   f'  ⚠️ {name}: a gyári csomag MÁR FENT VAN a gépen, de az eszköz '
-                                  f'még a Windows alapdriverén fut - a csomag telepítése tehát nem '
-                                  f'hiányzik, a KÖTÉS hiányzik.'})
+                                  + ('még a Windows alapdriverén fut' if drv.get('generic_replace')
+                                     else f'továbbra is hibás (kód {drv.get("err_code")})')
+                                  + ' - a csomag telepítése tehát nem hiányzik, a KÖTÉS hiányzik.'})
                         self.emit('task_progress', {'task': task_id, 'log':
-                                  f'     👉 Teendő: „🔄 Eszközök újrakötése a gyári driverre” gomb '
-                                  f'(a keresési mód alatt), vagy egy újraindítás - ettől veszi át '
+                                  # A gomb 2026-09-18 óta a "Driverek kezelése" nézet karbantartó
+                                  # paneljén van (a keresés-nézetből kikerült) - a régi "(a
+                                  # keresési mód alatt)" egy megszűnt helyre küldött.
+                                  f'     👉 Teendő: „🔄 Eszközök újrakötése” (Driverek kezelése → '
+                                  f'Karbantartás), vagy egy újraindítás - ettől veszi át '
                                   f'a Windows a már fent lévő gyári drivert.'})
                     else:
                         reason = 'már a rendszerben van' if all_already else 'nincs új csomag'
@@ -4050,7 +4499,15 @@ try {
                             continue   # csak a következő bootnál dől el - most nem ítélkezünk
                         cur = (now_info.get((drv.get('pnp_id') or '').upper()) or {})
                         cur_inf = (cur.get('inf') or '').strip().lower()
-                        if cur_inf and cur_inf == drv.get('installed_inf'):
+                        before_inf = (drv.get('installed_inf') or '').strip().lower()
+                        if not before_inf and not cur_inf:
+                            # Driver nélkül volt, és most is driver nélkül van - kivéve, ha a
+                            # pnputil maga nevezte meg az eszközt (vagy a gyerekét) kötésként.
+                            if package_bound_to_device_family(pnp_out, drv):
+                                bound_ok.append(drv)
+                            else:
+                                stuck.append(drv)
+                        elif cur_inf and cur_inf == before_inf:
                             # A SZÜLŐ INF-je nem változott - de ez composite USB-nél NEM
                             # bukás: ott a gyári driver a &MI_xx gyerek-interfészre megy, a
                             # szülő pedig marad usbccgp-n, mert az a helyes driver rajta. A
@@ -4070,7 +4527,10 @@ try {
                         logging.warning(f"[CATALOG_INSTALL] A csomag felment, de az eszköz NEM vette át: "
                                         f"{drv.get('name')} - marad {drv.get('installed_inf')} "
                                         f"({drv.get('wu_title')})")
-                        self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {drv.get("name")}: a csomag feltelepült, de az eszköz TOVÁBBRA IS a régi driverén fut ({drv.get("installed_inf")}) - a Windows nem ezt választotta.'})
+                        if drv.get('installed_inf'):
+                            self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {drv.get("name")}: a csomag feltelepült, de az eszköz TOVÁBBRA IS a régi driverén fut ({drv.get("installed_inf")}) - a Windows nem ezt választotta.'})
+                        else:
+                            self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {drv.get("name")}: a csomag feltelepült, de az eszköz TOVÁBBRA IS driver nélkül áll - a Windows nem kötötte rá.'})
                         drv['no_bind_reason'] = 'felment, de az eszköz nem vette át'
                         no_bind.append(drv)
                     if stuck:
@@ -4193,9 +4653,13 @@ try {
                 for e in todo:
                     self.emit('task_progress', {'task': task_id, 'log': f'   • {e.get("name")}'})
                 self.emit('task_progress', {'task': task_id, 'log':
-                          '   Ezekhez a gyártó saját driver-oldaláról kell a driver (a szken végén ott a '
-                          'gép/alaplap gyártójának hivatkozása). Nem hiba: a katalógus egyszerűen nem '
-                          'tartalmaz ilyen csomagot ehhez a konkrét alaplap-változathoz.'})
+                          # A korábbi szöveg "a szken végén ott a gép/alaplap gyártójának
+                          # hivatkozása" volt - az a link-kártya 2026-09-18-án TÖRÖLVE lett,
+                          # tehát egy nem létező felületi elemre küldött (ugyanaz a hibaosztály,
+                          # mint a megszűnt tároló/firmware kapcsolókra hivatkozó szövegek).
+                          '   Ezekhez a gép/alaplap gyártójának saját driver-oldaláról kell a driver '
+                          '(a gyártó oldalán a géptípus vagy az alaplap neve alapján). Nem hiba: a '
+                          'katalógus egyszerűen nem tartalmaz ilyen csomagot ehhez a konkrét változathoz.'})
         return success, fail, cancelled
 
     def _verify_generic_replacements(self, generic_installs, task_id='wu_install'):

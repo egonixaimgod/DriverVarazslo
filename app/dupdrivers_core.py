@@ -13,6 +13,7 @@ A csoportosítás, a biztonsági szabályok és a törlés EGY példányban itt 
 Csak élő rendszeren fut (offline cél-OS-nél a hívók elutasítják)."""
 
 # === AUTO-IMPORTS ===
+import os
 import re
 import json
 import logging
@@ -147,6 +148,18 @@ def build_duplicate_groups(drivers, active_infs):
 
 
 def auto_cleanup_duplicates(run, log, get_drivers, check_cancel=None):
+    """A záró DriverStore-takarítás két fázisa: (1) azonos eredeti INF-nevű régi verziók,
+    (2) átnevezett INF-fel kiváltott régi csomagok (`retire_superseded_packages`).
+    Mind a három hívó (GUI kézi telepítés, GUI és CLI AutoFix) ezt hívja, tehát a
+    második fázis is mindenhol ugyanúgy fut. Visszatérés: (törölt, sikertelen, kihagyott)."""
+    a = _cleanup_duplicate_groups(run, log, get_drivers, check_cancel)
+    if check_cancel and check_cancel():
+        return a
+    b = retire_superseded_packages(run, log, get_drivers, check_cancel)
+    return tuple(x + y for x, y in zip(a, b))
+
+
+def _cleanup_duplicate_groups(run, log, get_drivers, check_cancel=None):
     """FELÜGYELET NÉLKÜLI duplikátum-takarítás - a driver-telepítések záró lépése
     (GUI manuális telepítés + GUI/CLI AutoFix hívja): egy frissen telepített driver
     után a régi verzió(k) ottmaradnak a DriverStore-ban, ez a lépés azonnal el is
@@ -166,7 +179,9 @@ def auto_cleanup_duplicates(run, log, get_drivers, check_cancel=None):
             return 0, 0, 0
         groups, deletable = build_duplicate_groups(drivers, active)
         if not deletable:
-            log('  ✅ Nincs törölhető régi driver-verzió a DriverStore-ban.')
+            # "AZONOS NEVŰ": utána még jöhet a kiváltott-csomag fázis, és a régi "nincs
+            # törölhető régi verzió" mondat annak törlésével ellentmondásba került (2026-09-27).
+            log('  ✅ Nincs azonos nevű régi driver-verzió a DriverStore-ban.')
             return 0, 0, 0
         names = [d['published'] for g in groups for d in g['dups'] if not d['active'] and d['published']]
         # MINDEN TÖRLENDŐ CSOMAGOT NEVÉN NEVEZÜNK, MIELŐTT HOZZÁNYÚLNÁNK (2026-09-08).
@@ -197,6 +212,167 @@ def auto_cleanup_duplicates(run, log, get_drivers, check_cancel=None):
             log(f'  ⚠️ DriverStore-takarítási hiba (a telepítést nem érinti): {e}')
         except Exception:
             pass
+        return 0, 0, 0
+
+
+# ===== ÁTNEVEZETT INF-FEL KIVÁLTOTT CSOMAGOK (2026-09-27, terepen mérve) =====
+#
+# A duplikátum-csoportok kulcsa az EREDETI INF-név - ez szándékosan szűk (egy téves
+# összevonás egy KELLŐ drivert törölne). A gyártók viszont néha ÁTNEVEZIK az INF-et,
+# és akkor a régi verzió örökre bent marad. Terepen, ASRock B450M, Build 339: a lánc
+# első WU-köre felrakta az `smbusamd.inf` 5.12.0.38-at (2017), két perccel később a
+# katalógus az `amdinterface.inf` 2.0.0.29-et (2026), a Windows arra kötötte az AMD
+# SMBUS eszközt, és a 2017-es csomag "nem használt"-ként maradt a Driverek nézetben
+# - a technikus joggal kérdezte, hogy "fos drivert rakott fel a program?".
+#
+# A SZABÁLY BIZONYÍTÉKON ÁLL, NEM NÉVEN - mind a négy feltétel kell:
+#   1. a csomag a KÖZÖS használat-magban `unused` (se eszköz, se futó szolgáltatás,
+#      se szűrő, se nyomtató) - `unknown` esetén semmi;
+#   2. nem Extension / SoftwareComponent / nyomtató osztályú: ezek kötése a használat-
+#      magban NEM látszik (nincs mért jel rá), tehát náluk az `unused` nem bizonyíték;
+#   3. a csomag saját (nem osztálykódos) hardver-azonosítói legalább egy JELENLÉVŐ
+#      eszközre illeszkednek - vagyis a hardver itt van, a Windows mégsem ezt választotta;
+#   4. MINDEN ilyen eszköz egy MÁSIK, ugyanattól a gyártótól való, legalább ugyanolyan
+#      friss third-party csomagon fut.
+# Ha a csomag egyetlen jelenlévő eszközre sem illik (pl. az NVIDIA laptopos `nvpcf.inf`
+# egy asztali gépen), NEM nyúlunk hozzá: az egy máshová való, de ártalmatlan
+# komponens, és a törlése a WU szemében megváltoztathatná a csomag állapotát.
+# A törlés sima `pnputil /delete-driver` (se /uninstall, se /force): ha mégis bármi
+# használja, a pnputil megtagadja, és a csomag marad.
+
+SUPERSEDED_SKIP_CLASSES = {'extension', 'softwarecomponent', 'printer', 'printqueue'}
+
+
+def _provider_key(p):
+    """Gyártónév összevetéshez: az első szó, kisbetűvel ('Advanced Micro Devices, Inc'
+    és 'Advanced Micro Devices Inc.' ugyanaz)."""
+    w = re.findall(r'[a-z0-9]+', (p or '').lower())
+    return w[0] if w else ''
+
+
+def find_superseded_packages(drivers, usage, nodes, inf_hwids, match_fn, rank_fn):
+    """Átnevezett INF-fel KIVÁLTOTT, használaton kívüli csomagok. TISZTA függvény.
+
+    drivers:   third-party csomagok (published/original/provider/version/date/class)
+    usage:     {published: {'state': ...}} - a `driverusage_core` besorolása
+    nodes:     az eszközfa (`win32.enumerate_device_nodes`)
+    inf_hwids: {published: [a csomag INF-jének hardver-azonosítói]}
+    match_fn:  (inf_hwid, dev_hwid) -> bool   (wu_core._hwid_matches)
+    rank_fn:   (date, version) -> rendezési kulcs (wu_core.release_rank)
+
+    Visszatérés: [{'published', 'original', 'provider', 'version', 'date', 'devices',
+    'replaced_by': [{'published', 'original', 'version', 'date'}]}]."""
+    by_pub = {(d.get('published') or '').strip().lower(): d for d in drivers or []}
+    present = [n for n in nodes or [] if n.get('present')]
+    out = []
+    for pub, d in by_pub.items():
+        if not pub.startswith('oem'):
+            continue
+        if (usage.get(pub) or {}).get('state') != 'unused':
+            continue
+        if (d.get('class') or '').strip().lower() in SUPERSEDED_SKIP_CLASSES:
+            continue
+        ids = [h for h in (inf_hwids.get(pub) or []) if '&CC_' not in h.upper()]
+        if not ids:
+            continue
+        hit = []
+        for n in present:
+            dev_ids = list(n.get('hwids') or []) + list(n.get('compat') or [])
+            if any(match_fn(i, x) for i in ids for x in dev_ids):
+                hit.append(n)
+        if not hit:
+            continue
+        cur_rank = rank_fn(d.get('date'), d.get('version'))
+        repl, ok = [], True
+        for n in hit:
+            b = (n.get('inf') or '').strip().lower()
+            q = by_pub.get(b)
+            if (not b.startswith('oem') or b == pub or q is None
+                    or _provider_key(q.get('provider')) != _provider_key(d.get('provider'))
+                    or rank_fn(q.get('date'), q.get('version')) < cur_rank):
+                ok = False
+                break
+            repl.append(q)
+        if not ok:
+            continue
+        uniq = {(q.get('published') or '').lower(): q for q in repl}
+        out.append({
+            'published': d.get('published', ''), 'original': d.get('original', ''),
+            'provider': d.get('provider', ''), 'version': d.get('version', ''),
+            'date': d.get('date', ''),
+            'devices': [n.get('friendly') or n.get('desc') or n.get('id') for n in hit],
+            'replaced_by': [{'published': q.get('published', ''), 'original': q.get('original', ''),
+                             'version': q.get('version', ''), 'date': q.get('date', '')}
+                            for q in uniq.values()],
+        })
+    return out
+
+
+def retire_superseded_packages(run, log, get_drivers, check_cancel=None):
+    """A `find_superseded_packages` találatainak törlése, felügyelet nélkül.
+
+    Minden hiba elnyelve (a telepítést nem buktathatja). Nem tud dönteni -> nem töröl.
+    Visszatérés: (törölt, sikertelen, kihagyott)."""
+    try:
+        from app import driverusage_core
+        from app.wu_core import _hwid_matches, release_rank, _read_text_best_effort
+        drivers = get_drivers() or []
+        ctx = driverusage_core.collect_usage_context(run, drivers)
+        if not ctx or not ctx.get('raw') or ctx['raw'].get('nodes') is None:
+            logging.info("[DUPDRV] Kiváltott-csomag vizsgálat kimarad: a használat-felderítés "
+                         "vagy az eszközfa nem futott le (nemtudásra nem törlünk).")
+            return 0, 0, 0
+        usage = ctx['usage']
+        inf_dir = driverusage_core._inf_dir()
+        inf_hwids = {}
+        for pub, e in usage.items():
+            if e.get('state') != 'unused':
+                continue
+            text = _read_text_best_effort(os.path.join(inf_dir, pub))
+            inf_hwids[pub] = driverusage_core.parse_inf_models(text)['hwids'] if text else []
+        found = find_superseded_packages(drivers, usage, ctx['raw']['nodes'], inf_hwids,
+                                         _hwid_matches, release_rank)
+        logging.info(f"[DUPDRV] Kiváltott-csomag vizsgálat: {len(inf_hwids)} nem használt csomag "
+                     f"megnézve, {len(found)} bizonyítottan kiváltott.")
+        if not found:
+            return 0, 0, 0
+        active = get_active_published_infs(run)
+        if active is None:
+            log('  ⚠️ Az aktív driver-lista nem kérdezhető le - a kiváltott csomagok törlése kimarad.')
+            return 0, 0, 0
+        ok = fail = skipped = 0
+        for s in found:
+            if check_cancel and check_cancel():
+                break
+            pub = s['published']
+            uj = ', '.join(f"{r['original'] or r['published']} v{r['version']} [{r['date'] or '?'}]"
+                           for r in s['replaced_by'])
+            cimke = f"{pub} ({s['original']} {s['provider']} v{s['version']} [{s['date'] or '?'}])"
+            if pub.lower() in active:
+                skipped += 1
+                logging.info(f"[DUPDRV] Kiváltott csomag időközben aktív lett, marad: {cimke}")
+                continue
+            logging.warning(f"[DUPDRV] KIVÁLTOTT csomag törlése: {cimke} - eszköz(ök): "
+                            f"{s['devices']} - helyette fut: {uj}")
+            res = run(['pnputil', '/delete-driver', pub], ok_codes=(0, 3010))
+            if res and res.returncode in (0, 3010):
+                ok += 1
+                log(f'  ✅ {cimke} törölve - kiváltotta: {uj}')
+            elif delete_blocked_in_use(res):
+                skipped += 1
+                logging.info(f"[DUPDRV] Kiváltott csomag marad (használatban): {cimke}")
+            else:
+                fail += 1
+                why = delete_failure_text(res)
+                logging.warning(f"[DUPDRV] Kiváltott csomag törlése SIKERTELEN: {cimke} - {why}")
+                log(f'  ❌ {cimke} törlése sikertelen: {why}')
+        if ok or fail:
+            log(f'  🧹 Átnevezett INF-fel kiváltott régi csomag: {ok} törölve'
+                + (f', {fail} sikertelen' if fail else '') + '.')
+        return ok, fail, skipped
+    except Exception as e:
+        logging.warning(f"[DUPDRV] Kiváltott-csomag takarítás hiba (a telepítést nem érinti): {e}",
+                        exc_info=True)
         return 0, 0, 0
 
 

@@ -113,6 +113,14 @@ class GuiBaseMixin:
         # docstringjét (app/gui/autofix.py) - szűk, bizonyíték-alapú feltétellel takarít.
         self._cleanup_leftover_autofix_policy()
 
+        # Egy kézi WU-keresés ideiglenes "szüneteltetés-feloldás" ablaka nyitva maradhatott
+        # (összeomlás a keresés közben) - a mentésből pontosan visszaállítjuk.
+        try:
+            from app import wusettings_core as _wsc
+            _wsc.restore_stranded_search_window(os.path.join(_app_data_dir(), 'wu_search_window.json'))
+        except Exception as e:
+            logging.warning(f"[INIT] A WU keresési ablak visszaállítása sikertelen: {e}")
+
         # Harmadik "félbehagyott munka" eset: az AutoFix UTOLSÓ lábában elhalasztott
         # INF-kivezetés (lásd _finish_deferred_inf_cleanup). A lánc közbeni halasztásokat
         # a következő láb intézi, de ha a halasztás az utolsó lábban történt, nincs
