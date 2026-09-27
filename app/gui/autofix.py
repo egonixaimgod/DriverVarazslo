@@ -46,6 +46,7 @@ from app.wu_core import detect_wifi_state
 from app.wu_core import collect_driver_usage
 from app.driverusage_core import collect_package_usage, summarize_counts, USAGE_UNKNOWN
 from app.wu_core import _parse_driver_version
+from app.wu_core import _iso_date_or_none
 from app.wu_core import STORAGE_RISK_CLASSES
 from app.wu_core import FIRMWARE_RISK_CLASSES
 from app.wu_core import collect_wifi_protection
@@ -746,6 +747,80 @@ class GuiAutofixMixin:
         return n_wrong, n_other, (f'↷ {len(kihagyott or [])} katalógus-csomag kihagyva - '
                                   + '; '.join(okok) + '. Nem töltjük le újra.')
 
+    def _defer_wu_to_newer_catalog(self, matches, wu_by_uid, installed_info, task_id='autofix'):
+        """A WU-ajánlatok közül azok HALASZTÁSA, amelyekből a katalógusban UGYANOLYAN FAJTA,
+        ÚJABB kiadás van - azt a lánc katalógus-zárókörе telepíti (2026-09-27, explicit
+        user decision: "profi legyen").
+
+        MIÉRT (terepen mérve, Build 339, ASRock B450M): a lánc első WU-köre 5 régi,
+        2017-2021-es AMD chipset-csomagot tett fel (SMBus 5.12.0.38, GPIO 2.0.1.0 ...), két
+        perccel később a katalógus-zárókör mind az ötöt 2025-2026-os kiadásra cserélte, a
+        régiek pedig a DriverStore-ban maradtak (egyikük "nem használt"-ként a Driverek
+        nézetben, átnevezett INF miatt). A döntés UGYANAZ a közös egyeztetés, mint a kézi
+        szkené (`_reconcile_wu_catalog`: azonos GUID -> egyszer; azonos fajta -> dátum dönt;
+        más fajta -> mindkettő) - a kettő így nem mondhat mást ugyanarról a gépről.
+
+        HÁROM BIZTOSÍTÉK, hogy egy eszköz se maradjon driver nélkül:
+          - hibakódos eszköznél NINCS halasztás (ott most azonnal kell valami);
+          - gyors módban (katalógus kikapcsolva) nincs halasztás;
+          - a halasztott UpdateID-k a lánc-állapotba kerülnek (`wu_deferred_uids`): ha a
+            katalógus-telepítés mégsem sikerül, egy KÉSŐBBI lábon a WU-csomag már felmegy.
+            Ugyanazon a lábon viszont a halasztás érvényben marad (a lábon belüli
+            következő WU-kör nem rakhatja fel mégis a régit).
+        Visszatérés: (megmaradt matches, halasztott [(cím, katalógus-cím)])."""
+        if not matches or not getattr(self, '_autofix_use_catalog', True):
+            return matches, []
+        most = getattr(self, '_wu_deferred_now', None)
+        if most is None:
+            most = self._wu_deferred_now = set()
+        korabbi = set(self._autofix_stats_get('wu_deferred_uids', []) or [])
+        marad = [m for m in matches if m['uid'] in most]
+        if marad:
+            logging.info(f"[AUTOFIX-WU] {len(marad)} WU-ajánlat ezen a lábon már halasztva: "
+                         f"{[m['title'] for m in marad]}")
+        cand = [m for m in matches if m['uid'] not in most and m['uid'] not in korabbi
+                and not (m.get('device') or {}).get('err_code')]
+        if korabbi & {m['uid'] for m in matches}:
+            logging.info(f"[AUTOFIX-WU] {len(korabbi & {m['uid'] for m in matches})} WU-ajánlatot egy "
+                         f"korábbi lábon halasztottunk, de a katalógus nem oldotta meg - most FELMEGY.")
+        halasztott = []
+        if cand:
+            devs, seen = [], set()
+            for m in cand:
+                d = m.get('device') or {}
+                if d.get('id') and d['id'] not in seen:
+                    seen.add(d['id'])
+                    devs.append(d)
+            # A gyári-csere jelölés ugyanaz, mint a zárókörben (Windows-alapdriveres eszköznél
+            # a katalógus-döntés csak így veti össze a gyári csomagot a generikussal).
+            mark_generic_replace_candidates(
+                devs, installed_info,
+                allow_storage=getattr(self, '_autofix_allow_storage', False),
+                allow_firmware=getattr(self, '_autofix_allow_firmware', False))
+            try:
+                hits = self._catalog_search_collect(devs, installed_info) or []
+            except Exception as e:
+                logging.warning(f"[AUTOFIX-WU] A katalógus-összevetés elhasalt ({e}) - a WU-csomagok "
+                                f"halasztás nélkül mennek fel.", exc_info=True)
+                hits = []
+            pool = [{'update_id': m['uid'], 'hwid': (m.get('device') or {}).get('id'),
+                     'wu_title': m['title'], 'name': (m.get('device') or {}).get('name'),
+                     'wu_date': _iso_date_or_none((wu_by_uid.get(m['uid']) or {}).get('DriverVerDate')) or ''}
+                    for m in cand]
+            maradt = {p.get('update_id') for p in self._reconcile_wu_catalog(pool, hits, wu_by_uid)
+                      if p.get('update_id')}
+            hit_by_hwid = {h.get('hwid'): h for h in hits}
+            for m in cand:
+                if m['uid'] not in maradt:
+                    most.add(m['uid'])
+                    h = hit_by_hwid.get((m.get('device') or {}).get('id')) or {}
+                    halasztott.append((m['title'], (h.get('wu_title') or '').replace('MS Katalógus: ', '')))
+            if halasztott:
+                self._autofix_stats_set('wu_deferred_uids', sorted(korabbi | most))
+                logging.info(f"[AUTOFIX-WU] {len(halasztott)} WU-ajánlat HALASZTVA, mert a katalógusban "
+                             f"ugyanabból újabb kiadás van (a zárókör telepíti): {halasztott}")
+        return [m for m in matches if m['uid'] not in most], halasztott
+
     def _scan_and_install_wu_sync(self, task_id='autofix'):
         max_loops = 4
         total_installed_in_session = 0
@@ -900,6 +975,15 @@ class GuiAutofixMixin:
                 for d in older_dups:
                     logging.debug(f"[AUTOFIX] Régebbi verzió kihagyva: {d['title']} - {d['reason']}")
 
+            # RÉGI WU-CSOMAG HELYETT A KATALÓGUS ÚJABBJA (2026-09-27) - lásd a függvényt.
+            had_matches = bool(matches)
+            matches, halasztott = self._defer_wu_to_newer_catalog(matches, wu_by_uid, installed_info, task_id)
+            if halasztott:
+                self.emit('task_progress', {'task': task_id, 'log':
+                          f'⏭️ {len(halasztott)} Windows Update-csomag helyett a katalógus ÚJABB kiadása kerül fel '
+                          f'(a zárókörben): ' + ', '.join(f"{c or w}" for w, c in halasztott[:4])
+                          + (', …' if len(halasztott) > 4 else '')})
+
             matched_updates = [m['uid'] for m in matches]
             for uid in matched_updates:
                 attempt_counts[uid] = attempt_counts.get(uid, 0) + 1
@@ -910,7 +994,11 @@ class GuiAutofixMixin:
             if not matched_updates:
                 # A megfogalmazás attól függ, MIÉRT nincs találat - egy elbukott keresésre
                 # nem szabad "minden telepítve"-t írni (lásd a wu_search_failed ágat fent).
-                if wu_search_failed:
+                if had_matches and not wu_search_failed:
+                    # Minden ajánlat halasztva: van újabb driver, csak a katalógusból jön.
+                    self.emit('task_progress', {'task': task_id, 'log': '✅ A Windows Update többi ajánlatához a katalógusban újabb kiadás van - a zárókör telepíti.'})
+                    logging.info("[AUTOFIX-WU] Minden WU-ajánlat halasztva a katalógus újabb kiadása javára - a WU körök lezárulnak.")
+                elif wu_search_failed:
                     self.emit('task_progress', {'task': task_id, 'log': '⚠️ A Windows Update keresés nem adott eredményt (nem válaszolt) - a WU-s driverek egy része HIÁNYOZHAT.'})
                     self.emit('task_progress', {'task': task_id, 'log': 'A katalógus-zárókör még megpróbálja pótolni; utána érdemes kézi szkennelést futtatni a "Driver Keresés és Telepítés" menüben.'})
                     logging.warning("[AUTOFIX-WU] A kör WU-találat nélkül zárul, mert a keresés elbukott (NEM azért, mert minden telepítve van).")

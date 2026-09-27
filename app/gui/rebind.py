@@ -218,6 +218,19 @@ def _strict_hwid_match(inf_id, dev_hwid):
     if ([t for t in _hwid_token_seq(inf_id) if t.startswith('COL')]
             != [t for t in _hwid_token_seq(dev_hwid) if t.startswith('COL')]):
         return False
+    # AZ USB-INTERFÉSZ (&MI_xx) IS PONTOS EGYEZÉST KÉR (2026-09-27, terepen mérve,
+    # ASRock B450M, Build 339). Ugyanaz a hiba, mint a COL-láncnál, csak az USB kompozit
+    # eszközön: a gyerek-interfésznek szóló INF (`USB\VID_1532&PID_00B9&MI_02`, Razer)
+    # a SZÜLŐ kompatibilis azonosítójára (`USB\VID_1532&PID_00B9`) részhalmazként
+    # "illett", ezért a záró kör a szülőt rúgta meg - egy újraindításért, eredmény
+    # nélkül, mert a Windows egy interfész-INF-et soha nem köt a szülőre (annak az
+    # `usb.inf` a helyes drivere). A gyerek-csomópont viszont a SAJÁT `&MI_02`
+    # azonosítójával továbbra is pontosan illeszkedik, tehát ha a gyári driver a
+    # gyereken nem fut, a kör azt köti újra - a CÉL (minden eszköz gyári driveren)
+    # változatlan, csak a rossz eszköz megrúgása marad el.
+    if ([t for t in _hwid_token_seq(inf_id) if t.startswith('MI_')]
+            != [t for t in _hwid_token_seq(dev_hwid) if t.startswith('MI_')]):
+        return False
     # A gyártó+eszköz egyezik; a többi tag (SUBSYS/REV/MI) egyik irányban bővebb lehet.
     return a[1] <= b[1] or b[1] <= a[1]
 

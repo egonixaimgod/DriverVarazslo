@@ -625,6 +625,25 @@ def class_code_only_match(dev_ids, supported_ids):
     return True, sorted(kozos)[0]
 
 
+def _supported_id_covers(sup_id, dev_id):
+    """Lefedi-e a csomag egy (részletlap/INF) azonosítója az eszköz egy azonosítóját?
+
+    EGYIRÁNYÚ: a csomag azonosítójának tagjai az eszközé RÉSZHALMAZÁT adják (azonos vagy
+    általánosabb), azonos buszon, legalább 2 taggal (egy csupasz `PCI\\VEN_8086` minden
+    Intel-eszközre illene), és a HID-kollekció lánca (`&COL..`) pontosan egyezik
+    (halmazként láthatatlan - lásd `_hwid_matches`). Tiszta függvény."""
+    if (sup_id or '').strip().upper() == (dev_id or '').strip().upper():
+        return True          # pontos egyezés (pl. az egytagú `ACPI\AMDIF030`) mindig jó
+    a, b = _hwid_tokens(sup_id), _hwid_tokens(dev_id)
+    if not a or not b or a[0] != b[0] or len(a[1]) < 2:
+        return False
+    if ([t for t in _hwid_token_seq(sup_id) if t.startswith('COL')]
+            != [t for t in _hwid_token_seq(dev_id) if t.startswith('COL')]
+            and any(t.startswith('COL') for t in a[1])):
+        return False
+    return a[1] <= b[1]
+
+
 def catalog_supports_device(dev_ids, supported_ids):
     """TÁMOGATJA-E a katalógus-csomag (a részletlap azonosító-listája szerint) az ESZKÖZT?
 
@@ -655,7 +674,17 @@ def catalog_supports_device(dev_ids, supported_ids):
     devs = [str(d).strip().lower() for d in (dev_ids or ()) if d]
     if not sup or not devs:
         return False, ''
-    illo = [s for s in sup if any(_hwid_matches(s, d) for d in devs)]
+    # >>> AZ ILLESZTÉS EGYIRÁNYÚ (2026-09-27, a repó tesztkészlete fogta meg). <<<
+    # A 2026-09-26-i változat a `_hwid_matches`-t hívta, ami a részhalmazt MINDKÉT
+    # irányban elfogadja - így az eszköz csupasz KOMPATIBILIS azonosítója
+    # (`hdaudio\func_01&ven_10ec&dev_0221`) részhalmaza lett egy MÁS gépgyártónak szóló
+    # `...&dev_0221&subsys_1558xxxx` azonosítónak, és a szűrő "támogatott"-nak látta a
+    # Clevo/Acer-változatot - pontosan azt az esetet, AMIÉRT A SZŰRŐ ÍRÓDOTT (2026-09-03,
+    # HP ALC221: a generikus csomag 149 azonosítója mind más SUBSYS). A Windows egy INF-
+    # azonosítót akkor köt, ha az AZONOS az eszköz egyik azonosítójával - a csomag
+    # azonosítója tehát lehet ÁLTALÁNOSABB (a csupasz VEN&DEV, a 2026-09-26-i AMD-eset -
+    # ez az eszköz kompatibilis azonosítója), de SZŰKEBB és eltérő nem.
+    illo = [s for s in sup if any(_supported_id_covers(s, d) for d in devs)]
     if not illo:
         return False, ''
     if all('&cc_' in s for s in illo):
