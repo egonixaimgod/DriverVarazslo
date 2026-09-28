@@ -177,6 +177,51 @@ def chain_duration_text(started_wall, now_wall=None):
     return format_duration_hu(elapsed), True
 
 
+# ===== A LÁNC IDEJE ÓRAUGRÁS-BIZTOSAN (2026-09-28) ===========================
+#
+# Terepen (Build 344, ASRock B450M) a rendszeróra a lánc 4. lábán, egy 16 mp-es WU-keresés
+# alatt 2 órát VISSZAugrott (03:02:05 -> 01:02:21). A fenti falióra-kivonás -5755 mp-et
+# adott, a program helyesen nem írta ki - de így a technikus a lánc végén SEMMILYEN időt
+# nem kapott, a Drive-mappa pedig "ismeretlen idő"-t kapott. A lánc valójában ~25 perc volt.
+#
+# A MEGOLDÁS KÉT RÉSZBŐL ÁLL, és mindkettő mért, nem becsült adat:
+#   1. a LÁBAK munkaideje `time.monotonic()`-kal (egy lábon belül az óraugrás nem hat rá);
+#   2. a lábak KÖZÖTTI újraindulás (leállás + POST + boot + bejelentkezés) a falióra-rés -
+#      de csak akkor fogadjuk el, ha összefér a rendszer bekapcsolási idejével (uptime):
+#      a rés nem lehet rövidebb a boot óta eltelt időnél, és legfeljebb `CHAIN_GAP_SHUTDOWN_MAX`
+#      mp-cel lehet hosszabb (leállás + POST). Ha nem fér össze, az óra ugrott, és a résnek
+#      az uptime a (kicsit alábecsült) mérete - a kiírás ilyenkor "kb."-t mond.
+# Óraugrás nélkül a kettő összege PONTOSAN a falióra szerinti teljes idő.
+CHAIN_GAP_SHUTDOWN_MAX = 600
+
+
+def chain_gap_seconds(last_end_wall, now_wall, uptime_s):
+    """Egy újraindulás ideje: (másodperc, becsült-e). Tiszta függvény."""
+    try:
+        gap_wall = float(now_wall) - float(last_end_wall)
+    except (TypeError, ValueError):
+        gap_wall = None
+    up = float(uptime_s) if uptime_s is not None else None
+    if gap_wall is not None and up is not None and up - 5 <= gap_wall <= up + CHAIN_GAP_SHUTDOWN_MAX:
+        return gap_wall, False
+    if gap_wall is not None and up is None and 0 <= gap_wall <= 3600:
+        return gap_wall, False
+    return (up if up is not None else 0.0), True
+
+
+def chain_total_seconds(timer, current_leg_s=0.0):
+    """A lánc teljes ideje a lánc-állapot `chain_timer` bejegyzéséből: (mp, becsült-e),
+    vagy (None, False), ha nincs mérés (a láncot egy régebbi build indította)."""
+    if not isinstance(timer, dict):
+        return None, False
+    try:
+        total = (float(timer.get('work_s') or 0) + float(timer.get('gap_s') or 0)
+                 + float(current_leg_s or 0))
+    except (TypeError, ValueError):
+        return None, False
+    return total, bool(timer.get('estimated'))
+
+
 class GuiAutofixMixin:
     """1 Kattintásos Driver Fix: a 3-lábú, reboot-láncolt AutoFix folyamat. A DriverToolApi része (összerakás: app/gui/api.py)."""
 
@@ -780,9 +825,16 @@ class GuiAutofixMixin:
                          f"{[m['title'] for m in marad]}")
         cand = [m for m in matches if m['uid'] not in most and m['uid'] not in korabbi
                 and not (m.get('device') or {}).get('err_code')]
-        if korabbi & {m['uid'] for m in matches}:
-            logging.info(f"[AUTOFIX-WU] {len(korabbi & {m['uid'] for m in matches})} WU-ajánlatot egy "
-                         f"korábbi lábon halasztottunk, de a katalógus nem oldotta meg - most FELMEGY.")
+        # CSAK A VALÓBAN KORÁBBI LÁBON halasztottak (2026-09-28, terepi napló, Build 344): a
+        # lánc-állapotba EZ a láb is beírja a saját halasztásait, tehát a lábon belüli 2. WU-
+        # körben a `korabbi` már a mostaniakat is tartalmazta, és a napló egymás alatt azt
+        # írta, hogy "5 ezen a lábon már halasztva" ÉS "5 korábbi lábon... most FELMEGY" -
+        # miközben (helyesen) egyik sem ment fel. A viselkedés jó volt, a napló hazudott.
+        felmegy = (korabbi - most) & {m['uid'] for m in matches}
+        if felmegy:
+            logging.info(f"[AUTOFIX-WU] {len(felmegy)} WU-ajánlatot egy korábbi lábon halasztottunk, "
+                         f"de a katalógus nem oldotta meg - most FELMEGY: "
+                         f"{[m['title'] for m in matches if m['uid'] in felmegy]}")
         halasztott = []
         if cand:
             devs, seen = [], set()
@@ -1545,6 +1597,60 @@ class GuiAutofixMixin:
         '''
         self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", task_ps])
 
+    # ----- lánc-idő mérése (lásd chain_gap_seconds / chain_total_seconds) -----
+    def _chain_timer_start_new(self):
+        """Az A láb: új mérés indul (a lánc-állapot törlése UTÁN hívandó)."""
+        self._autofix_stats_set('chain_timer', {'work_s': 0.0, 'gap_s': 0.0, 'estimated': False,
+                                                'last_end_wall': None, 'reboots': 0})
+        self._chain_leg_t0 = time.monotonic()
+        logging.info("[AUTOFIX-IDŐ] Lánc-idő mérése indul (lábak: monotonic óra, újraindulások: "
+                     "falióra-rés az uptime-mal ellenőrizve).")
+
+    def _chain_timer_leg_begin(self):
+        """Egy folytató láb eleje: a láb órája indul, és az előző láb végétől eltelt
+        újraindulási idő bekerül a mérésbe."""
+        self._chain_leg_t0 = time.monotonic()
+        timer = self._autofix_stats_get('chain_timer')
+        if not isinstance(timer, dict):
+            logging.info("[AUTOFIX-IDŐ] Nincs lánc-idő mérés (a láncot egy régebbi build indította) - "
+                         "a zárás a falióra szerinti időt próbálja.")
+            return
+        last_end = timer.get('last_end_wall')
+        if not last_end:
+            return
+        from app.win32 import system_uptime_seconds
+        uptime = system_uptime_seconds()
+        gap, est = chain_gap_seconds(last_end, time.time(), uptime)
+        timer['gap_s'] = float(timer.get('gap_s') or 0) + gap
+        timer['estimated'] = bool(timer.get('estimated')) or est
+        timer['last_end_wall'] = None
+        self._autofix_stats_set('chain_timer', timer)
+        if est:
+            logging.warning(f"[AUTOFIX-IDŐ] Az újraindulás falióra-rése nem fér össze a rendszer "
+                            f"bekapcsolási idejével (uptime={uptime}) - a rendszeróra elállítódott, "
+                            f"a rés BECSÜLT értéke {gap:.0f} mp.")
+        else:
+            logging.info(f"[AUTOFIX-IDŐ] Újraindulás: {gap:.0f} mp (uptime {uptime:.0f} mp).")
+
+    def _chain_timer_leg_end(self, reboot):
+        """Egy láb vége: a láb munkaideje hozzáadódik; újraindulásnál a falióra is
+        feljegyződik a következő láb rés-számításához."""
+        t0 = getattr(self, '_chain_leg_t0', None)
+        if t0 is None:
+            return
+        self._chain_leg_t0 = None
+        timer = self._autofix_stats_get('chain_timer')
+        if not isinstance(timer, dict):
+            return
+        leg = time.monotonic() - t0
+        timer['work_s'] = float(timer.get('work_s') or 0) + leg
+        if reboot:
+            timer['last_end_wall'] = time.time()
+            timer['reboots'] = int(timer.get('reboots') or 0) + 1
+        self._autofix_stats_set('chain_timer', timer)
+        logging.info(f"[AUTOFIX-IDŐ] A láb munkaideje: {leg:.0f} mp (eddig összesen: munka "
+                     f"{timer['work_s']:.0f} mp + újraindulások {float(timer.get('gap_s') or 0):.0f} mp).")
+
     def _reboot_or_cancel(self, status, task_id='autofix'):
         """A lánc újraindítási pontja: 5 mp türelmi idő, ALATTA a Mégse gomb még megfog.
 
@@ -1563,6 +1669,7 @@ class GuiAutofixMixin:
                 self.emit('task_progress', {'task': task_id, 'log': '\n❗ Megszakítva - az újraindítás elmarad, a folytatás törölve.'})
                 raise Exception("Magyar_Megszakit_Flag")
             time.sleep(0.5)
+        self._chain_timer_leg_end(reboot=True)
         self._run(['shutdown', '/r', '/t', '0', '/f'])
 
     def _autofix_stats_path(self):
@@ -2334,7 +2441,11 @@ class GuiAutofixMixin:
         if not res.get('ok'):
             return
         prev = res.get('previous_name') or res.get('previous_guid') or 'ismeretlen'
-        self.emit('task_progress', {'task': task_id, 'log': f'⚡ Energiaséma: "{prev}" → NAGY TELJESÍTMÉNYŰ.'})
+        if res.get('kept'):
+            # A már teljesítményre hangolt séma marad (2026-09-28, lásd powerplan_core).
+            self.emit('task_progress', {'task': task_id, 'log': f'⚡ Energiaséma: "{prev}" MARAD - ez már teljesítményre hangolt séma, a maximum-beállítások erre kerültek rá.'})
+        else:
+            self.emit('task_progress', {'task': task_id, 'log': f'⚡ Energiaséma: "{prev}" → TELJESÍTMÉNYCENTRIKUS (a ReviOS Ultra Performance beállításaival).'})
         if res.get('applied'):
             self.emit('task_progress', {'task': task_id, 'log': '   Maximumra állítva: ' + ', '.join(res['applied']) + '.'})
         # A következményt is kimondjuk. Egy laptop akkumulátoros üzemideje ezzel
@@ -2954,6 +3065,9 @@ class GuiAutofixMixin:
 
             task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if (is_resume_mode or is_resume_step1) else '1 Kattintásos Driver Javítás és Frissítés'
             self.emit('task_start', {'task': 'autofix', 'title': task_title})
+            if is_resume_mode or is_resume_step1:
+                # A lánc-idő mérése: az előző láb óta eltelt újraindulás + ennek a lábnak az órája.
+                self._chain_timer_leg_begin()
             try:
                 # Internet ellenőrzés autofix elején (ha nem resume mód). Wi-Fi módban
                 # türelmesebben: a lánc indítása pillanatában is előfordulhat, hogy a
@@ -2991,6 +3105,8 @@ class GuiAutofixMixin:
                     # újraindításnál nullázódik, tehát lábakon átívelő időt nem tud mérni.
                     # Itt valódi időbélyeg kell, nem eltelt idő.
                     self._autofix_stats_set('chain_started', time.time())
+                    # Az óraugrás-biztos mérés (a fenti időbélyeg csak tartalék).
+                    self._chain_timer_start_new()
                     if prev_pre:
                         logging.warning(f"[AUTOFIX] Egy korábbi, be nem fejezett lánc {len(prev_pre)} csomagot hagyott hátra - "
                                         f"átvisszük az új lánc jelentésébe: {[p.get('original') for p in prev_pre]}")
@@ -3107,7 +3223,12 @@ class GuiAutofixMixin:
                     self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'], ok_codes=(0, 1))
 
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Beragadt frissítések és WU gyorsítótár (SoftwareDistribution) ürítése...'})
-                    wusettings_core._clear_software_distribution(self._run)
+                    # A verdikt a visszaolvasás (2026-09-28): a lenti záró sor eddig akkor is
+                    # "gyorsítótár ürítve"-t írt, ha zárolt fájlok maradtak.
+                    sd_res = wusettings_core.clear_software_distribution(self._run)
+                    if not sd_res['ok']:
+                        self.emit('task_progress', {'task': 'autofix', 'log':
+                                  wusettings_core.software_distribution_message(sd_res)})
 
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update szüneteltetése (~10 év)...'})
                     # Fix (nem hosszabbító) szünet a közös builderből, AUTOFIX_WU_PAUSE_DAYS
@@ -3115,7 +3236,10 @@ class GuiAutofixMixin:
                     self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
                                wusettings_core.build_wu_pause_ps(
                                    wusettings_core.AUTOFIX_WU_PAUSE_DAYS, additive=False)])
-                    self.emit('task_progress', {'task': 'autofix', 'log': '✅ WU gyorsítótár ürítve, a Windows Update szüneteltetve (~10 év).\n'})
+                    self.emit('task_progress', {'task': 'autofix', 'log':
+                              ('✅ WU gyorsítótár ürítve, a Windows Update szüneteltetve (~10 év).\n'
+                               if sd_res['ok'] else
+                               '✅ A Windows Update szüneteltetve (~10 év).\n')})
                     
                     self.emit('task_progress', {'task': 'autofix', 'log': '🔄 A számítógép újraindul, majd a folyamat automatikusan a TELEPÍTÉSSEL folytatódik!'})
 
@@ -3401,6 +3525,7 @@ class GuiAutofixMixin:
                     # kiolvasni (_autofix_stats_total_and_clear utána már nem találná),
                     # ugyanaz a csapda, mint a pre_packages-nél.
                     chain_started = self._autofix_stats_get('chain_started')
+                    chain_timer = self._autofix_stats_get('chain_timer')
                     pre_packages = self._autofix_stats_get('pre_packages') or []
                     # MÁSODIK KÖR a záró újraindítás UTÁN: az előző lábon eltávolított
                     # csomópontokat a Windows az imént derítette fel újra. Ami mégis
@@ -3477,10 +3602,33 @@ class GuiAutofixMixin:
                     # mutatta (a számláló minden lábon nullázódik), ami félrevezető: a
                     # technikus 4 újraindításnyi munka után "6 perc"-et olvasott. Ezt
                     # csak ITT, a lánc tényleges végén írjuk ki.
-                    chain_time, ok_time = chain_duration_text(chain_started)
+                    # ÓRAUGRÁS-BIZTOSAN (2026-09-28, terepen, Build 344): a falióra-kivonás
+                    # egy visszaugró órán -5755 mp-et adott, és a technikus SEMMILYEN időt nem
+                    # kapott. Most a lábak monotonic órája + az uptime-mal ellenőrzött
+                    # újraindulások összege; a falióra csak egy régebbi build indította lánc
+                    # tartaléka.
+                    leg_t0 = getattr(self, '_chain_leg_t0', None)
+                    cur_leg = (time.monotonic() - leg_t0) if leg_t0 is not None else 0.0
+                    total_s, becsult = chain_total_seconds(chain_timer, cur_leg)
+                    if total_s is not None and 0 < total_s <= CHAIN_TIME_MAX_SECONDS:
+                        chain_time = ('kb. ' if becsult else '') + format_duration_hu(total_s)
+                        ok_time = True
+                        wall_txt, wall_ok = chain_duration_text(chain_started)
+                        logging.info(f"[AUTOFIX-IDŐ] A lánc teljes ideje: {chain_time} (munka "
+                                     f"{float(chain_timer.get('work_s') or 0) + cur_leg:.0f} mp + "
+                                     f"{chain_timer.get('reboots', 0)} újraindulás "
+                                     f"{float(chain_timer.get('gap_s') or 0):.0f} mp; becsült: {becsult}; "
+                                     f"falióra szerint: {wall_txt if wall_ok else 'nem megbízható'}).")
+                    else:
+                        chain_time, ok_time = chain_duration_text(chain_started)
                     if ok_time:
-                        self.emit('task_progress', {'task': 'autofix', 'log': f'\n⏱️ A teljes AutoFix {chain_time} alatt futott le (az indítástól, az újraindításokkal együtt).'})
+                        megj = (' - a rendszeróra a lánc közben elállítódott, ezért az újraindulások '
+                                'idejét a gép bekapcsolási idejéből becsültük' if chain_time.startswith('kb.') else '')
+                        self.emit('task_progress', {'task': 'autofix', 'log': f'\n⏱️ A teljes AutoFix {chain_time} alatt futott le (az indítástól, az újraindításokkal együtt{megj}).'})
                         logging.info(f"[AUTOFIX] A lánc teljes ideje: {chain_time}.")
+                    else:
+                        logging.warning("[AUTOFIX-IDŐ] A lánc teljes ideje nem állapítható meg (nincs mérés, "
+                                        "és a falióra sem megbízható).")
 
                     # NAPLÓ FELTÖLTÉSE A BOLT DRIVE-JÁRA (explicit user decision, 2026-08-26).
                     # Ennek a projektnek a hibajelentése maga a napló, és pont akkor marad el,

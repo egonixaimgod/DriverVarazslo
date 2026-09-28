@@ -36,26 +36,75 @@ import logging
 # A Windows beépített "Nagy teljesítményű" sémája. A GUID minden Windows-nyelven azonos.
 HIGH_PERFORMANCE_GUID = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
 BALANCED_GUID = '381b4222-f694-41f0-9685-ff5bb260df2e'
+POWER_SAVER_GUID = 'a1841308-3541-4fab-bc81-f71556f20b4a'
+# "Végső teljesítmény" (Ultimate Performance) - a Nagy teljesítményűnél is agresszívabb.
+ULTIMATE_PERFORMANCE_GUID = 'e9a42b02-d5df-448d-aa00-03f14749eb61'
+
+# A MÁR TELJESÍTMÉNYRE HANGOLT SÉMA MARAD (2026-09-28, terepi napló, Build 344): a gépen
+# egy "Revision - Ultra Performance" egyedi séma futott (egy hangolt Windows-kiadásé), és a
+# lánc lecserélte a sima Nagy teljesítményűre - ami egy hangolt sémánál visszalépés lehet
+# (az egyedi séma a mi négy beállításunkon túl is tartalmazhat hangolást). Megtartjuk, ha
+# a Végső teljesítmény, vagy egy EGYEDI séma, amelyben a processzor minimuma MÁR 100%
+# (ez a "ne spóroljon" legbiztosabb, nyelvfüggetlen jele); a négy maximum-beállítás
+# ettől függetlenül rákerül, tehát a "maxra húzva" követelmény teljesül.
+BUILTIN_NON_PERFORMANCE = {BALANCED_GUID, POWER_SAVER_GUID}
+
+# A BEÉPÍTETT "TELJESÍTMÉNYCENTRIKUS" (Nagy teljesítményű) SÉMA A ReviOS ÉRTÉKEIVEL
+# (2026-09-28, explicit user decision: *"kajak legyen az teljesítménycentrikus... ami a revios
+# teljesítményprofiljába van azt kéne leklónozni"*, majd: *"nem kell drivervarazslo maximalis
+# séma, a sima teljesítménycentrikust állítsa át erre"*).
+#
+# A ReviOS "Revision - Ultra Performance" sémája (forrás: github.com/meetrevision/revision-tool,
+# src/lib/features/tweaks/performance/performance_service.dart) a Windows rejtett "Végső
+# teljesítmény" sablonjának másolata, plusz az alábbi processzor/USB beállítások. SAJÁT SÉMÁT
+# NEM HOZUNK LÉTRE (egy köztes változat ezt csinálta - a felhasználó elvetette): a beállítások a
+# beépített Nagy teljesítményű sémára kerülnek, így az ügyfél gépén nem jelenik meg egy
+# ismeretlen nevű séma, és a Windows-os "Teljesítménycentrikus" név marad.
+
+SUB_PROCESSOR_GUID = '54533251-82be-4824-96c1-47b60b740d00'
+# A USB-beállításoknak nincs stabil alias-a, GUID-dal kell hivatkozni rájuk.
+USB_SUBGROUP_GUID = '2a737441-1930-4402-8d77-b2bebba308a3'
+USB_SELECTIVE_SUSPEND_GUID = '48e6b7a6-50f5-4782-a5d4-53bb8f07e226'
+USB3_LINK_POWER_GUID = 'd4e98f31-5ffe-4ce1-be31-1b38b384c009'
 
 # A teljesítményt ÉRDEMBEN befolyásoló beállítások: (alcsoport, beállítás, AC, DC, címke).
 #
-# Az alias-kulcsszavak nyelvfüggetlenek. Az AC (hálózat) és DC (akkumulátor) érték külön
-# állítható, és ez itt szándékos: a felhasználó kérése az volt, hogy a gép akkumulátoron
-# se legyen lassú, ezért a DC oldal is teljesítmény-orientált.
+# A REJTETT beállítások (magparkolás, órajel-politika, C-state küszöb, USB 3 LPM) GUID-dal
+# mennek: MÉRVE (2026-09-28, Win10 19045) a `powercfg` ezekre NEM ismer alias-t (a
+# `/aliases` nem listázza őket), és a sima `/query` sem mutatja - GUID-dal viszont olvashatók
+# (`/qh`) és írhatók. A látható beállítások alias-a nyelvfüggetlen, azok maradnak.
+#
+# AZ ÉRTÉKEK A ReviOS-ÉI, egy kivétellel: a ReviOS CSAK AC-t (hálózati üzem) állít, mi a DC-t
+# (akkumulátor) is, mert a 2026-09-01-i kérés az volt, hogy a gép akkumulátoron se legyen lassú.
+# A C-state küszöb (IDLEPROMOTE 100 / IDLEDEMOTE 80) a ReviOS "C6 kikapcsolása" opciója: a mag
+# ritkábban esik mély alvóállapotba (kérés: "ne menjen idle-be a proci"), a 20%-os rés pedig
+# megakadályozza, hogy a mag másodpercenként többször ugráljon az állapotok közt (hangakadás).
+# A teljes idle-tiltást (IDLEDISABLE) SZÁNDÉKOSAN nem kapcsoljuk be: attól a processzor
+# folyamatosan teljes teljesítményen fűt, egy laptop pedig perceken belül túlmelegszik.
 #
 # A DISKIDLE=0 jelentése "soha" (nem nulla perc): a lemez leparkolása utáni felpörgés az
 # egyik legjobban ÉRZÉKELHETŐ lassulás egy HDD-s gépen.
 PERFORMANCE_SETTINGS = [
     ('SUB_PROCESSOR', 'PROCTHROTTLEMIN', 100, 100, 'processzor minimális állapota'),
     ('SUB_PROCESSOR', 'PROCTHROTTLEMAX', 100, 100, 'processzor maximális állapota'),
+    # Magparkolás tiltása (CPMINCORES; a ...584 = CPMINCORES1 a hibrid CPU P-magjaié).
+    (SUB_PROCESSOR_GUID, '0cc5b647-c1df-4637-891a-dec35c318583', 100, 100, 'magparkolás kikapcsolva'),
+    (SUB_PROCESSOR_GUID, '0cc5b647-c1df-4637-891a-dec35c318584', 100, 100, 'magparkolás kikapcsolva (P-magok)'),
+    # Órajel-politika: emelés azonnal a maximumra (Rocket=2), csökkentés lépésenként (Single=1),
+    # alacsony küszöbökkel (10% / 8%) - PERFINCPOL, PERFDECPOL, PERFINCTHRESHOLD, PERFDECTHRESHOLD.
+    (SUB_PROCESSOR_GUID, '465e1f50-b610-473a-ab58-00d1077dc418', 2, 2, 'órajel-emelés azonnal a maximumra'),
+    (SUB_PROCESSOR_GUID, '40fbefc7-2e9d-4d25-a185-0cfd8574bac6', 1, 1, 'órajel-csökkentés lépésenként'),
+    (SUB_PROCESSOR_GUID, '06cadf0e-64ed-448a-8927-ce7bf90eb35d', 10, 10, 'órajel-emelés küszöbe 10%'),
+    (SUB_PROCESSOR_GUID, '12a0ab44-fe28-4fa9-b3bd-4b64f44960a6', 8, 8, 'órajel-csökkentés küszöbe 8%'),
+    # Mély alvóállapot (C-state) küszöbe - IDLEPROMOTE / IDLEDEMOTE.
+    (SUB_PROCESSOR_GUID, '7b224883-b3cc-4d79-819f-8374152cbe7c', 100, 100, 'mély alvóállapot ritkítva (C-state küszöb 100%)'),
+    (SUB_PROCESSOR_GUID, '4b92d758-5a24-4851-a470-815d78aee119', 80, 80, 'mély alvóállapotból visszalépés küszöbe 80%'),
     ('SUB_PCIEXPRESS', 'ASPM', 0, 0, 'PCI Express energiagazdálkodás'),
     ('SUB_DISK', 'DISKIDLE', 0, 0, 'merevlemez leállítása'),
+    # Kikapcsolva: az USB-eszközök (egér, billentyűzet, dokkoló) nem "ébredeznek" használatkor.
+    (USB_SUBGROUP_GUID, USB_SELECTIVE_SUSPEND_GUID, 0, 0, 'USB szelektív felfüggesztés'),
+    (USB_SUBGROUP_GUID, USB3_LINK_POWER_GUID, 0, 0, 'USB 3 kapcsolat-energiagazdálkodás'),
 ]
-
-# A USB szelektív felfüggesztésnek nincs stabil alias-a, GUID-dal kell hivatkozni rá.
-# Kikapcsolva: az USB-eszközök (egér, billentyűzet, dokkoló) nem "ébredeznek" használatkor.
-USB_SUBGROUP_GUID = '2a737441-1930-4402-8d77-b2bebba308a3'
-USB_SELECTIVE_SUSPEND_GUID = '48e6b7a6-50f5-4782-a5d4-53bb8f07e226'
 
 _GUID_RE = re.compile(r'([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
                       r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12})')
@@ -156,6 +205,34 @@ def ensure_high_performance_scheme(run_fn):
     return ok
 
 
+def parse_setting_indexes(stdout):
+    """A `powercfg /query <séma> <alcsoport> <beállítás>` kimenetéből (AC, DC) egész érték.
+
+    A címkék lokalizáltak, a hexa értékek SORRENDJE nem: az utolsó két `0x........` az AC és
+    a DC index (ugyanaz a pozicionális szabály, amivel a stressz-teszt energiazára is
+    olvas). Tiszta függvény. (None, None), ha nem olvasható."""
+    vals = re.findall(r'0x([0-9a-fA-F]{8})\b', stdout or '')
+    if len(vals) < 2:
+        return None, None
+    return int(vals[-2], 16), int(vals[-1], 16)
+
+
+def keep_current_scheme(guid, proc_min_ac):
+    """Megtartjuk-e az aktív sémát (a Nagy teljesítményű helyett)? Tiszta függvény.
+
+    Igen: a Végső teljesítmény, vagy egy EGYEDI séma, amelyben a processzor minimuma már
+    100% (AC). A beépített Kiegyensúlyozott/Energiatakarékos soha; a Nagy teljesítményű
+    úgyis az, amire váltanánk."""
+    g = (guid or '').lower()
+    # A beépített Nagy teljesítményű sem "marad": arra a normál út fut (újra-aktiválás +
+    # a ReviOS-értékek), ami ugyanoda vezet.
+    if not g or g in BUILTIN_NON_PERFORMANCE or g == HIGH_PERFORMANCE_GUID:
+        return False
+    if g == ULTIMATE_PERFORMANCE_GUID:
+        return True
+    return proc_min_ac == 100
+
+
 def apply_performance_plan(run_fn, log=None):
     """A gép teljesítmény-módba állítása. Visszatérés: eredmény-dict.
 
@@ -166,19 +243,33 @@ def apply_performance_plan(run_fn, log=None):
     nem teheti hibássá a driver-telepítést."""
     say = log or (lambda _m: None)
     out = {'ok': False, 'previous_guid': None, 'previous_name': '',
-           'applied': [], 'failed': []}
+           'applied': [], 'failed': [], 'kept': False}
     try:
         prev_guid, prev_name = read_active_scheme(run_fn)
         out['previous_guid'], out['previous_name'] = prev_guid, prev_name
 
-        if not ensure_high_performance_scheme(run_fn):
-            say('⚠️ A Nagy teljesítményű energiasémát nem sikerült beállítani - a gép '
+        proc_min_ac = None
+        if prev_guid and prev_guid not in BUILTIN_NON_PERFORMANCE and prev_guid != HIGH_PERFORMANCE_GUID:
+            q = _run_powercfg_text(run_fn, ['powercfg', '/query', 'SCHEME_CURRENT',
+                                            'SUB_PROCESSOR', 'PROCTHROTTLEMIN'])
+            proc_min_ac, _dc = parse_setting_indexes(getattr(q, 'stdout', ''))
+            logging.info(f"[POWER] Egyedi/nem beépített séma: processzor minimuma (AC) = "
+                         f"{proc_min_ac if proc_min_ac is not None else 'nem olvasható'}%")
+        if keep_current_scheme(prev_guid, proc_min_ac):
+            out['kept'] = True
+            out['ok'] = True
+            logging.info(f"[POWER] A jelenlegi séma MARAD ({prev_guid}, {prev_name or 'névtelen'}) - "
+                         f"már teljesítményre hangolt; a maximum-beállítások rá kerülnek.")
+        elif not ensure_high_performance_scheme(run_fn):
+            say('⚠️ A Teljesítménycentrikus energiasémát nem sikerült beállítani - a gép '
                 'energiabeállításai változatlanok maradtak.')
             return out
-        out['ok'] = True
+        else:
+            out['ok'] = True
 
-        # Az alias-os beállítások. Egy hiányzó beállítás nem hiba: több alcsoport
-        # gép- és Windows-kiadásfüggő (pl. a SUB_PCIEXPRESS asztali gépeken hiányozhat).
+        # Minden beállítás, a rejtettek GUID-dal. Egy hiányzó beállítás nem hiba: több
+        # gép- és Windows-kiadásfüggő (pl. a SUB_PCIEXPRESS asztali gépeken, a P-mag
+        # magparkolás nem hibrid processzoron hiányozhat).
         for sub, setting, ac, dc, label in PERFORMANCE_SETTINGS:
             ok_ac = run_fn(['powercfg', '/setacvalueindex', 'SCHEME_CURRENT',
                             sub, setting, str(ac)]).returncode == 0
@@ -192,22 +283,24 @@ def apply_performance_plan(run_fn, log=None):
                 out['failed'].append(label)
                 logging.info(f"[POWER] Nem elérhető ezen a gépen: {label} ({sub}/{setting})")
 
-        # USB szelektív felfüggesztés - GUID-dal, mert nincs stabil alias-a.
-        u_ac = run_fn(['powercfg', '/setacvalueindex', 'SCHEME_CURRENT',
-                       USB_SUBGROUP_GUID, USB_SELECTIVE_SUSPEND_GUID, '0']).returncode == 0
-        u_dc = run_fn(['powercfg', '/setdcvalueindex', 'SCHEME_CURRENT',
-                       USB_SUBGROUP_GUID, USB_SELECTIVE_SUSPEND_GUID, '0']).returncode == 0
-        if u_ac or u_dc:
-            out['applied'].append('USB szelektív felfüggesztés')
-            logging.info("[POWER] Beállítva: USB szelektív felfüggesztés kikapcsolva.")
-        else:
-            out['failed'].append('USB szelektív felfüggesztés')
-
         # A módosítások CSAK egy újbóli /setactive után lépnek életbe - e nélkül a
         # beállítások bekerülnek a sémába, de a futó rendszerre nem érvényesülnek.
         run_fn(['powercfg', '/setactive', 'SCHEME_CURRENT'])
-        logging.info(f"[POWER] Teljesítmény-mód kész. Beállítva: {len(out['applied'])}, "
-                     f"nem elérhető: {len(out['failed'])}.")
+
+        # VISSZAOLVASÁS (4. elv: a verdikt a tényleges állapot, nem a visszatérési kód).
+        # `/qh`: a rejtett beállításokat is mutatja (a sima `/query` nem - mérve).
+        by_label = {s[4]: s for s in PERFORMANCE_SETTINGS}
+        for label in list(out['applied']):
+            sub, setting, ac, _dc, _l = by_label[label]
+            q = _run_powercfg_text(run_fn, ['powercfg', '/qh', 'SCHEME_CURRENT', sub, setting])
+            got_ac, got_dc = parse_setting_indexes(getattr(q, 'stdout', ''))
+            if got_ac is not None and got_ac != ac:
+                out['applied'].remove(label)
+                out['failed'].append(label)
+                logging.warning(f"[POWER] Visszaolvasva NEM a kért érték: {label} "
+                                f"(kért AC={ac}, olvasott AC={got_ac}, DC={got_dc})")
+        logging.info(f"[POWER] Teljesítmény-mód kész. Beállítva (visszaolvasva): {len(out['applied'])}, "
+                     f"nem elérhető / nem vette át: {len(out['failed'])}.")
     except Exception as e:
         logging.warning(f"[POWER] A teljesítmény-mód beállítása kivételre futott "
                         f"(a lánc ettől még sikeres): {e}", exc_info=True)

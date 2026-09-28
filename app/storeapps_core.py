@@ -281,7 +281,16 @@ def lookup_store_product(pfn, fetch):
 
 def install_via_winget(run, product_id):
     """(eredmény, részlet): 'ok' | 'uptodate' | 'missing' (nincs winget) | 'fail'."""
-    cmd = ['winget', 'install', '--id', product_id, '--source', 'msstore',
+    # ELŐBB MEGNÉZZÜK, VAN-E WINGET (2026-09-28, terepi napló, Build 344): a hiánya várt
+    # eset (friss / lecsupaszított Windows), a Store-API tartalék pedig működik - a vak
+    # hívás viszont a `_run`-ban "[ERROR] [CMD] Kivétel: [WinError 2]" sort hagyott, ami egy
+    # hibátlan futás naplójában hamis riasztás.
+    import shutil
+    alias = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'WindowsApps', 'winget.exe')
+    winget = shutil.which('winget') or (alias if os.path.exists(alias) else None)
+    if not winget:
+        return 'missing', 'a winget nincs telepítve/regisztrálva (nem található a PATH-on)'
+    cmd = [winget, 'install', '--id', product_id, '--source', 'msstore',
            '--accept-package-agreements', '--accept-source-agreements',
            '--silent', '--disable-interactivity']
     try:

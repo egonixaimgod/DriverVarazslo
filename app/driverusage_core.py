@@ -216,17 +216,9 @@ foreach ($c in (Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Control\Class')) {
   }
 }
 
-# 5) kernel-szolgáltatások állapota
-$services = @()
-foreach ($s in (Get-WmiObject Win32_SystemDriver)) {
-  $file = ''
-  $repo = ''
-  if ($s.PathName) {
-    $file = [System.IO.Path]::GetFileName($s.PathName)
-    if ($s.PathName -match '(?i)FileRepository\\([^\\]+?\.inf)_') { $repo = $Matches[1] }
-  }
-  $services += [pscustomobject]@{ name = $s.Name; state = $s.State; start = $s.StartMode; file = $file; repo = $repo }
-}
+# 5) kernel-szolgáltatások állapota: a közös _SERVICES_PS_BLOCK-ból fűződik hozzá (lent).
+# (2026-09-28-ig itt egy SAJÁT példány is állt, és a tartalék út kétszer kérdezte le
+# ugyanazt - a második felülírta az elsőt. Pont az a duplikáció, amit a lenti komment tilt.)
 
 """
 
@@ -266,16 +258,19 @@ foreach ($k in $infOf.Keys) {
 """
 
 # A KERNEL-SZOLGÁLTATÁSOK LEKÉRDEZÉSE. Az eszközök és a szűrők az eszközfából jönnek.
+# `dir` (2026-09-28): a DriverStore-mappa TELJES neve (`amdgpio3.inf_amd64_<hash>`). Az
+# eredeti INF-név (`repo`) nem elég, ha két azonos nevű csomag van fent (lásd build_usage).
 _SERVICES_PS_BLOCK = r"""
 $services = @()
 foreach ($s in (Get-WmiObject Win32_SystemDriver)) {
   $file = ''
   $repo = ''
+  $dir = ''
   if ($s.PathName) {
     $file = [System.IO.Path]::GetFileName($s.PathName)
-    if ($s.PathName -match '(?i)FileRepository\\([^\\]+?\.inf)_') { $repo = $Matches[1] }
+    if ($s.PathName -match '(?i)FileRepository\\(([^\\]+?\.inf)_[^\\]*)\\') { $dir = $Matches[1]; $repo = $Matches[2] }
   }
-  $services += [pscustomobject]@{ name = $s.Name; state = $s.State; start = $s.StartMode; file = $file; repo = $repo }
+  $services += [pscustomobject]@{ name = $s.Name; state = $s.State; start = $s.StartMode; file = $file; repo = $repo; dir = $dir }
 }
 """
 
@@ -534,7 +529,7 @@ def _norm_inf(name):
     return (name or '').strip().lower()
 
 
-def build_usage(raw, inf_facts, published_names=None, originals=None):
+def build_usage(raw, inf_facts, published_names=None, originals=None, folders=None):
     """A nyers rendszerállapotból csomagonkénti besorolás. TISZTA függvény.
 
     `raw`: a DRIVER_USAGE_PS kimenete dict-ként (devices/services/filters).
@@ -545,6 +540,8 @@ def build_usage(raw, inf_facts, published_names=None, originals=None):
         szolgáltatás DriverStore-mappája PONTOSAN egy csomaghoz köthető (a mappa neve
         az EREDETI INF-névvel kezdődik, nem a publikálttal). Enélkül is helyes marad a
         besorolás, csak a .sys-horgonyra támaszkodik.
+    `folders`: {published: DriverStore-mappanév} - opcionális (`win32.driver_store_folders`).
+        Két azonos eredeti nevű csomagot csak ez választ szét (2026-09-28).
 
     Minden sor megnevezi a BIZONYÍTÉKOT is (`reasons`), nem csak a verdiktet - a
     CLAUDE.md Rule 0 szellemében: egy besorolás, aminek nem látszik az indoka, a
@@ -587,7 +584,8 @@ def build_usage(raw, inf_facts, published_names=None, originals=None):
         nm = (s.get('name') or '').strip().lower()
         entry = {'name': s.get('name') or '', 'state': s.get('state') or '',
                  'start': s.get('start') or '', 'file': (s.get('file') or '').lower(),
-                 'repo': _norm_inf(s.get('repo'))}
+                 'repo': _norm_inf(s.get('repo')),
+                 'dir': (s.get('dir') or '').strip().lower()}
         if nm:
             svc_by_name[nm] = entry
         if entry['file']:
@@ -597,6 +595,7 @@ def build_usage(raw, inf_facts, published_names=None, originals=None):
 
     names = list(published_names) if published_names is not None else list(inf_facts.keys())
     orig_map = {_norm_inf(k): _norm_inf(v) for k, v in (originals or {}).items()}
+    folder_map = {_norm_inf(k): (v or '').strip().lower() for k, v in (folders or {}).items()}
 
     # HATODIK JEL: A KIEGÉSZÍTŐ (EXTENSION) INF-EK (2026-09-27).
     # A Windows egy Extension INF-et MINDEN olyan eszköz mellé betölt, amelyre a
@@ -642,13 +641,23 @@ def build_usage(raw, inf_facts, published_names=None, originals=None):
         ext_on = [x for x in ext_present.get(pub, []) if x not in present]
         ext_off = [x for x in ext_absent.get(pub, []) if x not in absent] if not ext_on else []
 
+        own_dir = folder_map.get(pub)
+
         def _belongs(e):
             """Ez a futó szolgáltatás TÉNYLEG ehhez a csomaghoz tartozik?
 
             Két csomag deklarálhatja ugyanazt a szolgáltatásnevet (mérve: `e1d.inf` és
             `e1d68x64.inf` -> mindkettő `e1dexpress`), ezért a puszta névegyezés
-            kevés - különben a régi verzió is "futónak" látszana. Két pontosító jel,
-            és mindkettő csak akkor vétózik, ha VAN mihez hasonlítani."""
+            kevés - különben a régi verzió is "futónak" látszana. Három pontosító jel,
+            és mindegyik csak akkor vétózik, ha VAN mihez hasonlítani.
+
+            A LEGERŐSEBB A DRIVERSTORE-MAPPA TELJES NEVE (2026-09-28, terepi napló, Build
+            344): két csomag EREDETI neve és `.sys`-e is lehet azonos (`amdgpio3.inf`, a
+            2017-es 2.0.1.0 és a Win11-only 3.0.5.0), így a nem használt csomag is
+            "HASZNÁLATBAN - Fut a kernel-szolgáltatása: amdgpio3" lett. A mappa hash-e
+            (`amdgpio3.inf_amd64_<hash>`) csomagonként egyedi."""
+            if e.get('dir') and own_dir:
+                return e['dir'] == own_dir
             if e['repo'] and own_origin and e['repo'] != own_origin:
                 return False
             if e['file'] and facts['sys_files'] and e['file'] not in facts['sys_files']:
@@ -666,7 +675,9 @@ def build_usage(raw, inf_facts, published_names=None, originals=None):
             matched.append(e)
         for sysf in facts['sys_files']:
             e = svc_by_file.get(sysf)
-            if e and e['name'].lower() not in seen:
+            # A `_belongs` ITT IS KELL (2026-09-28): eddig a .sys-ág ellenőrzés nélkül
+            # vette fel a szolgáltatást, így a csomag-azonosság vétója rajta nem futott le.
+            if e and e['name'].lower() not in seen and _belongs(e):
                 seen.add(e['name'].lower())
                 matched.append(e)
 
@@ -929,7 +940,16 @@ def collect_usage_context(run_fn, packages=None, inf_dir=None, node_fn=None, cla
         return None
     facts = read_inf_facts(published_names, inf_dir)
     names = published_names or list(facts.keys())
-    usage = build_usage(raw, facts, names, originals)
+    # A csomagok DriverStore-mappája (a két azonos nevű csomag szétválasztásához). Offline
+    # célnál (`inf_dir` megadva) a futó rendszeré félrevezető lenne, ott kimarad.
+    folders = {}
+    if inf_dir is None:
+        try:
+            from app import win32
+            folders = win32.driver_store_folders(names)
+        except Exception as e:
+            logging.debug(f"[USAGE] A DriverStore-mappák feloldása nem sikerült: {e}")
+    usage = build_usage(raw, facts, names, originals, folders)
     counts = summarize_counts(usage)
     logging.info(
         f"[USAGE] {len(usage)} csomag besorolva: "

@@ -34,6 +34,8 @@ from app.wu_core import base_vendor_hwid
 from app.wu_core import mark_generic_replace_candidates
 from app.wu_core import deep_catalog_candidates as wu_core_deep_candidates
 from app.wu_core import inf_package_applies
+from app.wu_core import inf_os_applicable
+from app.wu_core import host_os_signature
 from app.wu_core import select_applicable_infs
 from app.wu_core import unoffered_requested_titles
 from app.wu_core import is_specific_hwid
@@ -56,6 +58,17 @@ from app.common import CMD_TIMEOUT_RETURNCODE
 from app.common import CommandResult
 # === /AUTO-IMPORTS ===
 
+
+# A futó Windows (build, architektúra) - az INF-dekoráció összevetéséhez és a no-bind
+# bejegyzésekhez. Egy folyamaton belül nem változik, ezért egyszer olvassuk ki.
+_HOST_OS = host_os_signature()
+
+# A tartós no-bind tár oka, ha a csomag INF-je CSAK más (újabb) Windows-verzióra szól.
+# SZÁNDÉKOSAN NEM tartalmazza a "nem alkalmazható" szót: arra a `_proven_wrong` a teljes
+# csomagcsalád régebbi kiadásait is letiltja - itt viszont mérve (2026-09-28) a CSALÁD
+# egy régebbi kiadása (AMD GPIO 3.0.3.0) Win10-en is jó, csak az újabb (3.0.5.0) Win11-only.
+# A bejegyzés a Windows buildjét is hordozza: egy Win11-re frissített gépen elavul.
+NO_BIND_REASON_OS = 'más Windows-verzióra készült (INF TargetOSVersion)'
 
 # Eszközkezelő-hibakódok emberi olvasatban (a "Problémás eszközök" szekcióhoz).
 # Csak a gyakoriak - ismeretlen kódra általános szöveg megy.
@@ -2250,7 +2263,13 @@ try {
         Mindkét ágon lefut az előszűrő (2026-09-20). Visszatérés: a bővített tartalék-lista."""
         best_id, best_title = best[1], best[2]
         have = {best_id} | {a[0] for a in alts}
-        inbox = _is_inbox_driver(inst)
+        # DRIVER NÉLKÜLI eszköz (2026-09-28, terepen, Build 344): eddig "gyári driveren fut"
+        # bánásmódot kapott (`_is_inbox_driver({})` hamis), vagyis csak 1 tartalékot és csak
+        # "újabb" kiadást - egy drivertelen eszköznél viszont BÁRMELY ide való gyári csomag
+        # nyereség, pont mint a Windows-alapdrivernél (mérve: az AMD GPIO-nál a Win11-only
+        # 3.0.5.0 után a 3.0.3.0 Win10-en is jó lett volna).
+        no_driver = not (inst.get('inf') or inst.get('version'))
+        inbox = _is_inbox_driver(inst) or no_driver
         extra = [c for c in scored if c[1] not in have and c[1] not in probe.kizart
                  and (inbox or is_newer_release(c[3], c[2], inst.get('date'),
                                                 inst.get('version')) is not False)]
@@ -2274,7 +2293,12 @@ try {
             if len(uj) >= room:
                 break
         if uj:
-            if inbox:
+            if no_driver:
+                logging.info(f"[CATALOG] {item['name']}: az eszköznek NINCS drivere, ezért RÉGEBBI kiadások "
+                             f"is tartalékba kerülnek ({len(uj)} db, a legspecifikusabb kulcs "
+                             f"felől) - bármely ide való gyári csomag jobb a semminél. Első "
+                             f"tartalék: '{uj[0][1][:60]}' [{uj[0][2] or '?'}]")
+            elif inbox:
                 logging.info(f"[CATALOG] {item['name']}: Windows-alapdriveren fut, ezért RÉGEBBI kiadások "
                              f"is tartalékba kerülnek ({len(uj)} db, a legspecifikusabb kulcs "
                              f"felől) - egy régi gyári driver jobb a generikusnál. Első tartalék: "
@@ -2376,7 +2400,21 @@ try {
         if not cab_url:
             return None
         logging.debug(f"[CATALOG] Találat: {item['name']} ('{best_title}') - {cab_url[:50]}...")
-        return self._catalog_result_item(item, inst, best, alts, cab_url, replace_inbox)
+        result = self._catalog_result_item(item, inst, best, alts, cab_url, replace_inbox)
+        # IGAZOLJA-E A KATALÓGUS OS-CÍMKÉJE, hogy a nyertes erre a Windowsra való (2026-09-28)?
+        # `None` pontszám = a sor más Windowsra szól, és csak azért nyert, mert MINDEN sor
+        # kizárt volt (a `_catalog_score_rows` visszaesése). Ilyen találat nem válthat ki egy
+        # WU-ajánlatot (a WU-t a szerver erre a gépre célozza) - lásd `_reconcile_wu_catalog`.
+        result['os_label_ok'] = self._catalog_row_score(
+            (rows_by_guid.get(best_id) or ('', '', ''))[1]) is not None
+        # Driver nélküli eszköz: csak akkor mondjuk ki, ha a telepített-driver felmérés
+        # egyáltalán lefutott (üres felmérésnél minden eszköz "drivertelennek" látszana).
+        result['no_driver'] = bool(installed_info) and not (inst.get('inf') or inst.get('version'))
+        if not result['os_label_ok']:
+            logging.info(f"[CATALOG] {item['name']}: a nyertes ('{best_title}') katalógus-címkéje MÁS "
+                         f"Windows-verzióra szól (minden sor ilyen volt) - csak tartalékként ajánljuk, "
+                         f"a telepítő az INF alapján dönt.")
+        return result
 
     @staticmethod
     def _catalog_result_item(item, inst, best, alts, cab_url, replace_inbox):
@@ -2681,6 +2719,8 @@ try {
              WU-ajánlat esik ki (nincs értelme egy régebbit is feltenni előtte);
           3. MÁS fajta csomag (pl. a WU a Realtek "Extension"-t, a katalógus az alap
              "MEDIA" drivert adja): MINDKETTŐ marad - mindkettő kell az eszköznek.
+          Kivétel a 2. szabály alól (2026-09-28): ha a katalógus-tétel címkéje MÁS Windowsra
+          szól (`os_label_ok` hamis), a WU-ajánlat marad, a katalógusé kiesik.
 
         Visszatérés: az új pool (a WU-elemek sorrendje megmarad, a katalógus-tételek a
         végére kerülnek, ahogy eddig)."""
@@ -2742,6 +2782,18 @@ try {
                 continue
             cat_rank = release_rank(hit.get('wu_date'), hit.get('wu_title'))
             wu_best = max(release_rank(w.get('wu_date'), w.get('wu_title')) for w in rokon)
+            if hit.get('os_label_ok') is False:
+                # MÁS WINDOWSRA CÍMKÉZETT KATALÓGUS-CSOMAG NEM VÁLTHAT KI WU-AJÁNLATOT
+                # (2026-09-28, terepen, Build 344, Win10): az AMD SMBus 2017-es WU-csomagját
+                # a lánc a katalógus 2026-os 2.0.0.29-e javára elhalasztotta - az viszont
+                # Win11-only (mérve: INF NTamd64.10.0...22000), a katalógus MINDEN sora
+                # Win11-es volt, és csak a pontozó visszaesése miatt lett nyertes. Egy lábon
+                # át driver nélkül maradt az eszköz. A WU-t a szerver erre a gépre célozza,
+                # tehát az ő ajánlata biztosan alkalmazható - az marad.
+                logging.info(f"[HW_SCAN] {hit.get('name')}: a katalógus-csomag ('{hit.get('wu_title')}') "
+                             f"címkéje szerint más Windows-verzióra szól - a WU-ajánlat marad "
+                             f"({[w.get('wu_title') for w in rokon]}), a katalógusé kiesik.")
+                continue
             if cat_rank <= wu_best:
                 logging.info(f"[HW_SCAN] {hit.get('name')}: a katalógus-csomag ('{hit.get('wu_title')}' "
                              f"[{hit.get('wu_date') or '?'}]) nem újabb a WU-ajánlatnál - a WU-é marad.")
@@ -3058,7 +3110,19 @@ try {
         try:
             with open(self._no_bind_store_path(), 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            return data if isinstance(data, list) else []
+            if not isinstance(data, list):
+                return []
+            # A "más Windows-verzióra készült" bejegyzés csak UGYANEZEN a Windows-buildjén
+            # igaz: egy Win11-re frissített gépen ugyanaz a csomag már települhet.
+            build = _HOST_OS.get('build')
+            elavult = [t for t in data if isinstance(t, dict) and t.get('os_build')
+                       and build and t.get('os_build') != build]
+            if elavult:
+                logging.info(f"[CATALOG] {len(elavult)} no-bind bejegyzés elavult (más Windows-buildön "
+                             f"jegyeztük fel, most: {build}) - nem vesszük figyelembe: "
+                             f"{[t.get('title') for t in elavult][:5]}")
+                data = [t for t in data if t not in elavult]
+            return data
         except FileNotFoundError:
             return []
         except Exception as e:
@@ -3100,6 +3164,10 @@ try {
                                  'url': d.get('url') or '',
                                  'date': d.get('wu_date') or '',
                                  'reason': d.get('no_bind_reason') or '',
+                                 # Csak a Windows-verzió miatti bejegyzésnél: melyik buildön
+                                 # derült ki (lásd _no_bind_load - más buildön elavul).
+                                 **({'os_build': d['no_bind_os_build']}
+                                    if d.get('no_bind_os_build') else {}),
                                  'recorded': time.strftime('%Y-%m-%d')})
                 added.append(d.get('name') or k[1])
             if not added and not removed:
@@ -3584,7 +3652,8 @@ try {
                 # inbox windowsos generic driver"). A kereső ilyenkor eleve a
                 # legspecifikusabb HWID felől rendezi a tartalékokat, tehát a jó csomag
                 # jellemzően az első néhány között van.
-                max_cand = (CATALOG_INBOX_FALLBACK_CANDIDATES if drv.get('inbox_now')
+                max_cand = (CATALOG_INBOX_FALLBACK_CANDIDATES
+                            if drv.get('inbox_now') or drv.get('no_driver')
                             else CATALOG_MAX_CANDIDATES)
                 for (g, t, d) in (drv.get('alt_candidates') or [])[:max_cand - 1]:
                     candidates.append((g, t, d, None))
@@ -3630,7 +3699,7 @@ try {
                 # "nincs hozzá való csomag" BIZONYÍTOTT-e. Eddig a letöltési korlát miatt
                 # félbehagyott vagy link nélküli jelöltek után is az állt, hogy "mind a N
                 # jelöltet végigpróbáltuk" - ami nem volt igaz.
-                jelolt_sors = {'vetoed': 0, 'known_bad': 0, 'dup': 0,
+                jelolt_sors = {'vetoed': 0, 'os_vetoed': 0, 'known_bad': 0, 'dup': 0,
                                'unresolved': 0, 'exe': 0, 'budget_left': 0}
                 for cand_i, (cand_guid, cand_title, cand_date, cand_url) in enumerate(candidates):
                     if self._check_cancel():
@@ -3880,6 +3949,29 @@ try {
                                                 no_bind_reason='nem alkalmazható (más gépre szabott INF)'))
                         jelolt_sors['vetoed'] += 1
                         continue
+                    # A WINDOWS-VERZIÓ IS DÖNT, NEM CSAK A HARDVER-AZONOSÍTÓ (2026-09-28, lásd
+                    # wu_core.inf_os_applicable): a katalógus OS-címkéje megbízhatatlan, az INF
+                    # [Manufacturer] dekorációja viszont kimondja, melyik buildre van szekció.
+                    # Terepen (Build 344, Win10) a Win11-only AMD SMBus/GPIO csomagot a pnputil
+                    # csendben nem rakta fel (kód 259), és a képernyőn "már naprakész" állt -
+                    # egy driver NÉLKÜLI eszközön. Itt a következő jelöltre lépünk.
+                    os_ok, os_why = inf_os_applicable(ext_path, drv.get('all_hwids'))
+                    if os_ok is False:
+                        logging.warning(f"[CATALOG_INSTALL] Más Windows-verzióra készült csomag "
+                                        f"({cand_i + 1}/{len(candidates)}), kihagyva: {name} "
+                                        f"({cand_title}) - {os_why}")
+                        self.emit('task_progress', {'task': task_id, 'log':
+                                  f'  ↷ {name}: a(z) „{cand_title}” csomag csak újabb Windows-verzióra '
+                                  f'készült (az INF-je ezen a Windowson nem települhet) - kihagyva.'})
+                        with counter_lock:
+                            no_bind.append(dict(drv, wu_title=cand_title, wu_date=cand_date,
+                                                cat_guid=cand_guid, url=cand_url,
+                                                no_bind_reason=NO_BIND_REASON_OS,
+                                                no_bind_os_build=_HOST_OS.get('build')))
+                        jelolt_sors['os_vetoed'] += 1
+                        continue
+                    if os_ok:
+                        logging.debug(f"[CATALOG_INSTALL] {name}: az INF erre a Windowsra is szól - {os_why}")
                     chosen = (cand_guid, cand_title, cand_date, cand_url)
                     break
 
@@ -3916,9 +4008,15 @@ try {
                     # rakta a helyeset. A "nincs való csomag" itt tehát azt jelenti, hogy a
                     # MEGVIZSGÁLT jelöltek INF-je nem ismeri ezt az eszközt - nem azt, hogy a
                     # gyártó nem publikál.
-                    on_vendor = not drv.get('inbox_now')
+                    # DRIVER NÉLKÜLI eszköz (2026-09-28): eddig `not inbox_now` = "már gyári
+                    # driveren fut, nincs teendő" - egy driver nélküli eszközre ez valótlan volt.
+                    no_driver = bool(drv.get('no_driver'))
+                    on_vendor = not drv.get('inbox_now') and not no_driver
                     inst_txt = ' '.join(x for x in ((drv.get('installed_provider') or '').strip(),
                                                     (drv.get('installed_version') or '').strip()) if x)
+                    # Ha a jelöltek egy része CSAK a Windows-verzió miatt esett ki, azt ki kell
+                    # mondani: "egyik INF-je sem ismeri ezt az eszközt" ilyenkor nem igaz.
+                    os_only = jelolt_sors['os_vetoed'] and not jelolt_sors['vetoed']
                     # BIZONYÍTOTT-E A "NINCS CSOMAG"? Csak ha minden jelöltről tudjuk, hogy nem
                     # ide való (most elvetette az INF-vizsgálat, egy korábbi futás már kizárta,
                     # vagy egy már kipróbált csomag másolata). A letöltési korlát, a feloldhatatlan
@@ -3929,9 +4027,10 @@ try {
                                  f"({len(candidates)} jelölt).")
                     if nem_bizonyitott:
                         okok = []
-                        if jelolt_sors['vetoed'] or jelolt_sors['known_bad'] or jelolt_sors['dup']:
-                            okok.append(f"{jelolt_sors['vetoed'] + jelolt_sors['known_bad'] + jelolt_sors['dup']} "
-                                        f"bizonyítottan nem ide való")
+                        rossz = (jelolt_sors['vetoed'] + jelolt_sors['os_vetoed']
+                                 + jelolt_sors['known_bad'] + jelolt_sors['dup'])
+                        if rossz:
+                            okok.append(f"{rossz} bizonyítottan nem ide való")
                         if jelolt_sors['budget_left']:
                             okok.append(f"{jelolt_sors['budget_left']} a letöltési korlát miatt kimaradt")
                         if jelolt_sors['unresolved']:
@@ -3947,14 +4046,27 @@ try {
                             skipped += 1
                         _mark('partial', name, '; '.join(okok))
                         return
+                    allapot = ('MÁR GYÁRI DRIVEREN FUT' if on_vendor
+                               else 'DRIVER NÉLKÜL VAN' if no_driver else 'WINDOWS-ALAPDRIVEREN MARAD')
                     logging.warning(f"[CATALOG_INSTALL] {name}: mind a(z) {len(candidates)} katalógus-jelölt "
-                                    f"INF-je más eszközre való - nincs telepíthető csomag. "
-                                    f"{'MÁR GYÁRI DRIVEREN FUT' if on_vendor else 'WINDOWS-ALAPDRIVEREN MARAD'}"
+                                    f"{'csak más Windows-verzióra készült' if os_only else 'INF-je más eszközre való'}"
+                                    f" - nincs telepíthető csomag. {allapot}"
                                     f"{' (' + inst_txt + ')' if inst_txt else ''}.")
-                    self.emit('task_progress', {'task': task_id, 'log':
-                              f'  ↷ {name}: mind a(z) {len(candidates)} katalógus-jelöltet végigpróbáltuk, '
-                              f'egyik INF-je sem ismeri ezt az eszközt - nincs telepíthető csomag.'})
-                    if on_vendor:
+                    if os_only:
+                        self.emit('task_progress', {'task': task_id, 'log':
+                                  f'  ↷ {name}: mind a(z) {len(candidates)} katalógus-jelöltet végigpróbáltuk - '
+                                  f'mind újabb Windows-verzióra (pl. Windows 11) készült, ezen a gépen '
+                                  f'egyik sem települhet.'})
+                    else:
+                        self.emit('task_progress', {'task': task_id, 'log':
+                                  f'  ↷ {name}: mind a(z) {len(candidates)} katalógus-jelöltet végigpróbáltuk, '
+                                  f'egyik INF-je sem ismeri ezt az eszközt - nincs telepíthető csomag.'})
+                    if no_driver:
+                        self.emit('task_progress', {'task': task_id, 'log':
+                                  f'     → Az eszköznek jelenleg NINCS drivere. Ha a Windows Update ad hozzá '
+                                  f'csomagot, a következő kör azt telepíti; ha nem, a gyártó (alaplap/laptop) '
+                                  f'driver-oldaláról kell pótolni.'})
+                    elif on_vendor:
                         self.emit('task_progress', {'task': task_id, 'log':
                                   f'     ✅ Ez NEM hiányosság: az eszközön MÁR GYÁRI DRIVER FUT'
                                   f'{" (" + inst_txt + ")" if inst_txt else ""}, csak újabb, ehhez a '
@@ -3972,11 +4084,14 @@ try {
                         # CSAK a valódi teendőt jelentheti be (lásd ott).
                         no_source.append({'name': name, 'pnp_id': drv.get('pnp_id') or '',
                                           'hwid': drv.get('hwid') or '',
-                                          'inbox_now': not on_vendor,
+                                          'inbox_now': not on_vendor and not no_driver,
+                                          'no_driver': no_driver,
                                           'installed_inf': drv.get('installed_inf') or '',
                                           'installed': inst_txt})
-                        _mark('nosource', name,
-                              '' if not on_vendor else 'már gyári driveren fut, nincs teendő')
+                        _mark('nosource', name, '; '.join(x for x in (
+                            'csak újabb Windowsra készült csomag van' if os_only else '',
+                            'az eszköznek nincs drivere' if no_driver else '',
+                            'már gyári driveren fut, nincs teendő' if on_vendor else '') if x))
                     return
                 if chosen[1] != (drv.get('wu_title') or ''):
                     # Ez a sor a bizonyíték, hogy a tartalék-logika dolgozott: enélkül a
@@ -4132,7 +4247,36 @@ try {
                     # HIBAKÓDOS eszköznél is ez a helyes olvasat (2026-09-26): a csomag
                     # fent van, az eszköz mégis hibás -> a KÖTÉS a gond, nem a telepítés.
                     # Eddig ilyenkor "↷ már naprakész" jelent meg egy hibás eszköz mellett.
-                    if all_already and (drv.get('generic_replace') or drv.get('err_code')):
+                    if drv.get('no_driver'):
+                        # DRIVER NÉLKÜLI ESZKÖZ + NO-OP = A WINDOWS NEM VÁLASZTOTTA KI A CSOMAGOT
+                        # (2026-09-28, terepen, Build 344). Egy driver nélküli eszközre a
+                        # pnputil "up-to-date on device"-t / "Added: 0"-t csak akkor ad, ha a
+                        # csomagban nincs erre a rendszerre érvényes driver-szekció. Ilyenkor
+                        # "már naprakész"-t írni HAZUGSÁG volt: az AMD SMBus és GPIO egy teljes
+                        # lábon át driver nélkül maradt, miközben a képernyő azt mondta, hogy
+                        # "ez jó hír, nem kimaradás". Az elsődleges védelem a letöltés utáni
+                        # INF-dekoráció vizsgálat (fent); ez a háló arra az esetre, amit az nem lát.
+                        _mark('notapplied', name, drv.get('wu_title') or '')
+                        logging.warning(f"[CATALOG_INSTALL] {name}: az eszköznek NINCS drivere, és a "
+                                        f"pnputil no-op-ot adott (rc={res.returncode}) - a Windows nem "
+                                        f"választotta ki a csomagot, ez NEM 'naprakész'.")
+                        self.emit('task_progress', {'task': task_id, 'log':
+                                  f'  ⚠️ {name}: a Windows NEM rakta fel ezt a csomagot az eszközre - '
+                                  f'az eszköznek most sincs drivere (a csomag nem ehhez a '
+                                  f'Windows-verzióhoz / hardverhez való).'})
+                        with counter_lock:
+                            no_bind.append(dict(drv, no_bind_reason='a Windows nem választotta ki '
+                                                '(driver nélküli eszköz, pnputil no-op)'))
+                        # A felstage-elt, de semmin nem futó INF ne maradjon a DriverStore-ban
+                        # (terepen két ilyen maradt, és a "Nem használt" listán ült). Sima
+                        # törlés: ha bármi mégis használja, a pnputil elutasítja.
+                        for pub in sorted(set(re.findall(r'Published Name\s*:\s*(oem\d+\.inf)',
+                                                         res.stdout or '', re.IGNORECASE))):
+                            dres = self._run(['pnputil', '/delete-driver', pub], ok_codes=(0, 3010),
+                                             timeout=DELETE_DRIVER_TIMEOUT)
+                            logging.info(f"[CATALOG_INSTALL] {name}: a fel nem vett {pub} kivezetése "
+                                         f"a DriverStore-ból -> rc={getattr(dres, 'returncode', '?')}")
+                    elif all_already and (drv.get('generic_replace') or drv.get('err_code')):
                         _mark('staged_nobind', name)
                         with counter_lock:
                             staged_nobind.append(name)
@@ -4293,6 +4437,16 @@ try {
                             self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {drv.get("name")}: a csomag feltelepült, de az eszköz TOVÁBBRA IS driver nélkül áll - a Windows nem kötötte rá.'})
                         drv['no_bind_reason'] = 'felment, de az eszköz nem vette át'
                         no_bind.append(drv)
+                        # A TÉTELES MÉRLEG IS KÖVESSE A KÖTÉS-ELLENŐRZÉST (2026-09-28, a Build
+                        # 344-es javítások tesztje fogta meg): a sort a telepítés pillanatában
+                        # 'ok'-nak jelöltük, és a "✅ Feltelepítve" alatt maradt akkor is, ha az
+                        # eszköz utána kiderülten NEM vette át - a képernyő két sorral lejjebb
+                        # ellentmondott a saját "⚠️ nem kötötte rá" sorának.
+                        uj_kind = 'staged_nobind' if drv.get('installed_inf') else 'notapplied'
+                        for i, (k, n, x) in enumerate(outcome_detail):
+                            if k == 'ok' and n == drv.get('name'):
+                                outcome_detail[i] = (uj_kind, n, x)
+                                break
                     if stuck:
                         success -= len(stuck)
                         skipped += len(stuck)
@@ -4351,8 +4505,10 @@ try {
             ('netfail',  '↻ Le sem jött (hálózat)', 'a csomaggal nincs baj; a következő szkennelés újra felajánlja'),
             ('nolink',   '⏭️ Nincs letöltési link', 'a katalógus nem adott letölthető fájlt'),
             ('exe',      '⏭️ .exe telepítő',       'biztonsági okból nem futtatunk ismeretlen telepítőt automatikusan'),
+            ('notapplied', '⚠️ A Windows nem rakta fel az eszközre',
+             'az eszköznek most sincs drivere - a csomag nem ehhez a Windowshoz/hardverhez való'),
             ('partial',  '⏹ Nem minden jelöltet tudtunk kipróbálni', 'a kipróbáltak nem illettek; a többi oka a tételnél'),
-            ('nosource', '🚫 Nincs hozzá való csomag', 'minden katalógus-jelöltet végigpróbáltunk, mind más gépgyártó változata'),
+            ('nosource', '🚫 Nincs hozzá való csomag', 'minden katalógus-jelöltet végigpróbáltunk - más gépre vagy más Windows-verzióra készültek (az ok a tételnél)'),
             ('fail',     '❌ Telepítési hiba',      ''),
         ]
         if outcome_detail:

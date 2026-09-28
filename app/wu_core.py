@@ -832,6 +832,162 @@ def inf_package_applies(ext_dir, dev_hwids):
     return False
 
 
+# ============================================================================
+# AZ INF CÉLZOTT WINDOWS-VERZIÓJA (TargetOSVersion) - 2026-09-28
+# ============================================================================
+# A katalógus a "Products" oszlopban megmondja, milyen Windowsra szól egy sor, és a
+# `_catalog_row_score` ebből pontoz. Csakhogy ez a címke NEM megbízható, és ezt mérés
+# bizonyítja (2026-09-28, ASRock B450M Pro4, Win10 19045, a lánc terepi naplója után
+# a csomagokat letöltve):
+#
+#   AMD SMBus 2.0.0.29 / 2.0.0.26   címke: "Windows 11 client..."   INF: NTamd64.10.0...22000  -> Win11-only
+#   AMD GPIO  3.0.5.0               címke: "Windows - Client, 21H2" INF: NTamd64.10.0...22000  -> Win11-only
+#   AMD GPIO  3.0.3.0               címke: "Windows 11 client..."   INF: NTamd64 (dekoráció nélkül) -> Win10-en IS jó
+#
+# Vagyis a címke hol átenged egy Win11-only csomagot (a "Windows - Client, version
+# 21H2" a Win11 terméknév, a pontozó ezt "ismeretlennek" veszi), hol kizár egy Win10-en
+# is működőt. Az egyetlen hiteles forrás maga az INF: a [Manufacturer] szekció
+# dekorációja mondja meg, melyik Windows-buildre van egyáltalán driver-szekció.
+#
+# A terepi kár (Build 344): a lánc a WU helyes, Win10-es AMD csomagjait a katalógus
+# "újabb" Win11-es csomagja javára elhalasztotta; a pnputil a Win11-es INF-et csendben
+# nem rakta az eszközre (kód 259, "up-to-date on device"), a képernyőn pedig az állt,
+# hogy "már naprakész" - miközben az eszköznek abban a pillanatban NEM VOLT drivere.
+# Egy teljes láb múlva a WU pótolta. Ez a függvény ezt a letöltés UTÁN, a telepítés
+# ELŐTT kimondja, így a telepítő a következő jelöltre léphet.
+
+def host_os_signature():
+    """A futó Windows adatai a dekoráció-összevetéshez: major, minor, build, arch, termék."""
+    import sys
+    import platform
+    try:
+        v = sys.getwindowsversion()
+        major, minor, build = v.major, v.minor, v.build
+        product_type = int(getattr(v, 'product_type', 1) or 1)
+    except Exception:
+        major, minor, build, product_type = 10, 0, 0, 1
+    mach = (os.environ.get('PROCESSOR_ARCHITEW6432') or platform.machine()
+            or os.environ.get('PROCESSOR_ARCHITECTURE') or '').lower()
+    arch = {'amd64': 'amd64', 'x86_64': 'amd64', 'arm64': 'arm64', 'aarch64': 'arm64',
+            'x86': 'x86', 'i386': 'x86', 'i686': 'x86'}.get(mach, mach)
+    return {'major': major, 'minor': minor, 'build': build, 'arch': arch,
+            'product_type': product_type}
+
+
+def _inf_int(s):
+    """Egy dekoráció-mező egész értéke (a ProductType hexában is állhat), vagy None."""
+    s = (s or '').strip()
+    if not s:
+        return None
+    try:
+        return int(s, 0)
+    except ValueError:
+        try:
+            return int(s, 16)
+        except ValueError:
+            return None
+
+
+def inf_decoration_applies(dec, host):
+    """Illik-e egy [Manufacturer] dekoráció a futó Windowsra?
+
+    Alak: NT[Architektúra][.[OSMajor][.[OSMinor][.[ProductType][.[SuiteMask][.[BuildNumber]]]]]]
+    pl. `NTamd64`, `NTamd64.10.0...22000`, `NTx86.6.1`. True / False / None (nem NT-alakú,
+    nem értelmezhető - ilyenkor NEM vétózunk)."""
+    d = (dec or '').strip().lower()
+    if not d.startswith('nt'):
+        return None
+    parts = d[2:].split('.')
+    arch = parts[0]
+    if arch and host.get('arch') and arch != host['arch']:
+        return False
+    major = _inf_int(parts[1]) if len(parts) > 1 else None
+    minor = _inf_int(parts[2]) if len(parts) > 2 else None
+    ptype = _inf_int(parts[3]) if len(parts) > 3 else None
+    build = _inf_int(parts[5]) if len(parts) > 5 else None
+    if major is not None:
+        if (major, minor or 0) > (host.get('major', 0), host.get('minor', 0)):
+            return False
+    if ptype is not None and host.get('product_type') and ptype != host['product_type']:
+        # 1 = munkaállomás, 2/3 = szerver: egy szerver-szekció kliensen nem érvényes.
+        return False
+    if build is not None and build > host.get('build', 0):
+        return False
+    return True
+
+
+def _inf_sections(text):
+    """Egy INF szekciói: {kisbetűs név: szekció-szöveg}."""
+    out, cur, buf = {}, None, []
+    for line in (text or '').splitlines():
+        m = re.match(r'\s*\[([^\]]+)\]', line)
+        if m:
+            if cur is not None:
+                out[cur] = '\n'.join(buf)
+            cur, buf = m.group(1).strip().lower(), []
+            continue
+        if cur is not None:
+            buf.append(line)
+    if cur is not None:
+        out[cur] = '\n'.join(buf)
+    return out
+
+
+def inf_os_applicable(ext_dir, dev_hwids, host=None):
+    """Van-e a kicsomagolt csomagban ERRE A WINDOWS-VERZIÓRA szóló driver-szekció az
+    eszközhöz? (Lásd a blokk-kommentet: a katalógus OS-címkéje nem megbízható.)
+
+    Visszatérés: (verdikt, indoklás)
+      True  - az eszköz azonosítója egy erre a Windowsra érvényes models-szekcióban áll;
+      False - az eszköz azonosítója CSAK olyan szekciókban áll, amelyek dekorációja más
+              (újabb) Windowsra szól - a pnputil erre sosem fog rákötni;
+      None  - nem eldönthető (az eszköz nem szerepel, nincs [Manufacturer], vagy van
+              dekoráció nélküli szekció is): ilyenkor NEM vétózunk, ugyanaz az elv, mint az
+              `inf_package_applies` None-jánál."""
+    dev_hwids = [h for h in (dev_hwids or []) if h]
+    if not dev_hwids or not ext_dir:
+        return None, 'nincs eszköz-azonosító'
+    host = host or host_os_signature()
+    applicable, inapplicable, unknown = [], [], []
+    for root, _dirs, files in os.walk(ext_dir):
+        for fn in files:
+            if not fn.lower().endswith('.inf'):
+                continue
+            secs = _inf_sections(_read_text_best_effort(os.path.join(root, fn)))
+            mf = secs.get('manufacturer')
+            if not mf:
+                continue
+            for line in mf.splitlines():
+                line = line.split(';', 1)[0].strip()
+                if '=' not in line:
+                    continue
+                parts = [p.strip() for p in line.split('=', 1)[1].split(',') if p.strip()]
+                if not parts:
+                    continue
+                models, decs = parts[0].lower(), parts[1:]
+                targets = [(models + '.' + d.lower(), d) for d in decs] if decs else [(models, None)]
+                for sec_name, dec in targets:
+                    ids = extract_inf_hardware_ids(secs.get(sec_name, ''))
+                    if not any(_hwid_matches(i, dh) for i in ids for dh in dev_hwids):
+                        continue
+                    verdict = inf_decoration_applies(dec, host) if dec else None
+                    label = f"{fn}: [{sec_name}]"
+                    if verdict is True:
+                        applicable.append(label)
+                    elif verdict is False:
+                        inapplicable.append(f"{fn}: {dec}")
+                    else:
+                        unknown.append(label)
+    host_txt = f"Windows {host.get('major')}.{host.get('minor')} build {host.get('build')} {host.get('arch')}"
+    if applicable:
+        return True, f"{host_txt} - illeszkedő szekció: {applicable[:3]}"
+    if unknown:
+        return None, f"dekoráció nélküli / nem értelmezhető szekció: {unknown[:3]}"
+    if inapplicable:
+        return False, f"az eszköz csak más Windowsra szóló szekcióban áll ({host_txt}): {inapplicable[:4]}"
+    return None, 'az eszköz egyik models-szekcióban sem szerepel'
+
+
 def _pnp_prefix_match(wu_hwid, dev_pnp):
     """A WU-azonosító az eszköz PÉLDÁNY-azonosítójának eleje-e - TAG-HATÁRON, legalább 2 taggal.
 
@@ -1053,8 +1209,15 @@ def no_source_is_actionable(entry):
     AMIT EZ NEM CSINÁL: nem rejt el semmit. A ki nem írt tételek a naplóba nevesítve,
     okkal mennek ki, és a tételes mérleg ("🚫 Nincs hozzá való csomag") a képernyőn is
     felsorolja őket - csak a "TEENDŐ" figyelmeztetésbe nem kerülnek bele.
+
+    DRIVER NÉLKÜLI ESZKÖZ (`no_driver`, 2026-09-28): az mindig valódi teendő - eddig a
+    telepítő az ilyet "már gyári driveren fut"-ként (`inbox_now` hamis) adta át, és így
+    kiesett a figyelmeztetésből.
     """
-    if not (entry or {}).get('inbox_now'):
+    entry = entry or {}
+    if entry.get('no_driver'):
+        return is_specific_hwid(entry.get('hwid') or entry.get('pnp_id') or '')
+    if not entry.get('inbox_now'):
         return False
     if not is_specific_hwid(entry.get('hwid') or entry.get('pnp_id') or ''):
         return False

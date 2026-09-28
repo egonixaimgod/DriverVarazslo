@@ -17,7 +17,7 @@ import threading
 import time
 import logging
 
-BUILD_NUMBER = 344
+BUILD_NUMBER = 345
 
 from app import common
 common.BUILD_NUMBER = BUILD_NUMBER
@@ -30,9 +30,11 @@ from app.common import (
     download_with_cert_fallback,
     ensure_console,
     gui_attempt_begin,
+    gui_attempt_failed_cleanly,
     gui_crash_check,
     gui_env_signature,
     is_admin,
+    relaunch_detached,
     resource_path,
     _app_data_dir,
     _webview_ready,
@@ -310,7 +312,11 @@ if __name__ == "__main__":
                     ctypes.windll.user32.MessageBoxW(
                         None, net_msg + "\n\nA program most újraindul a grafikus felülettel.",
                         "DriverVarázsló - Siker", 0x40 | MB_TOPMOST)
-                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                    # Ugyanaz, mint a WebView2-ág: NEM `os.execv` (lásd ott és
+                    # common.relaunch_detached - közös `_MEI` mappa, duplázott argv).
+                    if relaunch_detached(sys.argv[1:], '.NET telepítése után'):
+                        os._exit(0)
+                    logging.error("[INIT] Az újraindítás nem sikerült - a program CLI módban folytatja.")
                 elif net_ok and net_reboot:
                     logging.info("[INIT] A .NET telepítve, újraindítás szükséges.")
                     reboot_answer = ctypes.windll.user32.MessageBoxW(
@@ -498,8 +504,15 @@ if __name__ == "__main__":
                         "DriverVarázsló - Siker",
                         0x40 | MB_TOPMOST
                     )
-                    # Program újraindítása
-                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                    # Program újraindítása - NEM `os.execv`-vel (2026-09-28, terepen, Build
+                    # 344): az a PyInstaller `_PYI_*` környezetét örökítette, így az új példány
+                    # a MI `_MEI` mappánkból indult, amit a kilépő bootloader épp törölt ->
+                    # "Failed to resolve Python.Runtime.Loader.Initialize", a felület nem
+                    # indult el, és a GUI-őr CLI-be zárta a gépet. Ráadásul az exe útvonalát
+                    # kétszer adta át argumentumként. Lásd common.relaunch_detached.
+                    if relaunch_detached(sys.argv[1:], 'WebView2 telepítése után'):
+                        os._exit(0)
+                    logging.error("[INIT] Az újraindítás nem sikerült - a program CLI módban folytatja.")
                 else:
                     logging.error(f"[INIT] WebView2 telepítés után még mindig nem OK: {wv2_info2}")
                     print("\n  ✘ A telepítés után sem található megfelelő WebView2 Runtime.")
@@ -555,16 +568,31 @@ if __name__ == "__main__":
         logging.error(f"[GUI-ŐR] Az előző grafikus indítás összeomlott ugyanebben a "
                       f"környezetben ({gui_signature}) - a felület kihagyva, CLI mód indul. "
                       f"Kényszerítés: --force-gui")
+        # A TANÁCS A GÉP ÁLLAPOTÁHOZ IGAZODIK (2026-09-28, terepi napló, Build 344): a régi
+        # szöveg MINDIG .NET 4.8 telepítését javasolta, egy .NET 4.8-as Win10-en is - a
+        # technikus fel is rakta a 4.8.1-et, fölöslegesen. Ha a .NET megfelelő, a valódi ok
+        # jellemzően egy injektáló overlay (RTSS/MSI Afterburner, lásd CLAUDE.md "Üres
+        # felület") vagy egy sérült WebView2 - azt kell mondani, nem a .NET-et.
+        if dotnet_ok:
+            tanacs = ("A .NET Framework ezen a gépen megfelelő, tehát nem az az ok.\n"
+                      "Gyakori ok: egy overlay-program (pl. MSI Afterburner / RivaTuner\n"
+                      "Statistics Server), ami beinjektálja magát a felületbe.\n\n"
+                      "Amit tehetsz:\n"
+                      "  - zárd be az ilyen programokat, majd indítsd a programot\n"
+                      "    --force-gui kapcsolóval\n"
+                      "  - vagy használd a CLI módot: minden driveres funkció elérhető benne\n\n")
+        else:
+            tanacs = ("Ez régi rendszereken (Windows 7 / 8 / 8.1) fordul elő: ott a\n"
+                      "WebView2 legfeljebb 109-es lehet, és a felülethez .NET 4.7.2+ kell.\n\n"
+                      "Amit tehetsz:\n"
+                      "  - .NET Framework 4.8 telepítése, majd újraindítás\n"
+                      "    https://go.microsoft.com/fwlink/?LinkId=2085155\n"
+                      "  - vagy használd a CLI módot: minden driveres funkció elérhető benne\n\n")
         ctypes.windll.user32.MessageBoxW(
             None,
             "A grafikus felület a legutóbbi indításkor összeomlott, ezért most\n"
             "kihagyjuk, és a program SZÖVEGES (CLI) módban indul.\n\n"
-            "Ez régi rendszereken (Windows 7 / 8 / 8.1) fordul elő: ott a\n"
-            "WebView2 legfeljebb 109-es lehet, és a felülethez .NET 4.7.2+ kell.\n\n"
-            "Amit tehetsz:\n"
-            "  - .NET Framework 4.8 telepítése, majd újraindítás\n"
-            "    https://go.microsoft.com/fwlink/?LinkId=2085155\n"
-            "  - vagy használd a CLI módot: minden driveres funkció elérhető benne\n\n"
+            + tanacs +
             "Ha új környezetet telepítesz, a program magától újra megpróbálja\n"
             "a grafikus felületet.",
             "DriverVarázsló - Szöveges módban indul",
@@ -574,7 +602,7 @@ if __name__ == "__main__":
         print("\n" + "=" * 60)
         print("  ⚠️  A GRAFIKUS FELÜLET AZ ELŐZŐ INDÍTÁSKOR ÖSSZEOMLOTT")
         print("  Ezért most szöveges (CLI) módban indul a program.")
-        print("  (A grafikus felülethez .NET 4.7.2+ kell - lásd az üzenetablakot.)")
+        print("  (Az ok és a teendő az üzenetablakban - kényszerítés: --force-gui)")
         print("=" * 60)
         run_cli_mode()
         cleanup_zombies()
@@ -643,10 +671,14 @@ if __name__ == "__main__":
         if not _webview_ready.is_set() or _webview_error.is_set():
             gui_failed = True
             logging.info("[MAIN] GUI nem indult el sikeresen, CLI mód következik...")
+            gui_attempt_failed_cleanly('a webview.start() felület nélkül tért vissza')
     except Exception as e:
         gui_failed = True
         logging.error(f"[MAIN] WebView indítási hiba: {e}")
         logging.error("[MAIN] Automatikus CLI mód indítása...")
+        # Elkapott kivétel = a folyamat él, ez NEM natív összeomlás: a GUI-őr jelzőjét
+        # törölni kell, különben a következő indulások is CLI-be esnének (terepen, Build 344).
+        gui_attempt_failed_cleanly(f'kivétel: {e}')
 
     if gui_failed:
         # Konzol ablak létrehozása ha nincs (windowed exe-nél) - a közös helperrel,

@@ -501,3 +501,50 @@ def platform_role():
         return int(fn(2))  # POWER_PLATFORM_ROLE_V2
     except Exception:
         return None
+
+
+def system_uptime_seconds():
+    """A rendszer bekapcsolása óta eltelt idő másodpercben (`GetTickCount64`), vagy None.
+    Óraugrás-független: a lánc-idő mérése ezzel ellenőrzi a lábak közti falióra-rést."""
+    try:
+        fn = ctypes.windll.kernel32.GetTickCount64
+        fn.restype = ctypes.c_ulonglong
+        return fn() / 1000.0
+    except Exception:
+        return None
+
+
+def driver_store_folders(published_infs):
+    """A publikált INF-ek (`oemNN.inf`) DriverStore-mappájának NEVE (kisbetűsen),
+    `SetupGetInfDriverStoreLocationW`-vel - subprocess és admin nélkül.
+
+    Miért kell (2026-09-28, terepi napló, Build 344): ugyanazzal az EREDETI INF-névvel
+    (`amdgpio3.inf`) két csomag is lehet a gépen (itt a 2017-es 2.0.1.0 és a Win11-only
+    3.0.5.0), azonos `.sys`-szel - a futó szolgáltatás útvonalából így csak a mappa
+    HASH-es neve (`amdgpio3.inf_amd64_<hash>`) mondja meg, melyik csomagé. Enélkül a nem
+    használt csomagot is "HASZNÁLATBAN"-nak írta a besorolás.
+
+    Visszatérés: {published_kisbetűs: mappanév_kisbetűs}; ami nem oldható fel, kimarad."""
+    out = {}
+    try:
+        setupapi = ctypes.WinDLL('setupapi')
+        fn = setupapi.SetupGetInfDriverStoreLocationW
+        fn.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p, ctypes.c_wchar_p,
+                       ctypes.c_wchar_p, ctypes.wintypes.DWORD, ctypes.POINTER(ctypes.wintypes.DWORD)]
+        fn.restype = ctypes.wintypes.BOOL
+    except Exception:
+        return out
+    for pub in published_infs or []:
+        pub_l = (pub or '').strip().lower()
+        if not pub_l:
+            continue
+        buf = ctypes.create_unicode_buffer(1024)
+        need = ctypes.wintypes.DWORD(0)
+        try:
+            if fn(pub_l, None, None, buf, 1024, ctypes.byref(need)) and buf.value:
+                folder = buf.value.replace('/', '\\').rstrip('\\').split('\\')
+                if len(folder) >= 2:
+                    out[pub_l] = folder[-2].lower()
+        except Exception:
+            continue
+    return out

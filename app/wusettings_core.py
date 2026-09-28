@@ -335,9 +335,27 @@ def restore_stranded_search_window(marker_path):
     return close_search_window(state, marker_path)
 
 
-def _clear_software_distribution(run, retries=4):
-    """A SoftwareDistribution mappa törlése újrapróbálásokkal, végső PS fallbackkal.
-    Visszatérés: sikerült-e Python-oldalról törölni (a PS fallback után is lehet kész)."""
+def _software_distribution_leftovers(sw_dist, limit=3):
+    """A törlés UTÁN még ott lévő fájlok száma + néhány név (relatív útvonal)."""
+    if not os.path.exists(sw_dist):
+        return 0, []
+    n, sample = 0, []
+    for root, _dirs, files in os.walk(sw_dist):
+        for fn in files:
+            n += 1
+            if len(sample) < limit:
+                sample.append(os.path.relpath(os.path.join(root, fn), sw_dist))
+    return n, sample
+
+
+def clear_software_distribution(run, retries=4):
+    """A SoftwareDistribution mappa törlése újrapróbálásokkal, végső PS fallbackkal - és a
+    VERDIKT A VISSZAOLVASÁS, nem a próbálkozások kimenete (4. elv, 2026-09-28).
+
+    Terepen (Build 344, CLI "WU driver letiltás"): a törlés négyszer `Access is denied`-dal
+    bukott (`Download\\...\\Metadata\\UpdateAgent.dll` zárolva), a PowerShell-tartalék 1-es
+    kóddal tért vissza - a képernyőn mégis "✅ Gyorsítótár törölve." állt, mert a hívó a
+    visszatérési értéket meg sem nézte. Visszatérés: {'ok', 'remaining', 'sample'}."""
     sysroot = os.environ.get('SYSTEMROOT', r'C:\Windows')
     sw_dist = os.path.join(sysroot, 'SoftwareDistribution')
     deleted = False
@@ -352,7 +370,27 @@ def _clear_software_distribution(run, retries=4):
             time.sleep(3)
     if not deleted:
         run(["powershell", "-NoProfile", "-Command", f'Remove-Item -Path "{sw_dist}" -Recurse -Force -ErrorAction SilentlyContinue'])
-    return deleted
+    remaining, sample = _software_distribution_leftovers(sw_dist)
+    if remaining:
+        logging.warning(f"[WU_SETTINGS] A SoftwareDistribution törlése után {remaining} fájl MARADT "
+                        f"(zárolva), pl.: {sample}")
+    else:
+        logging.info("[WU_SETTINGS] SoftwareDistribution: visszaolvasva üres/nem létezik - törölve.")
+    return {'ok': remaining == 0, 'remaining': remaining, 'sample': sample}
+
+
+def _clear_software_distribution(run, retries=4):
+    """Kompatibilis rövid alak: True, ha a visszaolvasás szerint tényleg kiürült."""
+    return clear_software_distribution(run, retries)['ok']
+
+
+def software_distribution_message(res):
+    """A képernyőre kerülő sor a törlés VALÓDI eredményéről."""
+    if res.get('ok'):
+        return '✅ Gyorsítótár törölve.'
+    pelda = f", pl. {res['sample'][0]}" if res.get('sample') else ''
+    return (f"⚠️ A WU-gyorsítótár {res.get('remaining', '?')} fájlja most nem törölhető (zárolva{pelda}) - "
+            f"a Windows Update működését nem akadályozza, egy újraindítás után törölhető.")
 
 
 def _stop_wu_services_and_clear_reboot_flag(run, log):
@@ -371,8 +409,7 @@ def disable_wu_full(run, log):
     set_wu_driver_policy(run, disabled=True)
     _stop_wu_services_and_clear_reboot_flag(run, log)
     log('Beragadt frissítések és WU gyorsítótár (SoftwareDistribution) ürítése...')
-    _clear_software_distribution(run)
-    log('✅ Gyorsítótár törölve.')
+    log(software_distribution_message(clear_software_distribution(run)))
     run('net start wuauserv', shell=True)
     log('✅ WU szolgáltatás újraindítva')
 
@@ -429,8 +466,7 @@ def enable_wu_reset(run, log):
     # SoftwareDistribution törlés
     sysroot = os.environ.get('SYSTEMROOT', r'C:\Windows')
     log('SoftwareDistribution törlése...')
-    if _clear_software_distribution(run, retries=3):
-        log('  ✅ Törölve')
+    log('  ' + software_distribution_message(clear_software_distribution(run, retries=3)))
 
     # catroot2 átnevezés - enélkül a WU komponensraktár korrupciója gyakran nem javul,
     # csak a friss frissítés-cache törlésétől.
@@ -494,7 +530,9 @@ def pause_wu(run, log, days):
     _stop_wu_services_and_clear_reboot_flag(run, log)
 
     log('Beragadt frissítések és WU gyorsítótár ürítése...')
-    _clear_software_distribution(run)
+    sd = clear_software_distribution(run)
+    if not sd['ok']:
+        log(software_distribution_message(sd))
     run('net start wuauserv', shell=True)
     return new_date
 

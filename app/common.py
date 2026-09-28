@@ -393,6 +393,29 @@ def gui_attempt_succeeded():
         logging.debug(f"[GUI-ŐR] A jelzőfájl nem törölhető: {e}")
 
 
+def gui_attempt_failed_cleanly(reason):
+    """A felület NEM indult el, de a folyamat TÚLÉLTE (Python-kivétel / a watchdog
+    bezárta) - a jelző törlése, mert az ŐR a NATÍV összeomlás ellen van.
+
+    Miért (2026-09-28, terepi napló, Build 344): a WebView2 telepítése utáni első indulás
+    egy elkapott kivétellel bukott (`Failed to resolve Python.Runtime.Loader.Initialize` -
+    az `os.execv` öröklött `_MEI`-mappája miatt, lásd `relaunch_detached`). A jelző ott
+    maradt, és a KÖVETKEZŐ két indítást az őr natív összeomlásnak vette: CLI-be kényszerítette
+    a technikust, és azt írta ki, hogy "régi Windows, telepíts .NET 4.8-at" - egy Win10-en,
+    amin már volt .NET 4.8. A technikus fel is rakta a 4.8.1-et, és a felület csak azért
+    indult el, mert ettől megváltozott az ujjlenyomat. Ha a folyamat él, a hibát elkaptuk,
+    a CLI-tartalék amúgy is lefut - a következő indulás próbálja újra a felületet."""
+    try:
+        path = _gui_marker_path()
+        if os.path.exists(path):
+            os.remove(path)
+            logging.info(f"[GUI-ŐR] A felület nem indult el, de a folyamat túlélte ({reason}) - "
+                         f"ez nem natív összeomlás, a jelző törölve: a következő indulás újra "
+                         f"megpróbálja a felületet.")
+    except Exception as e:
+        logging.debug(f"[GUI-ŐR] A jelzőfájl nem törölhető: {e}")
+
+
 def show_webview2_error(message):
     """MessageBox megjelenítése WebView2 hibáról, majd program kilépés."""
     try:
@@ -900,6 +923,30 @@ _CALL_LOG_EXCLUDE = {
     # `log_machine_map` INFO-n kártyánként, DEBUG-on csomagonként INDOKKAL naplóz, és a
     # kivételt a metódus maga kapja el és naplózza WARNING-gal, teljes veremmel.
     '_build_machine_map',
+
+    # HARMADSZOR UGYANAZ: a 2026-09-27-i szétbontás új lépés-függvényei (2026-09-28, MÉRVE a
+    # Build 344-es ASRock-lánc naplóján: 1,86 MB, 25 perc, 6 láb):
+    #
+    #     _catalog_key_truncated   212 KB  (1824 [CALL] sor)
+    #     _catalog_note_total      206 KB  (1824 [CALL] sor)
+    #     _catalog_collect_rows    199 KB  (594 sor, a teljes eszköz-dictet vitte)
+    #     _catalog_release_gate     73 KB
+    #     _catalog_score_rows       59 KB
+    #     _catalog_break_tie        19 KB
+    #   = ~770 KB, a napló ~41%-a. A szabály (fent: "még aznap tedd rá") már le volt írva.
+    #
+    # A DÖNTÉS MEGMARAD: a gyűjtő "[CATALOG] Keresés: <eszköz> (<hwid>)" sort ír minden
+    # kulcs elé; a nyertest és a legjobb pontszámot a "Döntés:" összegző sor mondja ki; a
+    # kiadás-kapu és a holtverseny-döntő minden érdemi ágon saját INFO-sort ír; a
+    # csonkolás a "mélyebben újra keresünk" sorban látszik. A KIVÉTELEK sem vesznek el:
+    # mind a `_catalog_find_driver`-en belül fut, amit a hívó WARNING-gal és teljes
+    # veremmel naplóz (lásd fent, 2026-09-07). A `_catalog_driver_models` a holtverseny-
+    # döntő segédje, az `invalidate_driver_cache` pedig MINDEN DriverStore-módosító
+    # parancs után fut (a `[CMD]` sor maga a bizonyíték; ha valóban eldob valamit, saját
+    # DEBUG sort ír).
+    '_catalog_key_truncated', '_catalog_note_total', '_catalog_collect_rows',
+    '_catalog_release_gate', '_catalog_score_rows', '_catalog_break_tie',
+    '_catalog_driver_models', 'invalidate_driver_cache',
 }
 
 
@@ -981,7 +1028,7 @@ def release_app_mutex():
         ctypes.windll.kernel32.ReleaseMutex(h)
         ctypes.windll.kernel32.CloseHandle(h)
         APP_MUTEX_HANDLE = None
-        logging.info("[MUTEX] Az egypéldányos mutex elengedve (CLI módra váltás).")
+        logging.info("[MUTEX] Az egypéldányos mutex elengedve (új példány indítása előtt).")
         return True
     except Exception as e:
         logging.warning(f"[MUTEX] A mutex elengedése nem sikerült: {e}")
@@ -1000,4 +1047,57 @@ def acquire_app_mutex():
         return bool(APP_MUTEX_HANDLE)
     except Exception as e:
         logging.warning(f"[MUTEX] A mutex visszavétele nem sikerült: {e}")
+        return False
+
+
+def relaunch_detached(args, reason=''):
+    """A program ÚJ, ÖNÁLLÓ példányának indítása (a hívó utána kilép). True, ha elindult.
+
+    EGY HELYEN, mert két hívója van, és mindkettőnek UGYANAZ a három csapdája - ezeket a
+    CLI-váltás már egyszer mind kitapasztalta (2026-08-29/31, lásd CLAUDE.md "A CLI mód
+    teljes értékű felület"), a WebView2-telepítés utáni újraindítás viszont 2026-09-28-ig
+    egy csupasz `os.execv`-vel ment, és terepen (Build 344) bele is futott:
+
+      1. AZ ÚJ PÉLDÁNYNAK SAJÁT `_MEI` MAPPA KELL: a `_PYI_*` változók öröklődnek, és az új
+         folyamat a MI kicsomagolt mappánkat használná, amit a kilépő bootloaderünk épp
+         töröl. Terepen: `Failed to resolve Python.Runtime.Loader.Initialize from
+         ...\\_MEI98802\\pythonnet\\runtime\\Python.Runtime.dll` - a felület nem indult el,
+         és a GUI-őr ezután CLI-be zárta a gépet.
+      2. AZ EGYPÉLDÁNYOS MUTEXET EL KELL ENGEDNI (különben "már fut" üzenettel kilép).
+      3. `cmd /c start` + DETACHED_PROCESS: a kilépésünk `taskkill /T`-je így nem viszi el
+         az új példányt, és nem örököl rejtett konzolt.
+
+    Plusz egy, amit az `os.execv` hozott: `[sys.executable] + sys.argv` fagyasztott exe-nél
+    KÉTSZER adta át az exe útvonalát (a naplóban: `Parancssor: ['...exe', '...exe']`).
+    Ide már csak a VALÓDI argumentumok jönnek (`sys.argv[1:]`)."""
+    exe = _app_exe_path()
+    released = release_app_mutex()
+    try:
+        def _q(a):
+            a = str(a)
+            return f'"{a}"' if (' ' in a or not a) else a
+        arg_txt = ' '.join(_q(a) for a in (args or []))
+        if getattr(sys, 'frozen', False):
+            inner = f'start "" "{exe}" {arg_txt}'.rstrip()
+        else:
+            inner = f'start "" "{sys.executable}" "{exe}" {arg_txt}'.rstrip()
+        # SZTRINGKÉNT, nem listaként (a list2cmdline visszaperjelezné a belső idézőjeleket).
+        cmd = f'cmd /c {inner}'
+        child_env = {k: v for k, v in os.environ.items() if not k.startswith('_PYI_')}
+        child_env['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
+        logging.info(f"[RELAUNCH] Új példány indítása ({reason or 'újraindítás'}; saját _MEI "
+                     f"mappával, DETACHED_PROCESS): {cmd}")
+        helper = subprocess.Popen(cmd, creationflags=subprocess.DETACHED_PROCESS,
+                                  cwd=os.path.dirname(exe) or None, close_fds=True, env=child_env)
+        try:
+            helper.wait(timeout=10)
+            logging.info(f"[RELAUNCH] A segéd cmd kilépett (kód={helper.returncode}) - az új "
+                         f"példány innentől önálló folyamat.")
+        except Exception as e:
+            logging.warning(f"[RELAUNCH] A segéd cmd nem lépett ki 10 mp alatt ({e}).")
+        return True
+    except Exception as e:
+        if released:
+            acquire_app_mutex()
+        logging.error(f"[RELAUNCH] Az új példány indítása nem sikerült: {e}", exc_info=True)
         return False
