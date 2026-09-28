@@ -397,9 +397,3 @@ python -m PyInstaller --clean --noconfirm DriverVarazslo.spec   # -> dist/Driver
 **Licenc:** a projekthez jelenleg nem tartozik nyílt forráskódú licenc — minden jog fenntartva.
 
 <br/>
-
-<div align="center">
-
-Készült számítógép-szervizek mindennapi munkájához · 🇭🇺
-
-</div>
