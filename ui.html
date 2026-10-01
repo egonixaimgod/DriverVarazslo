@@ -550,6 +550,23 @@ tr.drv-row.selected td{background:rgba(180,100,255,0.24)!important}
 .drv-tools{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start;
   grid-column:2;grid-row:2;min-width:0}
 .drv-tools > .panel{margin-bottom:0}
+/* A KARBANTARTÁS A RAJZHOZ IGAZODIK, NEM FORDÍTVA (2026-10-01, explicit user decision: *"a
+   bal alsó rész legyen a viszonyítási pont, hogy az megjelenjen normálisan, ahhoz igazodjon
+   a jobb alsó rész, és ahhoz legyen lekicsinyítve"*). MÉRVE előtte: 1170 px-es ablakban a
+   rajz 364x277 px volt, a doboza viszont a karbantartás miatt 831 px magas (~550 px üres);
+   1600 px-en ~290 px, 1366-on ~420 px üres. A `fitDrvTools()` (JS) méri a rajz-doboz
+   TERMÉSZETES magasságát, és ha a karbantartás magasabb: (1) tömörebb térközök
+   (`data-fit="c"`), (2) a leírások soronként rövidülnek, mindig a leghosszabbon kezdve (a
+   teljes szöveg a kártya buborékjában), (3) ha még így sem fér el (pl. egy hosszú
+   duplikátum-lista), a jobb doboz belül görgethető - a rajzot sosem húzza szét. */
+.drv-tools[data-fit]{gap:10px}
+.drv-tools[data-fit] > .panel{padding:14px 16px}
+.drv-tools[data-fit] .panel-title{font-size:15px;margin-bottom:8px}
+.drv-tools[data-fit] .panel-header-row{margin-bottom:8px}
+.drv-tools[data-fit] .panel-header-row .panel-title{margin-bottom:0}
+.drv-tools[data-fit] .panel > p{margin-bottom:10px!important;font-size:12.5px}
+.drv-tools[data-fit] .toolbar .btn{padding:7px 12px;font-size:12.5px}
+.drv-tools[data-fit] .mm-sec-head{margin-bottom:6px}
 .mm-wrap.mm-nomap .drv-tools{grid-column:1 / -1;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
 @media (max-width:1150px){.mm-wrap.mm-nomap .drv-tools{grid-template-columns:minmax(0,1fr)}}
 
@@ -4869,7 +4886,14 @@ function mmFigureSvg(form) {
   });
   return s + '</svg>';
 }
+/* A rajz kirajzolása UTÁN, ugyanabban a lépésben igazodik a karbantartás (fitDrvTools),
+   és csak utána kerül helyre a felugró ablak - különben egy pillanatig a régi,
+   megnyújtott rajz-dobozhoz méretezné magát (a DOM-teszt pont ezt fogta meg). */
 function renderMachineMap() {
+  _renderMachineMapInner();
+  try { fitDrvTools(); } catch (e) { console.warn('[KARBANTARTAS] Az igazitas nem sikerult: ' + e); }
+}
+function _renderMachineMapInner() {
   const wrap = document.getElementById('drv-machine');
   if (!wrap) return;
   /* NINCS TÉRKÉP-ADAT: `mm-nomap`, NEM `display:none`. A wrapper a driver-táblázatot ÉS a
@@ -5045,6 +5069,122 @@ function positionMmPop() {
   pop.style.top = Math.round(top) + 'px';
 }
 window.addEventListener('resize', () => { try { positionMmPop(); } catch (e) { console.warn('[GEP-TERKEP] Az alkatresz-ablak helye nem szamolhato: ' + e); } });
+
+/* A KARBANTARTÁS (jobb alul) A RAJZHOZ (bal alul) IGAZODIK - a CSS-oldali indoklás és a
+   mérés a `.drv-tools[data-fit]` szabályoknál. A rajz-doboz a MÉRCE: a természetes
+   magassága (fejléc + a hasáb szélességéhez méretezett rajz) a cél, a jobb doboz addig
+   tömörödik, amíg bele nem fér. A mérés idejére mindkét doboz `align-self:start`-ot kap,
+   különben a rács a magasabbikra nyújtaná mindkettőt, és a mérés önmagát mérné. */
+function _drvToolsReset(tools) {
+  tools.removeAttribute('data-fit');
+  tools.style.maxHeight = ''; tools.style.overflowY = '';
+  tools.querySelectorAll(':scope > .panel').forEach(pn => {
+    pn.removeAttribute('title');
+    const p = pn.querySelector(':scope > p');
+    if (p) _drvClampP(p, null);
+  });
+}
+function _drvClampP(p, n) {
+  if (n === null) { p.style.display = ''; p.style.webkitBoxOrient = ''; p.style.webkitLineClamp = ''; p.style.overflow = ''; return; }
+  if (n <= 0) { p.style.display = 'none'; return; }
+  p.style.display = '-webkit-box'; p.style.webkitBoxOrient = 'vertical';
+  p.style.overflow = 'hidden'; p.style.webkitLineClamp = String(n);
+}
+/* ALÁÍRÁS: a `renderDriverTable` minden pipa-kattintásnál újrarajzolja a térképet, az
+   igazítás viszont egy tucatnyi kényszerített elrendezés-számítás. Ezért csak akkor fut
+   újra, ha valami változott, ami a két doboz magasságát befolyásolja: a hasábok
+   szélessége, az ablak magassága (a rajz 70vh-s plafonja), a térkép állapota
+   (összecsukva / nincs adat), a fejléc magassága és a karbantartás tartalma
+   (duplikátum-lista, betöltő-sáv, gombok). */
+var _drvFitSig = null;
+function _drvFitSignature(wrap, col, tools) {
+  const disp = id => { const el = document.getElementById(id); return el ? el.style.display + ':' + el.textContent.length : '-'; };
+  const head = wrap.querySelector('.mm-head');
+  return [Math.round(col.getBoundingClientRect().width), Math.round(tools.getBoundingClientRect().width),
+          window.innerHeight, wrap.className, head ? Math.round(head.getBoundingClientRect().height) : 0,
+          (driverMachine && driverMachine.form) || '',   // a laptop- és az asztali rajz aránya más
+          (document.getElementById('dup-results') || {innerHTML: ''}).innerHTML.length,
+          disp('dup-loading'), disp('btn-dup-all'), disp('btn-dup-delete'), disp('dup-count-badge')].join('|');
+}
+function fitDrvTools(force) {
+  const wrap = document.getElementById('drv-machine');
+  const col = document.getElementById('mm-mapcol');
+  const tools = wrap && wrap.querySelector('.drv-tools');
+  if (!tools || !col) return;
+  const sig = _drvFitSignature(wrap, col, tools);
+  if (!force && sig === _drvFitSig) return;
+  _drvFitSig = sig;
+  _drvToolsReset(tools);
+  // Nincs rajz / össze van csukva / egy hasábban állnak / a nézet rejtett (0 széles):
+  // nincs mihez igazodni - a karbantartás a teljes szövegével marad.
+  if (wrap.classList.contains('mm-nomap') || wrap.classList.contains('collapsed')) return;
+  const cr = col.getBoundingClientRect(), tr = tools.getBoundingClientRect();
+  if (!cr.width || !tr.width || tr.left < cr.right - 1) return;
+  col.style.alignSelf = 'start'; tools.style.alignSelf = 'start';
+  try {
+    const mapH = col.getBoundingClientRect().height;
+    const toolsH = () => tools.getBoundingClientRect().height;
+    const TOL = 8;   // ennyi px-szel lehet magasabb a jobb doboz (a sor-lépcsők miatt)
+    const fits = () => toolsH() <= mapH + TOL;
+    if (fits()) return;
+    tools.setAttribute('data-fit', 'c');                  // 1) tömörebb térközök, teljes szöveg
+    if (fits()) return;
+    // 2) A leírások sorai: mindig a leghosszabbikat rövidítjük egy sorral, amíg el nem fér.
+    const items = [];
+    tools.querySelectorAll(':scope > .panel').forEach(pn => {
+      const p = pn.querySelector(':scope > p');
+      if (!p) return;
+      const h = p.getBoundingClientRect().height;
+      _drvClampP(p, 1);
+      const lh = p.getBoundingClientRect().height || 1;
+      _drvClampP(p, null);
+      const full = Math.max(1, Math.round(h / lh));
+      items.push({pn, p, full, n: full});
+    });
+    while (!fits()) {
+      let it = null;
+      items.forEach(x => { if (x.n > 0 && (!it || x.n > it.n)) it = x; });
+      if (!it) break;
+      it.n -= 1;
+      _drvClampP(it.p, it.n);
+    }
+    items.forEach(x => {
+      if (x.n < x.full) x.pn.title = x.p.textContent.replace(/\s+/g, ' ').trim();
+    });
+    // 3) Végső védőháló (pl. hosszú duplikátum-lista): a jobb doboz a rajz magasságáig ér,
+    //    és belül görgethető - a rajzot nem nyújtja meg.
+    if (!fits()) { tools.style.maxHeight = Math.round(mapH) + 'px'; tools.style.overflowY = 'auto'; }
+  } finally {
+    col.style.alignSelf = ''; tools.style.alignSelf = '';
+    try { positionMmPop(); } catch (e) { console.warn('[GEP-TERKEP] Az alkatresz-ablak helye nem szamolhato: ' + e); }
+  }
+}
+var _drvFitTimer = null;
+function scheduleDrvFit() {
+  clearTimeout(_drvFitTimer);
+  _drvFitTimer = setTimeout(() => {
+    try { fitDrvTools(); } catch (e) { console.warn('[KARBANTARTAS] Az igazitas nem sikerult: ' + e); }
+  }, 0);
+}
+window.addEventListener('resize', scheduleDrvFit);
+/* A SZÉLESSÉG-VÁLTOZÁST egy ResizeObserver figyeli - ez kapja el azt is, amikor a rejtett
+   nézetből (0 széles) láthatóvá válik a Driverek nézet (a ragadós fejlécnél tanult lecke:
+   rejtett nézetben minden mérés 0). Csak a SZÉLESSÉGRE reagálunk, mert az igazítás maga
+   változtatja a magasságot - különben önmagát hívná újra. */
+var _drvFitWidth = -1;
+try {
+  const body = document.querySelector('#drv-machine .mm-body');
+  if (body && window.ResizeObserver) {
+    new ResizeObserver(ents => {
+      const w = Math.round(ents[0].contentRect.width);
+      if (w !== _drvFitWidth) { _drvFitWidth = w; scheduleDrvFit(); }
+    }).observe(body);
+  }
+} catch (e) { console.warn('[KARBANTARTAS] ResizeObserver nem indithato: ' + e); }
+// A betűkészlet később töltődhet be, és akkor a szövegek magassága változik - az aláírás
+// ezt nem látja, ezért egyszer kényszerítve újraszámolunk.
+try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { try { fitDrvTools(true); } catch (e) { console.warn('[KARBANTARTAS] ' + e); } }); }
+catch (e) { console.warn('[KARBANTARTAS] fonts.ready nem elerheto: ' + e); }
 function toggleDriverSel(i) {
   if (selectedDrivers.has(i)) selectedDrivers.delete(i); else selectedDrivers.add(i);
   renderDriverTable();
@@ -5132,6 +5272,7 @@ async function scanDupDrivers() {
   // Az előző keresés gombjai nem lóghatnak át egy új, még üres találatra.
   document.getElementById('btn-dup-all').style.display = 'none';
   document.getElementById('btn-dup-delete').style.display = 'none';
+  scheduleDrvFit();   // a betöltő-sáv megváltoztatja a karbantartás magasságát
   try {
     await api().list_duplicate_drivers();
   } catch (e) {
@@ -5141,6 +5282,7 @@ async function scanDupDrivers() {
   }
 }
 function onDupDriversLoaded(data) {
+  scheduleDrvFit();   // a lista a függvény UTÁN rajzolódik ki - az igazítás minden kilépési ágon lefut
   dupGroups = (data && data.groups) || [];
   document.getElementById('dup-loading').style.display = 'none';
   document.getElementById('btn-dup-scan').disabled = false;

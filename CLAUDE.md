@@ -1173,7 +1173,7 @@ A 450px = az 1. kör 290px-e + **2 átlagos adatsor** (2×80px). A hasáb padló
 - `.mm-body{align-items:stretch}`: a két cella egyforma magas;
 - a `.mm-mapcol` flex-oszlop, a `.mm-figure` kitölti a maradék magasságot (`flex:1 1 auto`), az SVG benne középre áll (`height:100%`, `max-height:70vh`).
 
-A rajz tehát nem nyúlik, csak a doboza ér le; magas karbantartó hasábnál (1366 px) fölötte és alatta üres sáv marad. Ez vállalt: az ábra szélessége a korlát.
+~~A rajz tehát nem nyúlik, csak a doboza ér le; magas karbantartó hasábnál (1366 px) fölötte és alatta üres sáv marad. Ez vállalt: az ábra szélessége a korlát.~~ **[VISSZAVONVA ugyanaznap, lásd 12/f): az üres sáv NEM volt vállalt — a felhasználó ablakos módban azonnal kifogásolta. Most a rajz a mérce, és a karbantartás igazodik hozzá.]**
 - **Összecsukott térképnél NEM nyúlik** (`.mm-wrap.collapsed .mm-mapcol{align-self:start}`), különben egy üres, magas doboz maradna a fejléc alatt.
 - **Mérve utána** (headless, élő adat, asztali ÉS laptopos ábrával): az alsó él különbsége **0 px** mind a négy esetben (1920: 1996/1996 és 2020/2020; 1366: 1860/1860 mindkettőre). Összecsukva 81 px vs. 98 px, vagyis nem nyúlik. A Driverek nézet tesztje 88/88.
 
@@ -1184,6 +1184,27 @@ A rajz tehát nem nyúlik, csak a doboza ér le; magas karbantartó hasábnál (
 > **SAJÁT HIBA (4. szabály):** a 12/d) után megnéztem a laptopos képernyőképet, a vízjel ott volt rajta, és nem vettem észre. **A téves feltevés:** a képet csak arra néztem, amit épp mértem (az alsó élek egyezése), nem az egészre. **Az ellenőrzés, ami megfogta volna:** egy elrendezés-változtatás után ne csak a mért tulajdonságot nézd a képen, hanem keress rajta olyan elemet is, ami korábban üres helyen állt, és most rálóghat valamire (vízjel, abszolút pozícionált díszítés).
 
 **Ellenőrizve:** `node --check` + undefined-name scan (763 név, 0 találat), a Driverek nézet tesztje 88/88, és popup nélküli képernyőkép az asztali és a laptopos rajzról (1920 és 1366 px): se vízjel, se karika.
+
+**12/f) A RAJZ A MÉRCE, A KARBANTARTÁS IGAZODIK HOZZÁ — NEM FORDÍTVA** (2026-10-01, explicit user decision, ablakos módú képernyőképpel: *„a jobb alsó rész nem tud kisebbre összemenni kisebb ablakban, ezért … a bal alsó részt húzza szét a jobb alsó rész magasságára, ami nem jó; a bal alsó rész legyen a viszonyítási pont, hogy az megjelenjen normálisan, ahhoz igazodjon a jobb alsó rész, és ahhoz legyen lekicsinyítve"*). **Mérve előtte** (a rajz-doboz magassága mínusz a rajz magassága = üres sáv): 1170×740 (ablakos mód) **~550 px**, 1366 **~420 px**, 1600 **~290 px**, 1920 ~75 px. A karbantartás 3 kártyájának hosszú szövege keskeny hasábban sokat tördel, a rajz viszont a hasáb SZÉLESSÉGÉHEZ kötött (a viewBox aránya miatt nem lehet magasabb).
+
+**A megoldás (`fitDrvTools()`, `ui.html`):** méri a rajz-doboz TERMÉSZETES magasságát (fejléc + a szélességhez méretezett rajz), és a karbantartás addig tömörödik, amíg bele nem fér:
+1. tömörebb térközök, kisebb betű (`data-fit="c"`), teljes szöveg;
+2. a leírások soronként rövidülnek, mindig a leghosszabbon kezdve, végső esetben teljesen eltűnnek. A teljes szöveg a kártya buborékjában olvasható;
+3. ha még így sem fér el (mérve: egy 14 csoportos duplikátum-lista), a jobb doboz a rajz magasságáig ér, és belül görgethető. A rajzot SOSEM húzza szét.
+
+**Mérve utána:** üres sáv **0 px** minden méreten (1170 / 1366 / 1600 / 1920, asztali és laptop; egy esetben 8 px a sor-lépcső miatt). Full HD-n a teljes szöveg marad, 1600-on 1-2 sor, 1170-en a leírások rejtve. Az alsó élek változatlanul egy vonalban.
+
+Részletek, amik nélkül rosszabb lenne:
+- **A mérés idejére mindkét doboz `align-self:start`-ot kap**, különben a rács a magasabbikra nyújtaná mindkettőt, és a mérés önmagát mérné.
+- **A `renderMachineMap` UTÁN, ugyanabban a lépésben fut** (`_renderMachineMapInner` + `fitDrvTools`), és utána kerül helyre a felugró ablak. Az első változatban `setTimeout`-tal futott, ezért az ablak egy pillanatig a régi, megnyújtott dobozhoz méretezte magát (a DOM-teszt 4 hibával fogta meg).
+- **ALÁÍRÁS-GYORSÍTÓTÁR:** a `renderDriverTable` minden pipa-kattintásnál újrarajzolja a térképet, az igazítás viszont egy tucatnyi kényszerített elrendezés-számítás. Aláírás nélkül a DOM-teszt **4 percnél is tovább futott** (azelőtt ~1 perc). Csak akkor számol újra, ha a hasáb-szélesség, az ablakmagasság, a térkép-állapot, a géptípus, a fejléc-magasság vagy a karbantartás tartalma változott. Változás esetén a `ResizeObserver` (csak szélesség), a `resize`, a duplikátum-keresés és a `document.fonts.ready` indítja.
+- Egy hasábban (≤1150 px), összecsukott vagy hiányzó térképnél nincs igazítás: a karbantartás a teljes szövegével marad.
+
+> **SAJÁT HIBA (4. szabály) — a 12/d) rossz irányba javított.** A „két doboz egy vonalban" kérésre a rajz dobozát nyújtottam a karbantartás magasságára, és az üres sávot „vállaltnak" írtam. **A téves feltevés:** a full HD-s képből (75 px üres) általánosítottam, és a keskenyebb ablakot csak az alsó élek egyezésére mértem, az üres sávra nem. **Az ellenőrzés, ami megfogta volna:** elrendezés-javításnál a TÜNETET mérd (itt: a rajz körüli üres sáv px-ben), több ablakméreten, az ablakos módot (~1170×740) is beleértve. Nem elég azt mérni, amit a javítás garantál.
+
+> **SAJÁT HIBA (4. szabály) — név szerint lőttem ki a Chrome-ot.** A beragadt headless tesztet `taskkill /F /IM chrome.exe /T`-vel állítottam le, ami a felhasználó SAJÁT, nyitott Chrome-ablakait is bezárhatta. **A téves feltevés:** hogy a gépen csak a teszt-példány fut. **A szabály:** headless böngészőt CSAK a saját indított folyamatán át állíts le (`timeout` a parancs előtt, vagy a `subprocess` PID-je), SOSEM képfájl-név alapján. A tesztszkriptek ezért mostantól `timeout 280`-nal futnak.
+
+**Ellenőrizve:** `node --check` + undefined-name scan (785 név, 0 találat). A Driverek nézet tesztje **96/96**, új állításokkal: nincs üres sáv a rajz körül, a hosszú duplikátum-lista nem nyújtja a rajzot és a jobb doboz görgethető, a lista eltűntével a görgetés is megszűnik. Képernyőkép 1170 / 1600 / 1920 px-en, asztali és laptopos rajzzal.
 
 ### A TÖRLÉS GOMB NÉMA HALÁLA — és a NEGYEDIK ugyanolyan hiba (2026-09-20, Build 318)
 
