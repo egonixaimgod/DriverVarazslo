@@ -1169,6 +1169,13 @@ A 450px = az 1. kör 290px-e + **2 átlagos adatsor** (2×80px). A hasáb padló
 - Élőnek látszó holt kód nem maradt: a `c-pub`/`c-orig`/`c-prov`/`c-ver` oszlop-stílusok, a 7 oszlopos `.mm-tablecol #driver-table-wrap` szabályok és egy később álló, a rögzített szélességet felülíró `td.what-cell{max-width:360px}` szabály törölve.
 
 **MÉRVE (headless, élő adat):** a Driverek nézetben 1920×1040-en **11** teljesen látható adatsor 42 px-es sorokkal (előtte a 7 oszlop 52–75 px-es soraival kb. 6), 1366×768-as tesztablakban 5. **ELLENŐRZÉS:** a Driverek nézet tesztje 40 állítás × 2 ablakméret, új állításokkal: nincs fejléc-csík és DRIVER-LISTA cím; az összegző sor normál állapotban rejtve; 4 oszlop a fejlécben és a sorokban; a fülek és a kijelölő gombok egy sorban; a táblázatnak saját, kerekített kerete és árnyéka van; a jelvény kimondja a rejtett sorokat („33 / 58", a buborékban „nyomtató"); nincs vízszintes kilógás; a sávok egyforma magasak; a ragadós sáv a fejléc alá tapad. A fix dialógusa változatlanul 80/80.
+**12/d) A BAL ALSÓ (GÉP-ÁBRA) ÉS A JOBB ALSÓ (KARBANTARTÁS) DOBOZ ALJA EGY VONALBAN** (2026-10-01, explicit user decision: *„a bal alsó és a jobb alsó elem egy vonalban legyen alul, ne legyen az, hogy a gép vagy a laptop rajz feljebb van, mint a jobb alsónak az alja"*). **Mérve előtte:** a rács sorában `align-items:start` volt, így a gép-ábra doboza a SAJÁT tartalmáig ért. 1920 px-en 75 px-szel, 1366 px-en 350–400 px-szel ért véget feljebb, mint a karbantartó hasáb, és a laptopos ábránál (ami alacsonyabb) még feljebb.
+- `.mm-body{align-items:stretch}`: a két cella egyforma magas;
+- a `.mm-mapcol` flex-oszlop, a `.mm-figure` kitölti a maradék magasságot (`flex:1 1 auto`), az SVG benne középre áll (`height:100%`, `max-height:70vh`).
+
+A rajz tehát nem nyúlik, csak a doboza ér le; magas karbantartó hasábnál (1366 px) fölötte és alatta üres sáv marad. Ez vállalt: az ábra szélessége a korlát.
+- **Összecsukott térképnél NEM nyúlik** (`.mm-wrap.collapsed .mm-mapcol{align-self:start}`), különben egy üres, magas doboz maradna a fejléc alatt.
+- **Mérve utána** (headless, élő adat, asztali ÉS laptopos ábrával): az alsó él különbsége **0 px** mind a négy esetben (1920: 1996/1996 és 2020/2020; 1366: 1860/1860 mindkettőre). Összecsukva 81 px vs. 98 px, vagyis nem nyúlik. A Driverek nézet tesztje 88/88.
 
 ### A TÖRLÉS GOMB NÉMA HALÁLA — és a NEGYEDIK ugyanolyan hiba (2026-09-20, Build 318)
 

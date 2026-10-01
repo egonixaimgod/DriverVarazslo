@@ -529,11 +529,19 @@ tr.drv-row.selected td{background:rgba(180,100,255,0.24)!important}
    padlók azért kellettek, mert a táblázat egy rács-sorban osztozott a kártya-hasábbal. Most
    a táblázat a SAJÁT sorában, teljes szélességben áll, tehát a magasságát a tartalma adja,
    egy viewport-alapú plafonnal (lásd `.mm-tablecol #driver-table-wrap`). */
+/* A KÉT ALSÓ DOBOZ EGY VONALBAN (2026-10-01, explicit user decision: *"a bal alsó és a
+   jobb alsó elem egy vonalban legyen alul, ne legyen az, hogy a gép vagy a laptop rajz
+   feljebb van, mint a jobb alsónak az alja"*). MÉRVE előtte: 1920-on 75 px, 1366-on
+   350-400 px különbség (keskenyebb ablakban a karbantartó panelek szövege tördel, és a
+   jobb hasáb sokkal magasabb). Ezért `align-items:stretch`: a rajz-doboz és a karbantartás
+   doboza a sor magasságát kapja, és a rajz (`.mm-figure`) kitölti a rajz-doboz maradék
+   magasságát, a rajzzal középen. Összecsukva a rajz-doboz NEM nyúlik meg (lásd lent). */
 .mm-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto auto;
-  gap:22px 16px;position:relative;z-index:1;align-items:start}
+  gap:22px 16px;position:relative;z-index:1;align-items:stretch}
 .mm-tablecol{grid-column:1 / -1;grid-row:1;min-width:0}
 .mm-tablecol-inner{display:flex;flex-direction:column;min-height:0;box-sizing:border-box}
-.mm-mapcol{grid-column:1;grid-row:2}
+.mm-mapcol{grid-column:1;grid-row:2;display:flex;flex-direction:column}
+.mm-wrap.collapsed .mm-mapcol{align-self:start}
 /* A KARBANTARTÓ PANELEK jobb alul, egy hasábban, egymás alatt (a panelek hosszú
    magyarázó szöveget hordoznak - fél szélességen 3 hasábban olvashatatlanok lennének).
    Térkép-adat nélkül (`mm-nomap`) a rajz-hasáb eltűnik, és a panelek a teljes szélességet
@@ -724,11 +732,16 @@ tr.drv-row.selected td{background:rgba(180,100,255,0.24)!important}
    hasábjában, tehát a `margin:auto` sem zsugorítja össze (az a csapda RÁCS-elemre szólt).
    A magasság-plafon vh-alapú: a viewBox miatt az arány megmarad, az ábra "annyira nagy,
    amennyi belefér". */
+/* A rajz KITÖLTI a rajz-doboz maradék magasságát (flex:1), és a rajz ezen belül középre
+   kerül. Az SVG `height:100%`-a a megnyújtott dobozhoz igazodik, a viewBox miatt az arány
+   megmarad (a rajz annyira nagy, amennyi belefér); a 70vh-s plafon egy nagyon széles
+   képernyőn a túl nagy rajzot fogja meg. */
 .mm-figure{position:relative;z-index:1;width:calc(100% - 28px);max-width:820px;margin:14px auto;
   border-radius:var(--r-sm);padding:6px;box-sizing:border-box;
   background:radial-gradient(ellipse at 50% 45%,rgba(212,136,255,0.11),transparent 70%);
-  border:1px solid rgba(180,100,255,0.14)}
-.mm-figure svg{width:100%;height:auto;max-height:60vh;display:block}
+  border:1px solid rgba(180,100,255,0.14);
+  flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center}
+.mm-figure svg{width:100%;height:100%;max-height:70vh;display:block}
 .mm-line{fill:none;stroke:rgba(210,180,255,0.30);stroke-width:1.5}
 .mm-fill{fill:rgba(180,100,255,0.06);stroke:rgba(210,180,255,0.32);stroke-width:1.5}
 .mm-cap{fill:rgba(200,180,230,0.55);font-size:9px;font-weight:800;letter-spacing:.8px}
