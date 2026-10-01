@@ -490,11 +490,9 @@ tbody tr.drv-row.alt td{background:rgba(255,255,255,0.05)}
 tr.drv-row td:first-child{box-shadow:inset 4px 0 0 rgba(var(--gc),0.55)}
 tr.drv-row:hover td{background:rgba(var(--gc),0.12)!important}
 tr.drv-row.selected td{background:rgba(180,100,255,0.24)!important}
-/* Oszlop-tipográfia: a Published Name (oemNN.inf) technikai azonosító - halványabb,
-   gépi betű; az Original Name a csomag "neve" - kiemelt; a verzió gépi betű. */
-td.c-pub,td.c-ver{font-family:Consolas,'Cascadia Mono',ui-monospace,monospace;font-size:0.93em;color:var(--text2)}
-td.c-orig{font-weight:600;color:var(--text)}
-td.c-prov{color:var(--text2)}
+/* (Az oszloponkénti tipográfia - c-pub/c-orig/c-prov/c-ver - 2026-10-01 óta a tömör
+   "Driver" cellában él: `.drv-n` a csomag neve, `.drv-s` a gépi betűs published · gyártó ·
+   verzió alsor; lásd a közös tömör blokkot.) */
 
 /* ===== DRIVEREK NÉZET: A GÉP FELÉPÍTÉSE (2026-09-17, explicit user decision) ==========
    A technikus a Class oszlopból nem tudta megmondani, melyik driver MINEK a drivere (a
@@ -561,9 +559,14 @@ td.c-prov{color:var(--text2)}
   font-size:12.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--accent);
   padding-bottom:8px;border-bottom:1px solid rgba(180,100,255,0.22)}
 .mm-sec-head span{font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3);font-size:11.5px}
-.mm-tablecol,.drv-tools{background:rgba(24,13,46,0.55);border:1px solid rgba(180,100,255,0.22);
+/* A DRIVER-LISTA HASÁBJÁNAK NINCS SAJÁT KERETE (2026-10-01, explicit user decision: *"nem
+   látom, honnan indul a táblázat, nincs elkülönítve semmitől … az 1 katt fixben jobb oldalt
+   szépen látom, hogy az egy külön blokk"*). A panel > hasáb-doboz > csík > táblázat egymásba
+   ágyazott keretei egybefolytak; most a TÁBLÁZAT az egyetlen keretes elem (lásd
+   `.mm-tablecol #driver-table-wrap`), fölötte csak az eszköztár és a fülek. */
+.drv-tools{background:rgba(24,13,46,0.55);border:1px solid rgba(180,100,255,0.22);
   border-radius:var(--r)}
-.mm-tablecol-inner{padding:12px}
+.mm-tablecol-inner{padding:2px 0 0}
 .drv-tools{padding:12px}
 .drv-tools .mm-sec-head{grid-column:1 / -1}
 /* AZ ESZKÖZTÁR: tömör szedés. 2026-10-01 óta a hasáb TELJES szélességű, ezért a
@@ -573,19 +576,18 @@ td.c-prov{color:var(--text2)}
 .mm-tablecol .toolbar .btn{padding:8px 12px;font-size:12.5px}
 .mm-tablecol .toolbar .toggle{font-size:12px}
 .mm-tablecol .search-box{flex:1 1 300px;max-width:none;min-width:0}
-.mm-tablecol #drv-usage-summary{margin:0 0 10px;padding:10px 12px;gap:10px}
-.mm-tablecol .hw-sum-machine{font-size:13px}
+/* A használat-sor csak rendellenes állapotban látszik (offline / hiba / felderítés) -
+   kis, tömör sáv; normál állapotban rejtve (renderDriverUsageBar). */
+.mm-tablecol #drv-usage-summary{margin:0 0 8px;padding:7px 12px;gap:10px}
+.mm-tablecol .hw-sum-machine{font-size:12.5px}
 .mm-tablecol .hw-sum-meta{font-size:11px}
-/* A TÁBLÁZAT LÁTHATÓAN KI VAN EMELVE (2026-09-18, explicit user decision). A közös
-   `.table-wrap` kerete (`--glass-border`) és háttere ezen a panelen belül gyakorlatilag
-   láthatatlan volt - a technikus nem látta, hogy ott egy önálló, MŰVELETI lista van.
-   Erősebb lila keret + sötétebb saját háttér + árnyék: a táblázat "kiemelkedik" a
-   panelből. A felső sarkok NEM kerekítettek, mert a fejléc-csík oda tapad. */
-.drv-table-cap{display:flex;align-items:center;gap:8px;padding:8px 12px;flex:0 0 auto;
-  font-size:11.5px;color:var(--text2);line-height:1.35;
-  background:rgba(48,26,80,0.9);border:1px solid rgba(180,100,255,0.45);border-bottom:0;
-  border-radius:var(--r-sm) var(--r-sm) 0 0}
-.drv-table-cap b{color:var(--text)}
+/* Fülek + a két kijelölő gomb EGY sorban (a fix dialógusának mintájára). */
+.drv-tabsrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:9px}
+.drv-tabsrow .hw-tabs{margin-bottom:0}
+.drv-tabsrow .btn-sm{padding:5px 11px;font-size:11.5px}
+/* (A "Driver-lista — pipáld ki…" fejléc-csík (`.drv-table-cap`, 2026-09-18) 2026-10-01-én
+   KIKERÜLT, explicit user decision: "feleslegesen van ott, csak belerondít". A táblázat
+   kiemelését most a saját erős kerete adja, lásd `.mm-tablecol #driver-table-wrap`.) */
 /* HOGY A TÁBLÁZAT TÁBLÁZATNAK IS NÉZZEN KI (2026-09-18, terepi visszajelzés: *"nem is
    látom, hogy mi a driver-kezelés táblázat; nem egy táblázat, csak ott a semmiben áll
    egy valami, ott vannak sorok, felette feliratok"*). Az ok konkrét és megfogható: a
@@ -610,87 +612,77 @@ td.c-prov{color:var(--text2)}
    csíkozásra cserélődött - a hézag- és fejléc-sorok miatt a nth-child összevissza
    ugrált volna. Lásd a "KATEGÓRIA-DIZÁJN" blokkot.) */
 #driver-table-wrap th,#mc-del-list th{background:rgba(52,28,88,0.97);border-bottom:2px solid rgba(180,100,255,0.5)}
-/* A TÁBLÁZAT NAGY (2026-10-01, explicit user decision: *"rakd be felülre nagyba"*): a
-   saját sorában áll, tehát a magasságát a tartalma adja, a plafon pedig a viewport - egy
-   gördítéssel a táblázat kitölti a képernyőt, a 100+ soros lista viszont nem nyújtja
-   végtelenre a lapot. Padló nincs: a korábbi `--drv-table-min` azért kellett, mert egy
-   rács-sorban a kártya-hasáb összenyomta - most nincs, ami összenyomja, egy 2 soros
-   lista pedig ne kapjon 450 px-es üres dobozt. */
-.mm-tablecol #driver-table-wrap{flex:0 1 auto;max-height:min(900px, calc(100vh - 190px));min-height:0;
-  border-color:rgba(180,100,255,0.45);border-radius:0 0 var(--r-sm) var(--r-sm);
-  background:rgba(18,9,36,0.8);box-shadow:0 10px 30px rgba(0,0,0,0.35)}
-/* A 7 OSZLOP TELJES SZÉLESSÉGEN (2026-10-01): a korábbi fél szélességű, erősen tömörített
-   szedés (11,5 px, 190/180 px-es oszlop-plafonok) helyett olvashatóbb méret, és a két
-   tördelő oszlop (Használat, Mire való) több helyet kap - így egy sor jellemzően 1-2
-   sorban elfér, nem 4-5-ben. Az `overflow-x:auto` a védőháló keskeny ablakra: a
-   `.table-wrap` alapból CSAK `overflow-y`-t kap, egy kilógó oszlop tehát nem gördíthető,
-   hanem ELÉRHETETLEN lenne (a headless render ezt egyszer már megmutatta). */
-.mm-tablecol #driver-table-wrap{overflow-x:auto}
-.mm-tablecol #driver-table-wrap table{font-size:12.5px}
-.mm-tablecol #driver-table-wrap th,.mm-tablecol #driver-table-wrap td{padding:8px 10px}
-.mm-tablecol #driver-table-wrap th{font-size:11px;letter-spacing:.3px}
-.mm-tablecol #driver-table-wrap th:nth-child(2){min-width:200px}
-.mm-tablecol #driver-table-wrap td:nth-child(2){max-width:360px}
-.mm-tablecol #driver-table-wrap td.what-cell{max-width:440px}
-.mm-tablecol #driver-table-wrap td:nth-child(3),
-.mm-tablecol #driver-table-wrap td:nth-child(4),
-.mm-tablecol #driver-table-wrap td:nth-child(5){word-break:break-word;white-space:normal}
-/* A fülek tördelnek - nem csonkolnak, mert a darabszám az információ. */
-.mm-tablecol .hw-tabs{gap:6px}
-.mm-tablecol .hw-tab{padding:6px 11px;font-size:11.5px}
-
-/* ===== 1 KATTINTÁSOS FIX: A TÖRLÉSI ELŐNÉZET TÁBLÁZATA (2026-10-01) =====================
-   Explicit user decision: *"ugyanúgy nézzen ki mint a sima driver kezeléses kezelő ...
-   az 1 katt fixnél oda van hányva minden, átláthatatlan"*. Ugyanaz a 7 oszlop, ugyanaz
-   a használat-chip, ugyanazok az ALKATRÉSZ szerinti csoport-fejlécek, mint a Driverek
-   nézetben; a rács-vonalak a fenti közös szelektor-listából jönnek. A szedés a fél
-   szélességű Driverek-hasáb tömör szedését követi (`.mm-tablecol #driver-table-wrap`). */
-/* TÖMÖR VÁLTOZAT (2026-10-01, második kör, explicit user decision: *"a fixben lehetne
-   kisebb minden ... 3 sor fér ki, kisebb laptopon szerintem 2"*). MÉRVE a tömörítés előtt
-   (headless, élő adat): 1920×1040-en 3, 1366×768-on 2 teljesen látható adatsor - a sorok
-   67-155 px magasak voltak (a 7 oszlop keskeny hasábokban 3-5 sorba tördelt), a
-   kategória-sáv 71 px. A Driverek nézet (ahol a táblázat teljes szélességű) NEM változik.
-     - 4 oszlop: a published név, a gyártó és a verzió a driver neve ALATT, egy kisbetűs sorban;
+/* A DRIVER-TÁBLÁZAT EGY KÜLÖN, KERETES BLOKK (2026-10-01, explicit user decision, lásd
+   fent): erős lila keret körben, sötét saját háttér, halvány külső "glória" és mély árnyék
+   - ugyanaz a hatás, ami a fix dialógusában a táblázatot a környezetétől elválasztja. A
+   magasság-plafon a viewport: egy gördítéssel kitölti a képernyőt, a 100+ soros lista
+   viszont nem nyújtja végtelenre a lapot. */
+.mm-tablecol #driver-table-wrap{flex:0 1 auto;max-height:min(900px, calc(100vh - 170px));min-height:0;overflow-x:auto;
+  border:1.5px solid rgba(186,120,255,0.62);border-radius:var(--r-sm);
+  background:rgba(14,7,30,0.92);box-shadow:0 0 0 4px rgba(150,80,255,0.07),0 14px 34px rgba(0,0,0,0.45)}
+/* ===== A KÉT DRIVER-TÁBLÁZAT KÖZÖS, TÖMÖR SZEDÉSE (2026-10-01) ===========================
+   Először a fix dialógusa kapta (explicit user decision: *"a fixben lehetne kisebb minden
+   ... 3 sor fér ki, kisebb laptopon 2"*), majd ugyanaznap a Driverek nézet is (*"az 1 katt
+   fixnél szépen meg van csinálva, ott JÓ … itt is jó ez a méret, vagy kicsit nagyobb,
+   nyilván itt ki tudja tenni a full screent"*). MÉRVE a fixben a tömörítés előtt: 1920×1040-en
+   3, 1366×768-on 2 teljesen látható adatsor (a sorok 67-155 px magasak, a 7 oszlop keskeny
+   hasábokban 3-5 sorba tördelt); utána 39-55 px-es sorok.
+     - 4 oszlop: pipa / Használat / Driver (név + alatta published · gyártó · verzió) / Mire való;
      - egysoros kategória-sáv (a címke és a név egymás mellett, a magyarázat a buborékban);
-     - a használat-chip legfeljebb 2 sor (a teljes indok a cella buborékjában, és a konkrét
-       eszköz a "Mire való" oszlopban amúgy is ott van) - ez a CHIP-CSONKOLÁSI szabály
-       SZŰKÍTETT kivétele, csak ebben a dialógusban;
-     - kisebb betű/padding, és a dialógus magasabb lehet (95vh, lásd showAutoFixConfirm). */
+     - a használat-chip legfeljebb 2 sor (a teljes indok a cella buborékjában, a konkrét
+       eszköz a "Mire való" oszlopban amúgy is ott van) - a CHIP-CSONKOLÁSI szabály szűkített
+       kivétele, mindkét táblázatban;
+     - RÖGZÍTETT OSZLOPSZÉLESSÉG (`table-layout:fixed`) - nem stílus-kérdés: automatikus
+       elrendezésben az egysoros, "…"-ra végződő szövegek a TELJES hosszukkal számítanak a
+       táblázat minimum-szélességébe, és a táblázat jobbra kilógott (a headless render
+       1366 px-en a fixben pontosan ezt mutatta). Rögzítve az oszlopok a fejléc szélességeit
+       kapják, a hosszú szöveg tényleg "…"-ra rövidül.
+   A Driverek nézet a teljes szélesség miatt egy hajszállal nagyobb betűt kap (lent). */
 #mc-del-list{max-height:max(240px, calc(95vh - 285px));overflow-x:auto;
   border-color:rgba(180,100,255,0.45);border-radius:var(--r-sm);
   background:rgba(18,9,36,0.8);box-shadow:0 10px 30px rgba(0,0,0,0.35)}
-/* RÖGZÍTETT OSZLOPSZÉLESSÉG (`table-layout:fixed`) - nem stílus-kérdés: automatikus
-   elrendezésben az egysoros, "…"-ra végződő szövegek (a sáv neve, a kisbetűs alsor) a
-   TELJES hosszukkal számítanak bele a táblázat minimum-szélességébe, ezért a táblázat
-   kiszélesedett, a "Mire való" oszlop és a sáv darabszám-címkéje jobbra levágódott (a
-   headless render 1366 px-en pontosan ezt mutatta). Rögzített elrendezésben az oszlopok a
-   fejléc szélességeit kapják, és a hosszú szöveg tényleg "…"-ra rövidül. */
-#mc-del-list table{font-size:11px;table-layout:fixed}
-#mc-del-list th,#mc-del-list td{padding:4px 8px;vertical-align:middle}
-#mc-del-list th{font-size:10px;letter-spacing:.2px;padding-top:7px;padding-bottom:7px}
-#mc-del-list th:nth-child(1){width:34px}
-#mc-del-list th:nth-child(2){min-width:0;width:27%}
-#mc-del-list td:nth-child(2){max-width:none}
-#mc-del-list th:nth-child(3){width:31%}
-#mc-del-list td.c-drv{white-space:normal;max-width:none}
-#mc-del-list .drv-n{font-weight:600;color:var(--text);font-size:11.5px;line-height:1.3;word-break:break-word}
-#mc-del-list .drv-s{font-family:Consolas,'Cascadia Mono',ui-monospace,monospace;font-size:10px;color:var(--text3);
+#driver-table-wrap table,#mc-del-list table{font-size:11px;table-layout:fixed}
+#driver-table-wrap th,#driver-table-wrap td,#mc-del-list th,#mc-del-list td{padding:4px 8px;vertical-align:middle}
+#driver-table-wrap th,#mc-del-list th{font-size:10px;letter-spacing:.2px;padding-top:7px;padding-bottom:7px}
+#driver-table-wrap th:nth-child(1),#mc-del-list th:nth-child(1){width:34px}
+#driver-table-wrap th:nth-child(2),#mc-del-list th:nth-child(2){min-width:0;width:27%}
+#driver-table-wrap td:nth-child(2),#mc-del-list td:nth-child(2){max-width:none}
+#driver-table-wrap th:nth-child(3),#mc-del-list th:nth-child(3){width:31%}
+#driver-table-wrap td.c-drv,#mc-del-list td.c-drv{white-space:normal;max-width:none}
+#driver-table-wrap .drv-n,#mc-del-list .drv-n{font-weight:600;color:var(--text);font-size:11.5px;line-height:1.3;word-break:break-word}
+#driver-table-wrap .drv-s,#mc-del-list .drv-s{font-family:Consolas,'Cascadia Mono',ui-monospace,monospace;font-size:10px;color:var(--text3);
   line-height:1.3;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#mc-del-list td.what-cell{max-width:none;white-space:normal}
-#mc-del-list .what-main{font-size:11.5px;line-height:1.3}
-#mc-del-list .what-sub{font-size:10px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#mc-del-list .usage-chip{font-size:10.5px;padding:2px 8px;line-height:1.35}
-#mc-del-list .usage-chip .uc-why{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
-#mc-del-list td input[type="checkbox"]{width:14px;height:14px}
-/* Egysoros, alacsony kategória-sáv (a ragadós sávok itt is egyforma magasak). */
-#mc-del-list tr.drv-group .dg{min-height:38px;padding:4px 10px 4px 8px;gap:8px}
-#mc-del-list tr.drv-group .dg-ic{width:24px;height:24px;font-size:13px;border-radius:6px}
-#mc-del-list tr.drv-group .dg-main{flex-direction:row;align-items:baseline;gap:9px}
-#mc-del-list tr.drv-group .dg-title{flex:0 0 auto;font-size:10px}
-#mc-del-list tr.drv-group .dg-name{font-size:12.5px;min-width:0}
-#mc-del-list tr.drv-group .dg-hint{display:none}
-#mc-del-list tr.drv-group .dg-count{font-size:10.5px;padding:2px 9px}
-#mc-del-list tr.drv-gap td{height:7px}
+#driver-table-wrap td.what-cell,#mc-del-list td.what-cell{max-width:none;white-space:normal}
+#driver-table-wrap .what-main,#mc-del-list .what-main{font-size:11.5px;line-height:1.3}
+#driver-table-wrap .what-sub,#mc-del-list .what-sub{font-size:10px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#driver-table-wrap .usage-chip,#mc-del-list .usage-chip{font-size:10.5px;padding:2px 8px;line-height:1.35}
+#driver-table-wrap .usage-chip .uc-why,#mc-del-list .usage-chip .uc-why{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+#driver-table-wrap td input[type="checkbox"],#mc-del-list td input[type="checkbox"]{width:14px;height:14px}
+/* Egysoros, alacsony kategória-sáv (a ragadós sávok így is egyforma magasak). */
+#driver-table-wrap tr.drv-group .dg,#mc-del-list tr.drv-group .dg{min-height:38px;padding:4px 10px 4px 8px;gap:8px}
+#driver-table-wrap tr.drv-group .dg-ic,#mc-del-list tr.drv-group .dg-ic{width:24px;height:24px;font-size:13px;border-radius:6px}
+#driver-table-wrap tr.drv-group .dg-main,#mc-del-list tr.drv-group .dg-main{flex-direction:row;align-items:baseline;gap:9px}
+#driver-table-wrap tr.drv-group .dg-title,#mc-del-list tr.drv-group .dg-title{flex:0 0 auto;font-size:10px}
+#driver-table-wrap tr.drv-group .dg-name,#mc-del-list tr.drv-group .dg-name{font-size:12.5px;min-width:0}
+#driver-table-wrap tr.drv-group .dg-hint,#mc-del-list tr.drv-group .dg-hint{display:none}
+#driver-table-wrap tr.drv-group .dg-count,#mc-del-list tr.drv-group .dg-count{font-size:10.5px;padding:2px 9px}
+#driver-table-wrap tr.drv-gap td,#mc-del-list tr.drv-gap td{height:7px}
+/* A DRIVEREK NÉZET egy hajszállal nagyobb (teljes szélességű táblázat, explicit kérés:
+   "vagy kicsit nagyobb, nyilván itt ki tudja tenni a full screent"). */
+#driver-table-wrap table{font-size:11.5px}
+#driver-table-wrap th,#driver-table-wrap td{padding-left:10px;padding-right:10px}
+#driver-table-wrap th{font-size:10.5px}
+#driver-table-wrap .drv-n,#driver-table-wrap .what-main{font-size:12.5px}
+#driver-table-wrap .drv-s,#driver-table-wrap .what-sub{font-size:10.5px}
+#driver-table-wrap .usage-chip{font-size:11px}
+#driver-table-wrap tr.drv-group .dg{min-height:40px}
+#driver-table-wrap tr.drv-group .dg-name{font-size:13px}
+#driver-table-wrap tr.drv-group .dg-title{font-size:10.5px}
+#driver-table-wrap tr.drv-gap td{height:9px}
+/* A fülek tömören (a fix dialógusával azonos méret); tördelnek, nem csonkolnak. */
+.mm-tablecol .hw-tabs{gap:6px}
+.mm-tablecol .hw-tab{padding:4px 10px;font-size:11px;gap:6px}
+.mm-tablecol .hw-tab .hw-tab-n{padding:0 6px;font-size:10px}
 #mc-del-list tbody tr.drv-row{cursor:pointer}
 /* MEGMARADÓ sor (nincs pipa): halványabb, és a neve mellett "MEGMARAD" címke - a lista
    így egy pillantásra mutatja, mi fog történni (2026-10-01, explicit user decision). */
@@ -788,7 +780,8 @@ td.c-prov{color:var(--text2)}
 /* "Mire való" oszlop: fent a konkrét eszköz/rendeltetés, alatta a bizonyíték fajtája és a
    driver saját Windows-osztálya (ami eddig egyedül állt ott). A szöveg tördel, nem csonkol -
    ugyanaz a szabály, mint a Használat-chipnél. */
-#driver-table-wrap td.what-cell{max-width:360px;white-space:normal}
+/* (A `#driver-table-wrap td.what-cell` szélesség-szabálya 2026-10-01 óta a közös, tömör
+   blokkban van - rögzített oszlopszélességgel; egy itteni, később álló szabály felülírná.) */
 .what-main{font-weight:600;color:var(--text);line-height:1.35;word-break:break-word}
 .what-sub{font-size:11px;color:var(--text3);margin-top:2px}
 .seg{display:inline-flex;border:1px solid rgba(180,100,255,0.3);border-radius:999px;overflow:hidden}
@@ -1615,17 +1608,16 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
               <!-- A TÁBLÁZAT-HASÁB: a rács első sora, mindkét oszlopon át. -->
               <div class="mm-tablecol">
                <div class="mm-tablecol-inner">
-                <!-- 2. SZEKCIÓ CÍME. A három nagy rész mindegyike meg van nevezve, hogy
-                     egy pillantásból látszódjon, mi mihez tartozik (2026-09-18). -->
-                <div class="mm-sec-head">💿 Driver-lista <span>— a gép telepített driverei</span></div>
-                <!-- AZ ESZKÖZTÁR A TÁBLÁZAT FÖLÖTT ÁLL, NEM A PANEL TETEJÉN (2026-09-18,
-                     explicit user decision: *"rakd át bal alulra, mert most hülyén néz ki,
-                     hogy ez fent van, a táblázat meg bal alul, azt közben ahhoz van köze"*).
-                     A 2x2 rács idején a driver-lista a bal ALSÓ cellában volt, az eszköztár
-                     viszont a panel tetején maradt - vagyis a Frissítés/Törlés/keresés egy
-                     képernyőnyire került attól, amire hat. (2026-10-01 óta a lista a nézet
-                     TETEJÉN áll, teljes szélességben - az eszköztár ettől még a hasábjával
-                     együtt mozog, tehát mindig közvetlenül a táblázat fölött van.) -->
+                <!-- A DRIVER-LISTA FEJE: CSAK AMI MŰKÖDTETI A LISTÁT (2026-10-01, explicit user
+                     decision: *"az 1 katt fixnél szépen meg van csinálva, ott JÓ … a sima
+                     driverkezelő egy rémálom ehhez képest … a driver-lista pipáld ki, amit
+                     törölni szeretnél szöveg feleslegesen van ott … a 21 csomagot használ most
+                     a gép szöveg se kell"*). KIKERÜLT: a "DRIVER-LISTA" szekció-cím (a panel
+                     címe már megnevezi), a "pipáld ki…" fejléc-csík, és a használat-összegző
+                     doboz NORMÁL állapota (a fülek darabszámai ugyanezt mondják). Maradt:
+                       1) eszköztár (Frissítés / Törlés / nyomtató-szűrő / keresés),
+                       2) EGY sor: a használat-fülek + jobbra a két kijelölő gomb,
+                       3) a táblázat - ugyanaz a tömör, 4 oszlopos forma, mint a fix dialógusában. -->
                 <div class="toolbar">
                 <button class="btn" onclick="loadDrivers()">🔄 Frissítés</button>
                 <button class="btn btn-danger" onclick="deleteSelected()" id="btn-delete" disabled>🗑 Kijelöltek Törlése</button>
@@ -1644,51 +1636,40 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                     <input type="text" id="driver-search" placeholder="Keresés név/gyártó/típus szerint..." oninput="filterDrivers()">
                   </div>
                 </div>
-                <!-- HASZNÁLAT-ÁLLAPOT SÁV. Addig rejtve, amíg a felderítés nem végzett: egy
-                       üres vagy fél állapotsáv rosszabb, mint a semmi, mert a technikus azt
-                       hinné, hogy a gép semmit nem használ. -->
-                  <div class="hw-summary" id="drv-usage-summary" style="display:none">
-                    <div class="hw-sum-main">
-                      <span class="hw-sum-machine" id="drv-usage-title">Használat felderítése...</span>
-                      <span class="hw-sum-meta" id="drv-usage-meta"></span>
-                    </div>
-                    <!-- A KÉT KIJELÖLŐ GOMB EGYMÁS MELLETT (2026-09-17, explicit user decision):
-                         ugyanaz a művelet két szűkítésben, tehát egy helyen a dolguk. A "Mind"
-                         korábban a felső eszköztárban, a Frissítés/Törlés mellett szorongott. -->
-                    <button class="btn btn-sm" id="btn-select-all" onclick="selectAllDrivers()"
-                            title="A MOST LÁTHATÓ sorokat jelöli ki (a szűrők és a kiválasztott fül után). Újra rákattintva visszavonja a kijelölést.">☑ Mind kijelölése</button>
-                    <button class="btn btn-sm" id="btn-select-unused" onclick="selectUnusedDrivers()"
-                            title="Csak azokat pipálja ki, amikre semmi nem hivatkozik: nincs hozzájuk eszköz a gépben, és nem fut hozzájuk kernel-szolgáltatás. A használatban lévőket és a készenléti (kihúzott eszközhöz tartozó) csomagokat kihagyja - de bármikor kipipálhatod őket kézzel is.">⚪ Csak a nem használtak kijelölése</button>
+                <!-- HASZNÁLAT-ÁLLAPOT SOR: CSAK RENDELLENES ÁLLAPOTBAN látszik (offline mód /
+                     a felderítés hibája / felderítés folyamatban) - ilyenkor a fülek hiányoznak,
+                     és magyarázat nélkül úgy tűnne, hogy eltűntek. Normál állapotban REJTVE
+                     (renderDriverUsageBar). -->
+                <div class="hw-summary drv-usage-line" id="drv-usage-summary" style="display:none">
+                  <div class="hw-sum-main">
+                    <span class="hw-sum-machine" id="drv-usage-title">Használat felderítése...</span>
+                    <span class="hw-sum-meta" id="drv-usage-meta"></span>
                   </div>
-                <!-- SZŰRŐ-FÜLEK. Ugyanaz a minta, mint a Driver Keresés nézetben. -->
-                <div class="hw-tabs" id="drv-tabs" style="display:none"></div>
-                <!-- FEJLÉC-CSÍK A TÁBLÁZAT FÖLÖTT (2026-09-18, explicit user decision:
-                     *"a táblázat legyen kiemelve, hogy lehessen látni, hogy ott egy
-                     táblázat, ott lehet drivereket törölni"*). A nézet fő munkaterülete
-                     addig vizuálisan egybefolyt a panellel: se kerete, se címe nem volt,
-                     amiből látszana, hogy ez egy MŰVELETI lista, nem csak kiírt adat.
-                     A csík a táblázathoz TAPAD (alul nincs kerete, a táblázat felül nincs
-                     lekerekítve), így a kettő egy dobozként olvasódik. -->
-                <div class="drv-table-cap">
-                  <span>🗑️</span>
-                  <span>Driver-lista — <b>pipáld ki, amit törölni szeretnél</b>, majd nyomd meg a <b>Kijelöltek Törlése</b> gombot</span>
+                </div>
+                <!-- A FÜLEK ÉS A KÉT KIJELÖLŐ GOMB EGY SORBAN (a fix dialógusának mintájára).
+                     A két gomb (2026-09-17 óta egymás mellett, explicit user decision: ugyanaz a
+                     művelet két szűkítésben) eddig az összegző dobozban ült. -->
+                <div class="drv-tabsrow">
+                  <div class="hw-tabs" id="drv-tabs" style="display:none"></div>
+                  <span style="flex:1"></span>
+                  <button class="btn btn-sm" id="btn-select-all" onclick="selectAllDrivers()"
+                          title="A MOST LÁTHATÓ sorokat jelöli ki (a szűrők és a kiválasztott fül után). Újra rákattintva visszavonja a kijelölést.">☑ Mind kijelölése</button>
+                  <button class="btn btn-sm" id="btn-select-unused" onclick="selectUnusedDrivers()" style="display:none"
+                          title="Csak azokat pipálja ki, amikre semmi nem hivatkozik: nincs hozzájuk eszköz a gépben, és nem fut hozzájuk kernel-szolgáltatás. A használatban lévőket és a készenléti (kihúzott eszközhöz tartozó) csomagokat kihagyja - de bármikor kipipálhatod őket kézzel is.">⚪ Csak a nem használtak kijelölése</button>
                 </div>
                 <div class="table-wrap" id="driver-table-wrap">
                   <table>
                     <thead><tr>
-                      <th style="width:30px"></th>
+                      <th style="width:34px"></th>
                       <th class="sortable" data-sort-key="usage" onclick="sortDriversBy('usage')">Használat<span class="sort-arrow"></span></th>
-                      <th class="sortable" data-sort-key="published" onclick="sortDriversBy('published')">Published Name<span class="sort-arrow"></span></th>
-                      <th class="sortable" data-sort-key="original" onclick="sortDriversBy('original')">Original Name<span class="sort-arrow"></span></th>
-                      <th class="sortable" data-sort-key="provider" onclick="sortDriversBy('provider')">Provider<span class="sort-arrow"></span></th>
+                      <th class="sortable" data-sort-key="original" onclick="sortDriversBy('original')"
+                          title="Fent a driver-csomag neve (Original Name), alatta: Published Name · gyártó · verzió">Driver<span class="sort-arrow"></span></th>
                       <th class="sortable" data-sort-key="what" onclick="sortDriversBy('what')"
                           title="A konkrét eszköz, amit a driver hajt (a Windows eszközfája szerint), vagy ha nincs hozzá eszköz, amire a driver-fájl szerint való. Alatta a driver saját Windows-osztálya (Class) - az a gyártó besorolása arról, milyen TÍPUSÚ Windows-eszközt telepít, nem arról, melyik alkatrészhez tartozik.">Mire való<span class="sort-arrow"></span></th>
-                      <th class="sortable" data-sort-key="version" onclick="sortDriversBy('version')">Version<span class="sort-arrow"></span></th>
                     </tr></thead>
                     <tbody id="driver-tbody"></tbody>
                   </table>
-                </div>
-                <div class="status-bar" id="driver-status"><span class="status-dot"></span> Kattints a Frissítés gombra a driverek betöltéséhez.</div>
+                </div>                <div class="status-bar" id="driver-status"><span class="status-dot"></span> Kattints a Frissítés gombra a driverek betöltéséhez.</div>
                 <div id="driver-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
                </div>
               </div>
@@ -4380,14 +4361,14 @@ function renderDriverTable() {
     if (groups++) {
       const sp = document.createElement('tr');
       sp.className = 'drv-gap';
-      sp.innerHTML = '<td colspan="7"></td>';
+      sp.innerHTML = '<td colspan="4"></td>';
       tbody.appendChild(sp);
     }
     tone = meta.tone || 'none';
     inGroup = 0;
     const gtr = document.createElement('tr');
     gtr.className = 'drv-group g-' + tone;
-    gtr.innerHTML = '<td colspan="7">' + drvGroupHead(meta) + '</td>';
+    gtr.innerHTML = '<td colspan="4">' + drvGroupHead(meta) + '</td>';
     tbody.appendChild(gtr);
   };
   indices.forEach(i => {
@@ -4407,13 +4388,12 @@ function renderDriverTable() {
     }
     const tr = document.createElement('tr');
     tr.onclick = () => toggleDriverSel(i);
+    // UGYANAZ A 4 OSZLOP, mint a fix dialógusában (2026-10-01, explicit user decision):
+    // pipa / Használat / Driver (név + published · gyártó · verzió) / Mire való.
     tr.innerHTML = '<td><input type="checkbox" '+(selectedDrivers.has(i)?'checked':'')+' onclick="event.stopPropagation();toggleDriverSel('+i+')"></td>'
       + drvUsageCell(d)
-      + '<td class="c-pub" title="'+esc(d.published||'')+'">'+esc(d.published||'')+'</td>'
-      + '<td class="c-orig" title="'+esc(d.original||'')+'">'+esc(d.original||'')+'</td>'
-      + '<td class="c-prov">'+esc(d.provider||'')+'</td>'
-      + drvWhatCell(d)
-      + '<td class="c-ver">'+esc(d.version||'')+'</td>';
+      + drvDriverCellHtml(d)
+      + drvWhatCell(d);
     // A korábbi piros/sárga bal-szél csík (használat szerint) 2026-10-01-én KIKERÜLT
     // (explicit user decision: "fogalmam sincs h minek, azt vedd ki") - a használatot a
     // zöld/sárga chip mondja ki; a bal szélen most a KATEGÓRIA színe fut.
@@ -4431,16 +4411,28 @@ function renderDriverTable() {
     }));
     const tr = document.createElement('tr');
     tr.className = 'drv-empty';
-    tr.innerHTML = '<td colspan="7">✓ Ehhez az alkatrészhez nincs harmadik féltől származó driver-csomag'
+    tr.innerHTML = '<td colspan="4">✓ Ehhez az alkatrészhez nincs harmadik féltől származó driver-csomag'
       + (drvTab !== 'all' || driverFilterText ? ' ebben a nézetben (a fül vagy a keresés szűr)' : '')
       + '.' + (devs.length ? '<br>A gépben: ' + esc(devs.slice(0, 6).join(' · ')) : '') + '</td>';
     tbody.appendChild(tr);
   }
   const badge = document.getElementById('driver-count-badge');
   if (badge) {
-    badge.textContent = (driverFilterText || drvTab !== 'all' || drvSlotSel)
+    // A DARABSZÁM-JELVÉNY MONDJA KI, HA VALAMI ELREJT SOROKAT (2026-10-01 óta ez az egyetlen
+    // hely: a használat-összegző sor normál állapotban rejtve). A nyomtató-szűrő is
+    // beleszámít - különben "58 driver" állna fölötte, miközben 33 sor látszik.
+    const why = [];
+    if (drvSlotSel && driverMachine) why.push('a kiválasztott alkatrész');
+    if (driverFilterText) why.push('a keresés');
+    if (drvTab !== 'all') why.push('a kiválasztott fül');
+    const hideEl = document.getElementById('hide-printer-drivers');
+    const prnHidden = (hideEl && hideEl.checked && printerInfs && printerInfs.size)
+      ? drivers.filter(d => printerInfs.has((d.published || '').toLowerCase())).length : 0;
+    if (prnHidden) why.push('a nyomtató-szűrő (' + prnHidden + ' db)');
+    badge.textContent = (why.length && indices.length !== drivers.length)
       ? indices.length + ' / ' + drivers.length + ' driver'
       : drivers.length + ' driver';
+    badge.title = why.length ? 'Látható: ' + indices.length + ' / ' + drivers.length + ' — a többit elrejti: ' + why.join(', ') : '';
   }
   renderDriverUsageBar();
   renderMachineMap();
@@ -4485,29 +4477,16 @@ function renderDriverUsageBar() {
   const visible = getDriverIndicesBeforeTab();
   const counts = {active: 0, standby: 0, unused: 0, unknown: 0};
   visible.forEach(i => { counts[drvUsageOf(drivers[i])]++; });
-  const hidden = drivers.length - visible.length;
-  bar.style.display = '';
   if (btn) btn.style.display = counts.unused ? '' : 'none';
-  title.textContent = '🔎 ' + counts.active + ' csomagot használ MOST a gép, '
-    + counts.unused + ' csomagra semmi nem hivatkozik';
-  let metaText = counts.standby
-    ? counts.standby + ' további csomaghoz tartozik eszköz vagy szolgáltatás, de épp nem aktív '
-      + '(pl. kihúzott nyomtató/telefon) — ezeket érdemes végignézni, mielőtt törlöd.'
-    : 'A „Nem használt” csoport a szabadon mazsolázható rész.';
-  // AZ ELREJTETT SOROKAT KI KELL MONDANI: e nélkül a fenti számok egy olyan listára
-  // vonatkoznának, amit a technikus nem lát teljesen - és pont ebből lett a
-  // "felül 100, alatta 10" ellentmondás.
-  if (hidden > 0) {
-    // Az OKOT is megnevezzük: alkatrész-választás, keresés vagy nyomtató-szűrő.
-    const why = [];
-    if (drvSlotSel && driverMachine) why.push('a kiválasztott alkatrész');
-    if (driverFilterText) why.push('a keresés');
-    const hideEl = document.getElementById('hide-printer-drivers');
-    if (hideEl && hideEl.checked && printerInfs && printerInfs.size) why.push('a nyomtató-szűrő');
-    metaText += ' · A számok a MOST LÁTHATÓ ' + visible.length + ' csomagra vonatkoznak — '
-      + hidden + ' továbbit elrejt ' + (why.length ? why.join(', ') : 'a szűrő') + '.';
-  }
-  meta.textContent = metaText;
+  /* NORMÁL ÁLLAPOTBAN AZ ÖSSZEGZŐ SOR REJTVE (2026-10-01, explicit user decision: *"ez a 21
+     csomagot használ most a gép, 2 semmire se hivatkozik szöveg se kell, feleslegesen van
+     ott"*). A számokat a fülek mondják ki; a "hány sort rejt el a szűrő" információ (a
+     2026-09-17-i "felül 100, alatta 10" ellentmondás tanulsága) a panel jobb felső
+     darabszám-jelvényére és annak buborékjára került (lásd renderDriverTable) - ott is
+     kimondja az OKOT (alkatrész / keresés / nyomtató-szűrő). */
+  bar.style.display = 'none';
+  title.textContent = '';
+  meta.textContent = '';
 
   // 3) FÜLEK. Az üres fül nem jelenik meg - kivéve a "Használatban"-t, aminek a 0-ja
   //    maga is információ (ugyanaz az elv, mint a Driver Keresés "Teendő" fülénél).
@@ -4621,6 +4600,14 @@ const WHAT_KIND = {
   'service': '⚙️ szoftveres driver'
 };
 function drvWhatCell(d) { return whatCellHtml(d, drvMachineInfo(d)); }
+/* A tömör "Driver" cella (2026-10-01) - a Driverek nézet ÉS a fix dialógusa is ezt hívja:
+   fent a csomag neve (Original Name) + opcionális címke (a fixben: MEGMARAD), alatta
+   kisbetűvel a published név · gyártó · verzió. A buborék mindent kiír. */
+function drvDriverCellHtml(d, tag) {
+  return '<td class="c-drv" title="' + esc([d.original, d.published, d.provider, d.version].filter(Boolean).join(' · ')) + '">'
+    + '<div class="drv-n">' + esc(d.original || d.published || '') + (tag || '') + '</div>'
+    + '<div class="drv-s">' + esc([d.published, d.provider, d.version].filter(Boolean).join(' · ')) + '</div></td>';
+}
 /* A "Mire való" cella EGY helyen (Driverek nézet + a fix törlési előnézete). `info` a
    gép-térkép csomag-bejegyzése (vagy null); `extra` egy hívó-specifikus kiegészítés a
    cella aljára (az előnézetben: a zárolás oka). */
@@ -7666,12 +7653,8 @@ function renderDeletePreview() {
       // A "Használat" chip ugyanaz, mint a Driverek nézetben (usageCellHtml). Elemzés után
       // az ismeretlen állapot NEM "folyamatban": azt ki kell mondani, hogy nem sikerült.
       + usageCellHtml(st, d.usage_text, d.usage_reasons, delLoading ? '' : 'nem sikerült felderíteni')
-      // TÖMÖR "Driver" oszlop: fent a csomag neve (+ MEGMARAD címke), alatta kisbetűvel
-      // a published név · gyártó · verzió - a Driverek nézet 3 külön oszlopa itt egy.
-      + '<td class="c-drv" title="' + esc([d.original, d.published, d.provider, d.version].filter(Boolean).join(' · ')) + '">'
-      + '<div class="drv-n">' + esc(d.original || d.published || '')
-      + (on ? '' : '<span class="keep-tag">MEGMARAD</span>') + '</div>'
-      + '<div class="drv-s">' + esc([d.published, d.provider, d.version].filter(Boolean).join(' · ')) + '</div></td>'
+      // TÖMÖR "Driver" oszlop - ugyanaz a függvény, mint a Driverek nézetben.
+      + drvDriverCellHtml(d, on ? '' : '<span class="keep-tag">MEGMARAD</span>')
       + whatCellHtml(d, mi, extra) + '</tr>');
   });
   if (!rows.length) {
