@@ -455,7 +455,7 @@ tr.g-standby{--gc:255,180,80}
    oszlopfejléc z-indexe ezért nagyobb (lásd lent). */
 tr.drv-group td{padding:0!important;max-width:none!important;white-space:normal!important;
   overflow:visible!important;border:0!important;background:transparent!important;
-  position:sticky;top:var(--thh,40px);z-index:2}
+  position:sticky;top:var(--thh,31px);z-index:2}  /* a tartalék a mért fejléc-magasság (31 px) - a valódi értéket a ResizeObserver adja */
 #driver-table-wrap th,#mc-del-list th{z-index:3}
 tr.drv-group .dg{display:flex;align-items:center;gap:11px;padding:9px 14px 9px 12px;
   background:linear-gradient(90deg,rgba(var(--gc),0.30),rgba(var(--gc),0.12) 55%,rgba(var(--gc),0.05)),#1b0f30;
@@ -611,7 +611,9 @@ tr.drv-row.selected td{background:rgba(180,100,255,0.24)!important}
 /* (A `tbody tr:nth-child(even)` csíkozás 2026-10-01-én kategórián belüli `tr.drv-row.alt`
    csíkozásra cserélődött - a hézag- és fejléc-sorok miatt a nth-child összevissza
    ugrált volna. Lásd a "KATEGÓRIA-DIZÁJN" blokkot.) */
-#driver-table-wrap th,#mc-del-list th{background:rgba(52,28,88,0.97);border-bottom:2px solid rgba(180,100,255,0.5)}
+/* A fejléc háttere TELJESEN átlátszatlan (2026-10-01: "ne lehessen rajta átlátni") - a
+   ragadós sávok és a sorok alatta gördülnek, egy 0.97-es alfán is átdereng a tartalom. */
+#driver-table-wrap th,#mc-del-list th{background:#321b55;border-bottom:2px solid rgba(180,100,255,0.5)}
 /* A DRIVER-TÁBLÁZAT EGY KÜLÖN, KERETES BLOKK (2026-10-01, explicit user decision, lásd
    fent): erős lila keret körben, sötét saját háttér, halvány külső "glória" és mély árnyék
    - ugyanaz a hatás, ami a fix dialógusában a táblázatot a környezetétől elválasztja. A
@@ -3398,6 +3400,9 @@ function switchView(name) {
   // technikus mégis IDEJÖN, itt utólag lefuttatjuk - így a szűrő ugyanúgy működik, csak
   // nem fizetünk érte a láncban. Nulla ára van: ha már megvan, azonnal visszatér.
   if (name === 'drivers' && printerInfs === null) loadPrinterDriverInfs(true);
+  // A ragadós kategória-sáv a fejléc mért magasságához igazodik - a nézet MOST vált
+  // láthatóvá, tehát a mérés itt már pontos (a ResizeObserver mellett második védőháló).
+  if (name === 'drivers') syncStickyHead('driver-table-wrap');
   // Ugyanez a használat-felderítésre: a láncban kihagyjuk, itt viszont épp azért jött a
   // technikus, hogy lássa, mi van használatban.
   if (name === 'drivers' && driverUsage === null && !driverUsageError && !driverUsageOffline) loadDriverUsage(true);
@@ -4646,10 +4651,25 @@ function drvGroupHead(meta, lead) {
 /* A ragadós kategória-sáv az oszlopfejléc ALÁ tapad - ehhez a fejléc valódi magassága kell
    (`--thh`), ami a szélességtől függ (a "PUBLISHED NAME" két sorba tördelhet). Rejtett
    táblázatnál (0 px) nem írjuk felül a legutóbbi jó értéket. */
+/* A FEJLÉC MAGASSÁGÁT EGY ResizeObserver KÖVETI (2026-10-01, terepi hiba): a program a
+   KEZDŐLAPON indul, a driver-táblázat tehát egy REJTETT nézetben rajzolódik ki először -
+   ott a mérés 0-t ad, és a sáv a 40 px-es tartalékon maradt, ~10 px-szel a valódi fejléc
+   alatt. A résen átlátszottak a sorok ("ott ne legyen lyuk, ne lehessen rajta átlátni").
+   A render-végi mérés ezt nem tudja javítani (a nézetváltás nem rajzol újra); a
+   ResizeObserver viszont jelez, amikor a fejléc 0-ról valódi méretre vált (a nézet
+   láthatóvá válik), és minden későbbi változáskor is (ablakméret, betűtípus, tördelés). */
+const _stickyHeadRO = (typeof ResizeObserver !== 'undefined')
+  ? new ResizeObserver(entries => entries.forEach(e => {
+      const w = e.target.closest('.table-wrap');
+      if (w && e.target.offsetHeight > 0) w.style.setProperty('--thh', e.target.offsetHeight + 'px');
+    }))
+  : null;
 function syncStickyHead(wrapId) {
   const w = document.getElementById(wrapId);
   const th = w && w.querySelector('thead');
-  if (th && th.offsetHeight > 0) w.style.setProperty('--thh', th.offsetHeight + 'px');
+  if (!th) return;
+  if (_stickyHeadRO && !th.dataset.roWatched) { _stickyHeadRO.observe(th); th.dataset.roWatched = '1'; }
+  if (th.offsetHeight > 0) w.style.setProperty('--thh', th.offsetHeight + 'px');
 }
 window.addEventListener('resize', () => { syncStickyHead('driver-table-wrap'); syncStickyHead('mc-del-list'); });
 // Egy alkatrész (gép-térkép slot) fejléc-adatai. `s` null = besorolatlan.
