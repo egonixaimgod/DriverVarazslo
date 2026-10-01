@@ -419,14 +419,82 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .usage-standby{background:rgba(255,180,80,0.14);border:1px solid rgba(255,180,80,0.38);color:#ffd08a}
 .usage-unused{background:rgba(255,255,255,0.05);border:1px solid var(--glass-border);color:var(--text3)}
 .usage-unknown{background:rgba(255,255,255,0.04);border:1px dashed var(--glass-border);color:var(--text3)}
-/* Csoport-fejléc a táblázatban: "felül a használtak, alul a nem használtak". */
-tr.drv-group td{padding:11px 14px 7px;font-size:12px;font-weight:800;letter-spacing:.3px;
-  color:var(--text2);background:rgba(60,35,90,0.32);border-top:1px solid var(--glass-border)}
-tr.drv-group .dg-hint{font-weight:400;color:var(--text3);letter-spacing:0}
-/* A használatban lévő sor bal szélén piros csík - a táblázatban végigfutó szemnek ez
-   gyorsabb jel, mint a jobb oldali oszlop elolvasása. */
-tr.row-active td:first-child{box-shadow:inset 3px 0 0 rgba(255,107,91,0.75)}
-tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
+/* ===== A DRIVER-TÁBLÁZATOK KATEGÓRIA-DIZÁJNJA (2026-10-01, explicit user decision) =========
+   *"nem is látom a kategóriákat, minden sor ugyanolyan színű, valamiért a checkboxok
+   mellett pirossal van valami jelölve ... a kategória nevek legyenek sötétebb vagy más
+   színűek ... kicsi kihagyással ... most olyannak érzem, hogy ide van hányva minden"*.
+   A Driverek nézet (`#driver-table-wrap`) ÉS az 1 kattintásos fix törlési előnézete
+   (`#mc-del-list`) UGYANEZT kapja - a sorokat ugyanaz a JS rajzolja (drvGroupHead).
+
+   1) KATEGÓRIA-SÁV (`tr.drv-group`): saját, színes háttér + vastag bal szegély + ikon-
+      csempe + kétszintű cím (kis címke: "Hálózat", alatta nagyban az eszköz) + darabszám-
+      címke. Nem egy sor a sorok között, hanem egy FEJLÉC.
+   2) HÉZAG (`tr.drv-gap`) minden kategória előtt (az első kivételével) - a kategóriák így
+      külön blokkok, nem egy folyam.
+   3) A KATEGÓRIA SZÍNE (`--gc`, RGB-hármas) a fejléc bal szegélyétől LEFUT az adatsorok
+      bal szélén: egy pillantásra látszik, melyik sor melyik kategóriáé.
+   4) CSÍKOZÁS KATEGÓRIÁN BELÜL (`tr.drv-row.alt`), csoportonként újrakezdve.
+   A KORÁBBI PIROS/SÁRGA BAL-SZÉL CSÍK (használat szerint, `row-active`/`row-standby`)
+   KIKERÜLT: a felhasználó nem tudta, mit jelent, és a használatot a chip már kimondja.
+
+   SZÍNEK SZEKCIÓNKÉNT (a gép-térkép `section`-je, illetve térkép nélkül a használat):
+     alkatrész = lila, külső eszköz = kék, szoftveres = türkiz, már nincs a gépben =
+     borostyán, nincs hozzá eszköz / besorolatlan = szürke. */
+tr.g-parts,tr.g-plain{--gc:186,120,255}
+tr.g-external{--gc:96,170,255}
+tr.g-software{--gc:45,212,191}
+tr.g-absent{--gc:255,180,80}
+tr.g-nodev,tr.g-none,tr.g-unused,tr.g-unknown{--gc:160,160,190}
+tr.g-active{--gc:46,224,138}
+tr.g-standby{--gc:255,180,80}
+/* 5) RAGADÓS KATEGÓRIA-SÁV: görgetéskor a sáv az oszlopfejléc ALÁ tapad (`--thh` = a
+   fejléc mért magassága, a render állítja be), amíg a következő kategória át nem veszi a
+   helyét - egy 24 soros nyomtató-kategória közepén is látszik, hol tartasz (a headless
+   render mutatta meg, hogy enélkül a hosszú kategóriák közepén elveszik a fonal). Ehhez a
+   sávnak TÖMÖR alapszín kell a színátmenet alatt, különben a sorok átlátszanak rajta. Az
+   oszlopfejléc z-indexe ezért nagyobb (lásd lent). */
+tr.drv-group td{padding:0!important;max-width:none!important;white-space:normal!important;
+  overflow:visible!important;border:0!important;background:transparent!important;
+  position:sticky;top:var(--thh,40px);z-index:2}
+#driver-table-wrap th,#mc-del-list th{z-index:3}
+tr.drv-group .dg{display:flex;align-items:center;gap:11px;padding:9px 14px 9px 12px;
+  background:linear-gradient(90deg,rgba(var(--gc),0.30),rgba(var(--gc),0.12) 55%,rgba(var(--gc),0.05)),#1b0f30;
+  border-left:4px solid rgb(var(--gc));border-top:1px solid rgba(var(--gc),0.55);
+  border-bottom:1px solid rgba(var(--gc),0.35)}
+tr.drv-group .dg-ic{flex:0 0 auto;width:30px;height:30px;border-radius:8px;display:inline-flex;
+  align-items:center;justify-content:center;font-size:16px;background:rgba(var(--gc),0.22);
+  border:1px solid rgba(var(--gc),0.45)}
+/* EGYFORMA MAGAS SÁVOK: a ragadós sávok egymásra tapadnak, és ha egy korábbi magasabb
+   lenne (pl. egy két sorba tördelt hosszú név), az alja kikandikálna az aktuális alól, és
+   rálógna az első sorokra. Ezért a név és a magyarázat EGY sorban marad (ha nem fér el,
+   "…" - a teljes szöveg a sáv buborékjában), és a sáv minimum-magassága a háromsoros
+   (címke + név + magyarázat) változat magassága. */
+tr.drv-group .dg{min-height:70px;box-sizing:border-box}  /* 14+18+15 sor + 2 rés + 18 padding + 2 szegély = 69 (mérve) */
+tr.drv-group .dg-main{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+tr.drv-group .dg-title{font-size:10.5px;line-height:14px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;
+  color:rgb(var(--gc))}
+tr.drv-group .dg-name{font-size:13.5px;line-height:18px;font-weight:700;color:var(--text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tr.drv-group .dg-hint{font-size:11px;line-height:15px;font-weight:400;color:var(--text3);letter-spacing:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tr.drv-group .dg-count{flex:0 0 auto;padding:4px 11px;border-radius:999px;font-size:11.5px;font-weight:800;
+  color:#fff;background:rgba(var(--gc),0.26);border:1px solid rgba(var(--gc),0.6);white-space:nowrap}
+tr.drv-gap td{height:14px;padding:0!important;border:0!important;background:transparent!important}
+/* Adatsorok: a kategória színe a bal szélen (3), csíkozás kategórián belül (4). */
+/* A `tbody` előtag nem díszítés: a globális `tbody tr:nth-child(even) td` különben
+   specifikusabb lenne, és a régi csíkozás átütne. A hover és a kijelölés !important,
+   mert a globális `tr:hover td` / `tr.selected td` is az - itt a kategória színe nyer,
+   a kijelölt sor pedig hover közben is kijelöltnek látszik. */
+tbody tr.drv-row td{background:rgba(255,255,255,0.012)}
+tbody tr.drv-row.alt td{background:rgba(255,255,255,0.05)}
+tr.drv-row td:first-child{box-shadow:inset 4px 0 0 rgba(var(--gc),0.55)}
+tr.drv-row:hover td{background:rgba(var(--gc),0.12)!important}
+tr.drv-row.selected td{background:rgba(180,100,255,0.24)!important}
+/* Oszlop-tipográfia: a Published Name (oemNN.inf) technikai azonosító - halványabb,
+   gépi betű; az Original Name a csomag "neve" - kiemelt; a verzió gépi betű. */
+td.c-pub,td.c-ver{font-family:Consolas,'Cascadia Mono',ui-monospace,monospace;font-size:0.93em;color:var(--text2)}
+td.c-orig{font-weight:600;color:var(--text)}
+td.c-prov{color:var(--text2)}
 
 /* ===== DRIVEREK NÉZET: A GÉP FELÉPÍTÉSE (2026-09-17, explicit user decision) ==========
    A technikus a Class oszlopból nem tudta megmondani, melyik driver MINEK a drivere (a
@@ -534,11 +602,13 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
    szabályokat kapja - explicit user decision, 2026-10-01: "ugyanúgy nézzen ki". Egy
    közös szelektor-lista garantálja, hogy a két táblázat ne csússzon szét egy későbbi
    stílus-módosításnál. */
-#driver-table-wrap th,#driver-table-wrap td,#mc-del-list th,#mc-del-list td{border-right:1px solid rgba(180,100,255,0.14)}
+#driver-table-wrap th,#driver-table-wrap td,#mc-del-list th,#mc-del-list td{border-right:1px solid rgba(180,100,255,0.10)}
 #driver-table-wrap th:last-child,#driver-table-wrap td:last-child,#mc-del-list th:last-child,#mc-del-list td:last-child{border-right:0}
 #driver-table-wrap tr.drv-group td,#mc-del-list tr.drv-group td{border-right:0}
 #driver-table-wrap td,#mc-del-list td{border-bottom:1px solid rgba(180,100,255,0.2)}
-#driver-table-wrap tbody tr:nth-child(even) td,#mc-del-list tbody tr:nth-child(even) td{background:rgba(255,255,255,0.045)}
+/* (A `tbody tr:nth-child(even)` csíkozás 2026-10-01-én kategórián belüli `tr.drv-row.alt`
+   csíkozásra cserélődött - a hézag- és fejléc-sorok miatt a nth-child összevissza
+   ugrált volna. Lásd a "KATEGÓRIA-DIZÁJN" blokkot.) */
 #driver-table-wrap th,#mc-del-list th{background:rgba(52,28,88,0.97);border-bottom:2px solid rgba(180,100,255,0.5)}
 /* A TÁBLÁZAT NAGY (2026-10-01, explicit user decision: *"rakd be felülre nagyba"*): a
    saját sorában áll, tehát a magasságát a tartalma adja, a plafon pedig a viewport - egy
@@ -586,13 +656,19 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
 #mc-del-list td:nth-child(3),#mc-del-list td:nth-child(4),
 #mc-del-list td:nth-child(5){word-break:break-word;white-space:normal}
 #mc-del-list td.what-cell{max-width:260px;white-space:normal}
-#mc-del-list tbody tr:not(.drv-group):not(.drv-empty){cursor:pointer}
-#mc-del-list tbody tr:not(.drv-group):not(.drv-empty):hover td{background:rgba(180,100,255,0.10)}
+#mc-del-list tbody tr.drv-row{cursor:pointer}
+/* MEGMARADÓ sor (nincs pipa): halványabb, és a neve mellett "MEGMARAD" címke - a lista
+   így egy pillantásra mutatja, mi fog történni (2026-10-01, explicit user decision). */
+#mc-del-list tr.del-keep td{opacity:.62}
+#mc-del-list tr.del-keep td:first-child{opacity:1}
+.keep-tag{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:999px;font-size:9.5px;
+  font-weight:800;letter-spacing:.5px;color:#a7f0cb;background:rgba(46,224,138,0.14);
+  border:1px solid rgba(46,224,138,0.45);vertical-align:1px;white-space:nowrap}
 /* Zárolt sor: nem a technikus pipája dönt róla (boot-lánc / bal oldali kapcsoló). A sor
    halványabb, de OLVASHATÓ marad, és a "Mire való" cellában ott az ok. */
 #mc-del-list tr.del-locked td{opacity:.55}
 #mc-del-list tr.del-locked{cursor:not-allowed!important}
-#mc-del-list.del-busy tbody tr:not(.drv-group) td{opacity:.6}
+#mc-del-list.del-busy tbody tr.drv-row td{opacity:.6}
 #mc-del-list .del-lock{margin-top:4px;font-size:10.5px;color:#ffd08a;white-space:normal;line-height:1.35}
 /* A csoport-fejléc pipája: egy egész alkatrész (pl. a szoftveres driverek) egy
    kattintással ki-/bevehető. Csak a NEM zárolt sorokra hat. */
@@ -4256,6 +4332,24 @@ function renderDriverTable() {
   const grouped = !byMachine && driverSortKey === 'usage' && !!driverUsage && drvTab === 'all';
   let lastState = null;
   let lastSlot = undefined;
+  // A csoport TÓNUSA (színe) és a csoporton belüli sorszám: a csíkozás csoportonként
+  // indul újra, és az adatsorok bal szélén a csoport színe fut végig (2026-10-01).
+  let tone = 'plain', inGroup = 0, groups = 0;
+  const openGroup = (meta) => {
+    // HÉZAG a csoportok között - a kategóriák így vizuálisan is külön blokkok.
+    if (groups++) {
+      const sp = document.createElement('tr');
+      sp.className = 'drv-gap';
+      sp.innerHTML = '<td colspan="7"></td>';
+      tbody.appendChild(sp);
+    }
+    tone = meta.tone || 'none';
+    inGroup = 0;
+    const gtr = document.createElement('tr');
+    gtr.className = 'drv-group g-' + tone;
+    gtr.innerHTML = '<td colspan="7">' + drvGroupHead(meta) + '</td>';
+    tbody.appendChild(gtr);
+  };
   indices.forEach(i => {
     const d = drivers[i];
     const st = drvUsageOf(d);
@@ -4264,32 +4358,26 @@ function renderDriverTable() {
       if (slot !== lastSlot) {
         lastSlot = slot;
         const n = indices.filter(j => (drvSlotOf(drivers[j]) || '__none') === slot).length;
-        const gtr = document.createElement('tr');
-        gtr.className = 'drv-group';
-        gtr.innerHTML = '<td colspan="7">' + mmGroupHeader(mmSlotByKey[slot], n) + '</td>';
-        tbody.appendChild(gtr);
+        openGroup(mmGroupMeta(mmSlotByKey[slot], n));
       }
     } else if (grouped && st !== lastState) {
       lastState = st;
-      const m = USAGE_META[st] || USAGE_META.unknown;
       const n = indices.filter(j => drvUsageOf(drivers[j]) === st).length;
-      const gtr = document.createElement('tr');
-      gtr.className = 'drv-group';
-      gtr.innerHTML = '<td colspan="7">' + m.icon + ' ' + esc(m.label.toUpperCase())
-        + ' — ' + n + ' db <span class="dg-hint">· ' + esc(m.hint) + '</span></td>';
-      tbody.appendChild(gtr);
+      openGroup(usageGroupMeta(st, n));
     }
     const tr = document.createElement('tr');
     tr.onclick = () => toggleDriverSel(i);
     tr.innerHTML = '<td><input type="checkbox" '+(selectedDrivers.has(i)?'checked':'')+' onclick="event.stopPropagation();toggleDriverSel('+i+')"></td>'
       + drvUsageCell(d)
-      + '<td title="'+esc(d.published||'')+'">'+esc(d.published||'')+'</td>'
-      + '<td title="'+esc(d.original||'')+'">'+esc(d.original||'')+'</td>'
-      + '<td>'+esc(d.provider||'')+'</td>'
+      + '<td class="c-pub" title="'+esc(d.published||'')+'">'+esc(d.published||'')+'</td>'
+      + '<td class="c-orig" title="'+esc(d.original||'')+'">'+esc(d.original||'')+'</td>'
+      + '<td class="c-prov">'+esc(d.provider||'')+'</td>'
       + drvWhatCell(d)
-      + '<td>'+esc(d.version||'')+'</td>';
-    if (st === 'active') tr.classList.add('row-active');
-    else if (st === 'standby') tr.classList.add('row-standby');
+      + '<td class="c-ver">'+esc(d.version||'')+'</td>';
+    // A korábbi piros/sárga bal-szél csík (használat szerint) 2026-10-01-én KIKERÜLT
+    // (explicit user decision: "fogalmam sincs h minek, azt vedd ki") - a használatot a
+    // zöld/sárga chip mondja ki; a bal szélen most a KATEGÓRIA színe fut.
+    tr.className = 'drv-row g-' + tone + ((inGroup++ % 2) ? ' alt' : '');
     if (selectedDrivers.has(i)) tr.classList.add('selected');
     tbody.appendChild(tr);
   });
@@ -4318,6 +4406,7 @@ function renderDriverTable() {
   renderMachineMap();
   updateSelectAllBtn();
   updateSortHeaders();
+  syncStickyHead('driver-table-wrap');
 }
 /* Az állapotsáv és a fülek. Mindkettő REJTVE marad, amíg nincs eredmény: egy üres
    "0 használatban" felirat azt sugallná, hogy a gép semmit nem használ. */
@@ -4505,18 +4594,55 @@ function whatCellHtml(d, i, extra) {
   return '<td class="what-cell" title="' + esc(tip) + '"><div class="what-main">' + esc(i.what || '') + '</div>'
     + '<div class="what-sub">' + (WHAT_KIND[i.what_kind] || '') + (cls ? ' · osztály: ' + esc(cls) : '') + '</div>' + extra + '</td>';
 }
-function mmGroupHeader(s, n) {
-  if (!s) return '🧩 BESOROLATLAN — ' + n + ' db <span class="dg-hint">· a térkép nem tudott róla</span>';
+/* A DRIVER-TÁBLÁZATOK CSOPORT-FEJLÉCE (2026-10-01, explicit user decision: *"nem is látom
+   a kategóriákat, minden sor ugyanolyan színű ... a kategória nevek legyenek sötétebb
+   vagy más színűek ... kicsi kihagyással"*). A Driverek nézet ÉS az 1 kattintásos fix
+   törlési előnézete is EZT hívja - a két táblázat így nem csúszhat szét.
+
+   A fejléc egy saját, színes SÁV (nem egy sima szöveg-sor a többi között): balra a
+   kategória ikonja, fölötte kisbetűs címkében a kategória (pl. "Hálózat"), alatta nagyban
+   a konkrét eszköz, jobbra a darabszám-címke. A színt a "tónus" adja (`g-<tone>` osztály
+   a `tr`-en - lásd a CSS-t): ugyanez a szín fut végig az adatsorok bal szélén, így
+   egy pillantásra látszik, melyik sor melyik kategóriáé.
+
+   meta = {tone, icon, title, name, hint, count}; `lead` = a fejléc elé kerülő HTML (a fix
+   dialógusában a csoport-pipa). */
+function drvGroupHead(meta, lead) {
+  const tip = [meta.title, meta.name, meta.hint].filter(Boolean).join(' — ');
+  return '<div class="dg" title="' + esc(tip) + '">' + (lead || '')
+    + '<span class="dg-ic">' + (meta.icon || '🧩') + '</span>'
+    + '<span class="dg-main"><span class="dg-title">' + esc(meta.title || '') + '</span>'
+    + (meta.name ? '<span class="dg-name">' + esc(meta.name) + '</span>' : '')
+    + (meta.hint ? '<span class="dg-hint">' + esc(meta.hint) + '</span>' : '') + '</span>'
+    + '<span class="dg-count">' + esc(meta.count || '') + '</span></div>';
+}
+/* A ragadós kategória-sáv az oszlopfejléc ALÁ tapad - ehhez a fejléc valódi magassága kell
+   (`--thh`), ami a szélességtől függ (a "PUBLISHED NAME" két sorba tördelhet). Rejtett
+   táblázatnál (0 px) nem írjuk felül a legutóbbi jó értéket. */
+function syncStickyHead(wrapId) {
+  const w = document.getElementById(wrapId);
+  const th = w && w.querySelector('thead');
+  if (th && th.offsetHeight > 0) w.style.setProperty('--thh', th.offsetHeight + 'px');
+}
+window.addEventListener('resize', () => { syncStickyHead('driver-table-wrap'); syncStickyHead('mc-del-list'); });
+// Egy alkatrész (gép-térkép slot) fejléc-adatai. `s` null = besorolatlan.
+function mmGroupMeta(s, n) {
+  if (!s) return {tone: 'none', icon: '🧩', title: 'Besorolatlan', name: '', hint: 'a gép-térkép nem tudott róla', count: n + ' driver'};
   let hint = '';
   if (s.section === 'nodev') hint = 'a gépben nincs hozzá tartozó eszköz — ezek a mazsolázható csomagok';
   else if (s.section === 'absent') hint = 'a gép nyilvántartja, de most nincs benne';
-  else if (s.section === 'software') hint = 'nincs fizikai eszközük';
+  else if (s.section === 'software') hint = 'nincs fizikai eszközük (vírusirtó, VPN, virtuális eszköz)';
   else if (s.badge === 'nincs csatlakoztatva') hint = 'most nincs csatlakoztatva';
-  const title = s.section === 'nodev' ? 'Nincs hozzá eszköz: ' + s.name
-    : s.section === 'absent' ? 'Már nincs a gépben: ' + s.name
-    : s.title + (s.name ? ' — ' + s.name : '');
-  return s.icon + ' ' + esc(title.toUpperCase()) + ' — ' + n + ' db'
-    + (hint ? ' <span class="dg-hint">· ' + esc(hint) + '</span>' : '');
+  const title = s.section === 'nodev' ? 'Nincs hozzá eszköz'
+    : s.section === 'absent' ? 'Már nincs a gépben'
+    : s.title;
+  const name = (s.section === 'nodev' || s.section === 'absent') ? s.name : (s.name || '');
+  return {tone: s.section || 'none', icon: s.icon, title: title, name: name, hint: hint, count: n + ' driver'};
+}
+// Térkép nélküli tartalék: csoportosítás használat szerint (ugyanaz a fejléc-forma).
+function usageGroupMeta(st, n) {
+  const m = USAGE_META[st] || USAGE_META.unknown;
+  return {tone: st, icon: m.icon, title: 'Használat', name: m.label, hint: m.hint, count: n + ' driver'};
 }
 /* Az ábra pontjai. A gép-térkép `hot` kulcsai közül azok, amiknek az adott ábrán nincs
    saját pontja, egy közeli pontra esnek (pl. asztali gépen a Bluetooth a hálózati pontra).
@@ -7436,6 +7562,7 @@ function renderDeletePreview() {
   idx.forEach(i => { const k = delGroupKeyOf(delPreview[i]); groupCount[k] = (groupCount[k] || 0) + 1; });
   delGroupKeys = [];
   let last;
+  let tone = 'plain', inGroup = 0;
   const rows = [];
   idx.forEach(i => {
     const d = delPreview[i];
@@ -7444,15 +7571,18 @@ function renderDeletePreview() {
       last = gk;
       const gi = delGroupKeys.length;
       delGroupKeys.push(gk);
-      // CSOPORT-FEJLÉC: alkatrész szerint UGYANAZ a szöveg, mint a Driverek nézetben
-      // (mmGroupHeader); térkép nélkül a használat-állapot. A pipa csak a nem zárolt
-      // sorokra hat - a zároltakról a bal oldali kapcsolók döntenek.
-      const head = delMachine
-        ? mmGroupHeader(slots[gk], groupCount[gk])
-        : (() => { const m = USAGE_META[gk.slice(2)] || USAGE_META.unknown;
-                   return m.icon + ' ' + esc(m.label.toUpperCase()) + ' — ' + groupCount[gk]
-                     + ' db <span class="dg-hint">· ' + esc(m.hint) + '</span>'; })();
-      const free = idx.filter(j => delGroupKeyOf(delPreview[j]) === gk && !delRowForce(delPreview[j]));
+      // CSOPORT-FEJLÉC: UGYANAZ a színes sáv, mint a Driverek nézetben (drvGroupHead +
+      // mmGroupMeta); térkép nélkül a használat-állapot. A pipa csak a nem zárolt sorokra
+      // hat - a zároltakról a bal oldali kapcsolók döntenek.
+      const meta = delMachine ? mmGroupMeta(slots[gk], groupCount[gk])
+                              : usageGroupMeta(gk.slice(2), groupCount[gk]);
+      // A darabszám-címke itt azt is kimondja, MI TÖRTÉNIK a csoporttal (2026-10-01,
+      // explicit user decision: "amibe látom is, h mi történik").
+      const members = idx.filter(j => delGroupKeyOf(delPreview[j]) === gk);
+      const delN = members.filter(j => delRowOn(delPreview[j])).length;
+      meta.count = members.length + ' driver · ' + (delN === members.length ? 'mind törlődik'
+        : delN ? delN + ' törlődik' : 'egyik sem törlődik');
+      const free = members.filter(j => !delRowForce(delPreview[j]));
       const onN = free.filter(j => delRowOn(delPreview[j])).length;
       const cb = free.length
         ? '<input type="checkbox" class="dg-check"' + (onN === free.length ? ' checked' : '')
@@ -7461,7 +7591,10 @@ function renderDeletePreview() {
           + ' onclick="event.stopPropagation()" onchange="toggleDeleteGroup(' + gi + ', this.checked)">'
         // Csupa zárolt sor: nincs mit pipálni, de a fejléc ne csússzon el, és mondja ki, miért.
         : '<span class="dg-lock" title="A csoport minden sora zárolt - róluk a bal oldali kapcsolók / a boot-védelem dönt">🔒</span>';
-      rows.push('<tr class="drv-group"><td colspan="7">' + cb + head + '</td></tr>');
+      if (gi) rows.push('<tr class="drv-gap"><td colspan="7"></td></tr>');
+      tone = meta.tone || 'none';
+      inGroup = 0;
+      rows.push('<tr class="drv-group g-' + tone + '"><td colspan="7">' + drvGroupHead(meta, cb) + '</td></tr>');
     }
     const force = delRowForce(d);
     const on = delRowOn(d);
@@ -7478,9 +7611,13 @@ function renderDeletePreview() {
     }
     if (force) extra += '<div class="del-lock">🔒 ' + esc(force.why) + '</div>';
     const st = d.usage || 'unknown';
-    const cls = [];
-    if (st === 'active') cls.push('row-active'); else if (st === 'standby') cls.push('row-standby');
+    // A sor bal szélén a KATEGÓRIA színe fut (ugyanaz, mint a Driverek nézetben); a
+    // korábbi piros/sárga használat-csík 2026-10-01-én kikerült. A MEGMARADÓ sor (nincs
+    // pipa) halványabb és címkét kap - így a lista egy pillantásra mutatja, mi történik.
+    const cls = ['drv-row', 'g-' + tone];
+    if (inGroup++ % 2) cls.push('alt');
     if (force) cls.push('del-locked');
+    if (!on) cls.push('del-keep');
     rows.push('<tr class="' + cls.join(' ') + '"' + (force ? ' title="' + esc(force.why) + '"' : '')
       + ' onclick="delRowClick(' + i + ')">'
       + '<td><input type="checkbox"' + (on ? ' checked' : '') + (dis ? ' disabled' : '')
@@ -7488,11 +7625,12 @@ function renderDeletePreview() {
       // A "Használat" chip ugyanaz, mint a Driverek nézetben (usageCellHtml). Elemzés után
       // az ismeretlen állapot NEM "folyamatban": azt ki kell mondani, hogy nem sikerült.
       + usageCellHtml(st, d.usage_text, d.usage_reasons, delLoading ? '' : 'nem sikerült felderíteni')
-      + '<td title="' + esc(d.published || '') + '">' + esc(d.published || '') + '</td>'
-      + '<td title="' + esc(d.original || '') + '">' + esc(d.original || '') + '</td>'
-      + '<td>' + esc(d.provider || '') + '</td>'
+      + '<td class="c-pub" title="' + esc(d.published || '') + '">' + esc(d.published || '') + '</td>'
+      + '<td class="c-orig" title="' + esc(d.original || '') + '">' + esc(d.original || '')
+      + (on ? '' : '<span class="keep-tag">MEGMARAD</span>') + '</td>'
+      + '<td class="c-prov">' + esc(d.provider || '') + '</td>'
       + whatCellHtml(d, mi, extra)
-      + '<td>' + esc(d.version || '') + '</td></tr>');
+      + '<td class="c-ver">' + esc(d.version || '') + '</td></tr>');
   });
   if (!rows.length) {
     rows.push('<tr class="drv-empty"><td colspan="7">'
@@ -7500,6 +7638,7 @@ function renderDeletePreview() {
       + '</td></tr>');
   }
   tbody.innerHTML = rows.join('');
+  syncStickyHead('mc-del-list');
   // A "részben bepipált" csoport-fejléc állapota csak JS-tulajdonságként adható meg.
   tbody.querySelectorAll('input[data-ind]').forEach(x => { x.indeterminate = true; });
   const list = document.getElementById('mc-del-list');
