@@ -56,6 +56,7 @@ from app.gui.benchmark import GuiBenchmarkMixin
 from app.gui.updater import GuiUpdaterMixin
 from app.gui.shoplabel import GuiShopLabelMixin
 from app.gui.storeapps import GuiStoreAppsMixin
+from app.gui.powerplan import GuiPowerPlanMixin
 
 # --- A CLI saját metódusai ---
 #
@@ -81,7 +82,7 @@ class CliApi(CliBridgeMixin, CliBaseMixin, GuiBaseMixin,
              GuiDisplayMixin, GuiWinActMixin, GuiLogsMixin,
              GuiStressMixin, GuiStressAutomationMixin, GuiToolsInstallMixin,
              GuiBenchmarkMixin, GuiUpdaterMixin, GuiShopLabelMixin,
-             GuiStoreAppsMixin,
+             GuiStoreAppsMixin, GuiPowerPlanMixin,
              # CLI-specifikus (nem duplikátum): a konzolos frissítés-ellenőrzés
              CliUpdaterMixin):
     """A CLI backend: ugyanaz a funkcionalitás, mint a GUI-é, konzolos kimenettel."""

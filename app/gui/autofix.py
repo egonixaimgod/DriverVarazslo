@@ -21,7 +21,6 @@ from app import backup_core
 from app import drivers_core
 from app import dupdrivers_core
 from app import wusettings_core
-from app import powerplan_core
 from app.ghost_core import build_ghost_ps
 from app.ghost_core import parse_ghost_line
 from app.ghost_core import GHOST_REMOVE_TIMEOUT
@@ -44,7 +43,7 @@ from app.wu_core import _export_net_driver_backup
 from app.wu_core import _restore_net_driver_backup
 from app.wu_core import detect_wifi_state
 from app.wu_core import collect_driver_usage
-from app.driverusage_core import collect_package_usage, summarize_counts, USAGE_UNKNOWN
+from app.driverusage_core import collect_usage_context, summarize_counts, USAGE_UNKNOWN
 from app.wu_core import _parse_driver_version
 from app.wu_core import _iso_date_or_none
 from app.wu_core import STORAGE_RISK_CLASSES
@@ -2423,39 +2422,9 @@ class GuiAutofixMixin:
         except Exception as e:
             logging.debug(f"[AUTOFIX] Fast Startup állapot lekérdezése sikertelen (nem kritikus): {e}")
 
-    def _apply_performance_power_plan(self, task_id='autofix'):
-        """A gép teljesítmény-módba állítása a lánc legvégén (explicit user decision,
-        2026-09-01: a szervizből kiadott gép ne legyen lassú).
-
-        A magja `app/powerplan_core.py`; itt csak a kiírás történik. A Fast Startup
-        jegyzet mintáját követi: ez az ügyfél gépének TARTÓS, észrevehető változása,
-        tehát nem elég megcsinálni - ki is kell MONDANI, a visszaállítás módjával
-        együtt. Egy energiabeállítás, amiről az ügyfél nem tud, ugyanolyan
-        megválaszolhatatlan bejelentés lesz, mint annak idején a színprofil-törlés.
-
-        A hívás helye a lánc legvége, szándékosan: a lánc közben a `_disable_sleep_sync`
-        tartja ébren a gépet, és a több újraindítás bármelyike felülírhatná a sémát."""
-        self.emit('task_progress', {'task': task_id, 'log': '\n⚡ Teljesítmény-mód beállítása (hogy a gép ne legyen lassú a szerviz után)...'})
-        res = powerplan_core.apply_performance_plan(
-            self._run, log=lambda m: self.emit('task_progress', {'task': task_id, 'log': m}))
-        if not res.get('ok'):
-            return
-        prev = res.get('previous_name') or res.get('previous_guid') or 'ismeretlen'
-        if res.get('kept'):
-            # A már teljesítményre hangolt séma marad (2026-09-28, lásd powerplan_core).
-            self.emit('task_progress', {'task': task_id, 'log': f'⚡ Energiaséma: "{prev}" MARAD - ez már teljesítményre hangolt séma, a maximum-beállítások erre kerültek rá.'})
-        else:
-            self.emit('task_progress', {'task': task_id, 'log': f'⚡ Energiaséma: "{prev}" → TELJESÍTMÉNYCENTRIKUS (a ReviOS Ultra Performance beállításaival).'})
-        if res.get('applied'):
-            self.emit('task_progress', {'task': task_id, 'log': '   Maximumra állítva: ' + ', '.join(res['applied']) + '.'})
-        # A következményt is kimondjuk. Egy laptop akkumulátoros üzemideje ezzel
-        # ÉRZÉKELHETŐEN csökken, és a ventilátor is többet szólhat - ha ezt a technikus
-        # nem tudja, a következő ügyfél-bejelentés erről fog szólni.
-        self.emit('task_progress', {'task': task_id, 'log': '   Laptopnál ez akkumulátoron rövidebb üzemidőt és több ventilátorzajt jelent - cserébe a gép nem lassul vissza.'})
-        self.emit('task_progress', {'task': task_id, 'log': '   Visszaállítás: Gépház > Rendszer > Energiaellátás, vagy rendszergazdaként: powercfg /setactive SCHEME_BALANCED'})
-        if res.get('failed'):
-            logging.info(f"[AUTOFIX] Teljesítmény-mód: ezen a gépen nem elérhető beállítások: "
-                         f"{', '.join(res['failed'])}")
+    # A `_apply_performance_power_plan` (teljesítmény-mód a lánc végén) 2026-10-01 óta az
+    # `app/gui/powerplan.py`-ban él, mert az Operációs rendszer nézet "Teljesítmény mód"
+    # gombja is UGYANAZT hívja. A hívás a láncban változatlan (lásd a záró lépéseket).
 
     def _emit_catalog_no_bind(self, no_bind, task_id='autofix'):
         """Jelentés azokról a katalógus-csomagokról, amiket a lánc MEGTALÁLT, de az eszköz
@@ -2679,7 +2648,13 @@ class GuiAutofixMixin:
             egymástól, ezért párhuzamosan fut - így az összidő a leglassabbé, nem a
             négy összege.
         A JS ettől még aszinkron hívja, de a válaszra addig NEM lehet elindítani a fixet
-        (a csoportosítás nélkül a zárolások hazudnának)."""
+        (a csoportosítás nélkül a zárolások hazudnának).
+
+        A GÉP FELÉPÍTÉSE IS ITT JÖN (`machine`, 2026-10-01, explicit user decision): a
+        lista ugyanúgy ALKATRÉSZ szerint csoportosul, mint a Driverek nézet táblázata
+        (grafika / hang / hálózat / chipset / szoftveres / nincs hozzá eszköz). UGYANAZ a
+        `_build_machine_map` fut, UGYANABBÓL az egy felderítésből - két külön besorolás
+        előbb-utóbb mást mondana ugyanarról a csomagról a két képernyőn."""
         try:
             drivers = [d for d in (known_drivers or []) if isinstance(d, dict) and d.get('published')]
             if drivers:
@@ -2688,19 +2663,29 @@ class GuiAutofixMixin:
             else:
                 drivers = self._get_third_party_drivers()
                 logging.info(f"[PREVIEW] A driver-lista frissen lekérdezve ({len(drivers)} csomag).")
+
+            def _usage_and_map():
+                # UGYANAZ A MAG, amit a Driverek nézet "Használat" oszlopa és gép-térképe
+                # használ (app/driverusage_core.py + app/machinemap_core.py) - a két képernyő
+                # nem mondhat mást ugyanarról a csomagról. A gazdagabb alak kell: a puszta
+                # eszköznév-lista nem mutatná meg a futó kernel-szolgáltatásokat, azaz pont a
+                # ninja-eset (távoli asztal drivere, eszköz-csomópont nélkül) maradna
+                # láthatatlan. A térkép hibája SOSEM viheti el a besorolást (a
+                # `_build_machine_map` maga kapja el és naplózza).
+                ctx = collect_usage_context(self._run, drivers)
+                if not ctx:
+                    return {}, {'machine': None,
+                                'machine_error': 'A használat-felderítés nem futott le, a gép felépítése nem rajzolható ki.'}
+                return ctx['usage'], self._build_machine_map(ctx, drivers)
+
             # A négy felderítés párhuzamosan; mindegyik csak self._run-t használ (külön
             # subprocess), közös állapotot nem írnak, ezért szálbiztos.
             with ThreadPoolExecutor(max_workers=4, thread_name_prefix='preview') as pool:
-                # UGYANAZ A MAG, amit a Driverek nézet "Használat" oszlopa használ
-                # (app/driverusage_core.py) - a két képernyő nem mondhat mást ugyanarról
-                # a csomagról. A gazdagabb alak kell: a puszta eszköznév-lista nem
-                # mutatná meg a futó kernel-szolgáltatásokat, azaz pont a ninja-eset
-                # (távoli asztal drivere, eszköz-csomópont nélkül) maradna láthatatlan.
-                f_usage = pool.submit(collect_package_usage, self._run, drivers)
+                f_usage = pool.submit(_usage_and_map)
                 f_printer = pool.submit(collect_printer_packages, self._run, drivers)
                 f_wifi = pool.submit(collect_wifi_protection, self._run)
                 f_boot = pool.submit(_collect_boot_path_protection, self._run)
-                usage = f_usage.result()
+                usage, mm_out = f_usage.result()
                 printer_pkgs = f_printer.result()
                 wifi_infs, wifi_state = f_wifi.result()
                 # A boot-védelem HÁRMAST ad vissza, és a `detected=False` ág (nem sikerült
@@ -2752,16 +2737,29 @@ class GuiAutofixMixin:
             # tényleg a rendszerlemez útvonalán van; felderítetlennél viszont a fail-safe
             # ág véd MINDEN tároló-osztályt (BOOT_FALLBACK_PROTECT_CLASSES), és ilyenkor
             # a "a rendszerlemez útvonalán van" állítás túlmutatna a bizonyítékon.
+            mm = mm_out.get('machine')
+            if mm:
+                placed = sum(1 for r in out if (r['published'] or '').lower() in (mm.get('packages') or {}))
+                logging.info(f"[PREVIEW] Alkatrész szerinti csoportosítás: {placed}/{len(out)} csomag "
+                             f"kapott helyet, {len(mm.get('slots') or [])} csoport.")
+            else:
+                # Térkép nélkül a felület a használat szerinti csoportosításra esik vissza -
+                # ezt ki kell mondani, különben egy "miért nincs kategorizálva?" bejelentés
+                # a naplóból megválaszolhatatlan.
+                logging.warning(f"[PREVIEW] Nincs gép-térkép, a lista használat szerint "
+                                f"csoportosul: {mm_out.get('machine_error') or '?'}")
             return {'drivers': out, 'wifi_adapter': wifi_state.get('adapter', ''),
                     'wifi_present': bool(wifi_state.get('present')),
                     'wifi_connected': bool(wifi_state.get('wifi')),
                     'wifi_rows': groups.get('wifi', 0),
                     'boot_detected': boot_detected,
-                    'usage_counts': usage_counts}
+                    'usage_counts': usage_counts,
+                    'machine': mm, 'machine_error': mm_out.get('machine_error', '')}
         except Exception as e:
             logging.warning(f"[PREVIEW] A törlési előnézet összeállítása sikertelen: {e}", exc_info=True)
             return {'drivers': [], 'wifi_adapter': '', 'wifi_present': False,
-                    'wifi_connected': False, 'wifi_rows': 0, 'error': str(e)}
+                    'wifi_connected': False, 'wifi_rows': 0, 'error': str(e),
+                    'machine': None}
 
     def _rebuild_wifi_driver_step(self, wifi_pkgs, task_id='autofix'):
         """A Wi-Fi driver TELJES újraépítése a törlési fázis végén (opcionális lépés).

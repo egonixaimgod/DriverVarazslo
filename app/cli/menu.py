@@ -1120,6 +1120,8 @@ def _menu_maintenance(api):
             ('6', 'Net Blokkoló script letöltése (block.bat)', 'Csak letöltés, nem futtatja'),
             ('7', 'Naplók letöltése a szerviz Drive-járól', None),
             ('8', 'Bolti tábla nyomtatás', 'Két gép A5-ös árlapja egy A4-es lapra, a bolti Word-sablonnal'),
+            # Ugyanaz a beállítás, mint az 1 kattintásos fix végén (app/gui/powerplan.py).
+            ('9', 'Teljesítmény mód (energiaséma)', 'Teljesítménycentrikus séma, a fix végén beállított értékekkel'),
         ], back_label='Vissza a főmenübe')
         if c == '0':
             return
@@ -1146,6 +1148,12 @@ def _menu_maintenance(api):
                 ui.ask('Jelszó')))
         elif c == '8':
             _shoplabel_flow(api)
+        elif c == '9':
+            st = api.get_power_plan_status() or {}
+            if st.get('name'):
+                ui.info('Jelenlegi energiaséma: ' + st['name'])
+            if ui.confirm('Beállítsam a teljesítmény módot? (laptopon rövidebb akkus üzemidő)', True):
+                _run_screen(api, 'Teljesítmény mód', lambda: api.apply_performance_mode())
 
 
 def _shoplabel_flow(api):

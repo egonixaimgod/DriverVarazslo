@@ -35,6 +35,7 @@ from app.gui.benchmark import GuiBenchmarkMixin
 from app.gui.display import GuiDisplayMixin
 from app.gui.shoplabel import GuiShopLabelMixin
 from app.gui.storeapps import GuiStoreAppsMixin
+from app.gui.powerplan import GuiPowerPlanMixin
 
 
 class DriverToolApi(GuiBaseMixin, GuiUpdaterMixin, GuiStressMixin,
@@ -46,7 +47,7 @@ class DriverToolApi(GuiBaseMixin, GuiUpdaterMixin, GuiStressMixin,
                     GuiLogsMixin, GuiWinActMixin, GuiCliModeMixin,
                     GuiRebindMixin,
                     GuiBenchmarkMixin, GuiDisplayMixin, GuiShopLabelMixin,
-                    GuiStoreAppsMixin):
+                    GuiStoreAppsMixin, GuiPowerPlanMixin):
     """A GUI backend - a pywebview js_api-ja. Minden feature a saját mixin-fájljában."""
     pass
 

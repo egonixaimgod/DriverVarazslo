@@ -401,8 +401,8 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .usage-chip{display:inline-flex;align-items:flex-start;gap:6px;padding:4px 10px;border-radius:12px;
   font-size:11.5px;font-weight:700;line-height:1.4;text-align:left;max-width:100%}
 .usage-chip .uc-why{font-weight:400;opacity:.9;white-space:normal;word-break:break-word}
-#driver-table-wrap td:nth-child(2){max-width:330px;white-space:normal}
-#driver-table-wrap th:nth-child(2){min-width:190px}
+#driver-table-wrap td:nth-child(2),#mc-del-list td:nth-child(2){max-width:330px;white-space:normal}
+#driver-table-wrap th:nth-child(2),#mc-del-list th:nth-child(2){min-width:190px}
 /* A DRIVER-TÁBLÁZAT MAGASABB A TÖBBINÉL (2026-09-17, explicit user decision: "kiférjen
    még 2 db sor"). Az általános .table-wrap 430 px-e itt kevés: ez a nézet a program fő
    munkaterülete, és a technikus ebben görgetve dönt a törlésről. A `min()` második fele
@@ -434,135 +434,61 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
    Itt a gép rajza + alkatrész-kártyák: a pontok és a kártyák UGYANAZT a halmazt mutatják,
    egy kattintás a táblázatot annak az alkatrésznek a drivereire szűri. Ez BESOROLÁS, NEM
    SZŰRŐ a törlés szempontjából: semmit nem rejt el véglegesen és semmit nem tilt le. */
-.mm-wrap{position:relative;overflow:hidden;margin-bottom:12px;border-radius:var(--r);
+/* A WRAPPER ÁTLÁTSZÓ: 2026-10-01 óta a táblázatot, a rajzot és a karbantartást is
+   tartalmazza, és mindhárom a SAJÁT dobozában ül. A korábbi keret / színátmenet / vízjel
+   a rajz-hasábra (`.mm-mapcol`) költözött. */
+.mm-wrap{position:relative;margin-bottom:12px}
+.mm-mapcol{position:relative;overflow:hidden;min-width:0;border-radius:var(--r);
   border:1px solid rgba(180,100,255,0.28);
   background:linear-gradient(160deg,rgba(46,26,80,0.60),rgba(22,12,42,0.50))}
-.mm-wrap::after{content:attr(data-emoji);position:absolute;right:-14px;bottom:-46px;font-size:190px;
+.mm-mapcol::after{content:attr(data-emoji);position:absolute;right:-14px;bottom:-46px;font-size:190px;
   opacity:.045;pointer-events:none;line-height:1}
 .mm-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;cursor:pointer;
-  user-select:none;border-bottom:1px solid rgba(180,100,255,0.18)}
+  user-select:none;border-bottom:1px solid rgba(180,100,255,0.18);position:relative;z-index:1}
 .mm-wrap.collapsed .mm-head{border-bottom:0}
 .mm-head-icon{font-size:24px;line-height:1}
 .mm-head-main{flex:1;min-width:220px}
 .mm-head-title{font-size:15px;font-weight:800;color:var(--text);line-height:1.3}
 .mm-head-sub{font-size:11.5px;color:var(--text3);margin-top:2px;line-height:1.45}
 .mm-caret{font-size:12px;color:var(--text3);white-space:nowrap}
-/* Az ábra a nézet főszereplője ("mint a Tarkovban"): a szélesség ~45%-át kapja, nem egy
-   keskeny oszlopot - 430 px-en a kis pontok (USB, HANG, BIOS) felirata olvashatatlan volt. */
-/* 2×2 RÁCS: bal-fent az ábra, bal-lent a driver-táblázat, jobbra a kártyák MINDKÉT
-   soron átnyúlva. Így a kártya-hasáb magassága feszíti ki a bal alsó cellát, vagyis a
-   táblázat alja MAGÁTÓL egy vonalba kerül a kártyák aljával (2026-09-18, explicit user
-   decision) - korábban az ábra alatt egy képernyő-magas üres folt volt, a táblázat meg
-   az egész alá csúszott. */
-/* A 2. SOR MINIMUMA A TÁBLÁZAT PADLÓJA, NEM 0 (2026-09-18, mérve): a `minmax(0,1fr)`
-   explicit 0-ás minimuma FELÜLÍRTA a `.mm-tablecol` `min-height`-jét, ezért széles
-   képernyőn a táblázat 99 px-re lapult (2560 px-en mérve) - a kártya-hasáb ott rövidebb,
-   az ábra viszont a hasáb szélességével együtt magasodik, és elvitte a helyet. Ha a
-   kártya-hasáb ennél is rövidebb, a bal hasáb túlnyúlik rajta - ez a vállalt irány: egy
-   99 px-es táblázat használhatatlan, egy kicsit lelógó viszont csak esztétikai.
-   A 300px viszont KEVÉSNEK bizonyult (2026-09-18, terepi jelentés: *"most a táblázat
-   teljesen eltűnik... legyen a táblázat minimum 4 soros"*): a hasábból az állapot-sáv és
-   a fülek ~150px-et elvisznek, tehát 300-nál a táblázatra alig 1-2 sor maradt. A padlót
-   ezért a `--drv-table-min` (a táblázat saját minimuma, lásd ott) és a fölötte lévő
-   fejrész együtt adja. */
-.mm-body{display:grid;grid-template-columns:minmax(360px,1fr) minmax(0,1fr);
-  grid-template-rows:auto minmax(var(--mm-tablecol-min),1fr);gap:22px 16px;padding:14px 16px 16px;
-  position:relative;z-index:1}
-/* VALÓDI 2×2 RÁCS (2026-09-18, második kör, explicit user decision: *"a gép grafika
-   mellett jobb oldalt … az az egész oszlop legyen csak annyira magas, sűríts bele
-   mindent, legyen egymagas a grafikával! … bal alul a táblázat, jobb alul pedig az
-   elavult driver-duplikátumok, a szellemeszközök törlése és az eszközök újrakötése"*):
+/* A DRIVEREK NÉZET ELRENDEZÉSE (2026-10-01, explicit user decision - a teljes indoklás és a
+   korábbi, 2026-09-18-i 2×2-es rács története a CLAUDE.md "A felület átszervezése"
+   szekciójában):
 
-     bal-fent: ábra          | jobb-fent: alkatrész-kártyák (az ábrával EGYMAGAS)
-     bal-lent: driver-lista  | jobb-lent: a három karbantartó panel
+     fent, mindkét oszlopon át : DRIVER-LISTA  (.mm-tablecol)
+     bal alul                  : A GÉP FELÉPÍTÉSE (.mm-mapcol: fejléc + rajz + felugró ablak)
+     jobb alul                 : KARBANTARTÁS (.drv-tools: a három eszköz-panel, egymás alatt)
 
-   A kártya-hasáb korábban `grid-row:1 / span 2` volt, vagyis a teljes magasságot
-   elfoglalta, és 18 kártyával mélyen az ábra ALÁ lógott - a nézet emiatt "bezsúfolt"
-   volt. Most az ELSŐ sorban ül, és ugyanazzal a trükkel, mint a táblázat-hasáb: a
-   tartalma `position:absolute` belső rétegben van, tehát NEM ad magasságot a sornak -
-   az 1. sor magasságát kizárólag az ábra dönti el, a kártyák pedig belül gördülnek.
-   A `.drv-tools` a rács negyedik eleme lett (korábban a panel ALATT állt, teljes
-   szélességben). */
-.mm-figure{grid-column:1;grid-row:1}
-.mm-cards{grid-column:2;grid-row:1;position:relative;min-height:0}
-.mm-cards-inner{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding-right:4px;
-  scrollbar-width:thin;scrollbar-color:rgba(180,100,255,0.3) transparent}
-.mm-cards-inner::-webkit-scrollbar{width:6px}
-.mm-cards-inner::-webkit-scrollbar-thumb{background:rgba(180,100,255,0.3);border-radius:3px}
-/* A TÁBLÁZAT-HASÁB NEM NYÚLHAT TÚL A KÁRTYA-HASÁBON (2026-09-18, explicit user decision:
-   *"maximum addig érjen amíg a képen a piros csík van, onnan legyen scrollable"*).
-   A trükk a belső réteg `position:absolute;inset:0`-ja: abszolút pozícionált tartalom NEM
-   ad magasságot a rács sorának, tehát a sor magasságát KIZÁRÓLAG a `1fr` és a két soron
-   átnyúló kártya-hasáb dönti el - a táblázat pedig ezen belül gördül. Enélkül a
-   `max-height:none` miatt a táblázat a saját tartalmához nőtt, és lelógott a kártyák alá
-   (a headless mérés ezt `bal_hasab_alja > kartya_hasab_alja`-ként mutatta ki).
-   A `min-height` a padló: ha a kártya-hasáb rövid (kevés alkatrész), a táblázat akkor se
-   szoruljon össze olvashatatlanra. */
-/* A TÁBLÁZAT SOSEM LAPULHAT 4 SOR ALÁ (2026-09-18, explicit user decision: *"legyen a
-   táblázat minimum 4 soros, hogy ha nagyon kevés a driver, akkor se jöjjön elő ez a
-   probléma"*). A bal hasáb magasságát a jobb oldali kártya-hasáb szabja meg, és ha a
-   gépben kevés alkatrész van, az rövid - ilyenkor a táblázatra pár tucat px maradt.
-   A két szám EGYÜTT dolgozik, ezért van mindkettő változóban:
-     --drv-table-min     = a TÁBLÁZAT padlója: fejléc + ~4 sor.
-     --mm-tablecol-min   = a HASÁB padlója: a fenti + az állapot-sáv + a fülek.
-   HEADLESS MÉRVE (2026-09-18, valódi adaton, 4 ablakméreten) - ne tippeld újra, mert a
-   kézenfekvő becslés a felére téved:
-     csoport-fejléc sor : 33px  (fix)
-     adatsor            : 68-223px (!) - a "Használat" chip és a "Mire való" cella
-                          TÖRDEL, és keskeny hasábban egy sor 200px fölé is mehet
-     táblázat-fejléc    : 30-46px
-     a hasáb fejrésze   : 144-195px (állapot-sáv + a két kijelölő gomb + fülek)
-   A 290px "1 csoport-fejléc + 3 átlagos adatsor + fejléc" volt (33+3*70+46 = 289) - ez
-   MÉG KEVÉS VOLT (2026-09-18, második kör, explicit user decision: *"a táblázat mehet
-   még két sorral lejjebb, lehessen látni a drivereket"*), ezért +160px (= 2 átlagos
-   adatsor) -> 450px. A hasáb padlója ehhez a LEGNAGYOBB mért fejrészt (195px) ÉS a
-   fejléc-csíkot (~30px) adja hozzá: 450+195+30 = 675 -> 680.
-   A tördelést SZÁNDÉKOSAN nem csonkoljuk vissza: a chip szövege a besorolás INDOKA,
-   és pont azt vágná le (ez a szabály a Driver Keresés nézetben már vérrel íródott). */
-/* A hasáb padlója 680 -> 740: az eszköztár 2026-09-18-án a hasáb TETEJÉRE került (a panel
-   fejléce helyett), és ~60px-et vesz el a fejrészből. A gyakorlatban ez a padló ritkán
-   aktív - a 2. sor magasságát a jobb-alsó karbantartó panelek adják (684-820px mérve) -,
-   de ha azok rövidebbek lennének, a táblázat itt sem lapulhat össze. */
-:root{--drv-table-min:450px;--mm-tablecol-min:795px}
-.mm-tablecol{grid-column:1;grid-row:2;min-width:0;min-height:var(--mm-tablecol-min);position:relative}
-.mm-tablecol-inner{position:absolute;inset:0;display:flex;flex-direction:column;min-height:0;
-  box-sizing:border-box}
-/* A HASZNÁLAT-ÁLLAPOT SÁV a táblázat FEJÉBEN ül (2026-09-18, explicit user decision:
-   *"a 1 csomagot használ a gép meg a minden kijelölése sor kerüljön át a táblázat
-   tetejébe, ne itt legyen minden felett"*) - korábban a panel tetején, a gép-ábra FÖLÖTT
-   volt, ahol elszakadt attól a listától, amiről beszél. Szűkebb hasábban tömörebb
-   szedéssel, de tördelve: a darabszám és a két gomb az információ, nem csonkolható. */
-/* A DRIVEREK NÉZET ALSÓ ESZKÖZ-PANELJEI: egy sor, három hasáb (2026-09-18). A panelek
-   `margin-top`-ját a rács `gap`-je váltja, különben az első sor felett dupla hézag lenne.
-   Keskeny képernyőn egy hasáb - három 1/3-os hasábban a magyarázó szöveg olvashatatlan. */
-/* A HÁROM KARBANTARTÓ PANEL A RÁCS JOBB-ALSÓ CELLÁJÁBAN (2026-09-18, második kör).
-   Fél szélességen a 3 hasáb olvashatatlan lenne (a panelek hosszú magyarázó szöveget
-   hordoznak), ezért itt EGY hasáb, egymás alatt - a magasságuk pedig épp jól jön: ez
-   feszíti ki a 2. rács-sort, vagyis a bal alsó driver-táblázatot is. Egyhasábos módban
-   (`mm-nomap`/`collapsed`, illetve keskeny képernyő) visszaáll a 3 oszlopra, mert ott
-   teljes szélességben áll. */
+   A korábbi `position:absolute` belső rétegek és a `--drv-table-min`/`--mm-tablecol-min`
+   padlók azért kellettek, mert a táblázat egy rács-sorban osztozott a kártya-hasábbal. Most
+   a táblázat a SAJÁT sorában, teljes szélességben áll, tehát a magasságát a tartalma adja,
+   egy viewport-alapú plafonnal (lásd `.mm-tablecol #driver-table-wrap`). */
+.mm-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto auto;
+  gap:22px 16px;position:relative;z-index:1;align-items:start}
+.mm-tablecol{grid-column:1 / -1;grid-row:1;min-width:0}
+.mm-tablecol-inner{display:flex;flex-direction:column;min-height:0;box-sizing:border-box}
+.mm-mapcol{grid-column:1;grid-row:2}
+/* A KARBANTARTÓ PANELEK jobb alul, egy hasábban, egymás alatt (a panelek hosszú
+   magyarázó szöveget hordoznak - fél szélességen 3 hasábban olvashatatlanok lennének).
+   Térkép-adat nélkül (`mm-nomap`) a rajz-hasáb eltűnik, és a panelek a teljes szélességet
+   kapják, 3 oszlopban. */
 .drv-tools{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start;
   grid-column:2;grid-row:2;min-width:0}
 .drv-tools > .panel{margin-bottom:0}
-.mm-wrap.collapsed .drv-tools,.mm-wrap.mm-nomap .drv-tools{grid-column:1;grid-row:auto;
-  grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
-@media (max-width:1150px){.mm-wrap.collapsed .drv-tools,.mm-wrap.mm-nomap .drv-tools{
-  grid-template-columns:minmax(0,1fr)}}
+.mm-wrap.mm-nomap .drv-tools{grid-column:1 / -1;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+@media (max-width:1150px){.mm-wrap.mm-nomap .drv-tools{grid-template-columns:minmax(0,1fr)}}
 
 /* A HÁROM NAGY RÉSZ LÁTHATÓAN KÜLÖN DOBOZBAN ÜL (2026-09-18, explicit user decision,
    képpel megjelölve: *"nem tudom szétválasztani, hogy ez most 3 külön szekció… legyen
    jól strukturált, modern, átlátható, hogy mi mihez tartozik"*):
 
-     1. A GÉP FELÉPÍTÉSE   - ábra + alkatrész-kártyák   (felül, végig)
-     2. DRIVER-LISTA        - eszköztár + fülek + táblázat (bal alul)
+     1. DRIVER-LISTA        - eszköztár + fülek + táblázat (2026-10-01 óta FENT, teljes szélességben)
+     2. A GÉP FELÉPÍTÉSE   - fejléc + rajz + felugró ablak (bal alul)
      3. KARBANTARTÁS        - a három eszköz-panel        (jobb alul)
 
    Eddig mindhárom ugyanazon a sima panel-háttéren feküdt, elválasztó nélkül, ezért
-   egyetlen zsúfolt felületnek látszottak. Mindegyik alsó szekció saját háttért, keretet
-   és CÍMET kap - a felső részt az `.mm-head` már eddig is megnevezte.
-   A padding az `.mm-tablecol-inner`-re kerül, NEM a `.mm-tablecol`-ra: az abszolút
-   pozícionált belső réteg (`inset:0`) a szülő PADDING-boxához igazodik, tehát a külső
-   padding hatástalan lenne. */
+   egyetlen zsúfolt felületnek látszottak. Mindegyik szekció saját háttért, keretet
+   és CÍMET kap - a rajzot az `.mm-head` nevezi meg. */
 .mm-sec-head{display:flex;align-items:center;gap:7px;flex:0 0 auto;margin:0 0 10px;
   font-size:12.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--accent);
   padding-bottom:8px;border-bottom:1px solid rgba(180,100,255,0.22)}
@@ -572,19 +498,16 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
 .mm-tablecol-inner{padding:12px}
 .drv-tools{padding:12px}
 .drv-tools .mm-sec-head{grid-column:1 / -1}
-/* AZ ESZKÖZTÁR A SZŰKEBB (fél szélességű) HASÁBBAN: tömörebb szedés és kisebb hézagok,
-   hogy a négy elem (Frissítés / Kijelöltek Törlése / nyomtató-szűrő / keresés) két sorban
-   elférjen. A keresőmező `flex:1 1 100%`-kal a SAJÁT sorába kerül - így a két gomb és a
-   kapcsoló egy sorban marad, a mező pedig teljes szélességű és használható marad. */
+/* AZ ESZKÖZTÁR: tömör szedés. 2026-10-01 óta a hasáb TELJES szélességű, ezért a
+   keresőmező már nem kap saját sort (`flex:1 1 100%` volt) - a négy elem (Frissítés /
+   Kijelöltek Törlése / nyomtató-szűrő / keresés) egy sorban elfér, keskeny ablakban tördel. */
 .mm-tablecol .toolbar{gap:8px;margin-bottom:10px}
 .mm-tablecol .toolbar .btn{padding:8px 12px;font-size:12.5px}
 .mm-tablecol .toolbar .toggle{font-size:12px}
-.mm-tablecol .search-box{flex:1 1 100%;max-width:none;min-width:0}
+.mm-tablecol .search-box{flex:1 1 300px;max-width:none;min-width:0}
 .mm-tablecol #drv-usage-summary{margin:0 0 10px;padding:10px 12px;gap:10px}
 .mm-tablecol .hw-sum-machine{font-size:13px}
 .mm-tablecol .hw-sum-meta{font-size:11px}
-/* A táblázat KITÖLTI a rendelkezésre álló magasságot (a saját 580px-es plafonja helyett),
-   és belül gördül - ez teszi "egyvonalban"-ná a két hasábot. */
 /* A TÁBLÁZAT LÁTHATÓAN KI VAN EMELVE (2026-09-18, explicit user decision). A közös
    `.table-wrap` kerete (`--glass-border`) és háttere ezen a panelen belül gyakorlatilag
    láthatatlan volt - a technikus nem látta, hogy ott egy önálló, MŰVELETI lista van.
@@ -607,102 +530,99 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
      4) markánsabb, dupla vonallal lezárt fejléc.
    A csoport-fejléc sorok (`.drv-group`, colspan-osak) KIMARADNAK az oszlop-vonalakból:
    ott egyetlen cella van, egy jobb oldali vonal csak zavarna. */
-#driver-table-wrap th,#driver-table-wrap td{border-right:1px solid rgba(180,100,255,0.14)}
-#driver-table-wrap th:last-child,#driver-table-wrap td:last-child{border-right:0}
-#driver-table-wrap tr.drv-group td{border-right:0}
-#driver-table-wrap td{border-bottom:1px solid rgba(180,100,255,0.2)}
-#driver-table-wrap tbody tr:nth-child(even) td{background:rgba(255,255,255,0.045)}
-#driver-table-wrap th{background:rgba(52,28,88,0.97);border-bottom:2px solid rgba(180,100,255,0.5)}
-.mm-tablecol #driver-table-wrap{flex:1 1 auto;max-height:none;min-height:var(--drv-table-min);
+/* A `#mc-del-list` (az 1 kattintásos fix törlési előnézete) SZÁNDÉKOSAN ugyanezeket a
+   szabályokat kapja - explicit user decision, 2026-10-01: "ugyanúgy nézzen ki". Egy
+   közös szelektor-lista garantálja, hogy a két táblázat ne csússzon szét egy későbbi
+   stílus-módosításnál. */
+#driver-table-wrap th,#driver-table-wrap td,#mc-del-list th,#mc-del-list td{border-right:1px solid rgba(180,100,255,0.14)}
+#driver-table-wrap th:last-child,#driver-table-wrap td:last-child,#mc-del-list th:last-child,#mc-del-list td:last-child{border-right:0}
+#driver-table-wrap tr.drv-group td,#mc-del-list tr.drv-group td{border-right:0}
+#driver-table-wrap td,#mc-del-list td{border-bottom:1px solid rgba(180,100,255,0.2)}
+#driver-table-wrap tbody tr:nth-child(even) td,#mc-del-list tbody tr:nth-child(even) td{background:rgba(255,255,255,0.045)}
+#driver-table-wrap th,#mc-del-list th{background:rgba(52,28,88,0.97);border-bottom:2px solid rgba(180,100,255,0.5)}
+/* A TÁBLÁZAT NAGY (2026-10-01, explicit user decision: *"rakd be felülre nagyba"*): a
+   saját sorában áll, tehát a magasságát a tartalma adja, a plafon pedig a viewport - egy
+   gördítéssel a táblázat kitölti a képernyőt, a 100+ soros lista viszont nem nyújtja
+   végtelenre a lapot. Padló nincs: a korábbi `--drv-table-min` azért kellett, mert egy
+   rács-sorban a kártya-hasáb összenyomta - most nincs, ami összenyomja, egy 2 soros
+   lista pedig ne kapjon 450 px-es üres dobozt. */
+.mm-tablecol #driver-table-wrap{flex:0 1 auto;max-height:min(900px, calc(100vh - 190px));min-height:0;
   border-color:rgba(180,100,255,0.45);border-radius:0 0 var(--r-sm) var(--r-sm);
   background:rgba(18,9,36,0.8);box-shadow:0 10px 30px rgba(0,0,0,0.35)}
-/* Egyhasábos módban (offline / összecsukott térkép) ugyanez a kiemelés jár - a csík ott
-   is a táblázat fölött áll, tehát a sarkok és a keret nem térhetnek el. */
-.mm-wrap.collapsed #driver-table-wrap,.mm-wrap.mm-nomap #driver-table-wrap{
-  border-color:rgba(180,100,255,0.45);border-radius:0 0 var(--r-sm) var(--r-sm);
-  background:rgba(18,9,36,0.8);box-shadow:0 10px 30px rgba(0,0,0,0.35)}
-/* A 7 OSZLOP FÉL SZÉLESSÉGEN: tömörebb szedés, hogy ne kelljen vízszintesen gördíteni.
-   A `overflow-x:auto` a védőháló - a `.table-wrap` alapból CSAK `overflow-y`-t kap, ezért
-   egy kilógó oszlop nem gördíthető, hanem ELÉRHETETLEN lenne (a headless render pontosan
-   ezt mutatta: a "Mire való" és a "Version" a hasáb szélén elvágva). */
+/* A 7 OSZLOP TELJES SZÉLESSÉGEN (2026-10-01): a korábbi fél szélességű, erősen tömörített
+   szedés (11,5 px, 190/180 px-es oszlop-plafonok) helyett olvashatóbb méret, és a két
+   tördelő oszlop (Használat, Mire való) több helyet kap - így egy sor jellemzően 1-2
+   sorban elfér, nem 4-5-ben. Az `overflow-x:auto` a védőháló keskeny ablakra: a
+   `.table-wrap` alapból CSAK `overflow-y`-t kap, egy kilógó oszlop tehát nem gördíthető,
+   hanem ELÉRHETETLEN lenne (a headless render ezt egyszer már megmutatta). */
 .mm-tablecol #driver-table-wrap{overflow-x:auto}
-.mm-tablecol #driver-table-wrap table{font-size:11.5px}
-.mm-tablecol #driver-table-wrap th,.mm-tablecol #driver-table-wrap td{padding:7px 8px}
-.mm-tablecol #driver-table-wrap th{font-size:10.5px;letter-spacing:0}
-.mm-tablecol #driver-table-wrap th:nth-child(2){min-width:130px}
-.mm-tablecol #driver-table-wrap td:nth-child(2){max-width:190px}
-.mm-tablecol #driver-table-wrap td.what-cell{max-width:180px}
+.mm-tablecol #driver-table-wrap table{font-size:12.5px}
+.mm-tablecol #driver-table-wrap th,.mm-tablecol #driver-table-wrap td{padding:8px 10px}
+.mm-tablecol #driver-table-wrap th{font-size:11px;letter-spacing:.3px}
+.mm-tablecol #driver-table-wrap th:nth-child(2){min-width:200px}
+.mm-tablecol #driver-table-wrap td:nth-child(2){max-width:360px}
+.mm-tablecol #driver-table-wrap td.what-cell{max-width:440px}
 .mm-tablecol #driver-table-wrap td:nth-child(3),
 .mm-tablecol #driver-table-wrap td:nth-child(4),
 .mm-tablecol #driver-table-wrap td:nth-child(5){word-break:break-word;white-space:normal}
-/* A fülek a szűkebb hasábban tördelnek - nem csonkolnak, mert a darabszám az információ. */
+/* A fülek tördelnek - nem csonkolnak, mert a darabszám az információ. */
 .mm-tablecol .hw-tabs{gap:6px}
 .mm-tablecol .hw-tab{padding:6px 11px;font-size:11.5px}
 
-/* ÖSSZECSUKVA / NINCS TÉRKÉP-ADAT: az ábra és a kártyák eltűnnek, A TÁBLÁZAT MARAD.
-   Ez nem kényelmi kérdés: a táblázat 2026-09-18 óta a térkép wrapperén BELÜL van (hogy
-   a rács összefűzhesse a két hasábot), tehát ha ezek az állapotok a régi módon az egész
-   `.mm-body`-t rejtenék el, a driver-lista tűnne el a nézetből - offline módban és
-   minden térkép-hibánál. A CLAUDE.md szabálya: "a térkép hibája nem viheti el a
-   táblázatot". Egyhasábos módban visszakapja a saját magasság-plafonját, különben egy
-   100+ soros lista végtelen hosszúra nyújtaná a lapot. */
-.mm-wrap.collapsed .mm-figure,.mm-wrap.collapsed .mm-cards,
-.mm-wrap.mm-nomap .mm-figure,.mm-wrap.mm-nomap .mm-cards,
-.mm-wrap.mm-nomap .mm-head{display:none}
-.mm-wrap.collapsed .mm-body,.mm-wrap.mm-nomap .mm-body{grid-template-columns:minmax(0,1fr);
-  grid-template-rows:auto}
-.mm-wrap.collapsed .mm-tablecol,.mm-wrap.mm-nomap .mm-tablecol{grid-column:1;grid-row:1;
-  min-height:0;position:static}
-/* EGYHASÁBOS MÓDBAN A BELSŐ RÉTEG VISSZATÉR A NORMÁL FOLYAMBA: nincs kártya-hasáb, ami
-   kifeszítse a sort, tehát egy `absolute;inset:0` réteg 0 magas szülőre feszülne, és a
-   táblázat ELTŰNNE. A `position:static` + a saját magasság-plafon a régi, bevált
-   viselkedést adja vissza. */
-.mm-wrap.collapsed .mm-tablecol-inner,.mm-wrap.mm-nomap .mm-tablecol-inner{position:static}
-/* EGYHASÁBOS MÓDBAN NINCS PADLÓ (`min-height:0`): ott nincs kártya-hasáb, ami a sort
-   összenyomná, tehát a táblázat a tartalmához igazodik - a `--drv-table-min` viszont egy
-   2 soros listánál is 290px magas ÜRES dobozt csinálna belőle. A plafon marad, különben
-   egy 100+ soros lista végtelen hosszúra nyújtaná a lapot. */
-.mm-wrap.collapsed #driver-table-wrap,
-.mm-wrap.mm-nomap #driver-table-wrap{max-height:min(580px, calc(100vh - 300px));flex:0 1 auto;
-  min-height:0}
-/* Térkép-adat nélkül a wrapper LÁTHATATLAN: nincs keret, háttér, vízjel, belső margó -
-   a nézet pontosan úgy néz ki, mint a térkép bevezetése előtt. */
-.mm-wrap.mm-nomap{border:0;background:none;margin-bottom:0}
-.mm-wrap.mm-nomap::after{content:none}
-.mm-wrap.mm-nomap .mm-body{padding:0}
+/* ===== 1 KATTINTÁSOS FIX: A TÖRLÉSI ELŐNÉZET TÁBLÁZATA (2026-10-01) =====================
+   Explicit user decision: *"ugyanúgy nézzen ki mint a sima driver kezeléses kezelő ...
+   az 1 katt fixnél oda van hányva minden, átláthatatlan"*. Ugyanaz a 7 oszlop, ugyanaz
+   a használat-chip, ugyanazok az ALKATRÉSZ szerinti csoport-fejlécek, mint a Driverek
+   nézetben; a rács-vonalak a fenti közös szelektor-listából jönnek. A szedés a fél
+   szélességű Driverek-hasáb tömör szedését követi (`.mm-tablecol #driver-table-wrap`). */
+#mc-del-list{max-height:max(260px, calc(88vh - 370px));overflow-x:auto;
+  border-color:rgba(180,100,255,0.45);border-radius:0 0 var(--r-sm) var(--r-sm);
+  background:rgba(18,9,36,0.8);box-shadow:0 10px 30px rgba(0,0,0,0.35)}
+#mc-del-list table{font-size:11.5px}
+#mc-del-list th,#mc-del-list td{padding:7px 8px}
+#mc-del-list th{font-size:10.5px;letter-spacing:0}
+#mc-del-list th:nth-child(2){min-width:150px}
+#mc-del-list td:nth-child(2){max-width:230px}
+#mc-del-list td:nth-child(3),#mc-del-list td:nth-child(4),
+#mc-del-list td:nth-child(5){word-break:break-word;white-space:normal}
+#mc-del-list td.what-cell{max-width:260px;white-space:normal}
+#mc-del-list tbody tr:not(.drv-group):not(.drv-empty){cursor:pointer}
+#mc-del-list tbody tr:not(.drv-group):not(.drv-empty):hover td{background:rgba(180,100,255,0.10)}
+/* Zárolt sor: nem a technikus pipája dönt róla (boot-lánc / bal oldali kapcsoló). A sor
+   halványabb, de OLVASHATÓ marad, és a "Mire való" cellában ott az ok. */
+#mc-del-list tr.del-locked td{opacity:.55}
+#mc-del-list tr.del-locked{cursor:not-allowed!important}
+#mc-del-list.del-busy tbody tr:not(.drv-group) td{opacity:.6}
+#mc-del-list .del-lock{margin-top:4px;font-size:10.5px;color:#ffd08a;white-space:normal;line-height:1.35}
+/* A csoport-fejléc pipája: egy egész alkatrész (pl. a szoftveres driverek) egy
+   kattintással ki-/bevehető. Csak a NEM zárolt sorokra hat. */
+#mc-del-list .dg-check{width:15px;height:15px;margin:0 8px 0 0;vertical-align:-3px;accent-color:var(--accent);cursor:pointer}
+#mc-del-list .dg-lock{display:inline-block;width:15px;margin-right:8px;text-align:center;font-size:11px;opacity:.8}
+#mc-del-tabs .hw-tab{padding:6px 11px;font-size:11.5px}
+#mc-del-tabs{gap:6px;margin-bottom:8px}
+
+/* ÖSSZECSUKVA / NINCS TÉRKÉP-ADAT: csak a rajz tűnik el, A TÁBLÁZAT SOHA. A CLAUDE.md
+   szabálya: "a térkép hibája nem viheti el a táblázatot". 2026-10-01 óta a táblázat a
+   rács saját sorában áll, tehát ehhez már nem kell a rácsot átrendezni - elég a
+   rajz-hasábot elrejteni (nomap), illetve összecsukva csak a fejlécét meghagyni. */
+.mm-wrap.mm-nomap .mm-mapcol{display:none}
+.mm-wrap.collapsed .mm-figure,.mm-wrap.collapsed .mm-pop{display:none!important}
 
 @media (max-width:1150px){
-  /* Keskeny képernyőn egy hasáb, DOM-sorrendben: ábra -> kártyák -> táblázat. Itt sincs
-     mellette kártya-hasáb, ezért a belső réteg is a normál folyamba tér vissza (lásd az
-     egyhasábos mód indoklását fentebb). */
-  .mm-body{grid-template-columns:minmax(0,1fr);grid-template-rows:auto}
-  .mm-figure,.mm-cards,.mm-tablecol{grid-column:1;grid-row:auto}
-  .mm-tablecol{min-height:0;position:static}
-  .mm-tablecol-inner{position:static}
-  .mm-tablecol #driver-table-wrap{max-height:min(580px, calc(100vh - 300px));flex:0 1 auto}
+  /* Keskeny képernyőn egy hasáb, DOM-sorrendben: táblázat -> rajz -> karbantartás. */
+  .mm-body{grid-template-columns:minmax(0,1fr)}
+  .mm-tablecol,.mm-mapcol,.drv-tools{grid-column:1;grid-row:auto}
 }
-/* AZ ÁBRA NAGY, DE VAN PLAFONJA (2026-09-18, két lépésben, mindkettő mérésből).
-   Először: `width:100%` + `height:auto` mellett az SVG a hasáb szélességével együtt
-   MAGASODIK, és 2560 px-en annyi helyet vett el, hogy a táblázatnak 99 px maradt -
-   ezért kapott 620 px-es szélesség-plafont. Az viszont TÚL KICSI lett ("alig látom az
-   ábrát"), ezért a plafon 900 px, és a magasságot a `svg{max-height}` fogja meg: így az
-   ábra a hasáb nagy részét kitölti, a táblázat pedig alacsonyabb, de használható marad -
-   ez a kért "balance". A magasság-plafon SZÁNDÉKOSAN vh-alapú: a rendelkezésre álló
-   hely a képernyő magasságától függ, nem a szélességétől. */
-/* `width:100%` + `justify-self:center` ÉS NEM `margin:0 auto` - ez itt nem stílus-kérdés:
-   egy rács-elemen az `auto` oldalmargó FELÜLÍRJA a `justify-self:stretch`-et, és az elem
-   a SAJÁT TARTALMÁRA zsugorodik. Mérve: `margin:0 auto`-val az ábra 300x228 px lett egy
-   1086 px-es hasábban (a viewBox belső mérete), vagyis a "plafon" helyett padlót
-   csináltam belőle - pontosan ez volt az "alig látom az ábrát" hiba. */
-.mm-figure{width:100%;max-width:680px;justify-self:center;
-  border-radius:var(--r-sm);padding:6px;align-self:start;position:sticky;top:8px;
+/* A RAJZ a bal alsó hasábot tölti ki (2026-10-01). A korábbi `justify-self` / `sticky`
+   rács-trükkök (2026-09-18) itt nem kellenek: a rajz egy sima blokk-elem a saját
+   hasábjában, tehát a `margin:auto` sem zsugorítja össze (az a csapda RÁCS-elemre szólt).
+   A magasság-plafon vh-alapú: a viewBox miatt az arány megmarad, az ábra "annyira nagy,
+   amennyi belefér". */
+.mm-figure{position:relative;z-index:1;width:calc(100% - 28px);max-width:820px;margin:14px auto;
+  border-radius:var(--r-sm);padding:6px;box-sizing:border-box;
   background:radial-gradient(ellipse at 50% 45%,rgba(212,136,255,0.11),transparent 70%);
   border:1px solid rgba(180,100,255,0.14)}
-/* A MAGASSÁG-PLAFON a viewport magasságához mér: a viewBox miatt az arány megmarad
-   (preserveAspectRatio), tehát az ábra "annyira nagy, amennyi belefér", és nem nyomja ki
-   a táblázatot a hasábból. A 620 px-es szélesség-plafon helyett ez a párosítás adja a
-   kért egyensúlyt (2026-09-18). */
-.mm-figure svg{width:100%;height:auto;max-height:46vh;display:block}
+.mm-figure svg{width:100%;height:auto;max-height:60vh;display:block}
 .mm-line{fill:none;stroke:rgba(210,180,255,0.30);stroke-width:1.5}
 .mm-fill{fill:rgba(180,100,255,0.06);stroke:rgba(210,180,255,0.32);stroke-width:1.5}
 .mm-cap{fill:rgba(200,180,230,0.55);font-size:9px;font-weight:800;letter-spacing:.8px}
@@ -716,33 +636,43 @@ tr.row-standby td:first-child{box-shadow:inset 3px 0 0 rgba(255,180,80,0.6)}
 .mm-hot.empty{opacity:.4}
 .mm-hot:hover .hs,.mm-hot.hover .hs{stroke:#fff;fill:rgba(212,136,255,0.30)}
 .mm-hot.sel .hs{stroke:#ffe066;fill:rgba(255,224,102,0.20);filter:drop-shadow(0 0 7px rgba(255,224,102,0.6))}
+.mm-hot.sel text.hl{fill:#fff3c4}
 .mm-badge{pointer-events:none}
 .mm-badge circle{fill:#b855ff;stroke:#1a0f2e;stroke-width:2}
 .mm-badge text{fill:#fff;font-size:9.5px;font-weight:800;text-anchor:middle;dominant-baseline:central}
-/* A KÁRTYÁK TÖMÖRÍTVE, hogy elférjenek az ábra magasságában (2026-09-18, *"sűríts bele
-   mindent"*): keskenyebb minimum-szélesség (210 -> 170px, tehát több oszlop fér el),
-   kisebb hézagok és padding. A görgetés a védőháló: ha egy gépben így sem fér el minden
-   kártya, a hasáb NEM nyúlik meg - belül gördül. */
-.mm-cards-inner{display:flex;flex-direction:column;gap:8px;min-width:0}
-.mm-sec-title{font-size:11px;font-weight:800;letter-spacing:.6px;color:var(--text3);text-transform:uppercase;margin-top:2px}
-.mm-sec-title span{font-weight:400;text-transform:none;letter-spacing:0}
-.mm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:7px}
-.mm-card{padding:6px 8px;border-radius:9px;cursor:pointer;min-width:0;
-  background:rgba(60,35,90,0.38);border:1px solid rgba(180,100,255,0.20);transition:border-color .18s,background .18s}
-.mm-card:hover,.mm-card.hover{border-color:rgba(212,136,255,0.75);background:rgba(90,50,140,0.42)}
-.mm-card.sel{border-color:#ffe066;box-shadow:0 0 0 1px rgba(255,224,102,0.35),0 0 14px rgba(255,224,102,0.18)}
-.mm-card.inbox{background:rgba(40,25,65,0.30)}
-.mm-card-top{display:flex;align-items:center;gap:5px;font-size:9.5px;font-weight:800;color:var(--text3);
-  letter-spacing:.3px;text-transform:uppercase}
-.mm-card-top .mm-ic{font-size:13px}
-.mm-card-top .mm-tag{margin-left:auto;text-transform:none;letter-spacing:0;font-size:9.5px;padding:1px 6px;
-  border-radius:999px;background:rgba(255,255,255,0.07);white-space:nowrap}
-.mm-card-name{font-size:12px;font-weight:700;color:var(--text);margin:2px 0 3px;line-height:1.25;word-break:break-word}
-.mm-card-drv{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:10.5px;color:var(--text2)}
-.mm-dot{display:inline-flex;align-items:center;gap:2px;font-size:10.5px;padding:1px 6px;border-radius:999px;background:rgba(0,0,0,0.25)}
+/* A FELUGRÓ ALKATRÉSZ-ABLAK (2026-10-01, explicit user decision): *"amikor rányomok
+   valamelyik komponensre, akkor kis ablakban mellette dobja fel, h ahhoz az alkatrészhez
+   melyik driverek tartoznak ... kiemeli, és mellette kicsiben felsorakoztatja a hozzá
+   csatlakoztatott hardvereket"*. Ez váltja a mindig ott álló kártya-hasábot. A helyét a
+   `positionMmPop` számolja a kattintott pont téglalapjából (jobbra mellé, ha nem fér el,
+   balra, végső esetben rálóg), és a rajz-hasáb határain belül tartja - a hasáb
+   `overflow:hidden`, egy kilógó ablak levágódna. A sárga keret a pont sárga kiemelésével
+   párban mutatja, mihez tartozik. */
+.mm-pop{position:absolute;z-index:5;width:330px;max-height:440px;display:flex;flex-direction:column;
+  background:rgba(22,12,42,0.97);border:1px solid #ffe066;border-radius:12px;font-size:12px;
+  box-shadow:0 14px 40px rgba(0,0,0,0.55),0 0 18px rgba(255,224,102,0.18);overflow:hidden}
+.mm-pop-head{display:flex;align-items:flex-start;gap:8px;padding:9px 10px 8px 12px;flex:0 0 auto;
+  font-weight:800;font-size:12.5px;color:#ffe9a0;line-height:1.35;
+  border-bottom:1px solid rgba(255,224,102,0.25);background:rgba(255,224,102,0.07)}
+.mm-pop-head .mm-pop-title{flex:1;min-width:0;word-break:break-word}
+.mm-pop-x{background:none;border:0;color:var(--text3);cursor:pointer;font-size:14px;padding:0 2px;line-height:1.2;font-family:inherit}
+.mm-pop-x:hover{color:var(--text)}
+.mm-pop-body{overflow-y:auto;padding:6px 12px 10px;min-height:0;scrollbar-width:thin;
+  scrollbar-color:rgba(180,100,255,0.3) transparent}
+.mm-pop-slot{margin:10px 0 0;padding-top:8px;border-top:1px solid rgba(180,100,255,0.22);
+  font-weight:800;color:var(--text);font-size:12px;line-height:1.35}
+.mm-pop-slot:first-child{margin-top:2px;padding-top:0;border-top:0}
+.mm-pop-tag{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;font-size:10px;
+  font-weight:700;color:var(--text2);background:rgba(255,255,255,0.08);vertical-align:1px}
+.mm-pop-sec{margin:8px 0 3px;font-size:10px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--text3)}
+.mm-pop-row{padding:3px 0;line-height:1.4;color:var(--text2);word-break:break-word;
+  border-bottom:1px dashed rgba(180,100,255,0.12)}
+.mm-pop-row:last-child{border-bottom:0}
+.mm-pop-row b{color:var(--text);font-weight:700}
+.mm-pop-foot{padding:8px 12px;border-top:1px solid rgba(180,100,255,0.22);flex:0 0 auto}
+.mm-pop-foot .btn{width:100%;justify-content:center}
 .mm-inbox{color:var(--text3)}
 .mm-warn{color:#ffd08a}
-.mm-err{padding:10px 14px;font-size:12px;color:var(--text3)}
 /* "Mire való" oszlop: fent a konkrét eszköz/rendeltetés, alatta a bizonyíték fajtája és a
    driver saját Windows-osztálya (ami eddig egyedül állt ott). A szöveg tördel, nem csonkol -
    ugyanaz a szabály, mint a Használat-chipnél. */
@@ -1508,7 +1438,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
         <div class="view-hero" data-emoji="💿">
           <div class="vh-text">
             <div class="vh-title">💿 Driverek kezelése</div>
-            <div class="vh-sub">A gép teljes driver-készlete egy táblázatban: mi minek a drivere, mit használ most a gép, és mi törölhető szabadon. Fent a gép felépítése alkatrészenként — egy kattintás a kártyára az adott alkatrész drivereire szűri a listát. Offline (WinPE) módban egy másik lemezen lévő Windows driverei is kezelhetők.</div>
+            <div class="vh-sub">A gép teljes driver-készlete egy táblázatban: mi minek a drivere, mit használ most a gép, és mi törölhető szabadon. Alatta a gép felépítése — egy alkatrészre kattintva mellette megjelenik, milyen eszközök és driverek tartoznak hozzá. Offline (WinPE) módban egy másik lemezen lévő Windows driverei is kezelhetők.</div>
             <div class="vh-chips">
               <span class="hero-chip">🖥️ A gép felépítése</span>
               <span class="hero-chip">🔍 Mit használ most a gép</span>
@@ -1549,31 +1479,28 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                fejlécet és a kártyákat rejti el, a táblázatot soha - és a rács
                egyhasábosra vált. A wrapper ezért indul `mm-nomap`-pal `display:none`
                helyett. -->
-          <div class="mm-wrap mm-nomap" id="drv-machine" data-emoji="🖥️">
-            <div class="mm-head" onclick="toggleMachineMap()" id="mm-head">
-              <span class="mm-head-icon" id="mm-head-icon">🖥️</span>
-              <div class="mm-head-main">
-                <div class="mm-head-title" id="mm-head-title">A gép felépítése</div>
-                <div class="mm-head-sub" id="mm-head-sub"></div>
-              </div>
-              <span class="mm-caret" id="mm-caret">▾ összecsukás</span>
-            </div>
+          <!-- ÚJ ELRENDEZÉS (2026-10-01, explicit user decision): *"ami alapból jobb alul
+               van a driverkezelés azt rakd be felülre nagyba, bal és jobb oldalt is töltse
+               ki ... a bal fenti PC rajz mindennel együtt legyen bal alul ... mellette
+               jobbra maradhat ugyanez [a karbantartás] ... ami jobb felül van most [az
+               alkatrész-kártyák], azt lehet egy az egyben kiszedni"*.
+
+                 fent, teljes szélességben : DRIVER-LISTA (a nézet fő munkaterülete)
+                 bal alul                  : A GÉP FELÉPÍTÉSE (fejléc + rajz + felugró ablak)
+                 jobb alul                 : KARBANTARTÁS (a három eszköz-panel)
+
+               A KÁRTYA-HASÁB TÖRÖLVE. Helyette a rajz egy pontjára kattintva egy kis
+               ablak (`#mm-pop`) nyílik a pont MELLETT, ami az adott alkatrész eszközeit és
+               drivereit sorolja fel - nincs mindig ott álló oldalsáv. A 2026-09-18-i
+               2×2-es rács (ábra + kártyák fent, táblázat + karbantartás lent, a
+               `position:absolute` belső rétegekkel) ezzel visszavonva.
+
+               A wrapper `mm-nomap`-pal indul (térkép-adat nélkül csak a rajz-hasáb tűnik
+               el, a táblázat SOHA - a CLAUDE.md szabálya: "a térkép hibája nem viheti el a
+               táblázatot"). -->
+          <div class="mm-wrap mm-nomap" id="drv-machine">
             <div class="mm-body">
-              <div class="mm-figure" id="mm-figure"></div>
-              <!-- A KARTYA-HASAB ugyanazzal a trukkel all, mint a tablazat-hasab: a
-                   `position:absolute;inset:0` belso reteg NEM ad magassagot a racs soranak,
-                   tehat az 1. sor magassagat KIZAROLAG az abra dönti el - a kartyak pedig
-                   ezen belul gordulnek. Az `id` a BELSO retegen marad, mert a JS azt tolti. -->
-              <div class="mm-cards"><div class="mm-cards-inner" id="mm-cards"></div></div>
-              <!-- A TÁBLÁZAT-HASÁB EGY ABSZOLÚT POZÍCIONÁLT BELSŐ RÉTEGBEN ÜL
-                   (`.mm-tablecol-inner`), és ez NEM formaság: `position:absolute;inset:0`
-                   mellett a tartalom NEM ad magasságot a rács sorának, tehát a táblázat
-                   nem tudja lejjebb nyújtani a bal hasábot, mint ameddig a kártya-hasáb
-                   tart - a sor magasságát a `1fr` és a két soron átnyúló kártya-hasáb
-                   dönti el, a táblázat pedig BELÜL gördül. Enélkül a `max-height:none`
-                   miatt a táblázat a tartalmához nőtt, és túlfutott a kártyákon
-                   (2026-09-18, explicit user decision: *"maximum addig érjen amíg a
-                   képen a piros csík van, onnan legyen scrollable"*). -->
+              <!-- A TÁBLÁZAT-HASÁB: a rács első sora, mindkét oszlopon át. -->
               <div class="mm-tablecol">
                <div class="mm-tablecol-inner">
                 <!-- 2. SZEKCIÓ CÍME. A három nagy rész mindegyike meg van nevezve, hogy
@@ -1582,9 +1509,11 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                 <!-- AZ ESZKÖZTÁR A TÁBLÁZAT FÖLÖTT ÁLL, NEM A PANEL TETEJÉN (2026-09-18,
                      explicit user decision: *"rakd át bal alulra, mert most hülyén néz ki,
                      hogy ez fent van, a táblázat meg bal alul, azt közben ahhoz van köze"*).
-                     A 2x2 rács óta a driver-lista a bal ALSÓ cellában van, az eszköztár
+                     A 2x2 rács idején a driver-lista a bal ALSÓ cellában volt, az eszköztár
                      viszont a panel tetején maradt - vagyis a Frissítés/Törlés/keresés egy
-                     képernyőnyire került attól, amire hat. -->
+                     képernyőnyire került attól, amire hat. (2026-10-01 óta a lista a nézet
+                     TETEJÉN áll, teljes szélességben - az eszköztár ettől még a hasábjával
+                     együtt mozog, tehát mindig közvetlenül a táblázat fölött van.) -->
                 <div class="toolbar">
                 <button class="btn" onclick="loadDrivers()">🔄 Frissítés</button>
                 <button class="btn btn-danger" onclick="deleteSelected()" id="btn-delete" disabled>🗑 Kijelöltek Törlése</button>
@@ -1650,6 +1579,21 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                 <div class="status-bar" id="driver-status"><span class="status-dot"></span> Kattints a Frissítés gombra a driverek betöltéséhez.</div>
                 <div id="driver-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
                </div>
+              </div>
+              <!-- A GÉP FELÉPÍTÉSE - bal alul, a fejlécével együtt. A rajz egy pontjára
+                   kattintva a `#mm-pop` kis ablak a pont MELLETT nyílik meg (a pozícióját a
+                   `positionMmPop` számolja a kattintott pont helyéből). -->
+              <div class="mm-mapcol" id="mm-mapcol" data-emoji="🖥️">
+                <div class="mm-head" onclick="toggleMachineMap()" id="mm-head">
+                  <span class="mm-head-icon" id="mm-head-icon">🖥️</span>
+                  <div class="mm-head-main">
+                    <div class="mm-head-title" id="mm-head-title">A gép felépítése</div>
+                    <div class="mm-head-sub" id="mm-head-sub"></div>
+                  </div>
+                  <span class="mm-caret" id="mm-caret">▾ összecsukás</span>
+                </div>
+                <div class="mm-figure" id="mm-figure"></div>
+                <div class="mm-pop" id="mm-pop" style="display:none"></div>
               </div>
         <!-- A HÁROM ALSÓ PANEL EGY SORBAN, 3 OSZLOPBAN (2026-09-18, explicit user
              decision: *"ezek meg alul inkabb legyenek 1 sorban de 3 oszlopban ugy jobban
@@ -1804,6 +1748,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
               <span class="hero-chip">🛑 10 év WU-szünet</span>
               <span class="hero-chip">🔑 Gyári kulcs a BIOS-ból</span>
               <span class="hero-chip">✅ Ellenőrzött aktiválás</span>
+              <span class="hero-chip">⚡ Teljesítmény mód</span>
             </div>
           </div>
         </div>
@@ -1883,6 +1828,23 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           <div class="wu-status unknown" id="bl-status">Állapot lekérdezése...</div>
           <div class="winact-btnrow" style="margin-top:14px">
             <button class="btn btn-big btn-danger" onclick="disableBitlocker()" id="btn-bitlocker">🔓 BitLocker Kikapcsolása</button>
+          </div>
+        </div>
+
+        <!-- ===== TELJESÍTMÉNY MÓD (2026-10-01, explicit user decision) ================
+             *"amit az 1 katt fix végén applyol a program azt a energia profilt ... azt
+             akarom h ezt egy külön gombbal is tudja a program"*. A gomb UGYANAZT a Python-
+             függvényt hívja, amit a fix a lánc végén (`_apply_performance_power_plan`,
+             app/gui/powerplan.py) - két külön beállítás előbb-utóbb eltérne egymástól. -->
+        <div class="panel glass" style="margin-top:16px">
+          <div class="panel-header-row">
+            <div class="panel-title"><span class="emoji">⚡</span> Teljesítmény mód (energiaséma)</div>
+            <button class="btn btn-sm" onclick="checkPowerPlanStatus()">🔄 Állapot Frissítése</button>
+          </div>
+          <p style="margin-bottom:14px;color:var(--text3)">Ugyanazt állítja be, mint az <b style="color:var(--text2)">1 kattintásos fix a végén</b>: a <b style="color:var(--text2)">Teljesítménycentrikus</b> energiasémát a ReviOS értékeivel (a processzor minimuma 100%, nincs magparkolás és mély energiatakarékos állapot, a PCIe/USB energiagazdálkodás ki, a lemez nem áll le) — hálózaton és akkumulátoron is. Az alvás és a kijelző kikapcsolásának idejéhez nem nyúl. Laptopon ezzel rövidebb lesz az akkus üzemidő és többet szólhat a ventilátor. Visszaállítás: Gépház › Rendszer › Energiaellátás.</p>
+          <div class="wu-status unknown" id="pp-status">Állapot lekérdezése...</div>
+          <div class="winact-btnrow" style="margin-top:14px">
+            <button class="btn btn-big btn-primary" onclick="applyPerformanceMode()" id="btn-perfmode">⚡ Teljesítmény Mód Beállítása</button>
           </div>
         </div>
 
@@ -2623,18 +2585,41 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
            kiszürkülnek és zárolódnak (nyomtató / Wi-Fi), a boot-kritikus csomagok pedig
            MINDIG zároltak. A csoportosítást a Python számolja (get_autofix_delete_preview),
            ugyanazokkal a függvényekkel, amiket a törlés is használ. -->
-      <div id="mc-del-panel" style="display:none;flex:1 1 520px;min-width:0">
+      <!-- 2026-10-01 (explicit user decision): a lista ugyanaz a táblázat, mint a Driverek
+           nézeté - használat-fülek, 7 oszlop, ALKATRÉSZ szerinti csoport-fejlécek (grafika /
+           hang / hálózat / chipset / szoftveres / nincs hozzá eszköz). A besorolás ugyanabból
+           a Python-magból jön (get_autofix_delete_preview 'machine' = _build_machine_map). -->
+      <div id="mc-del-panel" style="display:none;flex:1 1 640px;min-width:0">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:8px">
           <div style="font-size:13px;font-weight:700">🗑 Törlésre jelölt driverek</div>
           <div id="mc-del-count" style="font-size:12px;color:var(--text3)"></div>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:8px">
-          <input id="mc-del-search" type="text" placeholder="Szűrés név, gyártó vagy eszköz szerint..." oninput="renderDeletePreview()"
+          <input id="mc-del-search" type="text" placeholder="Keresés név, gyártó, eszköz vagy alkatrész szerint..." oninput="renderDeletePreview()"
                  style="flex:1;padding:7px 10px;border-radius:var(--r-sm);border:1px solid var(--glass-border);background:rgba(20,12,38,0.6);color:var(--text);font:12px var(--font)">
-          <button class="btn" id="mc-del-all" style="padding:6px 10px;font-size:12px" onclick="setAllDeletePreview(true)">Mind</button>
-          <button class="btn" id="mc-del-none" style="padding:6px 10px;font-size:12px" onclick="setAllDeletePreview(false)">Egyik se</button>
+          <button class="btn" id="mc-del-all" style="padding:6px 10px;font-size:12px" onclick="setAllDeletePreview(true)" title="A MOST LÁTHATÓ (fül + keresés szerinti), nem zárolt sorokat pipálja be">Mind</button>
+          <button class="btn" id="mc-del-none" style="padding:6px 10px;font-size:12px" onclick="setAllDeletePreview(false)" title="A MOST LÁTHATÓ (fül + keresés szerinti), nem zárolt sorokból veszi ki a pipát">Egyik se</button>
         </div>
-        <div id="mc-del-list" style="max-height:52vh;overflow-y:auto;border:1px solid var(--glass-border);border-radius:var(--r-sm);background:rgba(20,12,38,0.45)"></div>
+        <div class="hw-tabs" id="mc-del-tabs" style="display:none"></div>
+        <div id="mc-del-banner"></div>
+        <div class="drv-table-cap">
+          <span>🗑️</span>
+          <span>Törlési lista — a <b>bepipált</b> csomagok törlődnek, a pipa nélküliek megmaradnak. A csoport-fejléc pipája egy egész alkatrészt vesz ki / tesz vissza.</span>
+        </div>
+        <div class="table-wrap" id="mc-del-list">
+          <table>
+            <thead><tr>
+              <th style="width:30px"></th>
+              <th>Használat</th>
+              <th>Published Name</th>
+              <th>Original Name</th>
+              <th>Provider</th>
+              <th title="A konkrét eszköz, amit a driver hajt (a Windows eszközfája szerint), vagy ha nincs hozzá eszköz, amire a driver-fájl szerint való. Alatta a driver saját Windows-osztálya (Class).">Mire való</th>
+              <th>Version</th>
+            </tr></thead>
+            <tbody id="mc-del-tbody"></tbody>
+          </table>
+        </div>
         <div id="mc-del-hint" style="margin-top:7px;font-size:11px;color:var(--text3);line-height:1.5"></div>
       </div>
      </div><!-- /mc-cols -->
@@ -2687,6 +2672,8 @@ let driverMachineError = '';
 let mmSlotByKey = {};
 // A kiválasztott alkatrész: egy kártya kulcsa, vagy 'hot:<pont>' az ábra egy pontjára.
 let drvSlotSel = null;
+// A rajzon kattintott alkatrész (a felugró ablak tartalma) - lásd mmKeysFor.
+let mmPopSel = null;
 let mmCollapsed = false;
 let mmFigureFor = null;
 // A három állapot megjelenítése EGY helyen (a szöveg és a szín is innen jön), mert hat
@@ -2917,7 +2904,7 @@ window.handlePyEvent = function(payload) {
       // A friss lista mellé a régi használat-adat már nem érvényes (más gép, más
       // csomagszámozás): a `null` az őszinte állapot, amíg az új felderítés le nem fut.
       driverUsage = null; driverUsageError = ''; driverUsageOffline = false;
-      driverMachine = null; driverMachineError = ''; mmSlotByKey = {}; drvSlotSel = null;
+      driverMachine = null; driverMachineError = ''; mmSlotByKey = {}; drvSlotSel = null; mmPopSel = null;
       renderDriverTable();
       // A két felderítés a lista MEGJELENÍTÉSE UTÁN indul, háttérben: néhány
       // PowerShell-hívás, és a táblázatnak nem kell rá várnia.
@@ -3012,6 +2999,9 @@ window.handlePyEvent = function(payload) {
       break;
     case 'display_info':
       renderDisplayInfo(data);
+      break;
+    case 'power_plan_status':
+      renderPowerPlanStatus(data);
       break;
     case 'tempclean_sizes':
       renderTempSizes(data);
@@ -3335,7 +3325,7 @@ function switchView(name) {
      belépéskor MIND A HÁROM állapotát be kell olvasni - ha egy kimaradna, a hozzá
      tartozó panel az előző gép adatait vagy egy "Állapot lekérdezése..." szöveget
      mutatna, ami hibának néz ki. Mindhárom aszinkron és egymástól független. */
-  if (name === 'os') { checkWuStatus(); loadWinActView(); checkBitlockerStatus(); }
+  if (name === 'os') { checkWuStatus(); loadWinActView(); checkBitlockerStatus(); checkPowerPlanStatus(); }
   // (A tároló/firmware kapcsolók 2026-09-02-én eltűntek a nézetből - nincs mit
   //  visszaállítani belépéskor, a program soha nem keres rájuk.)
   // A keresési-mód kártyák feliratát/színét be kell állítani a nézetbe lépéskor: a
@@ -3971,6 +3961,41 @@ function checkBitlockerStatus() {
   }
 }
 
+/* TELJESÍTMÉNY MÓD (2026-10-01): az állapotsor és a gomb. A beállítás UGYANAZ, mint az 1
+   kattintásos fix végén (app/gui/powerplan.py). Az állapot fajtáját a Python a séma
+   GUID-jából dönti el, nem a (lokalizált) névből. */
+function checkPowerPlanStatus() {
+  const el = document.getElementById('pp-status');
+  if (!el) return;
+  el.textContent = 'Állapot lekérdezése...';
+  el.className = 'wu-status unknown';
+  api().get_power_plan_status().then(renderPowerPlanStatus).catch(e => {
+    el.textContent = 'Az energiaséma nem kérdezhető le: ' + e;
+    el.className = 'wu-status unknown';
+  });
+}
+function renderPowerPlanStatus(st) {
+  const el = document.getElementById('pp-status');
+  if (!el) return;
+  st = st || {};
+  const name = st.name || '?';
+  const map = {
+    performance: ['Aktív séma: ' + name + ' — teljesítmény-séma', 'enabled'],
+    ultimate:    ['Aktív séma: ' + name + ' — Végső teljesítmény', 'enabled'],
+    balanced:    ['Aktív séma: ' + name + ' — energiatakarékos irányú, a gép lassabb lehet', 'warning'],
+    saver:       ['Aktív séma: ' + name + ' — energiatakarékos, a gép lassabb lehet', 'warning'],
+    custom:      ['Aktív séma: ' + name + ' — egyedi séma', 'unknown'],
+    offline:     ['Offline módban nem értelmezhető (a futó rendszer sémáját mutatná)', 'unknown'],
+    unknown:     ['Az aktív energiaséma nem kérdezhető le', 'unknown']
+  };
+  const v = map[st.kind] || map.unknown;
+  el.textContent = v[0];
+  el.className = 'wu-status ' + v[1];
+}
+function applyPerformanceMode() {
+  api().apply_performance_mode();
+}
+
 async function disableBitlocker() {
   const ok = await showConfirm('BitLocker kikapcsolása', 'Biztosan véglegesen kikapcsolod a BitLocker titkosítást ezen a meghajtón?\n\nA folyamat a háttérben órákig is eltarthat!');
   if (ok) {
@@ -4207,11 +4232,15 @@ function updateSortHeaders() {
    futó szolgáltatás). A puszta "Használatban" felirat ugyanolyan vak lenne, mint a
    régi INF-név volt - a technikusnak azt kell látnia, MIT vesz el a géptől. */
 function drvUsageCell(d) {
-  const st = drvUsageOf(d);
-  const m = USAGE_META[st] || USAGE_META.unknown;
   const e = drvUsageEntry(d);
-  const why = (e && e.summary) ? e.summary : (st === 'unknown' ? 'felderítés folyamatban' : '');
-  const tip = e && e.reasons && e.reasons.length ? e.reasons.join('\n') : m.hint;
+  return usageCellHtml(drvUsageOf(d), e && e.summary, e && e.reasons);
+}
+/* A "Használat" cella EGY helyen: a Driverek nézet és az 1 kattintásos fix törlési
+   előnézete is ezt hívja (2026-10-01), hogy a két képernyő ugyanazt a chipet mutassa. */
+function usageCellHtml(st, summary, reasons, unknownText) {
+  const m = USAGE_META[st] || USAGE_META.unknown;
+  const why = summary ? summary : (st === 'unknown' ? (unknownText || 'felderítés folyamatban') : '');
+  const tip = reasons && reasons.length ? reasons.join('\n') : m.hint;
   return '<td title="' + esc(tip) + '"><span class="usage-chip ' + m.cls + '">' + m.icon
     + ' <span class="uc-why">' + esc(why || m.label) + '</span></span></td>';
 }
@@ -4435,6 +4464,7 @@ function setDriverMachine(mm, err) {
   if (driverMachine) driverMachine.slots.forEach(s => { mmSlotByKey[s.key] = s; });
   // Egy korábbi választás, ami az új térképen nem létezik, ne szűrjön némán.
   if (drvSlotSel && !drvSlotSel.startsWith('hot:') && !mmSlotByKey[drvSlotSel]) drvSlotSel = null;
+  if (mmPopSel && !mmPopSel.startsWith('hot:') && !mmSlotByKey[mmPopSel]) mmPopSel = null;
   if (driverMachineError) console.warn('[GEP-TERKEP] ' + driverMachineError);
 }
 function drvMachineInfo(d) {
@@ -4461,23 +4491,20 @@ const WHAT_KIND = {
   'inf': '📄 a driver-fájl szerint',
   'service': '⚙️ szoftveres driver'
 };
-function drvWhatCell(d) {
-  const i = drvMachineInfo(d);
+function drvWhatCell(d) { return whatCellHtml(d, drvMachineInfo(d)); }
+/* A "Mire való" cella EGY helyen (Driverek nézet + a fix törlési előnézete). `info` a
+   gép-térkép csomag-bejegyzése (vagy null); `extra` egy hívó-specifikus kiegészítés a
+   cella aljára (az előnézetben: a zárolás oka). */
+function whatCellHtml(d, i, extra) {
   const cls = d.class || '';
+  extra = extra || '';
   if (!i) {
-    return '<td class="what-cell"><span class="class-chip">' + classIcon(cls) + ' ' + esc(cls) + '</span></td>';
+    return '<td class="what-cell"><span class="class-chip">' + classIcon(cls) + ' ' + esc(cls) + '</span>' + extra + '</td>';
   }
   const tip = i.why + (cls ? '\n\nWindows-osztály (a driver gyártójának besorolása, NEM az alkatrész): ' + cls : '');
   return '<td class="what-cell" title="' + esc(tip) + '"><div class="what-main">' + esc(i.what || '') + '</div>'
-    + '<div class="what-sub">' + (WHAT_KIND[i.what_kind] || '') + (cls ? ' · osztály: ' + esc(cls) : '') + '</div></td>';
+    + '<div class="what-sub">' + (WHAT_KIND[i.what_kind] || '') + (cls ? ' · osztály: ' + esc(cls) : '') + '</div>' + extra + '</td>';
 }
-const MM_SECTION_TITLE = {
-  parts: ['🔧 A gép alkatrészei', ''],
-  external: ['🔌 Csatlakoztatott eszközök', ''],
-  software: ['🧰 Szoftveres driverek', ' — nincs fizikai eszközük (vírusirtó, VPN, virtuális eszköz)'],
-  absent: ['💤 A gép nyilvántartja, de most nincs benne', ' — pl. egy korábbi alkatrész, vagy egy másik gépből áttett lemez emléke'],
-  nodev: ['❔ Nincs hozzá eszköz a gépben', ' — a driver-fájl szerint ezekhez lennének']
-};
 function mmGroupHeader(s, n) {
   if (!s) return '🧩 BESOROLATLAN — ' + n + ' db <span class="dg-hint">· a térkép nem tudott róla</span>';
   let hint = '';
@@ -4507,46 +4534,59 @@ function mmHotOf(s) {
   const spec = MM_FIGURES[driverMachine.form] || MM_FIGURES.desktop;
   return spec.hots.some(x => x.hot === h) ? h : null;
 }
-function mmSelKeys() {
-  if (!drvSlotSel || !driverMachine) return new Set();
-  if (drvSlotSel.startsWith('hot:')) {
-    const h = drvSlotSel.slice(4);
+/* Egy kiválasztás (kártya-kulcs, vagy 'hot:<pont>' egy több alkatrészt takaró ábra-pontra)
+   alkatrész-kulcsai és felirata. Két kiválasztás él egymás mellett (2026-10-01):
+     mmPopSel   - amire a rajzon kattintottak: a FELUGRÓ ABLAK ezt mutatja;
+     drvSlotSel - a táblázat SZŰRÉSE (csak az ablak "Csak ezek a driver-listában" gombja
+                  állítja, a 📍 fül veszi le).
+   Szándékosan külön: a táblázat 2026-10-01 óta a rajz FÖLÖTT áll, tehát ha egy rajz-
+   kattintás magától szűrné, a változás a képernyőn kívül, láthatatlanul történne. */
+function mmKeysFor(sel) {
+  if (!sel || !driverMachine) return new Set();
+  if (sel.startsWith('hot:')) {
+    const h = sel.slice(4);
     return new Set(driverMachine.slots.filter(s => mmHotOf(s) === h).map(s => s.key));
   }
-  return new Set([drvSlotSel]);
+  return new Set([sel]);
 }
-function mmSelLabel() {
-  if (!drvSlotSel || !driverMachine) return '';
-  if (drvSlotSel.startsWith('hot:')) {
-    const h = drvSlotSel.slice(4);
+function mmLabelFor(sel) {
+  if (!sel || !driverMachine) return '';
+  if (sel.startsWith('hot:')) {
+    const h = sel.slice(4);
     const spec = (MM_FIGURES[driverMachine.form] || MM_FIGURES.desktop).hots.find(x => x.hot === h);
-    return (spec ? spec.title : h) + ' (' + mmSelKeys().size + ' alkatrész)';
+    return (spec ? spec.title : h) + ' (' + mmKeysFor(sel).size + ' alkatrész)';
   }
-  const s = mmSlotByKey[drvSlotSel];
-  if (!s) return drvSlotSel;
+  const s = mmSlotByKey[sel];
+  if (!s) return sel;
   return s.icon + ' ' + s.title + (s.name ? ': ' + s.name : '');
 }
-function selectMachineSlot(key) {
-  // Nem létező kulcsra NEM szűrünk: egy üres lista egy nyers azonosítóval a fülön
-  // hibának látszana (a render-teszt pontosan ezt mutatta egy elgépelt kulcsnál).
-  if (key && !mmSlotByKey[key]) return;
-  drvSlotSel = (drvSlotSel === key) ? null : key;
-  renderDriverTable();
-}
+function mmSelKeys() { return mmKeysFor(drvSlotSel); }
+function mmSelLabel() { return mmLabelFor(drvSlotSel); }
+/* KATTINTÁS A RAJZ EGY PONTJÁRA: a pont kiemelve + mellette a felugró ablak az alkatrész
+   eszközeivel és drivereivel. Ugyanarra a pontra még egyszer kattintva bezárul. */
 function selectMachineHot(h) {
   if (!driverMachine) return;
   const keys = driverMachine.slots.filter(s => mmHotOf(s) === h).map(s => s.key);
   if (!keys.length) { toast('Ehhez a ponthoz nincs eszköz ezen a gépen.', 'info'); return; }
-  if (keys.length === 1) { selectMachineSlot(keys[0]); return; }
-  drvSlotSel = (drvSlotSel === 'hot:' + h) ? null : 'hot:' + h;
+  const sel = keys.length === 1 ? keys[0] : 'hot:' + h;
+  mmPopSel = (mmPopSel === sel) ? null : sel;
+  renderMachineMap();
+}
+function closeMmPop() { mmPopSel = null; renderMachineMap(); }
+/* Az ablak gombja: a táblázatot az alkatrész drivereire szűri, és odagörget - a
+   technikus ott tudja kipipálni/törölni őket. */
+function mmPopFilter() {
+  if (!mmPopSel) return;
+  drvSlotSel = mmPopSel;
   renderDriverTable();
+  const t = document.querySelector('.mm-tablecol');
+  if (t && t.scrollIntoView) t.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 function clearMachineSel() { drvSlotSel = null; renderDriverTable(); }
 function toggleMachineMap() { mmCollapsed = !mmCollapsed; renderMachineMap(); }
 function mmHover(h, on) {
   if (!h) return;
   document.querySelectorAll('#mm-figure .mm-hot[data-hot="' + h + '"]').forEach(g => g.classList.toggle('hover', on));
-  document.querySelectorAll('#mm-cards .mm-card[data-hot="' + h + '"]').forEach(c => c.classList.toggle('hover', on));
 }
 
 /* A KÉT ÁBRA. Egyszerű vonalas rajz: a "hot" téglalapok a kattintható alkatrészek, a
@@ -4644,42 +4684,40 @@ function mmFigureSvg(form) {
 function renderMachineMap() {
   const wrap = document.getElementById('drv-machine');
   if (!wrap) return;
-  /* NINCS TÉRKÉP-ADAT: `mm-nomap`, NEM `display:none`. A wrapper 2026-09-18 óta a
-     driver-táblázatot IS tartalmazza (a rács fűzi össze a két hasábot), tehát elrejtve
-     a lista is eltűnne - offline módban és minden térkép-hibánál. A `mm-nomap` csak a
-     fejlécet, az ábrát és a kártyákat rejti el, és láthatatlanná teszi a keretet. */
+  /* NINCS TÉRKÉP-ADAT: `mm-nomap`, NEM `display:none`. A wrapper a driver-táblázatot ÉS a
+     karbantartó paneleket is tartalmazza, tehát elrejtve azok is eltűnnének - offline
+     módban és minden térkép-hibánál. A `mm-nomap` csak a rajz-hasábot rejti el. */
   if (!driverMachine || !drivers.length) { wrap.classList.add('mm-nomap'); return; }
   const mm = driverMachine;
   wrap.classList.remove('mm-nomap');
   wrap.classList.toggle('collapsed', mmCollapsed);
   const laptop = mm.form === 'laptop';
-  wrap.setAttribute('data-emoji', laptop ? '💻' : '🖥️');
+  const col = document.getElementById('mm-mapcol');
+  if (col) col.setAttribute('data-emoji', laptop ? '💻' : '🖥️');
   document.getElementById('mm-head-icon').textContent = laptop ? '💻' : '🖥️';
   document.getElementById('mm-head-title').textContent = 'A gép felépítése — ' + (mm.title || 'ismeretlen gép');
   const bits = [laptop ? 'laptop' : 'asztali gép'];
   if (mm.cpu) bits.push(mm.cpu);
   if (mm.board && mm.board !== mm.title) bits.push('alaplap: ' + mm.board);
   document.getElementById('mm-head-sub').textContent = bits.join(' · ')
-    + ' — kattints egy alkatrészre: a lenti lista csak annak a drivereit mutatja.';
+    + ' — kattints egy alkatrészre: mellette megjelenik, milyen eszközök és driverek tartoznak hozzá.';
   document.getElementById('mm-head').title = 'Géptípus forrása: ' + (mm.form_source || '?');
   document.getElementById('mm-caret').textContent = mmCollapsed ? '▸ kinyitás' : '▾ összecsukás';
-  if (mmCollapsed) return;
+  const pop = document.getElementById('mm-pop');
+  if (mmCollapsed) { if (pop) pop.style.display = 'none'; return; }
 
   const fig = document.getElementById('mm-figure');
   if (mmFigureFor !== mm.form || !fig.querySelector('svg')) {
     fig.innerHTML = mmFigureSvg(mm.form);
     mmFigureFor = mm.form;
   }
-  // A kártyák és a pontok a keresés + nyomtató-szűrő utáni halmazból számolnak (az
+  // A pontok jelvényei a keresés + nyomtató-szűrő utáni halmazból számolnak (az
   // alkatrész-választás nélkül) - ugyanabból, amit a táblázat is lát.
   const base = getDriverIndicesBase();
   const per = {};
   base.forEach(i => {
     const k = drvSlotOf(drivers[i]);
-    if (!k) return;
-    const c = per[k] || (per[k] = {total: 0, active: 0, standby: 0, unused: 0, unknown: 0});
-    c.total++;
-    c[drvUsageOf(drivers[i])]++;
+    if (k) per[k] = (per[k] || 0) + 1;
   });
   const hotState = {};
   mm.slots.forEach(s => {
@@ -4688,71 +4726,139 @@ function renderMachineMap() {
     const st = hotState[h] || (hotState[h] = {has: false, pk: 0, keys: []});
     st.keys.push(s.key);
     if (s.present || (s.packages && s.packages.length)) st.has = true;
-    st.pk += (per[s.key] || {}).total || 0;
+    st.pk += per[s.key] || 0;
   });
+  // KIEMELÉS: a felugró ablak alkatrésze; ha nincs nyitott ablak, a táblázat-szűrő
+  // alkatrésze - így a rajzon mindig látszik, mire vonatkozik a lista vagy az ablak.
+  const hl = mmPopSel || drvSlotSel;
   fig.querySelectorAll('.mm-hot').forEach(g => {
     const h = g.getAttribute('data-hot');
     const st = hotState[h];
     g.classList.toggle('has', !!(st && st.has));
     g.classList.toggle('pk', !!(st && st.pk));
     g.classList.toggle('empty', !st);
-    g.classList.toggle('sel', !!drvSlotSel && (drvSlotSel === 'hot:' + h || !!(st && st.keys.includes(drvSlotSel))));
+    g.classList.toggle('sel', !!hl && (hl === 'hot:' + h || !!(st && st.keys.includes(hl))));
   });
   fig.querySelectorAll('.mm-badge').forEach(b => {
     const st = hotState[b.getAttribute('data-badge')];
     if (st && st.pk) { b.style.display = ''; b.querySelector('text').textContent = st.pk; }
     else b.style.display = 'none';
   });
-
-  let html = '';
-  ['parts', 'external', 'software', 'absent', 'nodev'].forEach(sec => {
-    const items = mm.slots.filter(s => s.section === sec);
-    if (!items.length) return;
-    const t = MM_SECTION_TITLE[sec];
-    html += '<div class="mm-sec-title">' + t[0] + '<span>' + esc(t[1]) + '</span></div><div class="mm-grid">';
-    items.forEach(s => { html += mmCardHtml(s, per[s.key]); });
-    html += '</div>';
-  });
-  document.getElementById('mm-cards').innerHTML = html;
+  // A FELUGRÓ ABLAK.
+  if (!pop) return;
+  if (!mmPopSel) { pop.style.display = 'none'; pop.innerHTML = ''; return; }
+  pop.innerHTML = mmPopHtml(mmPopSel, base);
+  pop.style.display = '';
+  positionMmPop();
 }
-function mmCardHtml(s, c) {
-  c = c || {total: 0, active: 0, standby: 0, unused: 0, unknown: 0};
-  const h = mmHotOf(s);
-  const hidden = (s.packages || []).length - c.total;
-  let drv = '';
-  if (c.total) {
-    drv += '<span>📦 <b>' + c.total + '</b> driver</span>';
-    ['active', 'standby', 'unused', 'unknown'].forEach(k => {
-      if (c[k]) drv += '<span class="mm-dot" title="' + esc(USAGE_META[k].label) + '">' + USAGE_META[k].icon + c[k] + '</span>';
+/* A felugró ablak tartalma: alkatrészenként a hozzá tartozó ESZKÖZÖK (ami a gépben van,
+   és milyen driverrel fut) és a DRIVEREK (a táblázat soraival azonos halmazból: keresés +
+   nyomtató-szűrő után - amit a szűrő elrejt, azt a darabszám kimondja). Egy több
+   alkatrészt takaró ábra-pontnál (pl. a CHIPSET pontja) alkatrészenként tagolva. */
+function mmPopHtml(sel, base) {
+  const keys = [...mmKeysFor(sel)];
+  let body = '';
+  let shown = 0;
+  keys.forEach(k => {
+    const s = mmSlotByKey[k];
+    if (!s) return;
+    const rows = base.filter(i => drvSlotOf(drivers[i]) === k)
+      .sort((a, b) => (USAGE_ORDER[drvUsageOf(drivers[a])] ?? 9) - (USAGE_ORDER[drvUsageOf(drivers[b])] ?? 9));
+    const total = (s.packages || []).length;
+    shown += rows.length;
+    // Az alkatrész fejléce: több alkatrésznél mindegyik kap egyet, egynél csak a jelvény
+    // (pl. "dedikált", "4 szál") - a név az ablak címében már szerepel.
+    if (keys.length > 1) {
+      body += '<div class="mm-pop-slot">' + s.icon + ' ' + esc(s.title) + (s.name ? ': ' + esc(s.name) : '')
+        + (s.badge ? '<span class="mm-pop-tag">' + esc(s.badge) + '</span>' : '') + '</div>';
+    } else if (s.badge) {
+      body += '<div class="mm-pop-slot"><span class="mm-pop-tag" style="margin-left:0">' + esc(s.badge) + '</span></div>';
+    }
+    // ELŐBB A DRIVEREK, UTÁNA AZ ESZKÖZÖK: a kérés lényege, hogy "melyik driverek
+    // tartoznak hozzá" - a chipset pontjánál 11 eszköz a képernyő alá tolta volna őket.
+    const devs = s.devices || [];
+    body += '<div class="mm-pop-sec">📦 Driverek (' + rows.length + ')</div>';
+    rows.forEach(i => {
+      const d = drivers[i];
+      const st = drvUsageOf(d);
+      const m = USAGE_META[st] || USAGE_META.unknown;
+      const e = drvUsageEntry(d);
+      body += '<div class="mm-pop-row" title="' + esc(m.label + (e && e.summary ? ': ' + e.summary : '')) + '">'
+        + m.icon + ' <b>' + esc(d.original || d.published) + '</b> <span class="mm-inbox">'
+        + esc(d.published || '') + (d.version ? ' · ' + esc(d.version) : '') + '</span></div>';
     });
-  } else if ((s.packages || []).length) {
-    drv += '<span class="mm-inbox">📦 ' + s.packages.length + ' driver — a szűrő elrejti</span>';
-  } else if ((s.devices || []).length) {
-    drv += '<span class="mm-inbox">✓ Windows beépített driverrel működik</span>';
+    if (!total) {
+      body += '<div class="mm-pop-row mm-inbox">✓ Nincs hozzá külön telepített driver — '
+        + (devs.length ? 'a Windows beépített drivere hajtja.' : 'ehhez nincs mit törölni.') + '</div>';
+    } else if (total > rows.length) {
+      body += '<div class="mm-pop-row mm-inbox">+' + (total - rows.length)
+        + ' driver most nem látszik (a keresés vagy a nyomtató-szűrő elrejti)</div>';
+    }
+    if (devs.length) {
+      body += '<div class="mm-pop-sec">🔌 Eszközök a gépben (' + (devs.length + (s.more_devices || 0)) + ')</div>';
+      devs.forEach(dv => {
+        body += '<div class="mm-pop-row"><b>' + esc(dv.name) + '</b> <span class="mm-inbox">— '
+          + (dv.vendor_driver ? 'gyári driver' : 'Windows beépített driver') + (dv.inf ? ' (' + esc(dv.inf) + ')' : '')
+          + '</span>' + (dv.present ? '' : ' <span class="mm-inbox">[nincs csatlakoztatva]</span>')
+          + (dv.problem ? ' <span class="mm-warn">[hibakód ' + dv.problem + ']</span>' : '') + '</div>';
+      });
+      if (s.more_devices) body += '<div class="mm-pop-row mm-inbox">… és még ' + s.more_devices + ' eszköz</div>';
+    }
+  });
+  let html = '<div class="mm-pop-head"><span class="mm-pop-title">' + esc(mmLabelFor(sel)) + '</span>'
+    + '<button class="mm-pop-x" onclick="closeMmPop()" title="Bezárás">✕</button></div>'
+    + '<div class="mm-pop-body">' + body + '</div>';
+  if (shown) {
+    html += '<div class="mm-pop-foot"><button class="btn btn-sm" onclick="mmPopFilter()" '
+      + 'title="A fenti driver-listát erre az alkatrészre szűri (a 📍 fülön levehető), és odagörget">'
+      + '🔎 Csak ezek a driver-listában</button></div>';
   }
-  if (hidden > 0 && c.total) drv += '<span class="mm-inbox">(+' + hidden + ' rejtve)</span>';
-  if (s.problems) drv += '<span class="mm-warn">⚠️ ' + s.problems + ' hibakódos eszköz</span>';
-  const tipLines = [];
-  if (s.why) tipLines.push(s.why);
-  (s.devices || []).forEach(dv => tipLines.push('• ' + dv.name + ' — ' + (dv.vendor_driver ? 'gyári driver' : 'Windows beépített driver')
-    + (dv.inf ? ' (' + dv.inf + ')' : '') + (dv.present ? '' : ' [nincs csatlakoztatva]') + (dv.problem ? ' [hibakód ' + dv.problem + ']' : '')));
-  if (s.more_devices) tipLines.push('… és még ' + s.more_devices + ' eszköz');
-  // A "nincs hozzá eszköz" kártyán a név nem kell: a címke maga a rendeltetés, a szekció
-  // címe pedig kimondja, hogy nincs hozzá eszköz.
-  const noName = s.section === 'nodev' || s.section === 'absent';
-  const name = s.name || '';
-  const top = s.title;
-  const cls = 'mm-card' + (drvSlotSel === s.key || (drvSlotSel && drvSlotSel === 'hot:' + h) ? ' sel' : '')
-    + (!c.total && !(s.packages || []).length ? ' inbox' : '');
-  return '<div class="' + cls + '" data-key="' + esc(s.key) + '"' + (h ? ' data-hot="' + h + '"' : '')
-    + ' title="' + esc(tipLines.join('\n')) + '"'
-    + ' onclick="selectMachineSlot(' + esc(JSON.stringify(s.key)) + ')"'
-    + (h ? ' onmouseenter="mmHover(\'' + h + '\',true)" onmouseleave="mmHover(\'' + h + '\',false)"' : '') + '>'
-    + '<div class="mm-card-top"><span class="mm-ic">' + s.icon + '</span><span>' + esc(top) + '</span>'
-    + (s.badge ? '<span class="mm-tag">' + esc(s.badge) + '</span>' : '') + '</div>'
-    + (noName ? '<div style="height:6px"></div>' : '<div class="mm-card-name">' + esc(name || '—') + '</div>')
-    + '<div class="mm-card-drv">' + (drv || '<span class="mm-inbox">nincs driver-adat</span>') + '</div></div>';
+  return html;
 }
+/* Az ablak helye: a kattintott pont MELLÉ, jobbra; ha ott nem fér el, balra; ha ott sem,
+   a pont alá/fölé, rálógva a rajzra. A rajz-hasábon belül marad (az `overflow:hidden`,
+   egy kilógó ablak levágódna). Ablak-átméretezéskor újraszámolódik. */
+function positionMmPop() {
+  const pop = document.getElementById('mm-pop');
+  const cell = document.getElementById('mm-mapcol');
+  if (!pop || !cell || !mmPopSel || pop.style.display === 'none') return;
+  let h = null;
+  if (mmPopSel.startsWith('hot:')) h = mmPopSel.slice(4);
+  else h = mmHotOf(mmSlotByKey[mmPopSel]);
+  const g = h ? document.querySelector('#mm-figure .mm-hot[data-hot="' + h + '"]') : null;
+  const fig = document.getElementById('mm-figure');
+  const c = cell.getBoundingClientRect();
+  // A FELSŐ HATÁR A RAJZ TETEJE, nem a hasábé: a hasáb fejlécét (gépnév, összecsukás)
+  // az ablak nem takarhatja el - a headless render pontosan ezt mutatta az első változatnál.
+  const minTop = fig ? Math.max(8, fig.getBoundingClientRect().top - c.top) : 8;
+  const maxBottom = c.height - 8;
+  const W = Math.max(220, Math.min(330, c.width - 16));
+  pop.style.width = W + 'px';
+  pop.style.maxHeight = Math.max(160, maxBottom - minTop) + 'px';
+  let left = c.width - W - 8, top = minTop;
+  if (g) {
+    const r = g.getBoundingClientRect();
+    const rl = r.left - c.left, rr = r.right - c.left, rt = r.top - c.top, rb = r.bottom - c.top;
+    if (rr + 10 + W <= c.width - 8) { left = rr + 10; top = rt; }
+    else if (rl - 10 - W >= 8) { left = rl - 10 - W; top = rt; }
+    else {
+      // Se jobbra, se balra nem fér el (keskeny hasáb): a pont ALÁ vagy FÖLÉ, oda, ahol
+      // több a hely - és az ablak magassága ehhez a helyhez igazodik (belül gördül), hogy
+      // a kiemelt pontot ne takarja el. Csak ha egyik oldalon sincs 160 px, lóg rá.
+      left = Math.min(Math.max(8, rl + (r.width - W) / 2), c.width - W - 8);
+      const below = maxBottom - (rb + 10), above = (rt - 10) - minTop;
+      if (Math.max(below, above) >= 160) {
+        if (below >= above) { pop.style.maxHeight = below + 'px'; top = rb + 10; }
+        else { pop.style.maxHeight = above + 'px'; top = rt - 10 - Math.min(pop.offsetHeight, above); }
+      }
+    }
+  }
+  const H = pop.offsetHeight;
+  top = Math.max(minTop, Math.min(top, maxBottom - H));
+  pop.style.left = Math.round(left) + 'px';
+  pop.style.top = Math.round(top) + 'px';
+}
+window.addEventListener('resize', () => { try { positionMmPop(); } catch (e) { console.warn('[GEP-TERKEP] Az alkatresz-ablak helye nem szamolhato: ' + e); } });
 function toggleDriverSel(i) {
   if (selectedDrivers.has(i)) selectedDrivers.delete(i); else selectedDrivers.add(i);
   renderDriverTable();
@@ -7128,6 +7234,9 @@ function closeProgressModal() {
 function mcResetLayout() {
   document.getElementById('mc-del-panel').style.display = 'none';
   document.getElementById('mc-box').style.maxWidth = '480px';
+  // A fix-dialógus a bal hasábot fix szélességűre állítja - egy sima kérdésnél ismét
+  // a teljes szélességet kapja.
+  document.getElementById('mc-left').style.flex = '1 1 420px';
   // Az "Igen" gombot a fix-dialógus letilthatja az elemzés idejére; ha ott Mégse-vel
   // léptek ki, a KÖVETKEZŐ (bármelyik) megerősítő ablak gombja is tiltva maradna.
   const yes = document.getElementById('mc-yes');
@@ -7184,6 +7293,18 @@ let delLoading = false;
 let delBootDetected = true;
 // A felismert Wi-Fi kártya neve - csak a "nincs mit zárolni" magyarázathoz kell.
 let delWifiAdapter = '';
+// A GÉP FELÉPÍTÉSE a csoportosításhoz (2026-10-01, explicit user decision). Ugyanaz az
+// alak, mint a Driverek nézet `driverMachine`-je ({slots, packages}), és a dialógus
+// nyitásakor AZONNAL abból töltődik, ha a Driverek nézet már elkészítette - a Python
+// válasza (get_autofix_delete_preview 'machine') utána felülírja. null = nincs térkép,
+// ilyenkor a lista használat szerint csoportosul (ugyanaz a tartalék, mint ott).
+let delMachine = null;
+// A használat-fül: all | active | standby | unused | unknown. Csak a MEGJELENÍTÉST szűri,
+// a törlési döntést (pipák) soha - egy elrejtett sor pipája változatlanul érvényes.
+let delTab = 'all';
+// A kirajzolt csoport-fejlécek kulcsai, index szerint (a kulcsokban `\` van, ezért nem
+// írhatók inline JS-sztringbe - a fejléc pipája az indexet adja át).
+let delGroupKeys = [];
 
 // Egy sor SORSA, ha nem a technikus dönti el. null = szabadon pipálható/kivehető.
 // { on: törlődik-e, why: miért nem dönthet róla a felhasználó }
@@ -7210,66 +7331,196 @@ function delRowForce(d) {
   return null;
 }
 
-function renderDeletePreview() {
-  const list = document.getElementById('mc-del-list');
-  if (!list) return;
-  const q = (document.getElementById('mc-del-search').value || '').trim().toLowerCase();
-  let willDelete = 0, locked = 0;
-  const rows = [];
+/* Egy sor helye a gép felépítésében (a Driverek nézet `drvMachineInfo` párja, csak a
+   dialógus SAJÁT térképéből - a kettő nem keveredhet, mert más pillanatban készülhetnek). */
+function delMachineInfo(d) {
+  return (delMachine && delMachine.packages
+          && delMachine.packages[(d.published || '').toLowerCase()]) || null;
+}
+// A csoport kulcsa: alkatrész, vagy térkép nélkül a használat-állapot (mint a Driverek nézetben).
+function delGroupKeyOf(d) {
+  if (delMachine) { const mi = delMachineInfo(d); return mi ? mi.slot : '__none'; }
+  return 'u:' + (d.usage || 'unknown');
+}
+function delRowOn(d) {
+  const f = delRowForce(d);
+  return f ? f.on : !delUnchecked.has((d.published || '').toLowerCase());
+}
+// A keresésre illeszkedő sorok (fül-szűrés ELŐTT - a fülek számai ebből jönnek, hogy a
+// fül és a lista ugyanarról a halmazról beszéljen; lásd getDriverIndicesBeforeTab).
+function delSearchIndices() {
+  const el = document.getElementById('mc-del-search');
+  const q = ((el && el.value) || '').trim().toLowerCase();
+  const out = [];
+  const slots = {};
+  if (delMachine && delMachine.slots) delMachine.slots.forEach(s => { slots[s.key] = s; });
   delPreview.forEach((d, i) => {
-    const force = delRowForce(d);
-    const lock = force ? force.why : '';
-    if (force) locked++;
-    const on = force ? force.on : !delUnchecked.has((d.published || '').toLowerCase());
-    if (on) willDelete++;
-    const hay = [d.original, d.published, d.provider, d.class, (d.devices || []).join(' ')].join(' ').toLowerCase();
-    if (q && hay.indexOf(q) === -1) return;
-    // "Mi ez?" - a jelen lévő eszköz NEVE a lényeg, nem az inf fájlnév. A használat-
-    // állapot ugyanabból a magból jön, mint a Driverek nézet "Használat" oszlopa
-    // (app/driverusage_core.py). A régi szöveg az eszköz nélküli csomagra azt írta,
-    // hogy "valószínűleg külön telepített program drivere" - igaz volt, de elhallgatta
-    // a lényeget: hogy az a driver ÉPPEN FUT. Pont ez volt a terepi ninja-eset.
-    const devs = (d.devices || []);
-    const um = USAGE_META[d.usage] || null;
-    let what;
-    if (um && d.usage === 'active') {
-      what = '<span style="color:#ffb3ab">🔴 HASZNÁLATBAN: ' + esc(d.usage_text || devs.join(', ')) + '</span>';
-    } else if (um && d.usage === 'standby') {
-      what = '<span style="color:var(--yellow)">🟡 ' + esc(d.usage_text || 'készenlétben') + '</span>';
-    } else if (um && d.usage === 'unused') {
-      what = '<span style="color:var(--text3)">⚪ semmi nem hivatkozik rá</span>';
-    } else if (devs.length) {
-      what = '🔌 ' + esc(devs.slice(0, 2).join(', ')) + (devs.length > 2 ? ' <span style="color:var(--text3)">+' + (devs.length - 2) + '</span>' : '');
-    } else {
-      what = '<span style="color:var(--text3)">❔ a használat még nincs felderítve</span>';
+    if (q) {
+      const mi = delMachineInfo(d);
+      const s = mi ? slots[mi.slot] : null;
+      const hay = [d.original, d.published, d.provider, d.class, d.version, d.usage_text,
+                   (d.devices || []).join(' '), mi ? mi.what : '', s ? (s.title + ' ' + s.name) : '']
+                  .join(' ').toLowerCase();
+      if (hay.indexOf(q) === -1) return;
     }
-    rows.push(
-      '<label style="display:flex;gap:9px;padding:8px 10px;border-bottom:1px solid rgba(180,100,255,0.12);align-items:flex-start;' +
-      (lock || delLoading ? 'opacity:0.45;cursor:not-allowed' : 'cursor:pointer') + '"' +
-      (lock ? ' title="' + esc(lock) + '"' : '') + '>' +
-        '<input type="checkbox" style="margin-top:3px;flex:0 0 auto"' + (on ? ' checked' : '') +
-          (lock || delLoading ? ' disabled' : '') +
-          ' onchange="toggleDeletePreview(' + i + ', this.checked)">' +
-        '<span style="min-width:0;flex:1">' +
-          '<span style="display:block;font-size:12px;font-weight:600">' + esc(d.original || d.published) +
-            ' <span style="font-weight:400;color:var(--text3)">' + esc(d.version || '') + '</span></span>' +
-          '<span style="display:block;font-size:11px;margin-top:2px">' + what + '</span>' +
-          '<span style="display:block;font-size:10px;color:var(--text3);margin-top:2px">' +
-            esc(d.provider || '?') + ' · ' + esc(d.class || '?') + ' · ' + esc(d.published || '') +
-            (lock ? ' · 🔒 ' + esc(lock) : '') + '</span>' +
-        '</span></label>');
+    out.push(i);
   });
-  // Töltő-sáv a lista TETEJÉN, nem a lista helyett: a technikus így már az első
+  return out;
+}
+// A MOST LÁTHATÓ sorok (keresés + fül), a Driverek nézet sorrendjében: alkatrész (a térkép
+// sorrendje), azon belül használat (aktív felül), osztály, published név.
+function delVisibleIndices(base) {
+  let out = (base || delSearchIndices());
+  if (delTab !== 'all') out = out.filter(i => (delPreview[i].usage || 'unknown') === delTab);
+  return out.slice().sort((a, b) => {
+    const A = delPreview[a], B = delPreview[b];
+    if (delMachine) {
+      const ia = delMachineInfo(A), ib = delMachineInfo(B);
+      const oa = ia ? (ia.order ?? 9998) : 9999, ob = ib ? (ib.order ?? 9998) : 9999;
+      if (oa !== ob) return oa - ob;
+    }
+    const ua = USAGE_ORDER[A.usage || 'unknown'] ?? 9, ub = USAGE_ORDER[B.usage || 'unknown'] ?? 9;
+    if (ua !== ub) return ua - ub;
+    const ca = (A.class || '').toLowerCase(), cb = (B.class || '').toLowerCase();
+    if (ca !== cb) return ca < cb ? -1 : 1;
+    const pa = (A.published || '').toLowerCase(), pb = (B.published || '').toLowerCase();
+    return pa < pb ? -1 : pa > pb ? 1 : 0;
+  });
+}
+// A használat-fülek, a Driverek nézet mintájára. Rejtve, amíg egyetlen sor használata
+// sem ismert - egy "0 használatban" fül azt sugallná, hogy a gép semmit nem használ.
+function renderDeleteTabs(base) {
+  const el = document.getElementById('mc-del-tabs');
+  if (!el) return;
+  const counts = {active: 0, standby: 0, unused: 0, unknown: 0};
+  base.forEach(i => { const s = delPreview[i].usage || 'unknown'; counts[s] = (counts[s] || 0) + 1; });
+  if (!(counts.active + counts.standby + counts.unused)) {
+    el.style.display = 'none';
+    delTab = 'all';
+    return;
+  }
+  // Egy kiürült fül ne ragadjon be (pl. a keresés után már nincs ilyen sor).
+  if (delTab !== 'all' && !counts[delTab]) delTab = 'all';
+  const defs = [
+    {key: 'active', cls: 'tab-ok', always: true},
+    {key: 'standby', cls: 'tab-todo'},
+    {key: 'unused', cls: ''},
+    {key: 'unknown', cls: ''}
+  ];
+  let html = '<div class="hw-tab' + (delTab === 'all' ? ' active' : '') + '" onclick="setDelTab(\'all\')">'
+    + '📦 Mind <span class="hw-tab-n">' + base.length + '</span></div>';
+  defs.forEach(t => {
+    if (!counts[t.key] && !t.always) return;
+    const m = USAGE_META[t.key];
+    html += '<div class="hw-tab ' + t.cls + (delTab === t.key ? ' active' : '')
+      + '" title="' + esc(m.hint) + '" onclick="setDelTab(\'' + t.key + '\')">'
+      + m.icon + ' ' + esc(m.label) + ' <span class="hw-tab-n">' + counts[t.key] + '</span></div>';
+  });
+  el.innerHTML = html;
+  el.style.display = '';
+}
+function setDelTab(t) { delTab = t; renderDeletePreview(); }
+
+function renderDeletePreview() {
+  const tbody = document.getElementById('mc-del-tbody');
+  if (!tbody) return;
+  const q = ((document.getElementById('mc-del-search') || {}).value || '').trim();
+  let willDelete = 0, locked = 0;
+  delPreview.forEach(d => { if (delRowForce(d)) locked++; if (delRowOn(d)) willDelete++; });
+  const base = delSearchIndices();
+  renderDeleteTabs(base);
+  const idx = delVisibleIndices(base);
+  const slots = {};
+  if (delMachine && delMachine.slots) delMachine.slots.forEach(s => { slots[s.key] = s; });
+  const groupCount = {};
+  idx.forEach(i => { const k = delGroupKeyOf(delPreview[i]); groupCount[k] = (groupCount[k] || 0) + 1; });
+  delGroupKeys = [];
+  let last;
+  const rows = [];
+  idx.forEach(i => {
+    const d = delPreview[i];
+    const gk = delGroupKeyOf(d);
+    if (gk !== last) {
+      last = gk;
+      const gi = delGroupKeys.length;
+      delGroupKeys.push(gk);
+      // CSOPORT-FEJLÉC: alkatrész szerint UGYANAZ a szöveg, mint a Driverek nézetben
+      // (mmGroupHeader); térkép nélkül a használat-állapot. A pipa csak a nem zárolt
+      // sorokra hat - a zároltakról a bal oldali kapcsolók döntenek.
+      const head = delMachine
+        ? mmGroupHeader(slots[gk], groupCount[gk])
+        : (() => { const m = USAGE_META[gk.slice(2)] || USAGE_META.unknown;
+                   return m.icon + ' ' + esc(m.label.toUpperCase()) + ' — ' + groupCount[gk]
+                     + ' db <span class="dg-hint">· ' + esc(m.hint) + '</span>'; })();
+      const free = idx.filter(j => delGroupKeyOf(delPreview[j]) === gk && !delRowForce(delPreview[j]));
+      const onN = free.filter(j => delRowOn(delPreview[j])).length;
+      const cb = free.length
+        ? '<input type="checkbox" class="dg-check"' + (onN === free.length ? ' checked' : '')
+          + (onN && onN < free.length ? ' data-ind="1"' : '') + (delLoading ? ' disabled' : '')
+          + ' title="Az egész csoport ki-/bepipálása (a zárolt sorokat nem érinti)"'
+          + ' onclick="event.stopPropagation()" onchange="toggleDeleteGroup(' + gi + ', this.checked)">'
+        // Csupa zárolt sor: nincs mit pipálni, de a fejléc ne csússzon el, és mondja ki, miért.
+        : '<span class="dg-lock" title="A csoport minden sora zárolt - róluk a bal oldali kapcsolók / a boot-védelem dönt">🔒</span>';
+      rows.push('<tr class="drv-group"><td colspan="7">' + cb + head + '</td></tr>');
+    }
+    const force = delRowForce(d);
+    const on = delRowOn(d);
+    const dis = !!force || delLoading;
+    // "Mire való": a gép-térkép szerinti eszköz; térkép nélkül a Class + az eszköznevek.
+    // A zárolás OKA ide kerül, a sor aljára - a technikusnak azt kell látnia, MIÉRT nem
+    // ő dönt róla (boot-lánc / nyomtató / Wi-Fi).
+    const mi = delMachineInfo(d);
+    const devs = d.devices || [];
+    let extra = '';
+    if (!mi && devs.length) {
+      extra += '<div class="what-sub">🔌 ' + esc(devs.slice(0, 2).join(', '))
+        + (devs.length > 2 ? ' +' + (devs.length - 2) : '') + '</div>';
+    }
+    if (force) extra += '<div class="del-lock">🔒 ' + esc(force.why) + '</div>';
+    const st = d.usage || 'unknown';
+    const cls = [];
+    if (st === 'active') cls.push('row-active'); else if (st === 'standby') cls.push('row-standby');
+    if (force) cls.push('del-locked');
+    rows.push('<tr class="' + cls.join(' ') + '"' + (force ? ' title="' + esc(force.why) + '"' : '')
+      + ' onclick="delRowClick(' + i + ')">'
+      + '<td><input type="checkbox"' + (on ? ' checked' : '') + (dis ? ' disabled' : '')
+      + ' onclick="event.stopPropagation()" onchange="toggleDeletePreview(' + i + ', this.checked)"></td>'
+      // A "Használat" chip ugyanaz, mint a Driverek nézetben (usageCellHtml). Elemzés után
+      // az ismeretlen állapot NEM "folyamatban": azt ki kell mondani, hogy nem sikerült.
+      + usageCellHtml(st, d.usage_text, d.usage_reasons, delLoading ? '' : 'nem sikerült felderíteni')
+      + '<td title="' + esc(d.published || '') + '">' + esc(d.published || '') + '</td>'
+      + '<td title="' + esc(d.original || '') + '">' + esc(d.original || '') + '</td>'
+      + '<td>' + esc(d.provider || '') + '</td>'
+      + whatCellHtml(d, mi, extra)
+      + '<td>' + esc(d.version || '') + '</td></tr>');
+  });
+  if (!rows.length) {
+    rows.push('<tr class="drv-empty"><td colspan="7">'
+      + (delPreview.length ? 'Nincs a szűrésre illeszkedő driver.' : 'Nincs törölhető third-party driver.')
+      + '</td></tr>');
+  }
+  tbody.innerHTML = rows.join('');
+  // A "részben bepipált" csoport-fejléc állapota csak JS-tulajdonságként adható meg.
+  tbody.querySelectorAll('input[data-ind]').forEach(x => { x.indeterminate = true; });
+  const list = document.getElementById('mc-del-list');
+  if (list) list.classList.toggle('del-busy', delLoading);
+  // Töltő-sáv a táblázat FÖLÖTT, nem a táblázat helyett: a technikus így már az első
   // pillanatban látja, MI fog törlődni, csak azt nem, hogy mi lesz védve.
-  const banner = delLoading
-    ? '<div style="display:flex;gap:10px;align-items:center;padding:11px 12px;border-bottom:1px solid rgba(180,100,255,0.25);'
-      + 'background:rgba(184,85,255,0.12);position:sticky;top:0;z-index:1">'
+  const banner = document.getElementById('mc-del-banner');
+  if (banner) banner.innerHTML = delLoading
+    ? '<div style="display:flex;gap:10px;align-items:center;padding:10px 12px;margin-bottom:8px;border:1px solid rgba(180,100,255,0.3);'
+      + 'border-radius:var(--r-sm);background:rgba(184,85,255,0.12)">'
       + '<span class="dp-spin"></span><span style="font-size:12px;line-height:1.45">'
-      + '<b>Elemzés folyamatban...</b><br><span style="color:var(--text3)">Mi melyik eszközhöz tartozik, '
+      + '<b>Elemzés folyamatban...</b><br><span style="color:var(--text3)">Mi melyik alkatrészhez tartozik, '
       + 'és mit véd a nyomtató-/Wi-Fi-/boot-védelem. Amíg ez tart, a fix nem indítható.</span></span></div>'
     : '';
-  list.innerHTML = banner + (rows.length ? rows.join('') :
-    '<div style="padding:14px;font-size:12px;color:var(--text3)">Nincs a szűrésre illeszkedő driver.</div>');
+  // A Mind / Egyik se a LÁTHATÓ sorokra hat (mint a Driverek nézet kijelölő gombja) - ha
+  // fül vagy keresés szűr, a felirat kimondja, hány sorra.
+  const filtered = !!q || delTab !== 'all';
+  const freeVisible = idx.filter(i => !delRowForce(delPreview[i])).length;
+  const bAll = document.getElementById('mc-del-all'), bNone = document.getElementById('mc-del-none');
+  if (bAll) bAll.textContent = filtered ? 'Mind (' + freeVisible + ')' : 'Mind';
+  if (bNone) bNone.textContent = filtered ? 'Egyik se (' + freeVisible + ')' : 'Egyik se';
   document.getElementById('mc-del-count').textContent =
     delLoading ? 'elemzés...' : (willDelete + ' / ' + delPreview.length + ' törlődik');
 
@@ -7325,10 +7576,39 @@ function toggleDeletePreview(i, on) {
   renderDeletePreview();
 }
 
+// Egy sorra kattintás = a pipa átváltása (mint a Driverek nézetben). Zárolt sornál és
+// elemzés közben semmit nem csinál - a pipa sem állítható.
+function delRowClick(i) {
+  const d = delPreview[i];
+  if (!d || delLoading || delRowForce(d)) return;
+  toggleDeletePreview(i, delUnchecked.has((d.published || '').toLowerCase()));
+}
+
+// A Mind / Egyik se a MOST LÁTHATÓ (fül + keresés szerinti), nem zárolt sorokra hat.
+// Szűrés nélkül ez pontosan a régi viselkedés (minden sor); szűréssel viszont egy
+// "Használatban" fülön nyomott "Egyik se" nem vehetné ki a pipát egy NEM LÁTHATÓ sorból.
 function setAllDeletePreview(on) {
   if (delLoading) return;
-  delUnchecked.clear();
-  if (!on) delPreview.forEach(d => { if (!delRowForce(d)) delUnchecked.add((d.published || '').toLowerCase()); });
+  delVisibleIndices().forEach(i => {
+    const d = delPreview[i];
+    if (delRowForce(d)) return;
+    const pub = (d.published || '').toLowerCase();
+    if (on) delUnchecked.delete(pub); else delUnchecked.add(pub);
+  });
+  renderDeletePreview();
+}
+
+// A csoport-fejléc pipája: egy egész alkatrész (a látható, nem zárolt soraival).
+function toggleDeleteGroup(gi, on) {
+  if (delLoading) return;
+  const key = delGroupKeys[gi];
+  if (key === undefined) return;
+  delVisibleIndices().forEach(i => {
+    const d = delPreview[i];
+    if (delGroupKeyOf(d) !== key || delRowForce(d)) return;
+    const pub = (d.published || '').toLowerCase();
+    if (on) delUnchecked.delete(pub); else delUnchecked.add(pub);
+  });
   renderDeletePreview();
 }
 
@@ -7375,6 +7655,7 @@ function showAutoFixConfirm(title, message) {
       document.getElementById('mc-skip-printers-row').style.display = 'none';
       document.getElementById('mc-del-panel').style.display = 'none';
       document.getElementById('mc-box').style.maxWidth = '480px';
+      document.getElementById('mc-left').style.flex = '1 1 420px';
       resolve({ ok: val, skipPrinters: skip, wifiMode: wifi, rebuildWifi: rebuildWifi, wuPause: wuPause, useCatalog: useCatalog, keepPackages: keep });
     };
     document.getElementById('mc-title').textContent = title;
@@ -7403,16 +7684,34 @@ function showAutoFixConfirm(title, message) {
     // TÖRLÉSI ELŐNÉZET. A lista AZONNAL megjelenik a Driverek nézetben már betöltött
     // adatokból (a dism lekérdezés 15-50 mp, azt nem várhatja meg a dialógus); a
     // "mi minek a drivere" és a védettségi csoportok utólag, aszinkron érkeznek.
-    document.getElementById('mc-box').style.maxWidth = '1040px';
+    // SZÉLESEBB DOBOZ (2026-10-01): a jobb oldalon most a Driverek nézet 7 oszlopos
+    // táblázata áll, ami az 1040 px-es dobozba nem fér el olvashatóan. A bal hasáb fix
+    // szélességű lett, a többit a táblázat kapja; keskeny képernyőn a `92%` szélesség és
+    // a flex-wrap a védőháló (a táblázat ilyenkor a döntések alá tördel).
+    document.getElementById('mc-box').style.maxWidth = '1560px';
+    document.getElementById('mc-left').style.flex = '0 1 400px';
     document.getElementById('mc-del-panel').style.display = 'block';
     document.getElementById('mc-del-search').value = '';
     delUnchecked = new Set();
     delBootDetected = true;
     delWifiAdapter = '';
-    delPreview = (drivers || []).map(d => ({
-      published: d.published, original: d.original, provider: d.provider,
-      version: d.version, class: d.class, devices: [], group: 'normal'
-    }));
+    delTab = 'all';
+    // AZONNALI CSOPORTOSÍTÁS: ha a Driverek nézet már elkészítette a gép-térképet és a
+    // használat-besorolást, a lista az első pillanattól alkatrész szerint áll - a
+    // Python válasza (ugyanabból a magból) utána csak frissíti. A védettségi csoportok
+    // (boot / nyomtató / Wi-Fi) ettől még ismeretlenek, ezért a fix addig nem indítható.
+    delMachine = driverMachine || null;
+    delPreview = (drivers || []).map(d => {
+      const e = drvUsageEntry(d);
+      return {
+        published: d.published, original: d.original, provider: d.provider,
+        version: d.version, class: d.class, group: 'normal',
+        devices: (e && e.devices) || [],
+        usage: (e && e.state) || 'unknown',
+        usage_text: (e && e.summary) || '',
+        usage_reasons: (e && e.reasons) || []
+      };
+    });
     delSetLoading(true);
     // A MÁR BETÖLTÖTT driver-listát átadjuk: a Python így megspórolja a
     // `dism /Get-Drivers` hívást (15-77 mp), ami eddig az elemzési idő zömét tette ki.
@@ -7424,15 +7723,18 @@ function showAutoFixConfirm(title, message) {
       const list = pv.drivers || [];
       delBootDetected = pv.boot_detected !== false;
       delWifiAdapter = pv.wifi_adapter || '';
-      // HASZNÁLAT SZERINTI SORREND: felül, amit a gép most is használ. Ugyanaz a
-      // rendezés, mint a Driverek nézetben - a technikus ugyanazt a képet kapja ott is,
-      // itt is (ez a két képernyő közös magjának a lényege).
-      if (list.length) {
-        const ord = {active: 0, standby: 1, unknown: 2, unused: 3};
-        list.sort((a, b) => (ord[a.usage] ?? 9) - (ord[b.usage] ?? 9)
-          || String(a.class || '').localeCompare(String(b.class || ''))
-          || String(a.published || '').localeCompare(String(b.published || '')));
-        delPreview = list;
+      // A SORRENDET a render adja (delVisibleIndices): alkatrész, azon belül használat
+      // (aktív felül) - ugyanaz, mint a Driverek nézetben.
+      if (list.length) delPreview = list;
+      // A Python térképe a mérvadó; ha az nem készült el, a Driverek nézetből előtöltött
+      // marad (ugyanabból a magból, percekkel korábbról). Ha az sincs, a lista használat
+      // szerint csoportosul - és ezt naplózzuk, mert a felületen csak a csoportok
+      // fajtája árulja el.
+      if (pv.machine && pv.machine.slots) {
+        delMachine = pv.machine;
+      } else if (pv.machine_error) {
+        api().js_log('WARN', '[UI] A törlési előnézet gép-térkép nélkül jött vissza: ' + pv.machine_error
+          + (delMachine ? ' - a Driverek nézet térképe marad.' : ' - használat szerinti csoportosítás.'));
       }
       if (pv.error) api().js_log('WARN', '[UI] A törlési előnézet hibával tért vissza: ' + pv.error);
       delSetLoading(false);
