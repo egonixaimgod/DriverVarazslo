@@ -645,17 +645,52 @@ td.c-prov{color:var(--text2)}
    a használat-chip, ugyanazok az ALKATRÉSZ szerinti csoport-fejlécek, mint a Driverek
    nézetben; a rács-vonalak a fenti közös szelektor-listából jönnek. A szedés a fél
    szélességű Driverek-hasáb tömör szedését követi (`.mm-tablecol #driver-table-wrap`). */
-#mc-del-list{max-height:max(260px, calc(88vh - 370px));overflow-x:auto;
-  border-color:rgba(180,100,255,0.45);border-radius:0 0 var(--r-sm) var(--r-sm);
+/* TÖMÖR VÁLTOZAT (2026-10-01, második kör, explicit user decision: *"a fixben lehetne
+   kisebb minden ... 3 sor fér ki, kisebb laptopon szerintem 2"*). MÉRVE a tömörítés előtt
+   (headless, élő adat): 1920×1040-en 3, 1366×768-on 2 teljesen látható adatsor - a sorok
+   67-155 px magasak voltak (a 7 oszlop keskeny hasábokban 3-5 sorba tördelt), a
+   kategória-sáv 71 px. A Driverek nézet (ahol a táblázat teljes szélességű) NEM változik.
+     - 4 oszlop: a published név, a gyártó és a verzió a driver neve ALATT, egy kisbetűs sorban;
+     - egysoros kategória-sáv (a címke és a név egymás mellett, a magyarázat a buborékban);
+     - a használat-chip legfeljebb 2 sor (a teljes indok a cella buborékjában, és a konkrét
+       eszköz a "Mire való" oszlopban amúgy is ott van) - ez a CHIP-CSONKOLÁSI szabály
+       SZŰKÍTETT kivétele, csak ebben a dialógusban;
+     - kisebb betű/padding, és a dialógus magasabb lehet (95vh, lásd showAutoFixConfirm). */
+#mc-del-list{max-height:max(240px, calc(95vh - 285px));overflow-x:auto;
+  border-color:rgba(180,100,255,0.45);border-radius:var(--r-sm);
   background:rgba(18,9,36,0.8);box-shadow:0 10px 30px rgba(0,0,0,0.35)}
-#mc-del-list table{font-size:11.5px}
-#mc-del-list th,#mc-del-list td{padding:7px 8px}
-#mc-del-list th{font-size:10.5px;letter-spacing:0}
-#mc-del-list th:nth-child(2){min-width:150px}
-#mc-del-list td:nth-child(2){max-width:230px}
-#mc-del-list td:nth-child(3),#mc-del-list td:nth-child(4),
-#mc-del-list td:nth-child(5){word-break:break-word;white-space:normal}
-#mc-del-list td.what-cell{max-width:260px;white-space:normal}
+/* RÖGZÍTETT OSZLOPSZÉLESSÉG (`table-layout:fixed`) - nem stílus-kérdés: automatikus
+   elrendezésben az egysoros, "…"-ra végződő szövegek (a sáv neve, a kisbetűs alsor) a
+   TELJES hosszukkal számítanak bele a táblázat minimum-szélességébe, ezért a táblázat
+   kiszélesedett, a "Mire való" oszlop és a sáv darabszám-címkéje jobbra levágódott (a
+   headless render 1366 px-en pontosan ezt mutatta). Rögzített elrendezésben az oszlopok a
+   fejléc szélességeit kapják, és a hosszú szöveg tényleg "…"-ra rövidül. */
+#mc-del-list table{font-size:11px;table-layout:fixed}
+#mc-del-list th,#mc-del-list td{padding:4px 8px;vertical-align:middle}
+#mc-del-list th{font-size:10px;letter-spacing:.2px;padding-top:7px;padding-bottom:7px}
+#mc-del-list th:nth-child(1){width:34px}
+#mc-del-list th:nth-child(2){min-width:0;width:27%}
+#mc-del-list td:nth-child(2){max-width:none}
+#mc-del-list th:nth-child(3){width:31%}
+#mc-del-list td.c-drv{white-space:normal;max-width:none}
+#mc-del-list .drv-n{font-weight:600;color:var(--text);font-size:11.5px;line-height:1.3;word-break:break-word}
+#mc-del-list .drv-s{font-family:Consolas,'Cascadia Mono',ui-monospace,monospace;font-size:10px;color:var(--text3);
+  line-height:1.3;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mc-del-list td.what-cell{max-width:none;white-space:normal}
+#mc-del-list .what-main{font-size:11.5px;line-height:1.3}
+#mc-del-list .what-sub{font-size:10px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mc-del-list .usage-chip{font-size:10.5px;padding:2px 8px;line-height:1.35}
+#mc-del-list .usage-chip .uc-why{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+#mc-del-list td input[type="checkbox"]{width:14px;height:14px}
+/* Egysoros, alacsony kategória-sáv (a ragadós sávok itt is egyforma magasak). */
+#mc-del-list tr.drv-group .dg{min-height:38px;padding:4px 10px 4px 8px;gap:8px}
+#mc-del-list tr.drv-group .dg-ic{width:24px;height:24px;font-size:13px;border-radius:6px}
+#mc-del-list tr.drv-group .dg-main{flex-direction:row;align-items:baseline;gap:9px}
+#mc-del-list tr.drv-group .dg-title{flex:0 0 auto;font-size:10px}
+#mc-del-list tr.drv-group .dg-name{font-size:12.5px;min-width:0}
+#mc-del-list tr.drv-group .dg-hint{display:none}
+#mc-del-list tr.drv-group .dg-count{font-size:10.5px;padding:2px 9px}
+#mc-del-list tr.drv-gap td{height:7px}
 #mc-del-list tbody tr.drv-row{cursor:pointer}
 /* MEGMARADÓ sor (nincs pipa): halványabb, és a neve mellett "MEGMARAD" címke - a lista
    így egy pillantásra mutatja, mi fog történni (2026-10-01, explicit user decision). */
@@ -669,13 +704,14 @@ td.c-prov{color:var(--text2)}
 #mc-del-list tr.del-locked td{opacity:.55}
 #mc-del-list tr.del-locked{cursor:not-allowed!important}
 #mc-del-list.del-busy tbody tr.drv-row td{opacity:.6}
-#mc-del-list .del-lock{margin-top:4px;font-size:10.5px;color:#ffd08a;white-space:normal;line-height:1.35}
+#mc-del-list .del-lock{margin-top:2px;font-size:10px;color:#ffd08a;white-space:normal;line-height:1.3}
 /* A csoport-fejléc pipája: egy egész alkatrész (pl. a szoftveres driverek) egy
    kattintással ki-/bevehető. Csak a NEM zárolt sorokra hat. */
 #mc-del-list .dg-check{width:15px;height:15px;margin:0 8px 0 0;vertical-align:-3px;accent-color:var(--accent);cursor:pointer}
 #mc-del-list .dg-lock{display:inline-block;width:15px;margin-right:8px;text-align:center;font-size:11px;opacity:.8}
-#mc-del-tabs .hw-tab{padding:6px 11px;font-size:11.5px}
-#mc-del-tabs{gap:6px;margin-bottom:8px}
+#mc-del-tabs .hw-tab{padding:3px 8px;font-size:10.5px;gap:5px}
+#mc-del-tabs .hw-tab .hw-tab-n{padding:0 6px;font-size:10px}
+#mc-del-tabs{gap:6px;margin-bottom:0;flex:0 1 auto}
 
 /* ÖSSZECSUKVA / NINCS TÉRKÉP-ADAT: csak a rajz tűnik el, A TÁBLÁZAT SOHA. A CLAUDE.md
    szabálya: "a térkép hibája nem viheti el a táblázatot". 2026-10-01 óta a táblázat a
@@ -2666,32 +2702,36 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
            hang / hálózat / chipset / szoftveres / nincs hozzá eszköz). A besorolás ugyanabból
            a Python-magból jön (get_autofix_delete_preview 'machine' = _build_machine_map). -->
       <div id="mc-del-panel" style="display:none;flex:1 1 640px;min-width:0">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:8px">
-          <div style="font-size:13px;font-weight:700">🗑 Törlésre jelölt driverek</div>
-          <div id="mc-del-count" style="font-size:12px;color:var(--text3)"></div>
+        <!-- CÍMSOR: balra a cím (a magyarázó fél-mondat keskeny ablakban "…"-ra rövidül),
+             jobbra a darabszám és a Mind / Egyik se gomb (2026-10-01, tömörítés: a címsorban
+             amúgy is üres hely volt, a fülek+kereső sorában viszont 1366 px-en nem fértek el). -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+          <div style="flex:1;min-width:0;font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">🗑 Törlésre jelölt driverek
+            <span style="font-weight:400;font-size:11.5px;color:var(--text3)">— a bepipáltak törlődnek, a pipa nélküliek megmaradnak</span></div>
+          <div id="mc-del-count" style="font-size:12px;color:var(--text3);white-space:nowrap"></div>
+          <button class="btn" id="mc-del-all" style="padding:4px 10px;font-size:11.5px" onclick="setAllDeletePreview(true)" title="A MOST LÁTHATÓ (fül + keresés szerinti), nem zárolt sorokat pipálja be">Mind</button>
+          <button class="btn" id="mc-del-none" style="padding:4px 10px;font-size:11.5px" onclick="setAllDeletePreview(false)" title="A MOST LÁTHATÓ (fül + keresés szerinti), nem zárolt sorokból veszi ki a pipát">Egyik se</button>
         </div>
-        <div style="display:flex;gap:8px;margin-bottom:8px">
-          <input id="mc-del-search" type="text" placeholder="Keresés név, gyártó, eszköz vagy alkatrész szerint..." oninput="renderDeletePreview()"
-                 style="flex:1;padding:7px 10px;border-radius:var(--r-sm);border:1px solid var(--glass-border);background:rgba(20,12,38,0.6);color:var(--text);font:12px var(--font)">
-          <button class="btn" id="mc-del-all" style="padding:6px 10px;font-size:12px" onclick="setAllDeletePreview(true)" title="A MOST LÁTHATÓ (fül + keresés szerinti), nem zárolt sorokat pipálja be">Mind</button>
-          <button class="btn" id="mc-del-none" style="padding:6px 10px;font-size:12px" onclick="setAllDeletePreview(false)" title="A MOST LÁTHATÓ (fül + keresés szerinti), nem zárolt sorokból veszi ki a pipát">Egyik se</button>
+        <!-- EGY SORBAN a fülek és a kereső (2026-10-01, tömörítés): eddig két sor volt, és
+             minden sor a listától veszi el a helyet. Keskeny ablakban tördel. -->
+        <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
+          <div class="hw-tabs" id="mc-del-tabs" style="display:none"></div>
+          <input id="mc-del-search" type="text" placeholder="Keresés név, gyártó, eszköz, alkatrész..." oninput="renderDeletePreview()"
+                 style="flex:1 1 150px;min-width:120px;padding:6px 10px;border-radius:var(--r-sm);border:1px solid var(--glass-border);background:rgba(20,12,38,0.6);color:var(--text);font:12px var(--font)">
         </div>
-        <div class="hw-tabs" id="mc-del-tabs" style="display:none"></div>
         <div id="mc-del-banner"></div>
-        <div class="drv-table-cap">
-          <span>🗑️</span>
-          <span>Törlési lista — a <b>bepipált</b> csomagok törlődnek, a pipa nélküliek megmaradnak. A csoport-fejléc pipája egy egész alkatrészt vesz ki / tesz vissza.</span>
-        </div>
+        <!-- TÖMÖR VÁLTOZAT (2026-10-01, explicit user decision: "a fixben lehetne kisebb
+             minden ... 3 sor fér ki, kisebb laptopon 2"). A Driverek nézet 7 oszlopa helyett
+             4: a technikai adatok (published név, gyártó, verzió) a driver neve ALÁ kerülnek
+             kisbetűvel. A magyarázó csík kikerült (a mondata a cím mellé költözött), a
+             csoport-pipa magyarázata a pipa buborékjában van. -->
         <div class="table-wrap" id="mc-del-list">
           <table>
             <thead><tr>
               <th style="width:30px"></th>
               <th>Használat</th>
-              <th>Published Name</th>
-              <th>Original Name</th>
-              <th>Provider</th>
+              <th title="Fent a driver-csomag neve (Original Name), alatta: Published Name · gyártó · verzió">Driver</th>
               <th title="A konkrét eszköz, amit a driver hajt (a Windows eszközfája szerint), vagy ha nincs hozzá eszköz, amire a driver-fájl szerint való. Alatta a driver saját Windows-osztálya (Class).">Mire való</th>
-              <th>Version</th>
             </tr></thead>
             <tbody id="mc-del-tbody"></tbody>
           </table>
@@ -7363,6 +7403,7 @@ function mcResetLayout() {
   // A fix-dialógus a bal hasábot fix szélességűre állítja - egy sima kérdésnél ismét
   // a teljes szélességet kapja.
   document.getElementById('mc-left').style.flex = '1 1 420px';
+  document.getElementById('mc-box').style.maxHeight = '';
   // Az "Igen" gombot a fix-dialógus letilthatja az elemzés idejére; ha ott Mégse-vel
   // léptek ki, a KÖVETKEZŐ (bármelyik) megerősítő ablak gombja is tiltva maradna.
   const yes = document.getElementById('mc-yes');
@@ -7591,10 +7632,10 @@ function renderDeletePreview() {
           + ' onclick="event.stopPropagation()" onchange="toggleDeleteGroup(' + gi + ', this.checked)">'
         // Csupa zárolt sor: nincs mit pipálni, de a fejléc ne csússzon el, és mondja ki, miért.
         : '<span class="dg-lock" title="A csoport minden sora zárolt - róluk a bal oldali kapcsolók / a boot-védelem dönt">🔒</span>';
-      if (gi) rows.push('<tr class="drv-gap"><td colspan="7"></td></tr>');
+      if (gi) rows.push('<tr class="drv-gap"><td colspan="4"></td></tr>');
       tone = meta.tone || 'none';
       inGroup = 0;
-      rows.push('<tr class="drv-group g-' + tone + '"><td colspan="7">' + drvGroupHead(meta, cb) + '</td></tr>');
+      rows.push('<tr class="drv-group g-' + tone + '"><td colspan="4">' + drvGroupHead(meta, cb) + '</td></tr>');
     }
     const force = delRowForce(d);
     const on = delRowOn(d);
@@ -7625,15 +7666,16 @@ function renderDeletePreview() {
       // A "Használat" chip ugyanaz, mint a Driverek nézetben (usageCellHtml). Elemzés után
       // az ismeretlen állapot NEM "folyamatban": azt ki kell mondani, hogy nem sikerült.
       + usageCellHtml(st, d.usage_text, d.usage_reasons, delLoading ? '' : 'nem sikerült felderíteni')
-      + '<td class="c-pub" title="' + esc(d.published || '') + '">' + esc(d.published || '') + '</td>'
-      + '<td class="c-orig" title="' + esc(d.original || '') + '">' + esc(d.original || '')
-      + (on ? '' : '<span class="keep-tag">MEGMARAD</span>') + '</td>'
-      + '<td class="c-prov">' + esc(d.provider || '') + '</td>'
-      + whatCellHtml(d, mi, extra)
-      + '<td class="c-ver">' + esc(d.version || '') + '</td></tr>');
+      // TÖMÖR "Driver" oszlop: fent a csomag neve (+ MEGMARAD címke), alatta kisbetűvel
+      // a published név · gyártó · verzió - a Driverek nézet 3 külön oszlopa itt egy.
+      + '<td class="c-drv" title="' + esc([d.original, d.published, d.provider, d.version].filter(Boolean).join(' · ')) + '">'
+      + '<div class="drv-n">' + esc(d.original || d.published || '')
+      + (on ? '' : '<span class="keep-tag">MEGMARAD</span>') + '</div>'
+      + '<div class="drv-s">' + esc([d.published, d.provider, d.version].filter(Boolean).join(' · ')) + '</div></td>'
+      + whatCellHtml(d, mi, extra) + '</tr>');
   });
   if (!rows.length) {
-    rows.push('<tr class="drv-empty"><td colspan="7">'
+    rows.push('<tr class="drv-empty"><td colspan="4">'
       + (delPreview.length ? 'Nincs a szűrésre illeszkedő driver.' : 'Nincs törölhető third-party driver.')
       + '</td></tr>');
   }
@@ -7794,6 +7836,7 @@ function showAutoFixConfirm(title, message) {
       document.getElementById('mc-skip-printers-row').style.display = 'none';
       document.getElementById('mc-del-panel').style.display = 'none';
       document.getElementById('mc-box').style.maxWidth = '480px';
+      document.getElementById('mc-box').style.maxHeight = '';
       document.getElementById('mc-left').style.flex = '1 1 420px';
       resolve({ ok: val, skipPrinters: skip, wifiMode: wifi, rebuildWifi: rebuildWifi, wuPause: wuPause, useCatalog: useCatalog, keepPackages: keep });
     };
@@ -7828,6 +7871,9 @@ function showAutoFixConfirm(title, message) {
     // szélességű lett, a többit a táblázat kapja; keskeny képernyőn a `92%` szélesség és
     // a flex-wrap a védőháló (a táblázat ilyenkor a döntések alá tördel).
     document.getElementById('mc-box').style.maxWidth = '1560px';
+    // MAGASABB DOBOZ (2026-10-01): a törlési lista minden pixelt megkap, amit a képernyő
+    // ad - a közös 88vh-s plafon egy laptopon 2 sort hagyott a listának.
+    document.getElementById('mc-box').style.maxHeight = '95vh';
     document.getElementById('mc-left').style.flex = '0 1 400px';
     document.getElementById('mc-del-panel').style.display = 'block';
     document.getElementById('mc-del-search').value = '';
