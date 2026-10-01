@@ -1177,6 +1177,14 @@ A rajz tehát nem nyúlik, csak a doboza ér le; magas karbantartó hasábnál (
 - **Összecsukott térképnél NEM nyúlik** (`.mm-wrap.collapsed .mm-mapcol{align-self:start}`), különben egy üres, magas doboz maradna a fejléc alatt.
 - **Mérve utána** (headless, élő adat, asztali ÉS laptopos ábrával): az alsó él különbsége **0 px** mind a négy esetben (1920: 1996/1996 és 2020/2020; 1366: 1860/1860 mindkettőre). Összecsukva 81 px vs. 98 px, vagyis nem nyúlik. A Driverek nézet tesztje 88/88.
 
+**12/e) A RAJZ-DOBOZ VÍZJELE ÉS A VIDEOKÁRTYA KÉT KARIKÁJA KIKERÜLT** (2026-10-01, explicit user decision, bekarikázott képernyőképpel: *„jobb alul az a random fehér doboz az mi?"*, majd: *„vedd ki, illetve a videokártyának a rajzán is van 2 db random karika, azt is vedd ki"*).
+- **A „doboz" a `.mm-mapcol` emoji-vízjele volt** (`::after`, `data-emoji`: 190 px-es 🖥️/💻, 4,5%-os átlátszóság, a hero-kártyák mintájára). Amíg a rajz nem töltötte ki a dobozt, üres sarokban állt. **A 12/d) óta a rajz kitölti a dobozt, ezért a vízjel a TELEFON mögé csúszott, és odatévedt szürke téglalapnak látszott.** Kikerült a CSS-szabály, a `data-emoji` attribútum és a JS-sor, ami géptípus szerint állította; a többi kártya (`.view-hero`) vízjele marad.
+- **A két karika a videokártya ventilátorai voltak** az asztali rajzban (`<circle cx="206/264" cy="178">`). A VIDEÓKÁRTYA felirat mögött értelmetlen karikáknak látszottak.
+
+> **SAJÁT HIBA (4. szabály):** a 12/d) után megnéztem a laptopos képernyőképet, a vízjel ott volt rajta, és nem vettem észre. **A téves feltevés:** a képet csak arra néztem, amit épp mértem (az alsó élek egyezése), nem az egészre. **Az ellenőrzés, ami megfogta volna:** egy elrendezés-változtatás után ne csak a mért tulajdonságot nézd a képen, hanem keress rajta olyan elemet is, ami korábban üres helyen állt, és most rálóghat valamire (vízjel, abszolút pozícionált díszítés).
+
+**Ellenőrizve:** `node --check` + undefined-name scan (763 név, 0 találat), a Driverek nézet tesztje 88/88, és popup nélküli képernyőkép az asztali és a laptopos rajzról (1920 és 1366 px): se vízjel, se karika.
+
 ### A TÖRLÉS GOMB NÉMA HALÁLA — és a NEGYEDIK ugyanolyan hiba (2026-09-20, Build 318)
 
 > **HA EGY „RÁNYOMOK ÉS SEMMI SE TÖRTÉNIK" BEJELENTÉST VIZSGÁLSZ, ITT KEZDD. Van rá egy 30 másodperces ellenőrzés, ami mind a négy eddigi esetet megfogta volna.**

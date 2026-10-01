@@ -501,14 +501,15 @@ tr.drv-row.selected td{background:rgba(180,100,255,0.24)!important}
    egy kattintás a táblázatot annak az alkatrésznek a drivereire szűri. Ez BESOROLÁS, NEM
    SZŰRŐ a törlés szempontjából: semmit nem rejt el véglegesen és semmit nem tilt le. */
 /* A WRAPPER ÁTLÁTSZÓ: 2026-10-01 óta a táblázatot, a rajzot és a karbantartást is
-   tartalmazza, és mindhárom a SAJÁT dobozában ül. A korábbi keret / színátmenet / vízjel
-   a rajz-hasábra (`.mm-mapcol`) költözött. */
+   tartalmazza, és mindhárom a SAJÁT dobozában ül. A korábbi keret / színátmenet a
+   rajz-hasábra (`.mm-mapcol`) költözött; a vízjel 2026-10-01 óta nincs (lásd ott). */
 .mm-wrap{position:relative;margin-bottom:12px}
 .mm-mapcol{position:relative;overflow:hidden;min-width:0;border-radius:var(--r);
   border:1px solid rgba(180,100,255,0.28);
   background:linear-gradient(160deg,rgba(46,26,80,0.60),rgba(22,12,42,0.50))}
-.mm-mapcol::after{content:attr(data-emoji);position:absolute;right:-14px;bottom:-46px;font-size:190px;
-  opacity:.045;pointer-events:none;line-height:1}
+/* NINCS emoji-vízjel ezen a dobozon (2026-10-01, explicit user decision): amióta a rajz
+   kitölti a dobozt, a sarokba tett 190 px-es 🖥️ a TELEFON mögé lógott, és egy odatévedt
+   szürke doboznak látszott. A fejléc ikonja és maga a rajz úgyis mutatja a géptípust. */
 .mm-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;cursor:pointer;
   user-select:none;border-bottom:1px solid rgba(180,100,255,0.18);position:relative;z-index:1}
 .mm-wrap.collapsed .mm-head{border-bottom:0}
@@ -1691,7 +1692,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
               <!-- A GÉP FELÉPÍTÉSE - bal alul, a fejlécével együtt. A rajz egy pontjára
                    kattintva a `#mm-pop` kis ablak a pont MELLETT nyílik meg (a pozícióját a
                    `positionMmPop` számolja a kattintott pont helyéből). -->
-              <div class="mm-mapcol" id="mm-mapcol" data-emoji="🖥️">
+              <div class="mm-mapcol" id="mm-mapcol">
                 <div class="mm-head" onclick="toggleMachineMap()" id="mm-head">
                   <span class="mm-head-icon" id="mm-head-icon">🖥️</span>
                   <div class="mm-head-main">
@@ -4789,10 +4790,11 @@ const MM_FIGURES = {
       '<rect x="266" y="48" width="5" height="60" class="mm-line"/><rect x="276" y="48" width="5" height="60" class="mm-line"/>',
       '<rect x="286" y="48" width="5" height="60" class="mm-line"/><rect x="296" y="48" width="5" height="60" class="mm-line"/>',
       '<circle cx="324" cy="18" r="4" class="mm-line"/>',
-      // monitor-láb, nyomtató-papír, a videókártya ventilátorai, billentyűzet-sorok
+      // monitor-láb, nyomtató-papír, billentyűzet-sorok. (A videókártya két ventilátor-
+      // karikája 2026-10-01-én kikerült, explicit user decision: a felirat mögött zavaró,
+      // "random karikáknak" látszottak.)
       '<path d="M68 118 L68 132 M44 136 L92 136" class="mm-line"/>',
       '<path d="M362 36 L362 22 L434 22 L434 36 M366 100 L366 114 L430 114 L430 100" class="mm-line"/>',
-      '<circle cx="206" cy="178" r="12" class="mm-line"/><circle cx="264" cy="178" r="12" class="mm-line"/>',
       '<path d="M16 276 H120 M16 286 H120 M16 296 H104" class="mm-line"/>',
       // kábelek a perifériáktól a géphez
       '<path d="M128 78 C136 78 132 62 138 62 M128 286 C136 286 132 244 138 244 M344 68 C338 68 340 90 334 90 M372 278 C352 278 348 250 334 250 M344 170 C338 170 340 160 334 160" class="mm-line" stroke-dasharray="3 4"/>'
@@ -4878,8 +4880,6 @@ function renderMachineMap() {
   wrap.classList.remove('mm-nomap');
   wrap.classList.toggle('collapsed', mmCollapsed);
   const laptop = mm.form === 'laptop';
-  const col = document.getElementById('mm-mapcol');
-  if (col) col.setAttribute('data-emoji', laptop ? '💻' : '🖥️');
   document.getElementById('mm-head-icon').textContent = laptop ? '💻' : '🖥️';
   document.getElementById('mm-head-title').textContent = 'A gép felépítése — ' + (mm.title || 'ismeretlen gép');
   const bits = [laptop ? 'laptop' : 'asztali gép'];
