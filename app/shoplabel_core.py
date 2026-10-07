@@ -124,12 +124,14 @@ WORD_PRINT_TIMEOUT = 240          # a Word hideg indítása lassú gépen perc i
 # egy középre szedett vonalnál (pl. az ár alatti) eltolás = (jobb oldali hely - bal oldali
 # hely) / 2. Az A5 a "laponként 2 oldal" nyomtatásnál nem kicsinyül, tehát a papíron mért mm
 # itt is mm.
-#   - jobb oldali A5: terepen minden balra csúszott, 4 mm-rel túl jobbra került, 2 mm-t kért.
+#   - jobb oldali A5: terepen minden balra csúszott, 4 mm-rel túl jobbra került, 2 mm-t kért;
+#     a logó-javítás utáni nyomaton (bal lap hibátlan) még "1 vagy 1,5 mm"-rel jobbra kellett
+#     -> a felhasználó kérésére 2 + 1 = 3 mm.
 #   - bal oldali A5: a Build 360-as nyomaton (eltolás nélkül) az ár alatti vonalnál BAL
 #     oldalt volt több hely, tehát ezt a lapot a nyomtató ~1 mm-rel JOBBRA nyomja -> -1 mm.
 #     (A logó ugyanott jobbra lógott - az a sablon 1,37 mm-es logóhibája volt, már javítva.)
-RIGHT_PAGE_SHIFT_TWIPS = 113      # ~ +2 mm
-LEFT_PAGE_SHIFT_TWIPS = -57       # ~ -1 mm (becslés a fenti nyomatból - próbanyomattal pontosítandó)
+RIGHT_PAGE_SHIFT_TWIPS = 170      # ~ +3 mm
+LEFT_PAGE_SHIFT_TWIPS = -57       # ~ -1 mm (próbanyomaton hibátlan, 2026-10-07)
 
 _W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 _P_RE = re.compile(r'<w:p[ >].*?</w:p>', re.S)
