@@ -265,18 +265,44 @@ def _row_label(tr):
     return para_text(cells[0]).strip() if cells else ''
 
 
+# A csak-laptop sorok magassága a kitöltött laptop-táblán (twip), Word-ben mérve
+# (2026-10-07, a sablon sorainak teteje: Kijelző 324,0 / Billentyűzet 348,5 / Akkumulátor
+# 372,9 / Állapot 396,7 / Garancia 420,5 pt). Az asztali tábla üres helykitöltő sorai
+# PONTOSAN ezt a magasságot kapják: tartalom szerinti magassággal a Word egy üres sort
+# más magasnak számol (mérve 25,2 pt a 23,8 helyett), és az ár ~3 pt-tal elcsúszott.
+# Ha a sablon sorai változnak, ezt újra kell mérni (a két ár y-pozíciója egyezzen).
+SPACER_ROW_TWIPS = {'display': 490, 'keyboard': 488, 'battery': 476, 'condition': 488}
+
+
+def _blank_row(tr, height_twips=None):
+    """Egy sablon-sor LÁTHATATLAN másolata: minden cella szövege egy szóköz, a cellák
+    alsó vonala (tcBorders) törölve, és ha meg van adva, PONTOS sormagasság."""
+    tr = re.sub(r'<w:tcBorders>.*?</w:tcBorders>', '', tr, flags=re.S)
+    if height_twips:
+        tr = re.sub(r'<w:trHeight [^>]*/>', f'<w:trHeight w:val="{int(height_twips)}" w:hRule="exact"/>', tr)
+    # A Word bekezdés-azonosítóinak egyedinek kell lenniük - a másolatból kivesszük őket.
+    tr = re.sub(r' w14:(?:paraId|textId)="[^"]*"', '', tr)
+    return _P_RE.sub(lambda m: _set_para_text(m.group(0), ' '), tr)
+
+
 def _fill_table(tbl, machine):
     kind = machine.get('kind')
     values = machine.get('values') or {}
     rows = _TR_RE.findall(tbl)
     by_label = {_row_label(r): r for r in rows}
     out = tbl
+    # Asztali gépnél a csak-laptop sorok helyére a táblázat VÉGÉN (a Garancia alatt) üres,
+    # vonal nélküli sor kerül, hogy az ár pontosan ugyanott álljon a lapon, mint egy laptop
+    # tábláján (explicit user decision, 2026-10-07: a sorok puszta törlésétől az ár a lap
+    # közepe felé csúszott, és a két tábla ára nem esett egy vonalba).
+    spacers = []
     for key, label, laptop_only, _ex in FIELDS:
         row = by_label.get(label)
         if row is None:
             raise ValueError(f"A sablonban nem található a(z) '{label}' sor.")
         if laptop_only and kind != KIND_LAPTOP:
             out = out.replace(row, '', 1)
+            spacers.append(_blank_row(row, SPACER_ROW_TWIPS.get(key)))
             continue
         cells = _TC_RE.findall(row)
         if len(cells) < 2:
@@ -286,6 +312,9 @@ def _fill_table(tbl, machine):
         new_cell = vcell[:pm.start()] + _set_para_text(
             pm.group(0), normalize_value(key, values.get(key)), keep_lead=True) + vcell[pm.end():]
         out = out.replace(row, row.replace(vcell, new_cell, 1), 1)
+    if spacers:
+        i = out.rindex('</w:tbl>')
+        out = out[:i] + ''.join(spacers) + out[i:]
     return out
 
 
