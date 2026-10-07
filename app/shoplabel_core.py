@@ -63,10 +63,13 @@ FIELDS = [
     ('ram', 'Memória', False, '16GB DDR4'),
     ('storage', 'Tárhely', False, '256GB SSD'),
     ('gpu', 'Videókártya', False, 'Intel® UHD Graphics'),
-    ('display', 'Kijelző', False, '14" 1920x1080 60Hz'),
+    # A Kijelző és az Állapot sor 2026-10-07 óta CSAK LAPTOPON van (explicit user decision:
+    # asztali gépnél sosem töltik ki, és a táblán sem kell) - asztalinál a sablonból is
+    # kikerül, ugyanúgy, mint a billentyűzet/akku sor.
+    ('display', 'Kijelző', True, '14" 1920x1080 60Hz'),
     ('keyboard', 'Billentyűzet', True, 'Magyar világító'),
     ('battery', 'Akkumulátor', True, '100% ÚJ'),
-    ('condition', 'Állapot', False, 'Nagyon szép állapot!'),
+    ('condition', 'Állapot', True, 'Nagyon szép állapot!'),
     ('warranty', 'Garancia', False, '6 hónap'),
 ]
 NAME_EXAMPLE = 'Dell Latitude 7410'
@@ -86,7 +89,7 @@ PRICE_EXAMPLE = '140000'
 #     alapból "Magyar", nem "Magyar világító" (egy nem világító gépre ráírni hamis állítás
 #     lenne a vevő felé), a világítót egy kattintás adja (PRESETS).
 # Laptopon és asztali gépen UGYANAZ a séma (explicit kérés: "asztali gépnél is ugyan ez") -
-# a különbség csak az, hogy asztali gépnél a billentyűzet/akku sor nincs.
+# a különbség csak az, hogy asztali gépnél a kijelző/billentyűzet/akku/állapot sor nincs.
 SLOT = '|'
 PREFILL = {
     'cpu': 'Intel® Core™ i|',
