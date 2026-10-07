@@ -116,12 +116,20 @@ PRESETS = {
 A4_TWIPS = (11906, 16838)
 PAGES_PER_SHEET = (2, 1)          # PrintZoomColumn, PrintZoomRow = "Laponként 2 oldal"
 WORD_PRINT_TIMEOUT = 240          # a Word hideg indítása lassú gépen perc is lehet
-# A JOBB oldali A5 (a 2. gép) eltolása jobbra, twipben (1 mm = 56,69 twip). Terepen (2026-10-07,
-# explicit user decision) a kinyomtatott, középen kettévágott A4 jobb felén minden "fél
-# centit vagy még annyit se" balra csúszott, a bal fele hibátlan volt. A sablon A5-ös oldala
-# a "laponként 2 oldal" nyomtatásnál nem kicsinyül, tehát ez az érték a papíron is ennyi.
-# Ha a nyomtatón még mindig nincs középen, EZT az egy számot kell állítani.
-RIGHT_PAGE_SHIFT_TWIPS = 113      # ~2 mm (terepen a 4 mm már túl sok volt)
+# A NYOMTATÓ CSÚSZÁSÁNAK KIEGYENLÍTÉSE oldalanként, twipben (1 mm = 56,69 twip; pozitív =
+# jobbra, negatív = balra). Cél (2026-10-07, explicit user decision): a kettévágott A4 mindkét
+# A5-ös felén MINDEN pontosan középen legyen. A dokumentum maga már pontosan középre van
+# szedve (a logót `_center_logos` igazítja, minden más a sablonból eleve középen áll) - ez a
+# két szám CSAK a nyomtató saját csúszását egyenlíti ki, és csak nyomtatott próbából mérhető:
+# egy középre szedett vonalnál (pl. az ár alatti) eltolás = (jobb oldali hely - bal oldali
+# hely) / 2. Az A5 a "laponként 2 oldal" nyomtatásnál nem kicsinyül, tehát a papíron mért mm
+# itt is mm.
+#   - jobb oldali A5: terepen minden balra csúszott, 4 mm-rel túl jobbra került, 2 mm-t kért.
+#   - bal oldali A5: a Build 360-as nyomaton (eltolás nélkül) az ár alatti vonalnál BAL
+#     oldalt volt több hely, tehát ezt a lapot a nyomtató ~1 mm-rel JOBBRA nyomja -> -1 mm.
+#     (A logó ugyanott jobbra lógott - az a sablon 1,37 mm-es logóhibája volt, már javítva.)
+RIGHT_PAGE_SHIFT_TWIPS = 113      # ~ +2 mm
+LEFT_PAGE_SHIFT_TWIPS = -57       # ~ -1 mm (becslés a fenti nyomatból - próbanyomattal pontosítandó)
 
 _W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 _P_RE = re.compile(r'<w:p[ >].*?</w:p>', re.S)
@@ -326,23 +334,54 @@ def _fill_table(tbl, machine):
 
 def _shift_margins(sect, dx):
     """A szakasz bal margója +dx, a jobb -dx twip: a szedéstükör szélessége nem változik,
-    csak az egész oldal tartalma (a margóhoz rögzített logóval együtt) tolódik jobbra."""
+    csak az egész oldal tartalma (a margóhoz rögzített logóval együtt) tolódik el - pozitív
+    dx jobbra, negatív balra."""
     def fix(m):
         tag = m.group(0)
         left = int(re.search(r'w:left="(\d+)"', tag).group(1))
         right = int(re.search(r'w:right="(\d+)"', tag).group(1))
-        d = min(int(dx), right)
+        d = max(min(int(dx), right), -left)
         tag = re.sub(r'w:left="\d+"', f'w:left="{left + d}"', tag)
         return re.sub(r'w:right="\d+"', f'w:right="{right - d}"', tag)
     return re.sub(r'<w:pgMar [^>]*/>', fix, sect, count=1)
 
 
-def _shift_right_page(between, after, dx):
-    """A 2. gép oldalát (a nyomtatott A4 JOBB oldali A5-ét) dx twippel jobbra tolja.
+def _center_logos(xml):
+    """A margóhoz rögzített logók (a sablon két `wp:anchor` képe) PONTOSAN vízszintes
+    középre állítása. A sablonban a két logó nem állt középen (mérve 2026-10-07: az 1.
+    oldalé 1,37 mm-rel balra, a 2. oldalé 1,72 mm-rel jobbra), miközben a név, a vonalak,
+    az ár és a lábléc tizedmilliméterre középen van. A szedéstükör szélessége (lapszélesség
+    - két margó) a lapok eltolásától nem változik, ezért a margóhoz mért eltolás így marad
+    érvényes. Visszatérés: (xml, középre tett logók száma)."""
+    m = re.search(r'<w:sectPr[ >].*?</w:sectPr>', xml[xml.rindex('<w:sectPr'):], re.S)
+    pg_w = int(re.search(r'<w:pgSz [^>]*w:w="(\d+)"', m.group(0)).group(1))
+    mar = re.search(r'<w:pgMar [^>]*/>', m.group(0)).group(0)
+    left = int(re.search(r'w:left="(\d+)"', mar).group(1))
+    right = int(re.search(r'w:right="(\d+)"', mar).group(1))
+    text_emu = (pg_w - left - right) * 635          # 1 twip = 635 EMU
+    n = 0
+
+    def fix(a):
+        nonlocal n
+        d = a.group(0)
+        cx = re.search(r'<wp:extent cx="(\d+)"', d)
+        if not cx or not re.search(r'<wp:positionH relativeFrom="margin">\s*<wp:posOffset>', d):
+            return d
+        n += 1
+        off = (text_emu - int(cx.group(1))) // 2
+        return re.sub(r'(<wp:positionH relativeFrom="margin">\s*<wp:posOffset>)-?\d+(</wp:posOffset>)',
+                      lambda g: f'{g.group(1)}{off}{g.group(2)}', d, count=1)
+    return re.sub(r'<wp:anchor[ >].*?</wp:anchor>', fix, xml, flags=re.S), n
+
+
+def _shift_pages(between, after, left_dx, right_dx):
+    """Az 1. gép oldalát (a nyomtatott A4 BAL oldali A5-ét) `left_dx`, a 2. gépét (JOBB
+    oldali A5) `right_dx` twippel jobbra tolja, egymástól függetlenül.
 
     Ehhez a két oldal külön szakasz lesz: az 1. oldal utolsó bekezdése (a 2. gép logója
-    előtti) megkapja az EREDETI szakasz-tulajdonságot (az 1. oldal változatlan marad), a
-    dokumentum végi szakasz pedig az eltolt margókat. Visszatérés: (between, after, ok)."""
+    előtti) kapja az 1. oldal szakasz-tulajdonságát, a dokumentum végi szakasz a 2.
+    oldalét - mindkettő az eredeti margókból, a saját eltolásával. Visszatérés:
+    (between, after, ok)."""
     m_sect = re.search(r'<w:sectPr[ >].*?</w:sectPr>', after, re.S)
     paras = list(_P_RE.finditer(between))
     idx = next((i for i, m in enumerate(paras) if '<w:drawing>' in m.group(0)), None)
@@ -353,16 +392,17 @@ def _shift_right_page(between, after, dx):
     p_xml = p.group(0)
     if '<w:sectPr' in p_xml:
         return between, after, False
+    sect1 = _shift_margins(sect, left_dx)
     if '<w:pPr>' in p_xml:
         i = p_xml.index('</w:pPr>')
-        new_p = p_xml[:i] + sect + p_xml[i:]
+        new_p = p_xml[:i] + sect1 + p_xml[i:]
     else:
         i = p_xml.index('>') + 1
-        new_p = p_xml[:i] + '<w:pPr>' + sect + '</w:pPr>' + p_xml[i:]
+        new_p = p_xml[:i] + '<w:pPr>' + sect1 + '</w:pPr>' + p_xml[i:]
     between = between[:p.start()] + new_p + between[p.end():]
-    shifted = _shift_margins(sect, dx)
-    after = after[:m_sect.start()] + shifted + after[m_sect.end():]
-    logging.info(f"[BOLTI-TABLA] Jobb oldali lap eltolva {dx} twip-pel ({dx / 56.69:.1f} mm) jobbra.")
+    after = after[:m_sect.start()] + _shift_margins(sect, right_dx) + after[m_sect.end():]
+    logging.info(f"[BOLTI-TABLA] Lapok eltolása jobbra: bal oldali {left_dx} twip ({left_dx / 56.69:.1f} mm), "
+                 f"jobb oldali {right_dx} twip ({right_dx / 56.69:.1f} mm).")
     return between, after, True
 
 
@@ -393,7 +433,7 @@ def fill_template(template_bytes, machines):
         between, lambda ps: next((i for i, m in enumerate(ps) if '<w:drawing>' in m.group(0)), None),
         _add_page_break_before)
     after, ok_p2 = _replace_paras(after, _first_text, lambda p: _set_para_text(p, format_price(m2.get('price'))))
-    between, after, ok_sh = _shift_right_page(between, after, RIGHT_PAGE_SHIFT_TWIPS)
+    between, after, ok_sh = _shift_pages(between, after, LEFT_PAGE_SHIFT_TWIPS, RIGHT_PAGE_SHIFT_TWIPS)
     missing = [n for n, ok in (('1. gép neve', ok_t1), ('1. gép ára', ok_p1), ('2. gép neve', ok_t2),
                                ('2. gép logója', ok_br), ('2. gép ára', ok_p2),
                                ('a jobb oldali lap eltolása (szakasztörés)', ok_sh)) if not ok]
@@ -402,6 +442,10 @@ def fill_template(template_bytes, machines):
 
     new_xml = (xml[:b0] + before + _fill_table(tbls[0].group(0), m1) + between
                + _fill_table(tbls[1].group(0), m2) + after)
+    new_xml, n_logo = _center_logos(new_xml)
+    if n_logo != 2:
+        logging.warning(f"[BOLTI-TABLA] {n_logo} logót tudtunk középre tenni a várt 2 helyett "
+                        f"(a sablon logója nem a margóhoz rögzített kép?) - a logó a sablon szerinti helyén marad.")
     out = io.BytesIO()
     with zipfile.ZipFile(out, 'w') as zout:
         for info in zin.infolist():
