@@ -116,6 +116,12 @@ PRESETS = {
 A4_TWIPS = (11906, 16838)
 PAGES_PER_SHEET = (2, 1)          # PrintZoomColumn, PrintZoomRow = "Laponként 2 oldal"
 WORD_PRINT_TIMEOUT = 240          # a Word hideg indítása lassú gépen perc is lehet
+# A JOBB oldali A5 (a 2. gép) eltolása jobbra, twipben (1 mm = 56,69 twip). Terepen (2026-10-07,
+# explicit user decision) a kinyomtatott, középen kettévágott A4 jobb felén minden "fél
+# centit vagy még annyit se" balra csúszott, a bal fele hibátlan volt. A sablon A5-ös oldala
+# a "laponként 2 oldal" nyomtatásnál nem kicsinyül, tehát ez az érték a papíron is ennyi.
+# Ha a nyomtatón még mindig nincs középen, EZT az egy számot kell állítani.
+RIGHT_PAGE_SHIFT_TWIPS = 227      # ~4 mm
 
 _W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 _P_RE = re.compile(r'<w:p[ >].*?</w:p>', re.S)
@@ -318,6 +324,48 @@ def _fill_table(tbl, machine):
     return out
 
 
+def _shift_margins(sect, dx):
+    """A szakasz bal margója +dx, a jobb -dx twip: a szedéstükör szélessége nem változik,
+    csak az egész oldal tartalma (a margóhoz rögzített logóval együtt) tolódik jobbra."""
+    def fix(m):
+        tag = m.group(0)
+        left = int(re.search(r'w:left="(\d+)"', tag).group(1))
+        right = int(re.search(r'w:right="(\d+)"', tag).group(1))
+        d = min(int(dx), right)
+        tag = re.sub(r'w:left="\d+"', f'w:left="{left + d}"', tag)
+        return re.sub(r'w:right="\d+"', f'w:right="{right - d}"', tag)
+    return re.sub(r'<w:pgMar [^>]*/>', fix, sect, count=1)
+
+
+def _shift_right_page(between, after, dx):
+    """A 2. gép oldalát (a nyomtatott A4 JOBB oldali A5-ét) dx twippel jobbra tolja.
+
+    Ehhez a két oldal külön szakasz lesz: az 1. oldal utolsó bekezdése (a 2. gép logója
+    előtti) megkapja az EREDETI szakasz-tulajdonságot (az 1. oldal változatlan marad), a
+    dokumentum végi szakasz pedig az eltolt margókat. Visszatérés: (between, after, ok)."""
+    m_sect = re.search(r'<w:sectPr[ >].*?</w:sectPr>', after, re.S)
+    paras = list(_P_RE.finditer(between))
+    idx = next((i for i, m in enumerate(paras) if '<w:drawing>' in m.group(0)), None)
+    if not m_sect or not idx:
+        return between, after, False
+    sect = m_sect.group(0)
+    p = paras[idx - 1]
+    p_xml = p.group(0)
+    if '<w:sectPr' in p_xml:
+        return between, after, False
+    if '<w:pPr>' in p_xml:
+        i = p_xml.index('</w:pPr>')
+        new_p = p_xml[:i] + sect + p_xml[i:]
+    else:
+        i = p_xml.index('>') + 1
+        new_p = p_xml[:i] + '<w:pPr>' + sect + '</w:pPr>' + p_xml[i:]
+    between = between[:p.start()] + new_p + between[p.end():]
+    shifted = _shift_margins(sect, dx)
+    after = after[:m_sect.start()] + shifted + after[m_sect.end():]
+    logging.info(f"[BOLTI-TABLA] Jobb oldali lap eltolva {dx} twip-pel ({dx / 56.69:.1f} mm) jobbra.")
+    return between, after, True
+
+
 def fill_template(template_bytes, machines):
     """A sablon kitöltése két gép adataival. Visszatérés: a kész docx bájtjai.
 
@@ -345,8 +393,10 @@ def fill_template(template_bytes, machines):
         between, lambda ps: next((i for i, m in enumerate(ps) if '<w:drawing>' in m.group(0)), None),
         _add_page_break_before)
     after, ok_p2 = _replace_paras(after, _first_text, lambda p: _set_para_text(p, format_price(m2.get('price'))))
+    between, after, ok_sh = _shift_right_page(between, after, RIGHT_PAGE_SHIFT_TWIPS)
     missing = [n for n, ok in (('1. gép neve', ok_t1), ('1. gép ára', ok_p1), ('2. gép neve', ok_t2),
-                               ('2. gép logója', ok_br), ('2. gép ára', ok_p2)) if not ok]
+                               ('2. gép logója', ok_br), ('2. gép ára', ok_p2),
+                               ('a jobb oldali lap eltolása (szakasztörés)', ok_sh)) if not ok]
     if missing:
         raise ValueError('A sablonban nem található: ' + ', '.join(missing))
 
