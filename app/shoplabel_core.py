@@ -121,7 +121,7 @@ WORD_PRINT_TIMEOUT = 240          # a Word hideg indítása lassú gépen perc i
 # centit vagy még annyit se" balra csúszott, a bal fele hibátlan volt. A sablon A5-ös oldala
 # a "laponként 2 oldal" nyomtatásnál nem kicsinyül, tehát ez az érték a papíron is ennyi.
 # Ha a nyomtatón még mindig nincs középen, EZT az egy számot kell állítani.
-RIGHT_PAGE_SHIFT_TWIPS = 227      # ~4 mm
+RIGHT_PAGE_SHIFT_TWIPS = 113      # ~2 mm (terepen a 4 mm már túl sok volt)
 
 _W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 _P_RE = re.compile(r'<w:p[ >].*?</w:p>', re.S)
