@@ -1368,6 +1368,27 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .sl-input.sl-todo{border-color:rgba(255,179,71,0.6);box-shadow:inset 3px 0 0 rgba(255,179,71,0.85)}
 .sl-input.sl-missing{border-color:#ff4d5e;box-shadow:0 0 10px rgba(255,77,94,0.3)}
 .sl-sep{height:1px;background:var(--glass-border);opacity:0.5;margin:10px 0 12px}
+/* AKCIÓ pipa + élő kupon-előnézet (2026-10-08) */
+.sl-sale{display:flex;align-items:center;gap:10px;margin:4px 0 10px 128px;padding:8px 12px;border-radius:10px;cursor:pointer;
+  border:1.5px dashed rgba(255,77,94,0.35);background:rgba(255,77,94,0.04);user-select:none;transition:all .15s}
+.sl-sale:hover{border-color:rgba(255,77,94,0.7)}
+.sl-sale input{display:none}
+.sl-sale-box{flex:0 0 auto;width:20px;height:20px;border-radius:6px;border:2px solid rgba(255,120,130,0.7);position:relative}
+.sl-sale.on{border-style:solid;border-color:#ff4d5e;background:linear-gradient(135deg,rgba(255,77,94,0.22),rgba(255,140,60,0.12));box-shadow:0 0 18px rgba(255,77,94,0.25)}
+.sl-sale.on .sl-sale-box{background:#ff3347;border-color:#ff3347}
+.sl-sale.on .sl-sale-box::after{content:'✓';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:900}
+.sl-sale-title{font-weight:900;letter-spacing:.06em;color:#ff8a94}
+.sl-sale.on .sl-sale-title{color:#fff}
+.sl-sale-sub{font-size:11.5px;color:var(--text3)}
+.sl-sale-pv{margin:2px 0 4px 128px}
+.sl-coupon{background:#fff;border:2px dashed #c00000;border-radius:6px;padding:8px 10px 6px;text-align:center;color:#c00000}
+.sl-coupon-top{display:flex;align-items:center;justify-content:center;gap:12px;font-size:13px}
+.sl-coupon-badge{background:#c00000;color:#fff;font-family:'Arial Black',Arial,sans-serif;padding:1px 7px;font-size:12px}
+.sl-coupon-top s{color:#7f7f7f;font-weight:700;font-family:Arial,sans-serif}
+.sl-coupon-price{font-family:'Arial Black',Arial,sans-serif;font-size:28px;line-height:1.15;font-weight:900}
+.sl-coupon-note{font-size:11px;color:var(--text3);margin-top:4px}
+.sl-sale-err{padding:8px 10px;border-radius:8px;background:rgba(255,77,94,0.12);border:1px solid rgba(255,77,94,0.5);color:#ffb3ba;font-size:12.5px}
+@media (max-width:700px){.sl-sale,.sl-sale-pv{margin-left:0}}
 .sl-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:16px 20px}
 .sl-bar .sl-bar-label{font-weight:700;color:var(--text2)}
 .sl-bar select{flex:1 1 260px;min-width:0;padding:10px 12px;border-radius:8px;background:rgba(20,10,36,0.85);color:#fff;
@@ -3167,7 +3188,7 @@ function goHome() {
 let slInfo = null;
 let slState = [slEmpty(), slEmpty()];
 let slBusy = false;
-function slEmpty() { return {kind: null, name: '', price: '', values: {}}; }
+function slEmpty() { return {kind: null, name: '', price: '', sale: false, sale_price: '', values: {}}; }
 
 async function loadShopLabelView(refresh) {
   slRenderCards();
@@ -3238,7 +3259,16 @@ function slRenderCards() {
         h += slRow(i, 'v:' + f.key, f.label, f.example, st.values[f.key] || '', false, f);
       });
       h += '<div class="sl-sep"></div>';
-      h += slRow(i, 'price', 'Ár (Ft)', slInfo.price_example || '', st.price, true);
+      h += slRow(i, 'price', st.sale ? 'Régi ár (Ft)' : 'Ár (Ft)', slInfo.price_example || '', st.price, true);
+      // AKCIÓ (2026-10-08): bepipálva a fenti ár a RÉGI ár (a táblán áthúzva, kicsiben),
+      // alá jön az akciós ár (nagyban, pirosban). A kinézet: shoplabel_core.sale_block_xml.
+      h += '<label class="sl-sale' + (st.sale ? ' on' : '') + '"><input type="checkbox"' + (st.sale ? ' checked' : '')
+        + ' onchange="slSetSale(' + i + ',this.checked)"><span class="sl-sale-box"></span>'
+        + '<span class="sl-sale-title">🔥 AKCIÓ</span><span class="sl-sale-sub">a régi ár áthúzva, alatta nagyban az új ár</span></label>';
+      if (st.sale) {
+        h += slRow(i, 'sale_price', 'Akciós ár (Ft)', slInfo.sale_price_example || '', st.sale_price, true);
+        h += '<div class="sl-sale-pv" id="sl-salepv-' + i + '">' + slSalePreview(st) + '</div>';
+      }
     }
     card.innerHTML = h;
   }
@@ -3333,6 +3363,50 @@ function slInput(el) {
     if (f) slSyncField(el, f);
   } else st[key] = el.value;
   el.classList.remove('sl-missing');
+  if (key === 'price' || key === 'sale_price') {
+    const pv = document.getElementById('sl-salepv-' + i);
+    if (pv) pv.innerHTML = slSalePreview(st);
+  }
+}
+
+/* AKCIÓS ÁR: ugyanazok a szabályok, mint a Pythonban (shoplabel_core.price_number /
+   sale_percent / format_price) - az előnézet ne mutasson mást, mint ami a táblára kerül. */
+function slPriceNum(v) {
+  const m = String(v || '').trim().match(/^([\d\s.]+?)\s*(?:ft|huf|,-)?\.?$/i);
+  if (!m) return null;
+  const d = m[1].replace(/\D/g, '');
+  return d ? parseInt(d, 10) : null;
+}
+function slFmtPrice(v) {
+  const n = slPriceNum(v);
+  if (n === null) return String(v || '').trim();
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' Ft';
+}
+function slSalePct(st) {
+  const o = slPriceNum(st.price), n = slPriceNum(st.sale_price);
+  if (!o || n === null || n >= o) return null;
+  return Math.round((o - n) * 100 / o);
+}
+function slSaleBad(st) {
+  // Egy "akció", ami nem olcsóbb a réginél, elírás - nem nyomtatjuk ki.
+  const o = slPriceNum(st.price), n = slPriceNum(st.sale_price);
+  return st.sale && o !== null && n !== null && n >= o;
+}
+function slSalePreview(st) {
+  if (slSaleBad(st)) return '<div class="sl-sale-err">⚠️ Az akciós ár nem kisebb a régi árnál — így nem nyomtatható.</div>';
+  const pct = slSalePct(st);
+  const oldTxt = slFmtPrice(st.price) || '…', newTxt = slFmtPrice(st.sale_price) || '…';
+  return '<div class="sl-coupon"><div class="sl-coupon-top"><span class="sl-coupon-badge">AKCIÓ' + (pct ? ' −' + pct + '%' : '!')
+    + '</span><s>' + esc(oldTxt) + '</s></div><div class="sl-coupon-price">' + esc(newTxt) + '</div></div>'
+    + '<div class="sl-coupon-note">Így kerül a táblára (a lap alja ugyanott marad, mint akció nélkül).</div>';
+}
+function slSetSale(i, on) {
+  slState[i].sale = !!on;
+  slRenderCards();
+  if (on) {
+    const el = document.querySelector('#sl-card-' + i + ' [data-sl="' + i + '|sale_price"]');
+    if (el) el.focus();
+  }
 }
 
 function slSetKind(i, kind) {
@@ -3358,7 +3432,14 @@ function slMissing() {
     const f = key.startsWith('v:') ? slField(key.slice(2)) : null;
     if (!el.value.trim() || (f && slIsUnfilled(f, el.value))) { el.classList.add('sl-missing'); miss.push(el); }
   });
-  for (let i = 0; i < 2; i++) if (!slState[i].kind) miss.push('kind' + i);
+  for (let i = 0; i < 2; i++) {
+    if (!slState[i].kind) miss.push('kind' + i);
+    else if (slSaleBad(slState[i])) {
+      const el = document.querySelector('#sl-card-' + i + ' [data-sl="' + i + '|sale_price"]');
+      if (el) el.classList.add('sl-missing');
+      miss.push('sale' + i);
+    }
+  }
   return miss;
 }
 
@@ -3369,7 +3450,10 @@ async function slPrint() {
   const printer = document.getElementById('sl-printer').value;
   if (miss.length) {
     const noKind = [0, 1].filter(i => !slState[i].kind).map(i => (i + 1) + '. gép');
-    toast(noKind.length ? '⚠️ Válaszd ki a típust: ' + noKind.join(', ') : '⚠️ Hiányzó adat a pirossal jelölt mezőkben (üres, vagy a séma nincs kiegészítve)', 'warning');
+    const badSale = [0, 1].filter(i => slState[i].kind && slSaleBad(slState[i])).map(i => (i + 1) + '. gép');
+    toast(noKind.length ? '⚠️ Válaszd ki a típust: ' + noKind.join(', ')
+      : badSale.length ? '⚠️ Az akciós ár nem kisebb a régi árnál: ' + badSale.join(', ')
+      : '⚠️ Hiányzó adat a pirossal jelölt mezőkben (üres, vagy a séma nincs kiegészítve)', 'warning');
     return;
   }
   if (!printer) {
@@ -3380,7 +3464,8 @@ async function slPrint() {
   const machines = slState.map(st => {
     const values = {};
     slFieldsFor(st.kind).forEach(f => { values[f.key] = (st.values[f.key] || '').trim(); });
-    return {kind: st.kind, name: st.name.trim(), price: st.price.trim(), values};
+    return {kind: st.kind, name: st.name.trim(), price: st.price.trim(), values,
+            sale: !!st.sale, sale_price: st.sale ? String(st.sale_price || '').trim() : ''};
   });
   slSetBusy(true);
   let r;

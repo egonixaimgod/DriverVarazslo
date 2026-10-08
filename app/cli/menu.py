@@ -1186,6 +1186,17 @@ def _shoplabel_flow(api):
             m['values'][key] = _shoplabel_ask_field(sc, key, label)
         while not m.get('price'):
             m['price'] = ui.ask(f'Ár Ft-ban (pl. {sc.PRICE_EXAMPLE})')
+        # AKCIÓ (2026-10-08): a fenti ár lesz a régi (áthúzva), alá jön az akciós ár.
+        m['sale'] = ui.confirm('AKCIÓS? (a fenti ár áthúzva, alatta nagyban az új ár)', False)
+        while m['sale'] and not m.get('sale_price'):
+            sp = ui.ask(f'Akciós ár Ft-ban (pl. {sc.SALE_PRICE_EXAMPLE})')
+            o, n = sc.price_number(m['price']), sc.price_number(sp)
+            if o is not None and n is not None and n >= o:
+                ui.err(f"Az akciós ár ({sc.format_price(sp)}) nem kisebb a régi árnál ({sc.format_price(m['price'])}).")
+                continue
+            m['sale_price'] = sp
+        if m['sale']:
+            ui.dim('A táblán: ' + sc.price_label(m))
         machines.append(m)
     ui.write('')
     last = info.get('last_printer') or ''

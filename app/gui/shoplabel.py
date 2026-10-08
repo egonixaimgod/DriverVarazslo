@@ -81,6 +81,7 @@ class GuiShopLabelMixin:
             'slot': sc.SLOT,
             'name_example': sc.NAME_EXAMPLE,
             'price_example': sc.PRICE_EXAMPLE,
+            'sale_price_example': sc.SALE_PRICE_EXAMPLE,
         }
 
     def print_shop_labels(self, machines, printer):

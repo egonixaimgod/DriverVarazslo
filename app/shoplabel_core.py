@@ -74,6 +74,7 @@ FIELDS = [
 ]
 NAME_EXAMPLE = 'Dell Latitude 7410'
 PRICE_EXAMPLE = '140000'
+SALE_PRICE_EXAMPLE = '119000'
 
 # ELŐRE KITÖLTÖTT SÉMÁK (2026-09-25, explicit user decision: *"legyen alapbol ott a szoveg
 # felig kitoltve en meg töltsem ki a másik felét"*). A mezők a géptípus kiválasztásakor
@@ -210,6 +211,110 @@ def format_price(value):
     if not digits:
         return s
     return f"{int(digits):,}".replace(',', ' ') + ' Ft'
+
+
+def price_number(value):
+    """A beírt ár számként (`140 000 Ft` -> 140000), vagy None, ha nem tisztán szám."""
+    s = str(value or '').strip()
+    m = re.fullmatch(r'([\d\s. ]+?)\s*(?:ft|huf|,-)?\.?', s, re.I)
+    if not m:
+        return None
+    digits = re.sub(r'\D', '', m.group(1))
+    return int(digits) if digits else None
+
+
+def sale_percent(old, new):
+    """Az akció mértéke egész százalékban (`140000`, `119000` -> 15), vagy None, ha nem
+    számolható (nem szám, vagy az új ár nem kisebb a réginél)."""
+    o, n = price_number(old), price_number(new)
+    if not o or n is None or n >= o:
+        return None
+    return int(round((o - n) * 100.0 / o))
+
+
+# AKCIÓS ÁR (2026-10-08, explicit user decision: *"az ár alatt legyen egy pipa ... ha
+# bepipalom ... legyen egy új ár, a régit húzza át ... kicsiben, az uj ar pedig legyen
+# nagyban és vmi akcios designet"*). A sablon ár-bekezdése és a fölötte álló üres
+# térköz-bekezdés helyére egy "kupon" kerül: szaggatott piros keret, benne fent a piros
+# AKCIÓ-címke (a kedvezmény százalékával) + az ÁTHÚZOTT régi ár kicsiben, alatta az új ár
+# nagyban, pirosban. A szín sötétvörös (C00000), mert a bolt nyomtatója lehet fekete-fehér
+# lézer: azon sötétszürkének jön ki, a fehér betűs címke így is olvasható marad.
+#
+# A KUPON PONTOSAN AKKORA, MINT AZ EREDETI KÉT BEKEZDÉS (rögzített sormagasságokkal), hogy
+# a lap alja (a "Garancia | Minőség | Megbízhatóság" sor) akciónál is ugyanott álljon, és a
+# két A5 egy vonalban maradjon, ha csak az egyik gép akciós - ugyanaz az elv, mint az
+# asztali tábla helykitöltő sorainál. A számok Worddel mérve (lásd a CLAUDE.md-t).
+SALE_RED = 'C00000'
+SALE_GREY = '7F7F7F'
+SALE_BORDER = f'w:val="dashed" w:sz="12" w:space="4" w:color="{SALE_RED}"'
+SALE_INDENT_TWIPS = 1050            # a kupon a szedéstükör közepén, ~ 86 mm széles
+SALE_TOP_LINE_TWIPS = 333           # címke + áthúzott régi ár sora (exact)
+SALE_PRICE_LINE_TWIPS = 720         # az új ár sora (exact)
+SALE_BEFORE_TWIPS = 80
+SALE_AFTER_TWIPS = 0
+
+
+def _sale_rpr(font, size_half_pt, color, extra=''):
+    return (f'<w:rPr><w:rFonts w:ascii="{font}" w:hAnsi="{font}"/><w:b/>{extra}'
+            f'<w:color w:val="{color}"/><w:sz w:val="{size_half_pt}"/><w:szCs w:val="{size_half_pt}"/></w:rPr>')
+
+
+def _sale_ppr(line_twips, before, after, keep_next):
+    bdr = ''.join(f'<w:{s} {SALE_BORDER}/>' for s in ('top', 'left', 'bottom', 'right'))
+    return (f'<w:pPr>{"<w:keepNext/>" if keep_next else ""}<w:pBdr>{bdr}</w:pBdr>'
+            f'<w:spacing w:before="{before}" w:after="{after}" w:line="{line_twips}" w:lineRule="exact"/>'
+            f'<w:ind w:left="{SALE_INDENT_TWIPS}" w:right="{SALE_INDENT_TWIPS}"/><w:jc w:val="center"/></w:pPr>')
+
+
+def sale_block_xml(old_price, new_price):
+    """Az akciós kupon két bekezdése (a sablon ár- és térköz-bekezdése helyére).
+    Tiszta függvény (offline tesztelhető)."""
+    pct = sale_percent(old_price, new_price)
+    badge = ' AKCIÓ' + (f' −{pct}%' if pct else '!') + ' '
+    nb = ' '
+    top = ('<w:p>' + _sale_ppr(SALE_TOP_LINE_TWIPS, SALE_BEFORE_TWIPS, 0, True)
+           + '<w:r>' + _sale_rpr('Arial Black', 22, 'FFFFFF', f'<w:shd w:val="clear" w:color="auto" w:fill="{SALE_RED}"/>')
+           + f'<w:t xml:space="preserve">{_xml_text(badge)}</w:t></w:r>'
+           + '<w:r>' + _sale_rpr('Arial', 22, SALE_GREY) + f'<w:t xml:space="preserve">{nb * 3}</w:t></w:r>'
+           + '<w:r>' + _sale_rpr('Arial', 26, SALE_GREY, '<w:strike/>')
+           + f'<w:t xml:space="preserve">{_xml_text(format_price(old_price))}</w:t></w:r></w:p>')
+    price = ('<w:p>' + _sale_ppr(SALE_PRICE_LINE_TWIPS, 0, SALE_AFTER_TWIPS, False)
+             + '<w:r>' + _sale_rpr('Arial Black', 60, SALE_RED)
+             + f'<w:t xml:space="preserve">{_xml_text(format_price(new_price))}</w:t></w:r></w:p>')
+    return top + price
+
+
+def _apply_price(seg, machine):
+    """A gép árának beírása a szakasz első szöveges bekezdésébe (a sablon ára). Akciónál a
+    bekezdés ÉS a fölötte álló üres térköz-bekezdés helyére a kupon kerül.
+    Visszatérés: (seg, ok)."""
+    paras = list(_P_RE.finditer(seg))
+    i = _first_text(paras)
+    if i is None:
+        return seg, False
+    p = paras[i]
+    if not is_sale(machine):
+        return seg[:p.start()] + _set_para_text(p.group(0), format_price(machine.get('price'))) + seg[p.end():], True
+    start = p.start()
+    if i > 0 and not para_text(paras[i - 1].group(0)).strip() and '<w:drawing>' not in paras[i - 1].group(0):
+        start = paras[i - 1].start()
+    else:
+        logging.warning("[BOLTI-TABLA] Az ár fölött nincs üres térköz-bekezdés - a kupon csak az ár "
+                        "helyére kerül, a lap alja ezen a lapon kicsit lejjebb csúszhat.")
+    return seg[:start] + sale_block_xml(machine.get('price'), machine.get('sale_price')) + seg[p.end():], True
+
+
+def is_sale(machine):
+    return bool((machine or {}).get('sale'))
+
+
+def price_label(machine):
+    """Az ár a naplóhoz / üzenethez: `140 000 Ft` vagy `140 000 Ft -> AKCIÓ 119 000 Ft (-15%)`."""
+    s = format_price(machine.get('price'))
+    if is_sale(machine):
+        pct = sale_percent(machine.get('price'), machine.get('sale_price'))
+        s += f" -> AKCIÓ {format_price(machine.get('sale_price'))}" + (f" (-{pct}%)" if pct else '')
+    return s
 
 
 def normalize_value(key, value):
@@ -429,12 +534,12 @@ def fill_template(template_bytes, machines):
     before, ok_t1 = _replace_paras(before, _last_text, lambda p: _set_para_text(p, m1.get('name', '')))
     # A két gép közti szakasz: az 1. gép ára (első szöveges bekezdés), a 2. gép neve
     # (utolsó szöveges bekezdés), és a 2. gép logója (a rajzot tartalmazó bekezdés).
-    between, ok_p1 = _replace_paras(between, _first_text, lambda p: _set_para_text(p, format_price(m1.get('price'))))
+    between, ok_p1 = _apply_price(between, m1)
     between, ok_t2 = _replace_paras(between, _last_text, lambda p: _set_para_text(p, m2.get('name', '')))
     between, ok_br = _replace_paras(
         between, lambda ps: next((i for i, m in enumerate(ps) if '<w:drawing>' in m.group(0)), None),
         _add_page_break_before)
-    after, ok_p2 = _replace_paras(after, _first_text, lambda p: _set_para_text(p, format_price(m2.get('price'))))
+    after, ok_p2 = _apply_price(after, m2)
     between, after, ok_sh = _shift_pages(between, after, LEFT_PAGE_SHIFT_TWIPS, RIGHT_PAGE_SHIFT_TWIPS)
     missing = [n for n, ok in (('1. gép neve', ok_t1), ('1. gép ára', ok_p1), ('2. gép neve', ok_t2),
                                ('2. gép logója', ok_br), ('2. gép ára', ok_p2),
@@ -454,8 +559,8 @@ def fill_template(template_bytes, machines):
             data = new_xml.encode('utf-8') if info.filename == 'word/document.xml' else zin.read(info.filename)
             zout.writestr(info, data, compress_type=zipfile.ZIP_DEFLATED)
     logging.info(f"[BOLTI-TABLA] Sablon kitöltve: 1. {KIND_LABELS.get(m1.get('kind'))} '{m1.get('name')}' "
-                 f"({format_price(m1.get('price'))}), 2. {KIND_LABELS.get(m2.get('kind'))} '{m2.get('name')}' "
-                 f"({format_price(m2.get('price'))})")
+                 f"({price_label(m1)}), 2. {KIND_LABELS.get(m2.get('kind'))} '{m2.get('name')}' "
+                 f"({price_label(m2)})")
     return out.getvalue()
 
 
@@ -480,6 +585,16 @@ def validate_machines(machines):
                 missing.append(f"{i}. gép: {label} (a séma nincs kiegészítve: '{v}')")
         if not str(m.get('price') or '').strip():
             missing.append(f"{i}. gép: ár")
+        if is_sale(m):
+            sp = str(m.get('sale_price') or '').strip()
+            o, n = price_number(m.get('price')), price_number(sp)
+            if not sp:
+                missing.append(f"{i}. gép: akciós ár")
+            elif o is not None and n is not None and n >= o:
+                # Egy "akció", ami nem olcsóbb a régi árnál, elírás - a vevő felé hamis
+                # állítás lenne, ezért nem nyomtatjuk ki.
+                missing.append(f"{i}. gép: az akciós ár ({format_price(sp)}) nem kisebb a régi árnál "
+                               f"({format_price(m.get('price'))})")
     return missing
 
 
