@@ -252,36 +252,117 @@ SALE_TOP_LINE_TWIPS = 333           # címke + áthúzott régi ár sora (exact)
 SALE_PRICE_LINE_TWIPS = 720         # az új ár sora (exact)
 SALE_BEFORE_TWIPS = 80
 SALE_AFTER_TWIPS = 0
+# Akció + Windows telepítés: a kupon egy harmadik sort kap, ezért a két felső sor tömörebb,
+# hogy a három együtt is pontosan a fenti magasságot adja (Worddel mérve, lásd a CLAUDE.md-t).
+SALE_WIN_TOP_LINE_TWIPS = 300
+SALE_WIN_PRICE_LINE_TWIPS = 600
+SALE_WIN_LINE_TWIPS = 300
+SALE_WIN_BORDER_SPACE = 2
+SALE_WIN_BEFORE_TWIPS = 7
+
+# WINDOWS TELEPÍTÉSSEL (2026-10-09, explicit user decision: *"oda legyen írva mellé hogy:
+# Windows telepítéssel és legyen ott az ár + 15 000 Ft ... az alap gépár legyen nagyba ...
+# egy checkbox legyen ami mindig legyen bepipálva, és legyen mellette egy ár ... alapból
+# kitöltve 15 000 Ft"*). A nagy ár alatt egy halvány kék "pirula": "Windows telepítéssel:
+# <ár + díj>". Akciónál a díj az AKCIÓS árhoz adódik (a vevő azt fizeti), és a sor a kupon
+# harmadik sora lesz. A kék (Windows-kék, 0067B8) fekete-fehér nyomtatón sötétszürke.
+# Ugyanaz a magasság-szabály, mint az akciónál: a blokk pontosan a sablon két eltűnő
+# bekezdésének helyét tölti ki, tehát a lap alja minden kombinációban ugyanott áll.
+WIN_BLUE = '0067B8'
+WIN_FILL = 'EAF3FC'
+WIN_LABEL_GREY = '404040'
+WINDOWS_FEE_DEFAULT = '15000'
+WIN_BORDER = f'w:val="single" w:sz="6" w:space="1" w:color="{WIN_BLUE}"'
+WIN_INDENT_TWIPS = 1250             # a pirula a szedéstükör közepén, ~ 78 mm széles
+WIN_PRICE_BEFORE_TWIPS = 120        # akció nélkül: a nagy ár sora fölött
+WIN_PRICE_LINE_TWIPS = 760          # akció nélkül: a nagy ár sora (exact)
+WIN_GAP_TWIPS = 60                  # a nagy ár és a pirula között
+WIN_LINE_TWIPS = 340                # a pirula sora (exact)
+NBSP = '\u00a0'
 
 
-def _sale_rpr(font, size_half_pt, color, extra=''):
-    return (f'<w:rPr><w:rFonts w:ascii="{font}" w:hAnsi="{font}"/><w:b/>{extra}'
+def _sale_rpr(font, size_half_pt, color, extra='', bold=True):
+    return (f'<w:rPr><w:rFonts w:ascii="{font}" w:hAnsi="{font}"/>{"<w:b/>" if bold else ""}{extra}'
             f'<w:color w:val="{color}"/><w:sz w:val="{size_half_pt}"/><w:szCs w:val="{size_half_pt}"/></w:rPr>')
 
 
-def _sale_ppr(line_twips, before, after, keep_next):
-    bdr = ''.join(f'<w:{s} {SALE_BORDER}/>' for s in ('top', 'left', 'bottom', 'right'))
+def _run(rpr, text):
+    return f'<w:r>{rpr}<w:t xml:space="preserve">{_xml_text(text)}</w:t></w:r>'
+
+
+def _sale_ppr(line_twips, before, after, keep_next, border=None):
+    bdr = ''.join(f'<w:{s} {border or SALE_BORDER}/>' for s in ('top', 'left', 'bottom', 'right'))
     return (f'<w:pPr>{"<w:keepNext/>" if keep_next else ""}<w:pBdr>{bdr}</w:pBdr>'
             f'<w:spacing w:before="{before}" w:after="{after}" w:line="{line_twips}" w:lineRule="exact"/>'
             f'<w:ind w:left="{SALE_INDENT_TWIPS}" w:right="{SALE_INDENT_TWIPS}"/><w:jc w:val="center"/></w:pPr>')
 
 
-def sale_block_xml(old_price, new_price):
-    """Az akciós kupon két bekezdése (a sablon ár- és térköz-bekezdése helyére).
+def is_windows(machine):
+    return bool((machine or {}).get('windows'))
+
+
+def windows_total(machine):
+    """A Windows-telepítéses ár: (akciónál az akciós, egyébként a sima) ár + a telepítés díja.
+    None, ha valamelyik nem tisztán szám."""
+    base = machine.get('sale_price') if is_sale(machine) else machine.get('price')
+    b, f = price_number(base), price_number(machine.get('windows_fee'))
+    if b is None or f is None:
+        return None
+    return b + f
+
+
+def windows_price_text(machine):
+    """A pirula ára: a teljes összeg, ha számolható; ha az ár szöveg (pl. "Érdeklődjön!"),
+    a díj "+ 15 000 Ft" alakban - a nemtudást nem írjuk ki egy kitalált végösszegként."""
+    tot = windows_total(machine)
+    if tot is not None:
+        return format_price(str(tot))
+    return '+ ' + format_price(machine.get('windows_fee'))
+
+
+def _windows_runs(machine, label_sz, amount_sz):
+    return (_run(_sale_rpr('Arial', label_sz, WIN_LABEL_GREY, bold=False), 'Windows telepítéssel:' + NBSP * 2)
+            + _run(_sale_rpr('Arial Black', amount_sz, WIN_BLUE), windows_price_text(machine)))
+
+
+def windows_block_xml(machine):
+    """Akció nélkül, Windows-telepítéssel: a nagy ár (a sablon betűivel) + alatta a pirula.
     Tiszta függvény (offline tesztelhető)."""
+    price = ('<w:p><w:pPr><w:keepNext/>'
+             f'<w:spacing w:before="{WIN_PRICE_BEFORE_TWIPS}" w:after="0" w:line="{WIN_PRICE_LINE_TWIPS}" w:lineRule="exact"/>'
+             '<w:jc w:val="center"/></w:pPr>'
+             + _run(_sale_rpr('Arial Black', 56, '000000'), format_price(machine.get('price'))) + '</w:p>')
+    bdr = ''.join(f'<w:{s} {WIN_BORDER}/>' for s in ('top', 'left', 'bottom', 'right'))
+    win = (f'<w:p><w:pPr><w:pBdr>{bdr}</w:pBdr><w:shd w:val="clear" w:color="auto" w:fill="{WIN_FILL}"/>'
+           f'<w:spacing w:before="{WIN_GAP_TWIPS}" w:after="0" w:line="{WIN_LINE_TWIPS}" w:lineRule="exact"/>'
+           f'<w:ind w:left="{WIN_INDENT_TWIPS}" w:right="{WIN_INDENT_TWIPS}"/><w:jc w:val="center"/></w:pPr>'
+           + _windows_runs(machine, 20, 24) + '</w:p>')
+    return price + win
+
+
+def sale_block_xml(old_price, new_price, machine=None):
+    """Az akciós kupon bekezdései (a sablon ár- és térköz-bekezdése helyére): címke + áthúzott
+    régi ár, az új ár, és ha a `machine` Windows-telepítéses, harmadik sorként a Windows-ár.
+    Tiszta függvény (offline tesztelhető)."""
+    win = machine is not None and is_windows(machine)
     pct = sale_percent(old_price, new_price)
-    badge = ' AKCIÓ' + (f' −{pct}%' if pct else '!') + ' '
-    nb = ' '
-    top = ('<w:p>' + _sale_ppr(SALE_TOP_LINE_TWIPS, SALE_BEFORE_TWIPS, 0, True)
-           + '<w:r>' + _sale_rpr('Arial Black', 22, 'FFFFFF', f'<w:shd w:val="clear" w:color="auto" w:fill="{SALE_RED}"/>')
-           + f'<w:t xml:space="preserve">{_xml_text(badge)}</w:t></w:r>'
-           + '<w:r>' + _sale_rpr('Arial', 22, SALE_GREY) + f'<w:t xml:space="preserve">{nb * 3}</w:t></w:r>'
-           + '<w:r>' + _sale_rpr('Arial', 26, SALE_GREY, '<w:strike/>')
-           + f'<w:t xml:space="preserve">{_xml_text(format_price(old_price))}</w:t></w:r></w:p>')
-    price = ('<w:p>' + _sale_ppr(SALE_PRICE_LINE_TWIPS, 0, SALE_AFTER_TWIPS, False)
-             + '<w:r>' + _sale_rpr('Arial Black', 60, SALE_RED)
-             + f'<w:t xml:space="preserve">{_xml_text(format_price(new_price))}</w:t></w:r></w:p>')
-    return top + price
+    badge = NBSP + 'AKCIÓ' + (f' \u2212{pct}%' if pct else '!') + NBSP
+    border = SALE_BORDER.replace('w:space="4"', f'w:space="{SALE_WIN_BORDER_SPACE}"') if win else None
+    top = ('<w:p>' + _sale_ppr(SALE_WIN_TOP_LINE_TWIPS if win else SALE_TOP_LINE_TWIPS,
+                               SALE_WIN_BEFORE_TWIPS if win else SALE_BEFORE_TWIPS, 0, True, border)
+           + _run(_sale_rpr('Arial Black', 20 if win else 22, 'FFFFFF',
+                            f'<w:shd w:val="clear" w:color="auto" w:fill="{SALE_RED}"/>'), badge)
+           + _run(_sale_rpr('Arial', 22, SALE_GREY), NBSP * 3)
+           + _run(_sale_rpr('Arial', 24 if win else 26, SALE_GREY, '<w:strike/>'), format_price(old_price))
+           + '</w:p>')
+    price = ('<w:p>' + _sale_ppr(SALE_WIN_PRICE_LINE_TWIPS if win else SALE_PRICE_LINE_TWIPS, 0,
+                                 0 if win else SALE_AFTER_TWIPS, win, border)
+             + _run(_sale_rpr('Arial Black', 50 if win else 60, SALE_RED), format_price(new_price)) + '</w:p>')
+    if not win:
+        return top + price
+    third = ('<w:p>' + _sale_ppr(SALE_WIN_LINE_TWIPS, 0, 0, False, border)
+             + _windows_runs(machine, 18, 22) + '</w:p>')
+    return top + price + third
 
 
 def _apply_price(seg, machine):
@@ -293,15 +374,18 @@ def _apply_price(seg, machine):
     if i is None:
         return seg, False
     p = paras[i]
-    if not is_sale(machine):
+    # Se akció, se Windows-telepítés: a sablon ára, pontosan úgy, mint eddig (bájtra azonos).
+    if not is_sale(machine) and not is_windows(machine):
         return seg[:p.start()] + _set_para_text(p.group(0), format_price(machine.get('price'))) + seg[p.end():], True
     start = p.start()
     if i > 0 and not para_text(paras[i - 1].group(0)).strip() and '<w:drawing>' not in paras[i - 1].group(0):
         start = paras[i - 1].start()
     else:
-        logging.warning("[BOLTI-TABLA] Az ár fölött nincs üres térköz-bekezdés - a kupon csak az ár "
+        logging.warning("[BOLTI-TABLA] Az ár fölött nincs üres térköz-bekezdés - az ár-blokk csak az ár "
                         "helyére kerül, a lap alja ezen a lapon kicsit lejjebb csúszhat.")
-    return seg[:start] + sale_block_xml(machine.get('price'), machine.get('sale_price')) + seg[p.end():], True
+    block = (sale_block_xml(machine.get('price'), machine.get('sale_price'), machine) if is_sale(machine)
+             else windows_block_xml(machine))
+    return seg[:start] + block + seg[p.end():], True
 
 
 def is_sale(machine):
@@ -309,11 +393,14 @@ def is_sale(machine):
 
 
 def price_label(machine):
-    """Az ár a naplóhoz / üzenethez: `140 000 Ft` vagy `140 000 Ft -> AKCIÓ 119 000 Ft (-15%)`."""
+    """Az ár a naplóhoz / üzenethez: `140 000 Ft`, `140 000 Ft -> AKCIÓ 119 000 Ft (-15%)`,
+    és ha Windows-telepítéses: `... | Windows telepítéssel: 134 000 Ft (+15 000 Ft)`."""
     s = format_price(machine.get('price'))
     if is_sale(machine):
         pct = sale_percent(machine.get('price'), machine.get('sale_price'))
         s += f" -> AKCIÓ {format_price(machine.get('sale_price'))}" + (f" (-{pct}%)" if pct else '')
+    if is_windows(machine):
+        s += f" | Windows telepítéssel: {windows_price_text(machine)} (+{format_price(machine.get('windows_fee'))})"
     return s
 
 
@@ -595,6 +682,9 @@ def validate_machines(machines):
                 # állítás lenne, ezért nem nyomtatjuk ki.
                 missing.append(f"{i}. gép: az akciós ár ({format_price(sp)}) nem kisebb a régi árnál "
                                f"({format_price(m.get('price'))})")
+        if is_windows(m) and price_number(m.get('windows_fee')) is None:
+            # A díj számként kell: egy "15e" vagy üres mezőből nem írunk ki kitalált végösszeget.
+            missing.append(f"{i}. gép: a Windows-telepítés díja (szám, pl. {WINDOWS_FEE_DEFAULT})")
     return missing
 
 

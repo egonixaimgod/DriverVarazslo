@@ -1195,7 +1195,16 @@ def _shoplabel_flow(api):
                 ui.err(f"Az akciós ár ({sc.format_price(sp)}) nem kisebb a régi árnál ({sc.format_price(m['price'])}).")
                 continue
             m['sale_price'] = sp
-        if m['sale']:
+        # WINDOWS TELEPÍTÉSSEL (2026-10-09): alapból igen, a díj alapból 15 000 Ft.
+        m['windows'] = ui.confirm('Windows telepítéssel? (a nagy ár alatt: ár + telepítés díja)', True)
+        while m['windows'] and not m.get('windows_fee'):
+            fee = (ui.ask(f'A Windows-telepítés díja Ft-ban [Enter = {sc.format_price(sc.WINDOWS_FEE_DEFAULT)}]')
+                   or sc.WINDOWS_FEE_DEFAULT)
+            if sc.price_number(fee) is None:
+                ui.err('A díj szám legyen (pl. 15000).')
+                continue
+            m['windows_fee'] = fee
+        if m['sale'] or m['windows']:
             ui.dim('A táblán: ' + sc.price_label(m))
         machines.append(m)
     ui.write('')

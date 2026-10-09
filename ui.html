@@ -1388,7 +1388,28 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .sl-coupon-price{font-family:'Arial Black',Arial,sans-serif;font-size:28px;line-height:1.15;font-weight:900}
 .sl-coupon-note{font-size:11px;color:var(--text3);margin-top:4px}
 .sl-sale-err{padding:8px 10px;border-radius:8px;background:rgba(255,77,94,0.12);border:1px solid rgba(255,77,94,0.5);color:#ffb3ba;font-size:12.5px}
-@media (max-width:700px){.sl-sale,.sl-sale-pv{margin-left:0}}
+/* Windows telepítéssel pipa + díj (2026-10-09) */
+.sl-win{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 10px 128px;padding:7px 12px;border-radius:10px;
+  border:1.5px dashed rgba(76,178,255,0.35);background:rgba(76,178,255,0.04);transition:all .15s}
+.sl-win.on{border-style:solid;border-color:#4cb2ff;background:linear-gradient(135deg,rgba(0,103,184,0.22),rgba(76,178,255,0.10));box-shadow:0 0 16px rgba(76,178,255,0.2)}
+.sl-win-tg{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;flex:1 1 auto}
+.sl-win-tg input{display:none}
+.sl-win-box{flex:0 0 auto;width:20px;height:20px;border-radius:6px;border:2px solid rgba(76,178,255,0.7);position:relative}
+.sl-win.on .sl-win-box{background:#1e8fe8;border-color:#1e8fe8}
+.sl-win.on .sl-win-box::after{content:'✓';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:900}
+.sl-win-title{font-weight:800;color:#9fd2ff;display:inline-flex;align-items:center;gap:8px}
+.sl-win-logo{width:14px;height:14px;fill:#4cb2ff;flex:0 0 auto}
+.sl-win.on .sl-win-title{color:#fff}
+.sl-win-fee{display:flex;align-items:center;gap:6px;font-weight:700;color:var(--text2)}
+.sl-win-fee .sl-fee{width:96px;text-align:right;font-weight:800}
+.sl-win-fee .sl-fee:disabled{opacity:.4}
+.sl-pv-plain{background:#fff;border-radius:6px;padding:8px 10px 8px;text-align:center}
+.sl-pv-price{font-family:'Arial Black',Arial,sans-serif;font-size:28px;line-height:1.15;color:#000;font-weight:900}
+.sl-pv-pill{display:inline-block;margin-top:4px;padding:2px 14px;background:#eaf3fc;border:1px solid #0067b8}
+.sl-pv-win{font-family:Arial,sans-serif;font-size:12px;color:#404040}
+.sl-pv-win b{font-family:'Arial Black',Arial,sans-serif;color:#0067b8;font-size:13px}
+.sl-coupon .sl-pv-win{margin-top:2px}
+@media (max-width:700px){.sl-sale,.sl-sale-pv,.sl-win{margin-left:0}}
 .sl-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:16px 20px}
 .sl-bar .sl-bar-label{font-weight:700;color:var(--text2)}
 .sl-bar select{flex:1 1 260px;min-width:0;padding:10px 12px;border-radius:8px;background:rgba(20,10,36,0.85);color:#fff;
@@ -3188,7 +3209,11 @@ function goHome() {
 let slInfo = null;
 let slState = [slEmpty(), slEmpty()];
 let slBusy = false;
-function slEmpty() { return {kind: null, name: '', price: '', sale: false, sale_price: '', values: {}}; }
+function slEmpty() {
+  // A Windows-telepítés alapból bepipálva, 15 000 Ft-tal (2026-10-09, explicit user decision).
+  return {kind: null, name: '', price: '', sale: false, sale_price: '', windows: true,
+          windows_fee: (slInfo && slInfo.windows_fee_default) || '15000', values: {}};
+}
 
 async function loadShopLabelView(refresh) {
   slRenderCards();
@@ -3267,8 +3292,18 @@ function slRenderCards() {
         + '<span class="sl-sale-title">🔥 AKCIÓ</span><span class="sl-sale-sub">a régi ár áthúzva, alatta nagyban az új ár</span></label>';
       if (st.sale) {
         h += slRow(i, 'sale_price', 'Akciós ár (Ft)', slInfo.sale_price_example || '', st.sale_price, true);
-        h += '<div class="sl-sale-pv" id="sl-salepv-' + i + '">' + slSalePreview(st) + '</div>';
       }
+      // WINDOWS TELEPÍTÉSSEL (2026-10-09): alapból bepipálva, a díj alapból 15 000 Ft. A táblán
+      // a nagy ár alatt "Windows telepítéssel: <ár + díj>" (akciónál az akciós árhoz adva).
+      h += '<div class="sl-win' + (st.windows ? ' on' : '') + '"><label class="sl-win-tg"><input type="checkbox"'
+        + (st.windows ? ' checked' : '') + ' onchange="slSetWin(' + i + ',this.checked)"><span class="sl-win-box"></span>'
+        + '<span class="sl-win-title"><svg class="sl-win-logo" viewBox="0 0 16 16" aria-hidden="true"><rect x="0" y="0" width="7.4" height="7.4"/>'
+        + '<rect x="8.6" y="0" width="7.4" height="7.4"/><rect x="0" y="8.6" width="7.4" height="7.4"/><rect x="8.6" y="8.6" width="7.4" height="7.4"/></svg>'
+        + 'Windows telepítéssel</span></label>'
+        + '<span class="sl-win-fee">+ <input class="sl-input sl-fee" data-sl="' + i + '|windows_fee" value="' + esc(st.windows_fee || '')
+        + '" placeholder="' + esc(slInfo.windows_fee_default || '15000') + '"' + (st.windows ? '' : ' disabled')
+        + ' oninput="slInput(this)" inputmode="numeric"> Ft</span></div>';
+      h += '<div class="sl-sale-pv" id="sl-pricepv-' + i + '">' + slPricePreview(st) + '</div>';
     }
     card.innerHTML = h;
   }
@@ -3363,9 +3398,9 @@ function slInput(el) {
     if (f) slSyncField(el, f);
   } else st[key] = el.value;
   el.classList.remove('sl-missing');
-  if (key === 'price' || key === 'sale_price') {
-    const pv = document.getElementById('sl-salepv-' + i);
-    if (pv) pv.innerHTML = slSalePreview(st);
+  if (key === 'price' || key === 'sale_price' || key === 'windows_fee') {
+    const pv = document.getElementById('sl-pricepv-' + i);
+    if (pv) pv.innerHTML = slPricePreview(st);
   }
 }
 
@@ -3392,13 +3427,35 @@ function slSaleBad(st) {
   const o = slPriceNum(st.price), n = slPriceNum(st.sale_price);
   return st.sale && o !== null && n !== null && n >= o;
 }
-function slSalePreview(st) {
+/* A Windows-telepítéses ár: (akciónál az akciós) ár + díj; ha az ár szöveg, "+ díj" -
+   ugyanaz a szabály, mint a Pythonban (shoplabel_core.windows_price_text). */
+function slWinText(st) {
+  const b = slPriceNum(st.sale ? st.sale_price : st.price), f = slPriceNum(st.windows_fee);
+  if (b !== null && f !== null) return slFmtPrice(String(b + f));
+  return '+ ' + (slFmtPrice(st.windows_fee) || '…');
+}
+function slWinBad(st) { return !!st.windows && slPriceNum(st.windows_fee) === null; }
+function slPricePreview(st) {
   if (slSaleBad(st)) return '<div class="sl-sale-err">⚠️ Az akciós ár nem kisebb a régi árnál — így nem nyomtatható.</div>';
-  const pct = slSalePct(st);
-  const oldTxt = slFmtPrice(st.price) || '…', newTxt = slFmtPrice(st.sale_price) || '…';
-  return '<div class="sl-coupon"><div class="sl-coupon-top"><span class="sl-coupon-badge">AKCIÓ' + (pct ? ' −' + pct + '%' : '!')
-    + '</span><s>' + esc(oldTxt) + '</s></div><div class="sl-coupon-price">' + esc(newTxt) + '</div></div>'
-    + '<div class="sl-coupon-note">Így kerül a táblára (a lap alja ugyanott marad, mint akció nélkül).</div>';
+  const winLine = st.windows ? '<div class="sl-pv-win">Windows telepítéssel: <b>' + esc(slWinText(st)) + '</b></div>' : '';
+  let card;
+  if (st.sale) {
+    const pct = slSalePct(st);
+    const oldTxt = slFmtPrice(st.price) || '…', newTxt = slFmtPrice(st.sale_price) || '…';
+    card = '<div class="sl-coupon"><div class="sl-coupon-top"><span class="sl-coupon-badge">AKCIÓ' + (pct ? ' −' + pct + '%' : '!')
+      + '</span><s>' + esc(oldTxt) + '</s></div><div class="sl-coupon-price">' + esc(newTxt) + '</div>' + winLine + '</div>';
+  } else {
+    card = '<div class="sl-pv-plain"><div class="sl-pv-price">' + esc(slFmtPrice(st.price) || '…') + '</div>'
+      + (st.windows ? '<div class="sl-pv-pill">' + winLine + '</div>' : '') + '</div>';
+  }
+  return card + (slWinBad(st) ? '<div class="sl-sale-err">⚠️ A Windows-telepítés díja szám legyen (pl. 15000).</div>'
+    : '<div class="sl-coupon-note">Így kerül a táblára (a lap alja minden változatban ugyanott marad).</div>');
+}
+function slSetWin(i, on) {
+  const st = slState[i];
+  st.windows = !!on;
+  if (on && !String(st.windows_fee || '').trim()) st.windows_fee = (slInfo && slInfo.windows_fee_default) || '15000';
+  slRenderCards();
 }
 function slSetSale(i, on) {
   slState[i].sale = !!on;
@@ -3430,7 +3487,9 @@ function slMissing() {
   document.querySelectorAll('#view-shoplabel .sl-input').forEach(el => {
     const key = el.getAttribute('data-sl').split('|')[1];
     const f = key.startsWith('v:') ? slField(key.slice(2)) : null;
-    if (!el.value.trim() || (f && slIsUnfilled(f, el.value))) { el.classList.add('sl-missing'); miss.push(el); }
+    if (el.disabled) return;   // a kikapcsolt Windows-pipa díj-mezője nem kötelező
+    if (!el.value.trim() || (f && slIsUnfilled(f, el.value))
+        || (key === 'windows_fee' && slPriceNum(el.value) === null)) { el.classList.add('sl-missing'); miss.push(el); }
   });
   for (let i = 0; i < 2; i++) {
     if (!slState[i].kind) miss.push('kind' + i);
@@ -3465,7 +3524,8 @@ async function slPrint() {
     const values = {};
     slFieldsFor(st.kind).forEach(f => { values[f.key] = (st.values[f.key] || '').trim(); });
     return {kind: st.kind, name: st.name.trim(), price: st.price.trim(), values,
-            sale: !!st.sale, sale_price: st.sale ? String(st.sale_price || '').trim() : ''};
+            sale: !!st.sale, sale_price: st.sale ? String(st.sale_price || '').trim() : '',
+            windows: !!st.windows, windows_fee: st.windows ? String(st.windows_fee || '').trim() : ''};
   });
   slSetBusy(true);
   let r;

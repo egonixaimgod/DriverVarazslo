@@ -18,9 +18,9 @@ LAPTOP = {'cpu': 'Intel® Core™ i7-10610U', 'ram': '16GB DDR4', 'storage': '25
           'battery': '100%', 'condition': 'Szép állapot!', 'warranty': '6 hónap'}
 
 
-def machine(kind='laptop', sale=False, price='140000', sale_price='119000'):
+def machine(kind='laptop', sale=False, price='140000', sale_price='119000', windows=False, fee='15000'):
     return {'kind': kind, 'name': 'Dell Latitude 7410', 'price': price, 'sale': sale,
-            'sale_price': sale_price, 'values': dict(LAPTOP)}
+            'sale_price': sale_price, 'windows': windows, 'windows_fee': fee, 'values': dict(LAPTOP)}
 
 
 def doc_xml(machines):
@@ -89,6 +89,41 @@ class SaleTemplateTests(unittest.TestCase):
         self.assertIn('AKCIÓ −15%', x)
         self.assertEqual(x.count('<w:strike/>'), 2)
         self.assertIsNone(re.search('[\x00-\x08\x0b\x0c\x0e-\x1f]', x))
+
+    def test_windows_plain(self):
+        base = doc_xml([machine(), machine('desktop')])
+        x = doc_xml([machine(windows=True), machine('desktop')])
+        self.assertIn('Windows telepítéssel:', x)
+        self.assertIn('155 000 Ft', x)            # 140 000 + 15 000
+        self.assertEqual(x.count('140 000 Ft'), 2)  # a nagy ár marad
+        n = lambda s: len(sc._P_RE.findall(s))
+        self.assertEqual(n(x), n(base))           # a 2 eltűnő bekezdés helyén 2 új
+        self.assertNotIn('<w:strike/>', x)
+
+    def test_windows_on_sale_adds_to_sale_price(self):
+        base = doc_xml([machine(), machine('desktop')])
+        x = doc_xml([machine(sale=True, windows=True), machine('desktop')])
+        self.assertIn('134 000 Ft', x)            # 119 000 (akciós) + 15 000
+        self.assertIn('AKCIÓ −15%', x)
+        n = lambda s: len(sc._P_RE.findall(s))
+        self.assertEqual(n(x), n(base) + 1)       # a kupon 3 bekezdés a 2 helyett
+
+    def test_sale_without_windows_unchanged(self):
+        """A jóváhagyott akciós kupon (Windows nélkül) nem változhat a Windows-sor miatt."""
+        a = doc_xml([machine(sale=True), machine('desktop')])
+        plain = dict(machine(sale=True))
+        plain.pop('windows'); plain.pop('windows_fee')
+        self.assertEqual(a, doc_xml([plain, machine('desktop')]))
+        self.assertNotIn('Windows telepítéssel', a)
+
+    def test_windows_validation_and_text(self):
+        self.assertEqual(sc.validate_machines([machine(windows=True), machine()]), [])
+        miss = sc.validate_machines([machine(windows=True, fee=''), machine()])
+        self.assertTrue(any('Windows' in m for m in miss), miss)
+        self.assertEqual(sc.validate_machines([machine(windows=False, fee='abc'), machine()]), [])
+        self.assertEqual(sc.windows_price_text(machine(price='Érdeklődjön!', windows=True)), '+ 15 000 Ft')
+        self.assertEqual(sc.price_label(machine(windows=True)),
+                         '140 000 Ft | Windows telepítéssel: 155 000 Ft (+15 000 Ft)')
 
     def test_non_numeric_sale(self):
         x = doc_xml([machine(sale=True, price='Érdeklődjön', sale_price='Most olcsóbb!'), machine()])

@@ -82,6 +82,7 @@ class GuiShopLabelMixin:
             'name_example': sc.NAME_EXAMPLE,
             'price_example': sc.PRICE_EXAMPLE,
             'sale_price_example': sc.SALE_PRICE_EXAMPLE,
+            'windows_fee_default': sc.WINDOWS_FEE_DEFAULT,
         }
 
     def print_shop_labels(self, machines, printer):
