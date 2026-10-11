@@ -109,5 +109,70 @@ class PrinterDetection(unittest.TestCase):
         self.assertEqual(found.get('oem5.inf'), 'kulcsszo')
 
 
+class StagedAlreadyBound(unittest.TestCase):
+    """2026-10-11, Sound Blaster Play! 4: a WU-ág 3 mp-cel korábban már rákötötte a csomagot,
+    a katalógus-ág pnputil-ja ezt ki is mondta ("up-to-date on device: <ez az eszköz>"), a
+    program mégis "a KÖTÉS hiányzik"-ot írt és újrakötést ajánlott (a keresés-kori jelzőből)."""
+
+    SB = r'USB\VID_041E&PID_3274&MI_00'
+    INF = ('[Version]\nClass=MEDIA\n[Manufacturer]\n%M%=C,NTamd64\n[C.NTamd64]\n'
+           '%D%=I,USB\\VID_041E&PID_3274&MI_00\n[Strings]\nM="Creative"\nD="SB Play 4"\n')
+    # a terepi napló kimenete szó szerint
+    BOUND = ('Microsoft PnP Utility\n\nAdding driver package:  ksusbaud.inf\n'
+             'Driver package added successfully. (Already exists in the system)\n'
+             'Published Name:         oem3.inf\n'
+             'Driver package is up-to-date on device: USB\\VID_041E&PID_3274&MI_00\\7&887c350&4&0000\n\n'
+             'Total driver packages:  1\nAdded driver packages:  0')
+    NOT_BOUND = BOUND.replace('Driver package is up-to-date on device: '
+                              'USB\\VID_041E&PID_3274&MI_00\\7&887c350&4&0000\n', '')
+
+    def setUp(self):
+        quiet()
+        self.tmp = tempfile.mkdtemp()
+        self._sd = os.environ.get('SystemDrive')
+        os.environ['SystemDrive'] = self.tmp
+        import urllib.request
+        self._uo = urllib.request.urlopen
+
+    def tearDown(self):
+        import urllib.request
+        urllib.request.urlopen = self._uo
+        if self._sd is None:
+            os.environ.pop('SystemDrive', None)
+        else:
+            os.environ['SystemDrive'] = self._sd
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, pnputil_out):
+        import urllib.request
+        from tests import test_catalog_install as tci
+        stub = tci.InstallStub(self.tmp, {'https://x/sb.cab': self.INF}, {})
+        stub._run_add_driver = lambda cmd: CommandResult(259, pnputil_out, '')
+
+        def fake_urlopen(req, context=None, timeout=None):
+            stub.cur_url = req.full_url
+            return tci._Resp(b'CAB')
+        urllib.request.urlopen = fake_urlopen
+        drv = {'name': 'Sound Blaster Play! 4', 'cat': 'x', 'hwid': self.SB + '&REV_2200',
+               'pnp_id': self.SB + r'\7&887C350&4&0000', 'url': 'https://x/sb.cab', 'cat_guid': 'g',
+               'wu_title': 'Creative Technology Ltd. - MEDIA - 1.16.4.26', 'wu_date': '2021-01-05',
+               'alt_candidates': [], 'inbox_now': True, 'generic_replace': True,
+               'all_hwids': [self.SB + '&REV_2200', self.SB], 'installed_inf': 'wdma_usb.inf'}
+        stub._install_catalog_sync([drv], task_id='t')
+        return stub
+
+    def test_mar_rakotott_csomag_naprakesz(self):
+        stub = self._run(self.BOUND)
+        text = '\n'.join(stub.log)
+        self.assertIn('már naprakész', text)
+        self.assertNotIn('KÖTÉS hiányzik', text)
+        self.assertEqual(stub._catalog_staged_nobind, [])
+
+    def test_nem_kotott_csomag_tovabbra_is_jelez(self):
+        stub = self._run(self.NOT_BOUND)
+        self.assertIn('KÖTÉS hiányzik', '\n'.join(stub.log))
+        self.assertEqual(stub._catalog_staged_nobind, ['Sound Blaster Play! 4'])
+
+
 if __name__ == '__main__':
     unittest.main()

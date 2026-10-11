@@ -4275,7 +4275,14 @@ try {
                                              timeout=DELETE_DRIVER_TIMEOUT)
                             logging.info(f"[CATALOG_INSTALL] {name}: a fel nem vett {pub} kivezetése "
                                          f"a DriverStore-ból -> rc={getattr(dres, 'returncode', '?')}")
-                    elif all_already and (drv.get('generic_replace') or drv.get('err_code')):
+                    elif all_already and (drv.get('err_code') or (
+                            drv.get('generic_replace')
+                            # A `generic_replace` a KERESÉS idején volt igaz. Ha azóta (pl. a WU-ág
+                            # 3 mp-cel korábban, ugyanarra a fizikai eszközre) a csomag rákötött,
+                            # a pnputil kimondja: "up-to-date on device: <ez az eszköz>". Ilyenkor
+                            # ez NAPRAKÉSZ, nem "hiányzó kötés" (2026-10-11, Sound Blaster Play! 4:
+                            # téves figyelmeztetés + fölösleges újrakötés-ajánlat).
+                            and not package_bound_to_device_family(res.stdout or '', drv))):
                         _mark('staged_nobind', name)
                         with counter_lock:
                             staged_nobind.append(name)
