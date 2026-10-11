@@ -1672,57 +1672,67 @@ class GuiAutofixMixin:
     def _autofix_stats_clear(self):
         try:
             os.remove(self._autofix_stats_path())
-        except OSError:
+        except FileNotFoundError:
             pass
+        except OSError as e:
+            # Ha bent marad, az új lánc a RÉGI lánc állapotával indulna (lábszámláló,
+            # catalog_done, keep_packages...) - ezt látni kell a naplóban.
+            logging.error(f"[AUTOFIX-STATS] A lánc-állapot NEM törölhető, a régi állapot "
+                          f"megmaradhat: {e}")
+
+    def _autofix_stats_read(self):
+        """A teljes lánc-állapot. Hiányzó fájl -> {}. Olvashatatlan fájl -> ERROR a naplóba,
+        a fájl `.corrupt` néven félrekerül (bizonyíték, és így csak EGYSZER jelez), {} jön vissza."""
+        p = self._autofix_stats_path()
+        try:
+            with open(p, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except FileNotFoundError:
+            return {}
+        except Exception as e:
+            logging.error(f"[AUTOFIX-STATS] A lánc-állapot OLVASHATATLAN ({e}) - a korábbi lábak "
+                          f"döntései (pl. keep_packages, pending_deletes) elvesztek. Félretéve: {p}.corrupt")
+            try:
+                os.replace(p, p + '.corrupt')
+            except OSError as e2:
+                logging.warning(f"[AUTOFIX-STATS] A sérült állapot nem tehető félre: {e2}")
+            return {}
+
+    def _autofix_stats_write(self, data):
+        """ATOMIKUS írás (2026-10-11): ideiglenes fájl + fsync + os.replace. A régi
+        `open(p, 'w')` előbb kiürítette a fájlt - egy BSOD/áramszünet az írás közben csonka
+        JSON-t hagyott, és a következő láb az EGÉSZ lánc-memóriát elvesztette (a technikus
+        által megtartott csomagokat is). Így a fájl mindig vagy a régi, vagy az új állapot."""
+        p = self._autofix_stats_path()
+        tmp = p + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, p)
 
     def _autofix_stats_add(self, installed):
-        """Egy láb telepítés-számának hozzáfűzése (hiba esetén csendben kimarad -
-        az összefoglaló ilyenkor alulbecsül, de a láncot sosem akasztja meg)."""
-        try:
-            p = self._autofix_stats_path()
-            data = {'legs': []}
-            if os.path.exists(p):
-                try:
-                    with open(p, 'r', encoding='utf-8') as f:
-                        data = json.load(f) or {'legs': []}
-                except Exception:
-                    data = {'legs': []}
-            data.setdefault('legs', []).append({'installed': int(installed),
-                                                'time': datetime.now().isoformat(timespec='seconds')})
-            with open(p, 'w', encoding='utf-8') as f:
-                json.dump(data, f)
-        except Exception as e:
-            logging.debug(f"[AUTOFIX-STATS] Mentés sikertelen: {e}")
+        """Egy láb telepítés-számának hozzáfűzése a `legs` listához."""
+        legs = self._autofix_stats_get('legs') or []
+        legs.append({'installed': int(installed), 'time': datetime.now().isoformat(timespec='seconds')})
+        self._autofix_stats_set('legs', legs)
 
     def _autofix_stats_set(self, key, value):
         """Tetszőleges kulcs eltárolása a lánc-állapot JSON-ban (a lábak KÜLÖN processzek,
-        ezért csak fájlon át tudnak üzenni egymásnak). Hibát elnyel."""
+        ezért csak fájlon át tudnak üzenni egymásnak). A láncot nem akasztja meg, de a
+        hibát WARNING-gal naplózza."""
         try:
-            p = self._autofix_stats_path()
-            data = {}
-            if os.path.exists(p):
-                try:
-                    with open(p, 'r', encoding='utf-8') as f:
-                        data = json.load(f) or {}
-                except Exception:
-                    data = {}
+            data = self._autofix_stats_read()
             data[key] = value
-            with open(p, 'w', encoding='utf-8') as f:
-                json.dump(data, f)
+            self._autofix_stats_write(data)
         except Exception as e:
-            logging.debug(f"[AUTOFIX-STATS] '{key}' mentése sikertelen: {e}")
+            logging.warning(f"[AUTOFIX-STATS] '{key}' mentése sikertelen: {e}")
 
     def _autofix_stats_get(self, key, default=None):
-        """A _autofix_stats_set párja. Hibánál/hiányzó kulcsnál a default."""
-        try:
-            p = self._autofix_stats_path()
-            if os.path.exists(p):
-                with open(p, 'r', encoding='utf-8') as f:
-                    data = json.load(f) or {}
-                return data.get(key, default)
-        except Exception as e:
-            logging.debug(f"[AUTOFIX-STATS] '{key}' olvasása sikertelen: {e}")
-        return default
+        """A _autofix_stats_set párja. Hiányzó kulcsnál (vagy olvashatatlan fájlnál, amit a
+        _autofix_stats_read naplóz) a default."""
+        return self._autofix_stats_read().get(key, default)
 
     def _finish_pending_deletes(self, task_id='autofix'):
         """A beragadt eszközverem miatt félbehagyott törlések BEFEJEZÉSE a friss boot után.
@@ -1795,16 +1805,8 @@ class GuiAutofixMixin:
     def _autofix_stats_total_and_clear(self):
         """A korábbi lábak összesített telepítés-száma; a fájl törlődik (a következő
         lánc tiszta lappal indul)."""
-        total = 0
-        try:
-            p = self._autofix_stats_path()
-            if os.path.exists(p):
-                with open(p, 'r', encoding='utf-8') as f:
-                    data = json.load(f) or {}
-                total = sum(int(leg.get('installed') or 0) for leg in data.get('legs', []))
-                os.remove(p)
-        except Exception as e:
-            logging.debug(f"[AUTOFIX-STATS] Összesítés sikertelen: {e}")
+        total = sum(int(leg.get('installed') or 0) for leg in self._autofix_stats_get('legs') or [])
+        self._autofix_stats_clear()
         return total
 
     def _fix_driver_regressions(self, pre_drivers, task_id='autofix'):

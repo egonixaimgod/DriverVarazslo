@@ -1,9 +1,9 @@
 """Rendszer Riport (HTML hardver-adatlap S.M.A.R.T. adatokkal) - KÖZÖS mag (GUI + CLI).
 
 A teljes adatgyűjtés (smartctl, akkumulátor, WMI/registry) és a HTML-generálás EGY
-példányban itt él. A smartctl a stresstools.zip-ből jön: a GUI le is tölti
-(_download_stresstools), a CLI csak a már meglévő kicsomagolt példányt használja
-(find_existing_smartctl) - ha nincs, a riport S.M.A.R.T. szekció nélkül készül el.
+példányban itt él. A smartctl a stresstools.zip-ből jön, amit a riport-mixin
+(app/gui/report.py, a CLI is ezt használja) szükség esetén letölt (_download_stresstools) -
+ha nincs, a riport S.M.A.R.T. szekció nélkül készül el.
 
 Fontos, terepen bizonyított szabályok (lásd CLAUDE.md):
   - GPU VRAM: a Win32_VideoController.AdapterRAM 32 bites, 4 GB fölött hamis -
@@ -20,7 +20,6 @@ import re
 import time
 import logging
 import json
-import tempfile
 from html import escape as html_escape
 from app.common import _app_data_dir
 from datetime import datetime
@@ -139,23 +138,6 @@ def find_smartctl(stress_dir):
             if f.lower() == "smartctl.exe":
                 return os.path.join(root, f)
     return None
-
-
-def find_existing_stresstools_dir():
-    """A már kicsomagolt stresstools mappa (ha van kész marker) - letöltés NÉLKÜL.
-    Ugyanaz az útvonal-logika, mint a GUI _download_stresstools-ában (WinPE-ben
-    C:\\DV_Temp, különben %TEMP%)."""
-    is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
-    temp_dir = r'C:\DV_Temp' if is_pe else tempfile.gettempdir()
-    stress_dir = os.path.join(temp_dir, "DriverVarázsló_Stress")
-    if os.path.exists(os.path.join(stress_dir, ".extract_complete")):
-        return stress_dir
-    return None
-
-
-def find_existing_smartctl():
-    """smartctl.exe a már meglévő stresstools-ból, letöltés nélkül (vagy None)."""
-    return find_smartctl(find_existing_stresstools_dir())
 
 
 # A riportot futtató Windows lemeze (2026-09-24, explicit user decision: a szerviz egy

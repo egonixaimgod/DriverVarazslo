@@ -167,7 +167,7 @@ A 450px = az 1. kör 290px-e + **2 átlagos adatsor** (2×80px). A hasáb padló
 | elem | mit csinál |
 |---|---|
 | **kategória-sáv** (`tr.drv-group`) | saját színes háttér + 4 px-es bal szegély + ikon-csempe + kétszintű cím (kis címke: „Hálózat", alatta nagyban az eszköz) + darabszám-címke. **Ragadós**: görgetéskor az oszlopfejléc alá tapad (`--thh` = a fejléc mért magassága, `syncStickyHead`), így egy 24 soros kategória közepén is látszik, hol tartasz |
-| **hézag** (`tr.drv-gap`) | 14 px minden kategória előtt (az első kivételével) |
+| **hézag** (`tr.drv-gap`) | 14 px minden kategória előtt (az első kivételével). **2026-10-11 óta a bal csík a hézagon is végigfut** (a hézag-sor az ELŐZŐ csoport `g-<tónus>` osztályát kapja, mindkét táblázatban): a felhasználó képernyőképén a csík a csoport utolsó sora alatt megszakadt, és ez úgy hatott, mintha „a sor 3/4-énél megállna". Mérve (headless, a valódi CSS-sel): sor → 1 px rácsvonal → hézag, rés nélkül |
 | **szín szekciónként** (`--gc`, a `tr` `g-<tónus>` osztályából) | alkatrész = lila, külső eszköz = kék, szoftveres = türkiz, már nincs a gépben = borostyán, nincs hozzá eszköz / besorolatlan = szürke; térkép nélkül a használat színe |
 | **adatsorok** (`tr.drv-row`) | a kategória színe a bal szélen fut végig (a sáv szegélyének folytatása); csíkozás **kategórián belül** (`.alt`, csoportonként újrakezdve — a hézag-/fejléc-sorok miatt a `nth-child` összevissza ugrált volna); a Published Name és a verzió gépi betűs, halványabb, az Original Name kiemelt |
 | **fix-dialógus** | a darabszám-címke azt is mondja, mi történik („9 driver · mind törlődik" / „1 driver · egyik sem törlődik"), a megmaradó sor halványabb és **MEGMARAD** címkét kap |

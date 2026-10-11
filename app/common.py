@@ -835,7 +835,9 @@ def download_with_cert_fallback(run_fn, url, dest, *, timeout=60, ps_timeout=120
 # vagy olyan forró ciklusban hívódnak (billentyűnként/poll-onként), hogy a logot
 # másodpercek alatt telepörgetnék és a rotáció épp a hasznos sorokat dobná ki.
 _CALL_LOG_EXCLUDE = {
-    'emit', '_run', 'js_log', '_check_cancel', '_print_progress',
+    'emit', '_run', 'js_log', '_check_cancel',
+    # a lánc-állapot nyers olvasása/írása: minden get/set hívja, a hibáit maga naplózza
+    '_autofix_stats_read', '_autofix_stats_write',
     '_send_unicode_char', '_send_vk', '_window_title', '_find_child_by_text',
     '_find_window_for_pid', '_read_console_screen', '_normalize_ctrl_text',
     '_text_alternatives',

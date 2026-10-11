@@ -480,6 +480,9 @@ tr.drv-group .dg-hint{font-size:11px;line-height:15px;font-weight:400;color:var(
 tr.drv-group .dg-count{flex:0 0 auto;padding:4px 11px;border-radius:999px;font-size:11.5px;font-weight:800;
   color:#fff;background:rgba(var(--gc),0.26);border:1px solid rgba(var(--gc),0.6);white-space:nowrap}
 tr.drv-gap td{height:14px;padding:0!important;border:0!important;background:transparent!important}
+/* A hézagon is végigfut a bal csík (az előző csoport színében, a JS `g-<tónus>`-t ad rá),
+   különben a csoport utolsó sora alatt megszakadt (2026-10-11, terepi képernyőkép). */
+tr.drv-gap td{box-shadow:inset 4px 0 0 rgba(var(--gc),0.55)}
 /* Adatsorok: a kategória színe a bal szélen (3), csíkozás kategórián belül (4). */
 /* A `tbody` előtag nem díszítés: a globális `tbody tr:nth-child(even) td` különben
    specifikusabb lenne, és a régi csíkozás átütne. A hover és a kijelölés !important,
@@ -4532,7 +4535,7 @@ function renderDriverTable() {
     // HÉZAG a csoportok között - a kategóriák így vizuálisan is külön blokkok.
     if (groups++) {
       const sp = document.createElement('tr');
-      sp.className = 'drv-gap';
+      sp.className = 'drv-gap g-' + tone;  // az előző csoport színe: a bal csík végigfut a hézagon
       sp.innerHTML = '<td colspan="4"></td>';
       tbody.appendChild(sp);
     }
@@ -7930,7 +7933,7 @@ function renderDeletePreview() {
           + ' onclick="event.stopPropagation()" onchange="toggleDeleteGroup(' + gi + ', this.checked)">'
         // Csupa zárolt sor: nincs mit pipálni, de a fejléc ne csússzon el, és mondja ki, miért.
         : '<span class="dg-lock" title="A csoport minden sora zárolt - róluk a bal oldali kapcsolók / a boot-védelem dönt">🔒</span>';
-      if (gi) rows.push('<tr class="drv-gap"><td colspan="4"></td></tr>');
+      if (gi) rows.push('<tr class="drv-gap g-' + tone + '"><td colspan="4"></td></tr>');
       tone = meta.tone || 'none';
       inGroup = 0;
       rows.push('<tr class="drv-group g-' + tone + '"><td colspan="4">' + drvGroupHead(meta, cb) + '</td></tr>');
