@@ -2804,15 +2804,6 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
   </div>
 </div>
 
-<!-- Alert Modal -->
-<div class="modal-overlay" id="modal-alert">
-  <div class="modal-box" style="max-width:480px">
-    <div class="modal-header"><h3 id="ma-title">Értesítés</h3></div>
-    <div class="modal-body"><div id="ma-message" style="line-height:1.8;font-size:13px;white-space:pre-line"></div></div>
-    <div class="modal-footer"><button class="btn btn-primary" onclick="closeAlert()">OK</button></div>
-  </div>
-</div>
-
 <!-- Toast container -->
 <div class="toast-container" id="toasts"></div>
 
@@ -8333,14 +8324,6 @@ function showNamePrompt(title, message, okText, placeholder) {
     document.getElementById('modal-confirm').classList.add('active');
   });
 }
-
-/* ========== ALERT MODAL ========== */
-function showAlert(title, message) {
-  document.getElementById('ma-title').textContent = title;
-  document.getElementById('ma-message').textContent = message;
-  document.getElementById('modal-alert').classList.add('active');
-}
-function closeAlert() { document.getElementById('modal-alert').classList.remove('active'); }
 
 /* ========== TOAST ========== */
 function toast(message, type) {

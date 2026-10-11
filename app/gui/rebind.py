@@ -38,7 +38,6 @@ HID-eszközöket is érinti, tehát a billentyűzet/egér a kör után halott le
 felület ELŐRE a hozzájárulást, és ezért indul újra a gép magától a végén
 (_rebind_finish_reboot).
 """
-import os
 import time
 import json
 import logging

@@ -59,6 +59,11 @@ REM alatti) peldanyok kizarolag a raw.githubusercontent.com-ot nezik, vagyis sza
 REM driver_tool.py BUILD_NUMBER-e es a dist/DriverVarazslo.exe JELENTI a frissitest.
 git add .
 git add -f dist/DriverVarazslo.exe
+REM A "git add ." MINDENT felvesz, ami a mappaban van (igy ment ki egyszer egy Word
+REM zarolasi fajl es egy bolti dokumentum) - ezert kiirjuk, mi kerul a commitba.
+echo A commitba kerulo fajlok:
+REM --no-pager: enelkul a git lapozoja billentyure var, es a szkript "lefagy" (2026-10-11)
+git --no-pager diff --cached --stat
 git commit -m "Release: Build %NEW_BUILD% (Auto-Build)"
 git push
 if %ERRORLEVEL% neq 0 (

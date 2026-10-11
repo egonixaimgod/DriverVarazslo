@@ -793,10 +793,6 @@ PROFILE_GUARD = {'task': 'DriverVarazsloProfileGuard', 'script': 'profile_guard.
                  'ps': PROFILE_GUARD_PS, 'principal': 'system',
                  'desc': 'DriverVarazslo: a szinprofil-betoltes tartos tiltasa (bejelentkezeskor leszedi a profilokat).',
                  'label': 'profil-zár'}
-# Visszafelé kompatibilis nevek (a régi hívók és a CLAUDE.md ezeket említi).
-ACM_GUARD_TASK = ACM_GUARD['task']
-ACM_GUARD_SCRIPT = ACM_GUARD['script']
-ACM_GUARD_LOG = ACM_GUARD['log']
 
 
 def guard_installed(run, g):

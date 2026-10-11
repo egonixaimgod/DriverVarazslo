@@ -416,25 +416,6 @@ def gui_attempt_failed_cleanly(reason):
         logging.debug(f"[GUI-ŐR] A jelzőfájl nem törölhető: {e}")
 
 
-def show_webview2_error(message):
-    """MessageBox megjelenítése WebView2 hibáról, majd program kilépés."""
-    try:
-        import webbrowser
-        MB_ICONERROR = 0x10
-        MB_TOPMOST = 0x40000
-        result = ctypes.windll.user32.MessageBoxW(
-            None,
-            message + "\n\nMegnyissam a letöltési oldalt?",
-            "DriverVarázsló - WebView2 hiba",
-            0x4 | MB_ICONERROR | MB_TOPMOST  # MB_YESNO
-        )
-        if result == 6:  # IDYES
-            webbrowser.open("https://go.microsoft.com/fwlink/p/?LinkId=2124703")
-    except Exception as e:
-        logging.debug(e)
-    sys.exit(1)
-
-
 # Suppress noisy PIL/Pillow debug logging
 logging.getLogger('PIL').setLevel(logging.WARNING)
 logging.getLogger('PIL.PngImagePlugin').setLevel(logging.WARNING)

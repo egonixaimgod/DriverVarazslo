@@ -379,11 +379,6 @@ def clear_software_distribution(run, retries=4):
     return {'ok': remaining == 0, 'remaining': remaining, 'sample': sample}
 
 
-def _clear_software_distribution(run, retries=4):
-    """Kompatibilis rövid alak: True, ha a visszaolvasás szerint tényleg kiürült."""
-    return clear_software_distribution(run, retries)['ok']
-
-
 def software_distribution_message(res):
     """A képernyőre kerülő sor a törlés VALÓDI eredményéről."""
     if res.get('ok'):

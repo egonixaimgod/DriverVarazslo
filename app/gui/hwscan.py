@@ -43,7 +43,6 @@ from app.wu_core import driver_model_rank
 from app.wu_core import catalog_title_family
 from app.wu_core import package_family
 from app.wu_core import package_bound_to_device_family
-from app.wu_core import is_composite_parent
 from app.wu_core import device_risk_marker
 from app.wu_core import mark_device_risk
 from app.wu_core import is_firmware_update

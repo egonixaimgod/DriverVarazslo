@@ -36,7 +36,6 @@ import json
 import logging
 import os
 import re
-import time
 
 from app import wu_core
 

@@ -383,11 +383,20 @@ class InstallerOs(unittest.TestCase):
         self._uo = urllib.request.urlopen
         self._host = wu_core.host_os_signature
         wu_core.host_os_signature = lambda: dict(WIN10)
+        # a hwscan importkor eltárolja a gép Windows-verzióját (_HOST_OS): azt is Win10-re
+        # kell állítani, különben egy Win11-es fejlesztőgépen a no-bind bejegyzés 26200-at kap
+        from app.gui import hwscan
+        self._host_os = dict(hwscan._HOST_OS)
+        hwscan._HOST_OS.clear()
+        hwscan._HOST_OS.update(WIN10)
 
     def tearDown(self):
         import urllib.request
+        from app.gui import hwscan
         urllib.request.urlopen = self._uo
         wu_core.host_os_signature = self._host
+        hwscan._HOST_OS.clear()
+        hwscan._HOST_OS.update(self._host_os)
         if self._sd is None:
             os.environ.pop('SystemDrive', None)
         else:

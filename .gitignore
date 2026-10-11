@@ -44,5 +44,9 @@ stresstools.zip
 Thumbs.db
 desktop.ini
 
+# Office zárolási fájlok (egy nyitott Word-dokumentum mellett jönnek létre;
+# egyszer a kiadó szkript fel is commitolta)
+~$*
+
 # Claude Code személyes/gépspecifikus beállítások (pl. permission mode)
 .claude/settings.local.json

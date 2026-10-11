@@ -93,7 +93,6 @@ YELLOW = _c('38;5;221')
 RED = _c('38;5;203')
 GREY = _c('38;5;245')
 WHITE = _c('38;5;255')
-BG_PURPLE = _c('48;5;54')
 
 # Keretrajzolás - Unicode, vagy ASCII tartalék.
 if UNICODE:
@@ -214,10 +213,6 @@ def clear():
         except Exception as e:
             logging.debug(f"[CLI-UI] Win32 képernyőtörlés sikertelen: {e}")
     write('\n' * 3)
-
-
-def rule(char=None):
-    write(GREY + (char or BX['h']) * width() + RESET)
 
 
 def title(text, subtitle='', color=None):

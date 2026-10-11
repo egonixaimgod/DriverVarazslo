@@ -8,10 +8,10 @@ motor, amit karban kellene tartani - lásd app/cli/bridge.py fejlécét.
 AZ MRO SORRENDJE SZÁMÍT:
   1. `CliBridgeMixin` - ELÖL, mert az `emit`/`_safe_thread`/`select_file` felülírásainak
      nyerniük kell a GuiBaseMixin azonos nevű metódusaival szemben.
-  2. `CliBaseMixin` - a CLI saját `_run`-ja és `__init__`-je.
-  3. `GuiBaseMixin` - a közös állapot (hw_updates_pool, _task_busy, argv-kapcsolók...),
-     amire minden feature-mixin épít.
-  4. A feature-mixinek (GUI + a CLI saját, szöveges menü-metódusai).
+  2. `GuiBaseMixin` - a közös állapot (hw_updates_pool, _task_busy, argv-kapcsolók...),
+     amire minden feature-mixin épít, és a parancsfuttató `_run` (a CLI is ezt használja;
+     a külön CLI-s `_run` 2026-10-11-én törölve, mert már eltért a GUI-étól).
+  3. A feature-mixinek (GUI + a CLI saját, szöveges menü-metódusai).
 
 A `CliApi.__init__` a GuiBaseMixin.__init__-et futtatja: az állítja be azt az állapotot,
 amit a feature-mixinek elvárnak, és az intézi az induláskori takarításokat is (elmaradt
@@ -26,7 +26,6 @@ from app.common import install_call_logging
 
 # --- CLI-specifikus réteg (a sorrend miatt elöl) ---
 from app.cli.bridge import CliBridgeMixin
-from app.cli.base import CliBaseMixin
 
 # --- A közös GUI-alap: állapot + argv-kapcsolók + cél-OS kezelés ---
 from app.gui.base import GuiBaseMixin
@@ -62,17 +61,14 @@ from app.gui.powerplan import GuiPowerPlanMixin
 #
 # CSAK AZ MARAD, AMI NEM DUPLIKÁTUM. A régi CLI feature-mixinek (app/cli/drivers.py,
 # backup.py, wu.py, ghost.py, blockscript.py, autofix.py, bitlocker.py, report.py, bcd.py,
-# dupdrivers.py; a tempclean.py 2026-09-22-én TÖRÖLVE) ugyanazokat a metódusneveket vitték, mint a GUI
-# párjaik - az MRO-ban a GUI változat nyert volna, tehát a CLI-beliek NÉMÁN HOLT KÓDDÁ
-# váltak volna. Egy holt kód, ami élőnek látszik, ennek a projektnek a visszatérő hibája
-# (lásd CLAUDE.md, Build 192), ezért inkább ki sem kerülnek a listába: a menü közvetlenül
-# a GUI-mixinek metódusait hívja, és a megjelenítést a CliBridgeMixin adja hozzá.
-# A fájlok a helyükön maradnak (a CLI AutoFix egyszerűsített, egykörös változata pl.
-# dokumentált termék-döntés volt), de a CliApi már nem hozza be őket.
+# dupdrivers.py, tempclean.py) ugyanazokat a metódusneveket vitték, mint a GUI párjaik, és
+# a CliApi már nem hozta be őket: holt kód volt, ezért 2026-10-11-én TÖRÖLVE (a gitben
+# megvannak). A menü közvetlenül a GUI-mixinek metódusait hívja, a megjelenítést a
+# CliBridgeMixin adja hozzá. Ne éleszd újra őket.
 from app.cli.updater import CliUpdaterMixin
 
 
-class CliApi(CliBridgeMixin, CliBaseMixin, GuiBaseMixin,
+class CliApi(CliBridgeMixin, GuiBaseMixin,
              # GUI feature-mixinek
              GuiDriversMixin, GuiDupDriversMixin, GuiBackupMixin, GuiBcdMixin,
              GuiGhostMixin, GuiTempCleanMixin, GuiHwScanMixin, GuiWuMixin,
@@ -96,10 +92,6 @@ class CliApi(CliBridgeMixin, CliBaseMixin, GuiBaseMixin,
         self._cli_last_problems = []
         self._cli_last_scan_status = None
         GuiBaseMixin.__init__(self)
-        # A CLI _run-ja a STARTUPINFO-t maga állítja be; a GuiBaseMixin ugyanezt teszi,
-        # de a biztonság kedvéért itt is meglegyen (ha a sorrend valaha változna).
-        if getattr(self, '_si', None) is None:
-            CliBaseMixin.__init__(self)
 
 
 install_call_logging(CliApi)

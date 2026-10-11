@@ -39,7 +39,6 @@ lap rosszabb, mint egy hibaüzenet (4. elv).
 Ez a modul nem hív subprocesst magától; a Word/nyomtató-lekérdezés a hívó `run`-ján megy.
 """
 import io
-import os
 import re
 import json
 import zipfile
@@ -134,7 +133,6 @@ WORD_PRINT_TIMEOUT = 240          # a Word hideg indítása lassú gépen perc i
 RIGHT_PAGE_SHIFT_TWIPS = 170      # ~ +3 mm
 LEFT_PAGE_SHIFT_TWIPS = -57       # ~ -1 mm (próbanyomaton hibátlan, 2026-10-07)
 
-_W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 _P_RE = re.compile(r'<w:p[ >].*?</w:p>', re.S)
 _R_RE = re.compile(r'<w:r[ >].*?</w:r>', re.S)
 _T_RE = re.compile(r'<w:t(?: [^>]*)?>([^<]*)</w:t>')

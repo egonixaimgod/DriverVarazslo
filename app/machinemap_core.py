@@ -202,8 +202,6 @@ PHONE_USB_VIDS = {
     '0E8D': 'MediaTek', '2A70': 'OnePlus', '19D2': 'ZTE', '1BBB': 'TCL/Alcatel', '2D95': 'Vivo',
     '22D9': 'Oppo', '0421': 'Nokia', '2A45': 'Meizu',
 }
-# A GPU-gyártók PCI-kódjai (a HDMI/DP-hang besorolásához).
-GPU_PCI_VENDORS = {'10DE': 'NVIDIA', '1002': 'AMD', '8086': 'Intel'}
 
 _PHONE_NAME_RE = re.compile(r'\b(android|iphone|ipad|ipod|mobile|phone|adb|mtp|galaxy|symbian|'
                             r'bootloader|fastboot|kies)\b', re.IGNORECASE)

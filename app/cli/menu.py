@@ -18,9 +18,7 @@ folytatás a grafikus felületet indítaná - pont azon a gépen, ahol az nem ha
 """
 
 # === AUTO-IMPORTS ===
-import os
 import sys
-import time
 import logging
 import builtins
 from app import common
@@ -157,17 +155,6 @@ def _drivers_list(api, all_drivers=False):
     if data.get('error'):
         ui.err(str(data['error']))
     return drivers
-
-
-def _drivers_usage(api, drivers):
-    """MELYIK CSOMAGOT HASZNÁLJA MOST A GÉP - ugyanaz a mag, mint a GUI-ban
-    (app/driverusage_core.py). A CLI 2026-08-29 óta teljes értékű felület, tehát a
-    technikus itt sem törölhet vakon: pont ezen a képernyőn tűnt el annak idején egy
-    távoli asztali program drivere úgy, hogy semmi nem szólt róla.
-
-    Hibánál üres dict - a táblázat ilyenkor '?'-et mutat, ami őszinte: az "ismeretlen"
-    nem ugyanaz, mint a "nem használt"."""
-    return _drivers_usage_info(api, drivers).get('usage') or {}
 
 
 def _drivers_usage_info(api, drivers):

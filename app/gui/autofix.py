@@ -8,12 +8,10 @@ import sys
 import subprocess
 import re
 import time
-import platform
 import logging
 import shutil
 import json
 from concurrent.futures import ThreadPoolExecutor
-from app import common
 from app.common import _app_data_dir
 from app.common import _app_exe_path
 from app.common import _ps_quote
@@ -71,10 +69,7 @@ from app.wu_core import HEALTH_REPORT_SKIP_INFS
 from app.wu_core import firmware_declared_port
 from app.wu_core import is_specific_hwid
 from app.wu_core import deep_catalog_candidates
-from app import logupload_core
-from app import benchmark_core
 from app.common import spawn_failed
-from app.common import CMD_TIMEOUT_RETURNCODE
 from app.drivers_core import DELETE_DRIVER_TIMEOUT
 from app.gui.hwscan import PNP_ERROR_CODE_DESCRIPTIONS
 from app.gui.hwscan import _device_stem

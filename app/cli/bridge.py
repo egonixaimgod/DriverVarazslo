@@ -176,18 +176,6 @@ class CliBridgeMixin:
             logging.info(f"[CLI-TASK] '{task}' vége.")
 
     # --------------------------------------------------- fájl/mappa választás
-    def select_folder(self, *_a, **_k):
-        """A GUI natív mappaválasztója helyett bekérjük az útvonalat."""
-        import os
-        p = ui.ask('Mappa teljes útvonala (üresen = mégse)')
-        if not p:
-            return None
-        p = p.strip('"')
-        if not os.path.isdir(p):
-            ui.err(f"Nincs ilyen mappa: {p}")
-            return None
-        return p
-
     def select_file(self, *_a, **_k):
         import os
         p = ui.ask('Fájl teljes útvonala (üresen = mégse)')

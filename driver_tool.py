@@ -17,7 +17,7 @@ import threading
 import time
 import logging
 
-BUILD_NUMBER = 366
+BUILD_NUMBER = 368
 
 from app import common
 common.BUILD_NUMBER = BUILD_NUMBER
@@ -53,7 +53,6 @@ MB_YESNO = 0x4
 MB_ICONQUESTION = 0x20
 MB_ICONWARNING = 0x30
 MB_ICONERROR = 0x10
-MB_ICONINFORMATION = 0x40
 MB_TOPMOST = 0x40000
 IDYES = 6
 
