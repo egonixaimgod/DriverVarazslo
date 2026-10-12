@@ -630,10 +630,14 @@ def _http_request(run, url, method='GET', body=None, timeout=25):
     try:
         with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
             return resp.read().decode('utf-8', errors='replace')
-    except urllib.error.URLError as e:
-        if 'CERTIFICATE_VERIFY_FAILED' not in str(e):
+    except (urllib.error.URLError, ssl.SSLError) as e:
+        # MINDEN TLS-hibára a schannel-tartalék (CLAUDE.md 8.; a közös letöltő szabálya) -
+        # eddig csak a CERTIFICATE_VERIFY_FAILED-re, így egy régi Windows UNEXPECTED_EOF-ja
+        # a napló-feltöltést és a ranglistát is elvitte (2026-10-12).
+        from app import common
+        if not common._should_try_ps_download(e):
             raise
-        logging.warning(f"[BENCHMARK] Python SSL tanúsítvány-hiba ({e}) - friss Windows gyanú, "
+        logging.warning(f"[BENCHMARK] Python SSL/TLS hiba ({e}) - "
                         "áttérés PowerShell (schannel) hívásra, teljes tanúsítvány-ellenőrzéssel...")
         return _http_via_powershell(run, url, method, body)
 
@@ -647,7 +651,9 @@ def fetch_leaderboard(run):
         return {'configured': False, 'entries': []}
     try:
         txt = _http_request(run, url, 'GET')
-        parsed = json.loads(txt) if txt and txt.strip() else []
+        if not (txt and txt.strip()):
+            raise Exception('a ranglista-végpont üres választ adott')   # nem "üres ranglista"
+        parsed = json.loads(txt)
         if isinstance(parsed, dict):
             entries = parsed.get('entries', []) or []
         elif isinstance(parsed, list):
@@ -668,10 +674,14 @@ def upload_result(run, entry):
         raise Exception("A felhő-ranglista végpont nincs beállítva (add meg a Benchmark nézet ⚙️ beállításánál).")
     body = json.dumps(entry, ensure_ascii=False)
     txt = _http_request(run, url, 'POST', body=body)
+    # NEM-JSON / ÜRES VÁLASZ = HIBA (2026-10-12): az Apps Script hibánál HTML-oldalt ad,
+    # a régi `{}` ebből "feltöltve"-t csinált (ugyanaz, mint a napló-feltöltésnél).
     try:
-        resp = json.loads(txt) if txt and txt.strip() else {}
-    except Exception:
-        resp = {}
-    if isinstance(resp, dict) and resp.get('ok') is False:
+        resp = json.loads(txt) if txt and txt.strip() else None
+    except ValueError:
+        resp = None
+    if not isinstance(resp, dict):
+        raise Exception("A szerver válasza nem értelmezhető" + (f": {(txt or '')[:120]}" if txt else " (üres válasz)"))
+    if resp.get('ok') is False:
         raise Exception(resp.get('error') or "A szerver hibát jelzett a feltöltéskor.")
     return True

@@ -66,7 +66,7 @@ class GuiStoreAppsMixin:
             elif report['failed']:
                 log(f"   ⚠️ {len(report['failed'])} driver-alkalmazás nem került fel - a fenti "
                     f"sorok megmondják, melyik és miért. Kézzel: Microsoft Store → a név keresése.")
-            else:
+            elif not report.get('unverified'):     # ellenőrzés nélkül nem mondunk ✅-t
                 log(f"   ✅ Mind a(z) {len(report['required'])} driver-alkalmazás fent van a kért verzióban.")
             if report.get('unverified'):
                 log('   ⚠️ A telepített alkalmazások listája nem volt lekérdezhető - a fenti '

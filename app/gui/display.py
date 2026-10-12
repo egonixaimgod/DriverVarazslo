@@ -38,6 +38,9 @@ WINDOWS_COLOR_TOOLS = {
 }
 
 
+_DISPLAY_ACTION_LOCK = threading.Lock()
+
+
 def _ident(d):
     """Egy kijelző azonossága: a DisplayConfig adapter-LUID + target id."""
     return (d.get('adapter_low'), d.get('adapter_high'), d.get('target_id'))
@@ -57,8 +60,6 @@ class GuiDisplayMixin:
               'acm_guard_last': '', 'profile_guard': False, 'profile_guard_last': '', 'modern_api': colormgmt_core._API_ADD is not None, 'errors': []}
         try:
             st['displays'] = display_core.enumerate_displays()
-            # A nézet sorszáma -> a kijelző azonossága, ahogy a nézet LÁTTA (_fresh_display).
-            self._display_ident = {d.get('index'): _ident(d) for d in st['displays']}
         except Exception as e:
             logging.error(f"[DISPLAY] Kijelzők felderítése sikertelen: {e}", exc_info=True)
             st['errors'].append(f'Kijelzők felderítése: {e}')
@@ -117,6 +118,12 @@ class GuiDisplayMixin:
         return st
 
     def _emit_display_state(self):
+        # CSAK A LEGFRISSEBB BEOLVASÁS MEHET KI (2026-10-12, a 2. review-kör): a nézet
+        # megnyitásakori beolvasás és egy kapcsolás (HDR/ACM/profil) utáni friss beolvasás
+        # párhuzamosan fut; ha a régebbi ér be később, a kapcsolás ELŐTTI állapotot mutatná
+        # (a HDR-kapcsoló visszaugrana), és a `_display_ident` is a régi listára állna.
+        self._disp_gen = getattr(self, '_disp_gen', 0) + 1
+        gen = self._disp_gen
         try:
             st = self._collect_display_state()
             # Az ACM-zár a nézet megnyitásakor is érvényesül: ha a Windows közben
@@ -127,10 +134,16 @@ class GuiDisplayMixin:
                     self.emit('toast', {'message': f"🔒 Az automatikus színkezelés visszakapcsolt ezen: "
                                                    f"{', '.join(fixed)} - a zár kikapcsolta.", 'type': 'warning'})
                     st = self._collect_display_state()
+            if gen != self._disp_gen:
+                logging.info(f"[DISPLAY] A #{gen} beolvasás elavult (azóta #{self._disp_gen} indult) - nem jelenik meg.")
+                return
+            # A nézet sorszáma -> a kijelző azonossága, ahogy a nézet LÁTJA (_fresh_display).
+            self._display_ident = {d.get('index'): _ident(d) for d in st['displays']}
             self.emit('display_info', st)
         except Exception as e:
             logging.error(f"[DISPLAY] Állapot-frissítés hiba: {e}", exc_info=True)
-            self.emit('display_info', {'displays': [], 'library': [], 'errors': [str(e)]})
+            if gen == self._disp_gen:
+                self.emit('display_info', {'displays': [], 'library': [], 'errors': [str(e)]})
 
     def load_display_info(self):
         """A nézet betöltése háttérszálon -> 'display_info'. Szándékosan nem megy át a
@@ -142,7 +155,10 @@ class GuiDisplayMixin:
         """Közös keret minden műveletnek: szál, hibakezelés, a végén FRISS állapot."""
         def worker():
             try:
-                fn()
+                # EGYSZERRE EGY művelet: két gyors kattintás (HDR, majd ACM) eddig két szálon,
+                # sorrend nélkül hívta ugyanazt a kijelzőt.
+                with _DISPLAY_ACTION_LOCK:
+                    fn()
             except Exception as e:
                 logging.error(f"[DISPLAY] {name} hiba: {e}", exc_info=True)
                 self.emit('toast', {'message': f'❌ Hiba ({name}): {e}', 'type': 'error'})

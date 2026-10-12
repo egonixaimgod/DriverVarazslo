@@ -293,6 +293,20 @@ SERVICES_PS = ("$ErrorActionPreference = 'SilentlyContinue'\n"
 """)
 
 
+def stale_binding(node_cls, pkg_cls):
+    """Igaz, ha egy eszköz `oemNN.inf`-kötése bizonyíthatóan ELAVULT (2026-10-12).
+
+    A Windows a törölt csomag `oemNN` számát újra kiosztja, a nem jelenlévő (és a
+    `/force`-szal árván hagyott) eszköz registryje viszont a régi számot őrzi. Mérve: a
+    teszt-SSD egy ASRock B450M-ről maradt "AMD SMBus" szellemeszköze `oem2.inf`-re
+    mutatott, amit egy Lenovón már a "Microsoft Print to PDF" csomag kapott - és a
+    gép-térkép a nyomtató-drivert a Chipset alá tette. Az eszköz osztálya az elsődleges
+    kötésnél MINDIG a csomag `[Version] Class`-a, tehát eltérés = nem ez a csomag.
+    Csak két tiszta osztálynévre dönt: üres vagy fel nem oldott (`%...%`) név = nem tudjuk."""
+    a, b = (node_cls or '').strip().lower(), (pkg_cls or '').strip().lower()
+    return bool(a and b and '%' not in a + b and a != b)
+
+
 def devices_from_nodes(nodes):
     """Az eszközfa csomópontjaiból a használat-besorolás régi eszköz-alakja
     ([{inf, name, present}]). TISZTA függvény.
@@ -306,7 +320,7 @@ def devices_from_nodes(nodes):
         if not inf:
             continue
         out.append({'inf': inf.lower(), 'name': n.get('friendly') or n.get('desc') or '',
-                    'present': bool(n.get('present'))})
+                    'present': bool(n.get('present')), 'cls': n.get('cls') or ''})
     return out
 
 
@@ -562,9 +576,13 @@ def build_usage(raw, inf_facts, published_names=None, originals=None, folders=No
 
     # INF -> eszközök (jelenlévő / nem jelenlévő külön)
     dev_present, dev_absent = {}, {}
+    stale = []
     for d in devices:
         inf = _norm_inf(d.get('inf'))
         if not inf:
+            continue
+        if stale_binding(d.get('cls'), (inf_facts.get(inf) or {}).get('inf_class')):
+            stale.append(f"{inf}: {d.get('name') or '?'} [{d.get('cls')}]")
             continue
         name = (d.get('name') or '').strip()
         # A registry DeviceDesc gyakran `@oem14.inf,%str%;ThinkPad UltraNav` alakú -
@@ -577,6 +595,9 @@ def build_usage(raw, inf_facts, published_names=None, originals=None, folders=No
         names = bucket.setdefault(inf, [])
         if name not in names:
             names.append(name)
+    if stale:
+        logging.info(f"[USAGE] {len(stale)} elavult eszköz-kötés kihagyva (az eszköz osztálya nem "
+                     f"egyezik a csomagéval - az oemNN szám azóta másik csomagé): {stale[:10]}")
 
     # szolgáltatás-index: név, .sys fájlnév és DriverStore-mappa szerint is
     svc_by_name, svc_by_file, svc_by_repo = {}, {}, {}
@@ -724,6 +745,13 @@ def build_usage(raw, inf_facts, published_names=None, originals=None, folders=No
             state = USAGE_ACTIVE
         elif absent or stopped or filt or in_spooler or ext_off:
             state = USAGE_STANDBY
+        elif facts.get('unreadable'):
+            # NEMTUDÁS, NEM "NEM HASZNÁLT" (3. elv, 2026-10-12): az INF nélkül nem tudjuk,
+            # milyen szolgáltatást telepít - egy csak szolgáltatással dolgozó driver
+            # (vírusirtó, távoli asztal) futhat, és a "Csak a nem használtak" gomb kijelölné.
+            state = USAGE_UNKNOWN
+            reasons.append('A csomag INF-je nem olvasható, ezért nem ellenőrizhető, fut-e hozzá '
+                           'szolgáltatás - eszköz nem kötődik hozzá.')
         else:
             state = USAGE_UNUSED
             reasons.append('Semmi nem hivatkozik rá: nincs hozzá eszköz a gépben, '
@@ -742,6 +770,7 @@ def build_usage(raw, inf_facts, published_names=None, originals=None, folders=No
             'summary': (f'kiegészítő: {ext_on[0]}' if (ext_on and not (present or running or printer_use))
                         else f'kiegészítő (kihúzva): {ext_off[0]}'
                         if (ext_off and state == USAGE_STANDBY and not (absent or stopped or filt or in_spooler))
+                        else 'nem ellenőrizhető (az INF nem olvasható)' if state == USAGE_UNKNOWN
                         else _summary(state, present, running, absent, stopped, filt,
                                       printer_use, in_spooler)),
         }
@@ -832,6 +861,9 @@ def read_inf_facts(published_names=None, inf_dir=None, reader=None):
         if not text:
             missing.append(pub)
         facts[pub] = parse_inf_facts(text)
+        # Olvashatatlan INF = a szolgáltatás-jel NEM ellenőrizhető (build_usage ilyenkor
+        # "nem használt" helyett "ismeretlen"-t mond, 2026-10-12).
+        facts[pub]['unreadable'] = not text
     if missing:
         # Nem hiba: a csomagnak nem kötelező kernel-szolgáltatást telepítenie, és a
         # published INF is hiányozhat. De ki kell mondani, mert ilyenkor a csomag CSAK

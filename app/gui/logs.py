@@ -90,11 +90,16 @@ class GuiLogsMixin:
             logging.error(f"[LOGCLEAR] A napló törlése nem sikerült: {e}", exc_info=True)
             return {'success': False, 'removed': 0, 'mb': 0, 'errors': [str(e)]}
 
-    def download_uploaded_logs(self, password, only_new=True):
+    def download_uploaded_logs(self, password, only_new=True, period='all'):
         """A Drive-ra feltöltött naplók letöltése kicsomagolva, háttérszálon.
 
         `only_new=True` esetén a már meglévő fájlokat átugorja - így a gomb ismételt
-        megnyomása csak az újakat hozza le, nem tölt le újra mindent."""
+        megnyomása csak az újakat hozza le, nem tölt le újra mindent.
+        `period`: időszak-szűrő (logupload_core.LOG_PERIODS: today/7/30/365/all)."""
+        if period not in logupload_core.LOG_PERIODS:
+            logging.warning(f"[LOGDL] Ismeretlen időszak ({period!r}) - az összes napló jön.")
+            period = 'all'
+        logging.info(f"[LOGDL] Időszak: {logupload_core.LOG_PERIODS[period][0]}")
         password = (password or '').strip()
         if not password:
             self.emit('toast', {'message': '⚠️ Add meg a jelszót!', 'type': 'warning'})
@@ -134,7 +139,21 @@ class GuiLogsMixin:
                     self.emit('task_complete', {'task': task, 'status': 'Nincs letölthető napló'})
                     return
 
-                self.emit('task_progress', {'task': task, 'log': f'2/3 - {len(rows)} napló van fent. Letöltés ide: {dest}'})
+                label = logupload_core.LOG_PERIODS[period][0]
+                all_count = len(rows)
+                rows, no_date = logupload_core.filter_rows_by_period(rows, period)
+                logging.info(f"[LOGDL] Időszak-szűrő ({label}): {len(rows)}/{all_count} napló, "
+                             f"{no_date} dátum nélküli kimaradt.")
+                if period != 'all':
+                    self.emit('task_progress', {'task': task, 'log':
+                              f'🗓️ Időszak: {label} - {len(rows)} napló a {all_count}-ból.'
+                              + (f' ({no_date} napló dátuma nem állapítható meg, ezek kimaradtak - '
+                                 f'az „Összes” letölti őket.)' if no_date else '')})
+                if not rows:
+                    self.emit('task_progress', {'task': task, 'log': f'ℹ️ A kiválasztott időszakban ({label}) nincs feltöltött napló.'})
+                    self.emit('task_complete', {'task': task, 'status': f'Nincs napló ({label})'})
+                    return
+                self.emit('task_progress', {'task': task, 'log': f'2/3 - {len(rows)} napló letöltése ide: {dest}'})
 
                 def progress(i, total, name):
                     self.emit('task_progress', {'task': task, 'log': f'   ⬇️ [{i}/{total}] {name}',

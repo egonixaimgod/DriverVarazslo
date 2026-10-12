@@ -88,3 +88,7 @@ Kódolvasásból talált hibák, élő gépen NEM reprodukálva (a fejlesztői g
 7. **Kijelző-azonosítás:** a `_fresh_display(index)` a friss lista sorszámával keresett; egy közben bedugott, a többi elé sorolódó monitor esetén a művelet a rossz monitorra ment volna. Most a nézet által látott azonosság (`adapter_low/high` + `target_id`, `_display_ident`) dönt.
 8. **Teszt:** `tests/test_colormgmt.py` (12 eset). Mind a hat javítás tesztje elbukik a régi kódon (ellenőrizve `git stash`-sel).
 
+### 2026-10-12, 2. review-kör: elavult kijelző-állapot
+
+A nézet megnyitásakori beolvasás (`load_display_info`) és egy kapcsolás utáni friss beolvasás (`_display_action` → `finally`) párhuzamosan fut. Ha a régebbi ér be később, a kapcsolás ELŐTTI állapot jelent meg (a HDR-kapcsoló visszaugrott), és a `_display_ident` is a régi listára állt. Most sorszám dönt (`_disp_gen`, csak a legfrissebb megy ki), a `_display_ident` a kibocsátáskor frissül, és a műveletek egy zárral egymás után futnak (két gyors kattintás eddig két szálon hívta ugyanazt a kijelzőt). Teszt: `tests/test_review2.py::DisplayStaleTest`. Élőben nem reprodukálva.
+

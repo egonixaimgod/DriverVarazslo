@@ -403,3 +403,13 @@ A találati sor `.wu` cellája `white-space:nowrap` + `text-overflow:ellipsis` v
   - **A windowed exe-nek nincs `sys.stdout`-ja.** A `--cli` ág eddig csak `AttachConsole(-1)`-gyel próbált a *szülő* konzoljához csatlakozni (ez `cmd`-ből indítva jó). Ha nincs szülő-konzol — márpedig a gomb így indítja, és a közvetlenül `--cli`-vel futtatott exe-nél is ez a helyzet —, a csatlakozás elbukik, a `sys.stdout` `None` marad, és a menü egy **üres, néma ablak** lenne (a `print()` `AttributeError`-t dobna, amit a konzol-réteg elnyel). Ezért az `AttachConsole` bukására `ensure_console()` (AllocConsole) a tartalék.
 - **A `pywebview` import nem új függőség a CLI-ben**: az `app/common.py` amúgy is behúzza. Ami a régi gépeken elhasal, az a `webview.start()` (WebView2 + .NET), nem az import — lásd [Régi Windows-támogatás](#régi-windows-támogatás-win-7--8--81).
 
+### 2026-10-12: offline driverlista, folyamatablak, fix-dialógus (terepi bejelentések, Build 372)
+
+**Offline lista versenyhelyzet (terepi napló, szó szerint):** induláskor `load_drivers` (élő, `dism /Online`, 8 mp) → 13:18:22 a technikus D:-re vált, új `load_drivers` (`dism /Image:D:\`, 64 mp) → 13:18:23 az ÉLŐ lista ér be, `Betöltve: 58 driver` → a felület „OFFLINE MÓD (D:\)” alatt mutatja → „Mind kijelölése (58)” → 58× `dism /Image:D:\ /Remove-Driver`, mind `Error: 183` („a lemezképet egy másik DISM-művelet szolgálja ki” — a még futó D:-lekérdezés) → 13:19:26 a valódi D:-lista: 72. Semmi nem törlődött; zár nélkül a D:\ ugyanilyen SZÁMÚ, de más csomagjai mentek volna. A naplóban a két szál egyformán `drivers-load` nevet viselt — most `drivers-load-<sorszám>`. Javítás és teszt: lásd CLAUDE.md 15. fejezet, `tests/test_offline_target.py` (5 eset, mind elbukik a Build 372 kódján).
+
+**Folyamatablak:** a régi `mpSetHead` egy hiányzó mezőt „nem tudom”-nak vett. Headless böngészőben ugyanazzal a sorrenddel mérve (lépés-üzenet 60/72, majd egy „✅ … törölve” naplósor): régi `ui.html`: `83%` → `•••` + a kész-chip `display:none`; új: `83%` → `83%`, a chip látszik; szándékos határozatlan szakaszban `•••`.
+
+**Fix-dialógus ablakos módban:** 1186×773-on lefotózva a régi `flex:1 1 640px` pontosan a bejelentett képet adja (a lista a döntések alá csúszik, jobbra üres hely), az `500px` egymás mellett tartja a hasábokat.
+
+**A próba-oldal csapdája (saját, a mérés közben):** a Python heredocban írt csonkban a `'D:\\'` és `'C:\\'` egy `\`-re rövidült, a JS-ben lezáratlan sztring lett, és a csonk/futtató blokk némán nem futott le (a kép a kezdőlapot mutatta). Windows-útvonalat a próba-JS-be `String.fromCharCode(92)`-vel vagy perjellel tegyél.
+

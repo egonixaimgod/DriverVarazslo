@@ -23,6 +23,7 @@ from app.drivers_core import delete_blocked_in_use
 from app.drivers_core import delete_failure_text
 from app.drivers_core import delete_succeeded
 from app.drivers_core import DELETE_DRIVER_TIMEOUT
+from app.driverusage_core import stale_binding
 # === /AUTO-IMPORTS ===
 
 
@@ -297,6 +298,7 @@ def find_superseded_packages(drivers, usage, nodes, inf_hwids, match_fn, rank_fn
             b = (n.get('inf') or '').strip().lower()
             q = by_pub.get(b)
             if (not b.startswith('oem') or b == pub or q is None
+                    or stale_binding(n.get('cls'), q.get('class'))
                     or _provider_key(q.get('provider')) != _provider_key(d.get('provider'))
                     or rank_fn(q.get('date'), q.get('version')) < cur_rank):
                 ok = False

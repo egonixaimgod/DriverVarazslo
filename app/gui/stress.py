@@ -7,7 +7,6 @@ import ctypes.wintypes
 import fnmatch
 import os
 import subprocess
-import re
 import threading
 import time
 import logging
@@ -15,6 +14,7 @@ import traceback
 import winreg
 import math
 from app.common import download_with_cert_fallback
+from app.powerplan_core import parse_setting_indexes
 from app.stress_defs import LINPACK_PROMPT_SCRIPT
 from app.stress_defs import LINPACK_RAM_OPTIONS
 from app.stress_defs import STRESS_CLICK_SEQUENCES
@@ -44,13 +44,19 @@ class GuiStressMixin:
 
         A SUB_VIDEO/VIDEOIDLE stb. alias-kulcsszavak nyelvfüggetlenek, de a `powercfg
         /query` kimenetének felirat-szövegei lokalizáltak lehetnek - ezért nem szöveges
-        mintára illesztünk, hanem a kimenetben szereplő "0x..." hexa értékeket szedjük ki
-        POZÍCIÓ szerint (a sorrend - előbb AC, utána DC - nem nyelvfüggő)."""
+        mintára illesztünk, hanem a hexa értékeket POZÍCIÓ szerint vesszük: az UTOLSÓ kettő
+        az AC és a DC (`powerplan_core.parse_setting_indexes`, közös).
+
+        2026-10-12-ig az ELSŐ kettőt vettük - az viszont a "Minimum/Maximum Possible
+        Setting" (élőben mérve: 0x00000000 és 0xffffffff), így egy stressz-teszt után a
+        "visszaállítás" AC=0-t (soha) és DC=0xffffffff-et írt: a kijelző nem kapcsolt ki,
+        a gép nem aludt el, tartósan."""
         try:
             res = self._run(['powercfg', '/query', 'SCHEME_CURRENT', subgroup, setting])
-            hexes = re.findall(r'0x[0-9a-fA-F]+', res.stdout or '')
-            if len(hexes) >= 2:
-                return int(hexes[0], 16), int(hexes[1], 16)
+            ac, dc = parse_setting_indexes(res.stdout or '')
+            if ac is not None:
+                return ac, dc
+            logging.warning(f"[STRESS_POWER] A(z) {subgroup}/{setting} értéke nem olvasható ki - nem mentjük.")
         except Exception as e:
             logging.warning(f"[STRESS_POWER] Lekérdezési hiba ({subgroup}/{setting}): {e}")
         return None, None
@@ -114,6 +120,14 @@ class GuiStressMixin:
             for subgroup, setting in STRESS_POWER_SETTINGS:
                 ac = values.get(f'{subgroup}_{setting}_AC')
                 dc = values.get(f'{subgroup}_{setting}_DC')
+                if (ac, dc) == (0, 0xFFFFFFFF):
+                    # Egy 2026-10-12 előtti build HIBÁS mentése (a "Minimum/Maximum Possible
+                    # Setting" került el AC/DC helyett, lásd _query_power_setting) - ezt nem írjuk
+                    # vissza, a jelenlegi érték marad.
+                    logging.warning(f"[STRESS_POWER] A(z) {subgroup}/{setting} mentett értéke egy régi build "
+                                    f"hibás mentése (0 / 0xFFFFFFFF) - nem állítjuk vissza, kézzel ellenőrizendő "
+                                    f"(Energiagazdálkodási beállítások).")
+                    continue
                 if ac is not None and dc is not None:
                     self._set_power_setting(subgroup, setting, ac, dc)
                     restored_any = True

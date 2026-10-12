@@ -52,6 +52,7 @@ import re
 import logging
 import collections
 from app.wu_core import firmware_declared_port
+from app.driverusage_core import stale_binding
 # === /AUTO-IMPORTS ===
 
 
@@ -731,11 +732,21 @@ def build_machine_map(nodes, packages, facts, usage=None, identity=None, role=No
             by_slot[s[0]].append(n)
 
     # --- csomagok -> slot ---
+    pkg_cls = {(p.get('published') or '').strip().lower():
+               (facts.get((p.get('published') or '').strip().lower()) or {}).get('inf_class') or p.get('class')
+               for p in packages or []}
     pkg_nodes = collections.defaultdict(list)
+    stale = []
     for n in nodes:
         inf = (n.get('inf') or '').lower()
         if inf.startswith('oem'):
+            if stale_binding(n.get('cls'), pkg_cls.get(inf)):
+                stale.append(f"{inf}: {node_name(n)} [{n.get('cls')}]")
+                continue
             pkg_nodes[inf].append(n)
+    if stale:
+        logging.info(f"[MACHINEMAP] {len(stale)} elavult eszköz-kötés kihagyva (eszköz-osztály ≠ "
+                     f"csomag-osztály): {stale[:10]}")
     pkg_info = {}
     slot_pkgs = collections.defaultdict(list)
     for p in packages or []:

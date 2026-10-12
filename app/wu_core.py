@@ -2667,7 +2667,7 @@ BOOT_FALLBACK_PROTECT_CLASSES = {'scsiadapter', 'hdc', 'diskdrive'}
 
 _BOOT_PATH_PS = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$out = @{ Infs = @(); Chain = @(); Found = $false }
+$out = @{ DiskIds = @() }
 $diskIds = @()
 $sysDrive = "$env:SystemDrive"
 # 1) Elsődleges út: WMI asszociációk C: -> partíció -> fizikai lemez PNPDeviceID.
@@ -2697,37 +2697,41 @@ if ($diskIds.Count -eq 0) {
         }
     } catch {}
 }
-$seen = @{}
-foreach ($id in ($diskIds | Select-Object -Unique)) {
-    $cur = "$id"
-    for ($i = 0; $i -lt 12 -and $cur; $i++) {
-        if ($seen.ContainsKey($cur)) { break }
-        $seen[$cur] = $true
-        $dev = $null
-        try { $dev = Get-PnpDevice -InstanceId $cur -ErrorAction Stop } catch {}
-        $inf = ''; $svc = ''
-        try { $inf = "$((Get-PnpDeviceProperty -InstanceId $cur -KeyName 'DEVPKEY_Device_DriverInfPath' -ErrorAction SilentlyContinue).Data)" } catch {}
-        try { $svc = "$((Get-PnpDeviceProperty -InstanceId $cur -KeyName 'DEVPKEY_Device_Service' -ErrorAction SilentlyContinue).Data)" } catch {}
-        $out.Found = $true
-        $out.Chain += [PSCustomObject]@{
-            Id = $cur
-            Name = $(if ($dev) { "$($dev.FriendlyName)" } else { '' })
-            Class = $(if ($dev) { "$($dev.Class)" } else { '' })
-            Inf = $inf
-            Service = $svc
-        }
-        if ($inf) { $out.Infs += $inf }
-        $parent = ''
-        try { $parent = "$((Get-PnpDeviceProperty -InstanceId $cur -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue).Data)" } catch {}
-        if (-not $parent -or $parent -eq $cur -or $parent -like 'HTREE*') { break }
-        $cur = $parent
-    }
-}
+# 3) A lánc bejárása (eszköz -> szülő -> ... -> gyökér) PYTHONBAN megy, az eszközfa-olvasóból
+#    (`boot_chain_from_nodes`). Itt korábban eszközönként 4 Get-PnpDevice(Property) hívás volt:
+#    mérve 54-133 mp egy 7 elemű láncra (Lenovo 20KGS4032P, 2026-10-12), a 180 mp-es korlát közelében.
+$out.DiskIds = @($diskIds | Select-Object -Unique)
 $out | ConvertTo-Json -Compress -Depth 4
 """
 
 
-def _collect_boot_path_protection(run_fn):
+def boot_chain_from_nodes(disk_ids, nodes):
+    """A rendszerlemez eszközlánca (lemez -> szülő -> ... -> gyökér) az eszközfából. TISZTA.
+
+    `nodes`: `win32.enumerate_device_nodes()`. Visszatérés: [{'Id', 'Name', 'Class', 'Inf',
+    'Service'}] - ugyanaz az alak, amit a régi PowerShell-bejárás adott. Egy lemez-azonosító,
+    ami nincs a fában, kimarad (a hívó ilyenkor üres láncot kap -> fail-safe)."""
+    by_id = {(n.get('id') or '').upper(): n for n in nodes or []}
+    chain, seen = [], set()
+    for disk in disk_ids or []:
+        cur = str(disk or '').strip().upper()
+        for _ in range(12):
+            n = by_id.get(cur)
+            if not cur or cur in seen or n is None:
+                break
+            seen.add(cur)
+            name = n.get('friendly') or n.get('desc') or ''
+            if name.startswith('@') and ';' in name:
+                name = name.split(';', 1)[1].strip()
+            chain.append({'Id': n.get('id') or cur, 'Name': name, 'Class': n.get('cls') or '',
+                          'Inf': n.get('inf') or '', 'Service': n.get('service') or ''})
+            cur = (n.get('parent') or '').strip().upper()
+            if cur.startswith('HTREE'):
+                break
+    return chain
+
+
+def _collect_boot_path_protection(run_fn, node_fn=None):
     """Felderíti, milyen eszközlánc hordozza a RENDSZERLEMEZT, és mely driver-csomagok
     élnek ezen a láncon.
 
@@ -2746,18 +2750,23 @@ def _collect_boot_path_protection(run_fn):
         res = run_fn(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", _BOOT_PATH_PS],
                      encoding='utf-8', timeout=180)
         data = json.loads(res.stdout) if res and (res.stdout or '').strip() else {}
-        detected = bool(data.get('Found'))
-        infs = data.get('Infs') or []
-        if isinstance(infs, str):
-            infs = [infs]
-        for inf in infs:
-            base = os.path.basename(str(inf)).strip().lower()
+        disk_ids = data.get('DiskIds') or []
+        if isinstance(disk_ids, str):
+            disk_ids = [disk_ids]
+        if not disk_ids:
+            logging.warning("[BOOT-PROTECT] A rendszerlemez fizikai lemeze nem azonosítható (WMI és Storage út is üres).")
+        else:
+            if node_fn is None:
+                from app import win32
+                node_fn = win32.enumerate_device_nodes
+            chain = boot_chain_from_nodes(disk_ids, node_fn())
+            if not chain:
+                logging.warning(f"[BOOT-PROTECT] A rendszerlemez ({disk_ids}) nincs az eszközfában.")
+        detected = bool(chain)
+        for c in chain:
+            base = os.path.basename(str(c.get('Inf') or '')).strip().lower()
             if base.endswith('.inf'):
                 protected_infs.add(base)
-        raw_chain = data.get('Chain') or []
-        if isinstance(raw_chain, dict):
-            raw_chain = [raw_chain]
-        chain = raw_chain
     except Exception as e:
         logging.warning(f"[BOOT-PROTECT] A rendszerlemez eszközláncának felderítése sikertelen: {e}")
         detected = False

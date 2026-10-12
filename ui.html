@@ -188,6 +188,11 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .pw-input{flex:0 0 auto;width:150px;padding:10px 14px;border-radius:10px;border:1px solid var(--glass-border);background:rgba(20,12,38,0.6);color:var(--text);font:14px var(--font);text-align:center;letter-spacing:3px;transition:all var(--t)}
 .pw-input::placeholder{color:var(--text3);letter-spacing:normal}
 .pw-input:focus{outline:none;border-color:var(--glass-border-hover);box-shadow:0 0 0 3px rgba(180,100,255,0.15)}
+/* Napló-letöltés időszak-választó (2026-10-12): egy aktív gomb, a többi halvány */
+.logs-period{display:flex;flex-wrap:wrap;gap:4px;justify-content:center}
+.logs-period button{padding:5px 10px;border-radius:999px;border:1px solid var(--glass-border);background:rgba(20,12,38,0.5);color:var(--text2);font:12px var(--font);cursor:pointer;transition:all var(--t)}
+.logs-period button:hover{border-color:var(--glass-border-hover);color:var(--text)}
+.logs-period button.active{background:rgba(90,160,255,0.28);border-color:rgba(120,180,255,0.7);color:var(--text)}
 /* Windows & Office nézet */
 .winact-btnrow{display:flex;gap:8px;flex-wrap:wrap}
 /* Tároló/firmware: RÖGZÍTETT VÉDELEM, nem kapcsoló (2026-09-02). Itt korábban két
@@ -1611,9 +1616,17 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
               <span class="hero-chip">🔑 Jelszóval védve</span>
               <span class="hero-chip">📦 Kicsomagolva menti</span>
               <span class="hero-chip">⏭️ Csak az újakat tölti le</span>
+              <span class="hero-chip">🗓️ Időszakra szűrhető</span>
             </div>
           </div>
           <div class="vh-actions">
+            <div class="logs-period" id="logs-period" title="Csak a kiválasztott időszakban készült naplókat tölti le (a futás dátuma szerint)">
+              <button type="button" data-period="today" onclick="setLogsPeriod(this)">Ma</button>
+              <button type="button" data-period="7" class="active" onclick="setLogsPeriod(this)">7 nap</button>
+              <button type="button" data-period="30" onclick="setLogsPeriod(this)">30 nap</button>
+              <button type="button" data-period="365" onclick="setLogsPeriod(this)">1 év</button>
+              <button type="button" data-period="all" onclick="setLogsPeriod(this)">Összes</button>
+            </div>
             <input type="password" id="logs-password" class="pw-input" placeholder="Jelszó" onkeydown="if(event.key==='Enter')downloadUploadedLogs()">
             <button class="btn btn-big btn-primary" onclick="downloadUploadedLogs()" id="btn-logs-dl">📥 Naplók Letöltése</button>
           </div>
@@ -2771,7 +2784,10 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
            nézeté - használat-fülek, 7 oszlop, ALKATRÉSZ szerinti csoport-fejlécek (grafika /
            hang / hálózat / chipset / szoftveres / nincs hozzá eszköz). A besorolás ugyanabból
            a Python-magból jön (get_autofix_delete_preview 'machine' = _build_machine_map). -->
-      <div id="mc-del-panel" style="display:none;flex:1 1 640px;min-width:0">
+      <!-- A 640 px-es alapszélesség ablakos módban (1186 px-es ablak) a döntések ALÁ tördelte
+           a listát (400 + 18 + 640 > ~1040 px tartalom), jobbra üres folttal (2026-10-12,
+           felhasználói bejelentés). 500 px-szel ~950 px tartalomszélességig egymás mellett marad. -->
+      <div id="mc-del-panel" style="display:none;flex:1 1 500px;min-width:0">
         <!-- CÍMSOR: balra a cím (a magyarázó fél-mondat keskeny ablakban "…"-ra rövidül),
              jobbra a darabszám és a Mind / Egyik se gomb (2026-10-01, tömörítés: a címsorban
              amúgy is üres hely volt, a fülek+kereső sorában viszont 1366 px-en nem fértek el). -->
@@ -3086,7 +3102,7 @@ window.handlePyEvent = function(payload) {
       // ELAVULT LISTA (2026-10-12, terepi hiba): egy másik lemez listája nem jelenhet meg
       // a mostani cél alatt. A backend is eldobja; ez a második védvonal.
       if (((data && data.target) || '') !== currentTargetPath) {
-        api().js_log('WARN', '[UI] Elavult driver-lista eldobva (lemez: ' + ((data && data.target) || 'élő rendszer')
+        api()?.js_log?.('WARN', '[UI] Elavult driver-lista eldobva (lemez: ' + ((data && data.target) || 'élő rendszer')
           + ', mostani cél: ' + (currentTargetPath || 'élő rendszer') + ')');
         break;
       }
@@ -4518,8 +4534,13 @@ async function loadPrinterDriverInfs(force) {
   }
   printerInfs = null;
   if (lbl) lbl.classList.add('toggle-busy');
+  // A VÁLASZ CSAK ARRA A LISTÁRA KERÜLHET, AMIRE A KÉRÉS INDULT (2026-10-12, 2. review-kör):
+  // a felderítés 9-121 mp, közben a lista lecserélődhet (másik lemez, Frissítés) - a régi
+  // lista nyomtató-halmaza az új listán azonos SZÁMÚ, de más csomagokat rejtene el.
+  const forList = drivers;
   try {
     const res = await api().get_printer_driver_infs(drivers);
+    if (drivers !== forList) return;
     printerInfs = new Set(((res && res.published) || []).map(p => (p || '').toLowerCase()));
     // A kijelöléseket eldobjuk: egy elrejtett sor kijelölve maradva bekerülne a törlésbe,
     // vagyis pont azt törölnénk, amit a szűrő megvédeni hivatott.
@@ -4527,6 +4548,7 @@ async function loadPrinterDriverInfs(force) {
     renderDriverTable();
     updateDeleteBtn();
   } catch (e) {
+    if (drivers !== forList) return;
     // Fail-safe: nem rejtünk el semmit, és megmondjuk, miért.
     printerInfs = new Set();
     toast('A nyomtató-driverek felderítése nem sikerült, a szűrő most nem rejt el semmit: ' + e, 'warning');
@@ -4780,13 +4802,18 @@ async function loadDriverUsage(force) {
   if (isResumeLeg && !force) { driverUsage = null; return; }
   driverUsage = null; driverUsageError = ''; driverUsageOffline = false;
   renderDriverUsageBar();
+  // Lásd loadPrinterDriverInfs: egy lecserélt lista használat-adata (pl. a C: "Használatban"
+  // jelzései) nem kerülhet egy másik lemez listájára - a "Csak a nem használtak" gomb erre épít.
+  const forList = drivers;
   try {
     const res = await api().get_driver_usage(drivers);
+    if (drivers !== forList) return;
     driverUsageOffline = !!(res && res.offline);
     driverUsageError = (res && res.error) ? String(res.error) : '';
     driverUsage = (res && res.usage && Object.keys(res.usage).length) ? res.usage : null;
     setDriverMachine(res && res.machine, res && res.machine_error);
   } catch (e) {
+    if (drivers !== forList) return;
     driverUsage = null;
     driverUsageError = String(e);
     setDriverMachine(null, '');
@@ -6769,10 +6796,15 @@ async function downloadUploadedLogs() {
   try {
     // A folyamat-modál a task_start/task_progress eseményekből épül fel (mint minden
     // más hosszú műveletnél), a jelszót itt nem tároljuk el sehol.
-    await api().download_uploaded_logs(pw, true);
+    const act = document.querySelector('#logs-period button.active');
+    await api().download_uploaded_logs(pw, true, act ? act.dataset.period : 'all');
   } catch (e) {
     toast('Letöltési hiba: ' + e, 'error');
   }
+}
+
+function setLogsPeriod(btn) {
+  document.querySelectorAll('#logs-period button').forEach(b => b.classList.toggle('active', b === btn));
 }
 
 async function loadLogsViewInfo() {
@@ -7526,7 +7558,7 @@ function showProgressModal(title, phase) {
   
   document.getElementById('modal-progress').classList.add('active');
   progressStartTime = Date.now();
-  mpProg = {pct: null, cur: 0, total: 0, ok: 0, bad: 0};
+  mpProg = {pct: null, cur: 0, total: 0, ok: 0, bad: 0, t0: null, cur0: 0};
   mpSetHead({now: title || 'Folyamat', sub: phase || '', pct: null, step: '', eta: '', ok: 0, bad: 0});
   if (progressTimer) clearInterval(progressTimer);
   progressTimer = setInterval(() => {
@@ -7541,9 +7573,9 @@ function showProgressModal(title, phase) {
     // pontatlan lenne (és egy rossz szám rosszabb, mint a hiánya).
     const el = document.getElementById('mp-st-time');
     if (el) el.innerHTML = '⏱ <b>' + mpFmtSecs(s) + '</b>';
-    if (mpProg.total > 0 && mpProg.cur > 0 && s >= 5 && mpProg.cur < mpProg.total) {
-      const eta = (s / mpProg.cur) * (mpProg.total - mpProg.cur);
-      mpSetHead({eta: mpFmtSecs(eta)});
+    if (!document.getElementById('mp-ring').classList.contains('indet')) {
+      const eta = mpEtaSecs();
+      mpSetHead({eta: eta == null ? '' : mpFmtSecs(eta)});
     }
   }, 1000);
 }
@@ -7582,6 +7614,11 @@ function updateProgressModal(data) {
     head.pct = null;
     head.eta = '';                       // határozatlan szakaszban NEM találgatunk
   } else if (data.total && data.total > 0) {
+    // A sebességmérés kezdete: az első lépés-üzenet (vagy ha a teljes darabszám változik,
+    // pl. egy újabb kör indul, újrakezdjük).
+    if (mpProg.t0 == null || mpProg.total !== data.total || (data.current || 0) < mpProg.cur) {
+      mpProg.t0 = Date.now(); mpProg.cur0 = data.current || 0;
+    }
     mpProg.cur = data.current || 0;
     mpProg.total = data.total;
     head.pct = mpProg.cur / mpProg.total * 100;
@@ -7643,30 +7680,52 @@ function appendLog(line) {
 /* A fejléc frissítése. Minden mező opcionális: amiről nincs adat, azt nem írjuk felül,
    és amit nem tudunk (pl. hátralévő idő határozatlan szakaszban), azt EL IS REJTJÜK -
    egy kitalált szám rosszabb, mint a hiánya. */
+/* CSAK A MEGKAPOTT MEZŐKET ÍRJUK FELÜL (2026-10-12, felhasználói bejelentés): a régi
+   változat egy hiányzó mezőt "nem tudom"-nak vett, és mivel a naplósorok (pl. "✅ X
+   törölve") nem hoznak százalékot, minden ilyen sor visszaugrasztotta a kört "•••"-ra és
+   elrejtette a "hátra" / kész / hiba chipet - a következő lépés-üzenet visszahozta őket.
+   A tünet: a százalék csak villanásokra látszott, MINDEN folyamatablakban. A `null` pct
+   továbbra is a szándékos "határozatlan szakasz" jele. */
 function mpSetHead(o) {
   const $ = id => document.getElementById(id);
+  const has = k => Object.prototype.hasOwnProperty.call(o, k);
   if (o.now) $('mp-now').textContent = o.now;
-  if (o.sub !== undefined) $('mp-sub').textContent = o.sub || '';
+  if (has('sub')) $('mp-sub').textContent = o.sub || '';
   const ring = $('mp-ring'), bar = $('mp-ring-bar'), C = 2 * Math.PI * 31;
-  if (o.pct === null || o.pct === undefined) {
-    ring.classList.add('indet');
-    $('mp-pct').textContent = '•••';
-    bar.setAttribute('stroke-dashoffset', C * 0.75);
-  } else {
-    const p = Math.max(0, Math.min(100, o.pct));
-    ring.classList.remove('indet');
-    $('mp-pct').textContent = Math.round(p) + '%';
-    bar.setAttribute('stroke-dashoffset', C * (1 - p / 100));
+  if (has('pct')) {
+    if (o.pct === null || o.pct === undefined) {
+      ring.classList.add('indet');
+      $('mp-pct').textContent = '•••';
+      bar.setAttribute('stroke-dashoffset', C * 0.75);
+    } else {
+      const p = Math.max(0, Math.min(100, o.pct));
+      ring.classList.remove('indet');
+      $('mp-pct').textContent = Math.round(p) + '%';
+      bar.setAttribute('stroke-dashoffset', C * (1 - p / 100));
+    }
   }
-  const chip = (id, show, html) => {
+  const chip = (key, id, show, html) => {
+    if (!has(key)) return;
     const e = $(id); if (!e) return;
     e.style.display = show ? '' : 'none';
     if (show) e.innerHTML = html;
   };
-  chip('mp-st-step', !!o.step, 'lépés: <b>' + esc(o.step || '') + '</b>');
-  chip('mp-st-eta', !!o.eta, 'hátra: <b>' + esc(o.eta || '') + '</b>');
-  chip('mp-st-ok', o.ok > 0, '✅ <b>' + (o.ok || 0) + '</b> kész');
-  chip('mp-st-bad', o.bad > 0, '❌ <b>' + (o.bad || 0) + '</b> hiba');
+  chip('step', 'mp-st-step', !!o.step, 'lépés: <b>' + esc(o.step || '') + '</b>');
+  chip('eta', 'mp-st-eta', !!o.eta, 'hátra: <b>' + esc(o.eta || '') + '</b>');
+  chip('ok', 'mp-st-ok', o.ok > 0, '✅ <b>' + (o.ok || 0) + '</b> kész');
+  chip('bad', 'mp-st-bad', o.bad > 0, '❌ <b>' + (o.bad || 0) + '</b> hiba');
+}
+/* A HÁTRALÉVŐ IDŐ: az első lépés-üzenettől mért sebességből, nem az ablak nyitásától
+   (2026-10-12). A régi képlet az előkészítő szakaszt (visszaállítási pont, mentés,
+   letöltés) is a tételek idejének számolta, ezért az elején jócskán túlbecsült, és
+   minden lassú tételnél ugrált. Csak akkor mondunk számot, ha már legalább 2 tétel
+   elkészült ÉS eltelt 5 mp a mérés kezdete óta - egy rossz szám rosszabb, mint a hiánya. */
+function mpEtaSecs() {
+  const p = mpProg;
+  if (!(p.total > 0) || p.t0 == null || p.cur >= p.total) return null;
+  const done = p.cur - p.cur0, el = (Date.now() - p.t0) / 1000;
+  if (done < 2 || el < 5) return null;
+  return el / done * (p.total - p.cur);
 }
 function mpFmtSecs(s) {
   s = Math.max(0, Math.round(s));
@@ -7809,6 +7868,9 @@ function showConfirm3(title, message, yesText, noText, cancelText, noClass) {
 // ---------------------------------------------------------------------------
 let delPreview = [];
 let delUnchecked = new Set();
+// Az előnézet-kérés sorszáma: egy bezárt, majd újranyitott dialógusba a RÉGI kérés válasza
+// nem kerülhet (és nem engedheti el idő előtt az "Igen" gombot) - 2026-10-12.
+let delPreviewSeq = 0;
 // Fut-e még a háttér-elemzés (mi minek a drivere + védettségi csoportok). Amíg fut, a
 // sorok CSOPORTJA ismeretlen, tehát egyetlen zárolást sem lehet őszintén kirajzolni -
 // ezért ilyenkor a fix nem indítható. Terepen (2026-08-07) pont ez tűnt hibának: a
@@ -8255,12 +8317,14 @@ function showAutoFixConfirm(title, message) {
       };
     });
     delSetLoading(true);
+    const pvSeq = ++delPreviewSeq;
     // A MÁR BETÖLTÖTT driver-listát átadjuk: a Python így megspórolja a
     // `dism /Get-Drivers` hívást (15-77 mp), ami eddig az elemzési idő zömét tette ki.
     api().get_autofix_delete_preview(delPreview.map(d => ({
       published: d.published, original: d.original, provider: d.provider,
       version: d.version, class: d.class
     }))).then(pv => {
+      if (pvSeq !== delPreviewSeq) return;     // egy korábbi megnyitás válasza
       pv = pv || {};
       const list = pv.drivers || [];
       delBootDetected = pv.boot_detected !== false;
@@ -8282,6 +8346,7 @@ function showAutoFixConfirm(title, message) {
       delSetLoading(false);
       syncRebuildWifi();
     }).catch(e => {
+      if (pvSeq !== delPreviewSeq) return;
       api().js_log('WARN', '[UI] A törlési előnézet betöltése sikertelen: ' + e);
       delSetLoading(false);
       syncRebuildWifi();

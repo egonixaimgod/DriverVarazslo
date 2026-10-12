@@ -364,11 +364,17 @@ def upload_logs(run, url, machine_name='', build='', outcome='', http=None):
         body = build_payload(blob, info, machine_name, build, outcome, folder=folder)
         sender = http or _default_http
         txt = sender(run, url, 'POST', body)
+        # NEM-JSON / ÜRES VÁLASZ = HIBA (2026-10-12): az Apps Script hibánál HTML-hibaoldalt
+        # ad (lásd _post) - a régi kód ezt `{}`-nek vette, és "Feltöltés kész"-t mondott.
         try:
-            resp = json.loads(txt) if txt and txt.strip() else {}
-        except Exception:
-            resp = {}
-        if isinstance(resp, dict) and resp.get('ok') is False:
+            resp = json.loads(txt) if txt and txt.strip() else None
+        except ValueError:
+            resp = None
+        if not isinstance(resp, dict):
+            snippet = (txt or '')[:200].replace('\n', ' ')
+            logging.warning(f"[LOGUP] A szerver válasza nem értelmezhető (nem JSON): {snippet!r}")
+            return False, 'a szerver válasza nem értelmezhető' + (f' ({snippet[:80]})' if snippet else ' (üres válasz)')
+        if resp.get('ok') is False:
             msg = resp.get('error') or 'a szerver hibát jelzett'
             logging.warning(f"[LOGUP] A szerver elutasította a feltöltést: {msg}")
             return False, friendly_upload_error(msg)
@@ -426,6 +432,59 @@ def _post(run, url, payload, http=None):
         # technikus itt is a nyers Apps Script-kivételt kapná teendő nélkül.
         return resp, friendly_upload_error(resp.get('error') or 'a szerver hibát jelzett')
     return resp, ''
+
+
+# IDŐSZAK-SZŰRŐ A LETÖLTÉSHEZ (2026-10-12, explicit user decision: *"ki tudjam választani h
+# csak az e heti naplókat szedjem le ... 7 nap, 30 nap, 1 év, csak a mai, vagy az összes"*).
+# kulcs -> (felirat, napok száma a mai nappal együtt; None = mind)
+LOG_PERIODS = {
+    'today': ('Ma', 1),
+    '7': ('Elmúlt 7 nap', 7),
+    '30': ('Elmúlt 30 nap', 30),
+    '365': ('Elmúlt 1 év', 365),
+    'all': ('Összes', None),
+}
+_LEAD_DATE_RE = re.compile(r'^\s*(\d{4})-(\d{2})-(\d{2})')
+
+
+def row_run_date(row):
+    """Egy távoli napló FUTÁSÁNAK dátuma (datetime.date), vagy None, ha nem állapítható meg.
+
+    Sorrend: a futás-mappa neve (a `folder_sort_name` dátummal kezdi: "2026-10-12 15-02 -
+    build373 - ..."), a fájlnév ("2026-09-03_14-54-12_..._build294.log"), végül a szerver
+    `date` mezője, ha ISO-alakkal kezdődik. Csak a név ELEJÉN álló dátumot fogadjuk el -
+    egy név közepén álló számsor nem dátum. Kitalált dátum nincs (None)."""
+    import datetime as _dt
+    for src in (folder_sort_name(row.get('folder') or ''), row.get('name') or '', str(row.get('date') or '')):
+        m = _LEAD_DATE_RE.match(src or '')
+        if m:
+            try:
+                return _dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            except ValueError:
+                continue
+    return None
+
+
+def filter_rows_by_period(rows, period, today=None):
+    """A sorok szűrése időszakra. Visszatérés: (megtartott_sorok, dátum_nélküliek_száma).
+
+    `period`: a LOG_PERIODS kulcsa; ismeretlen kulcs = 'all'. A 'N nap' a mai napot is
+    beleszámolja (7 nap = ma + az előző 6). Egy dátum nélküli sor csak az 'Összes'-be
+    kerül: ha nem tudjuk, mikor készült, nem állíthatjuk, hogy a kért időszakba esik."""
+    import datetime as _dt
+    days = (LOG_PERIODS.get(period) or LOG_PERIODS['all'])[1]
+    if days is None:
+        return list(rows or []), 0
+    today = today or _dt.date.today()
+    cutoff = today - _dt.timedelta(days=days - 1)
+    kept, no_date = [], 0
+    for r in rows or []:
+        d = row_run_date(r)
+        if d is None:
+            no_date += 1
+        elif d >= cutoff:
+            kept.append(r)
+    return kept, no_date
 
 
 def list_remote_logs(run, url, password, http=None):

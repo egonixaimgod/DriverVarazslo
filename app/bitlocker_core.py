@@ -34,7 +34,7 @@ def get_bitlocker_status(run):
     """A rendszermeghajtó BitLocker állapota: {'status': magyar szöveg, 'color': kulcs}."""
     try:
         res = run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", BITLOCKER_STATUS_PS], encoding='utf-8')
-        status_text = (res.stdout or '').strip()
+        status_text = (res.stdout or '').strip() or 'Nem kérdezhető le (a BitLocker-lekérdezés nem válaszolt)'
 
         color = 'unknown'
         if 'Titkosítva' in status_text:
@@ -52,7 +52,18 @@ def get_bitlocker_status(run):
 
 def disable_bitlocker(run):
     """Disable-BitLocker a rendszermeghajtón (háttérben induló dekódolás).
-    Visszatérés: (sikerült-e a parancs, stderr hibaszöveg)."""
+    Visszatérés: (sikerült-e, hibaszöveg).
+
+    A VERDIKT A VISSZAOLVASÁS (2026-10-12): `-ErrorAction Stop` nélkül a `powershell
+    -Command` egy nem-végzetes hiba után is 0-val lépett ki, és a felület "✅ Dekódolás
+    megkezdve"-t írt egy el sem indult dekódolásra. Most utána az állapotnak "dekódolás
+    folyamatban" vagy "nincs titkosítva" kell lennie."""
     res = run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-               r"Disable-BitLocker -MountPoint $env:SystemDrive"])
-    return res.returncode == 0, (res.stderr or '')
+               r"Disable-BitLocker -MountPoint $env:SystemDrive -ErrorAction Stop | Out-Null"])
+    if res.returncode != 0:
+        return False, (res.stderr or res.stdout or f'kód: {res.returncode}').strip()[:400]
+    st = get_bitlocker_status(run)
+    if st.get('color') not in ('warning', 'disabled'):
+        logging.error(f"[BITLOCKER] A Disable-BitLocker után az állapot: {st.get('status')!r}")
+        return False, f"a parancs lefutott, de az állapot nem változott: {st.get('status')}"
+    return True, ''

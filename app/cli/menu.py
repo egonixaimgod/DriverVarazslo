@@ -127,6 +127,14 @@ def _header(api, screen=''):
     ui.title('DRIVERVARÁZSLÓ — CLI mód', sub)
 
 
+def _ask_log_period():
+    """A napló-letöltés időszaka (logupload_core.LOG_PERIODS kulcsa). A sorszám mellett a
+    nyers kulcs (7/30/365/today/all) is elfogadott; ismeretlen értékre a mag WARNING-ot ír,
+    és mindent letölt."""
+    v = ui.ask('Időszak (1=Ma, 2=7 nap, 3=30 nap, 4=1 év, 5=Összes)', '2')
+    return {'1': 'today', '2': '7', '3': '30', '4': '365', '5': 'all'}.get(v, v)
+
+
 def _run_screen(api, title_text, fn):
     """Egy művelet lefuttatása saját képernyőn, egységes lezárással."""
     _header(api, title_text)
@@ -434,6 +442,11 @@ def _dupdrivers_flow(api):
     _sync(api, api.list_duplicate_drivers)
     data = api._cli_take('dup_drivers_loaded', {})
     groups = data.get('groups') or []
+    if data.get('error'):
+        # Egy elbukott lekérdezés NEM "nincs duplikátum" - a GUI is hibát mutat (2026-10-12).
+        ui.err('A duplikátumok nem kérdezhetők le: '
+               + ('offline módban nem elérhető' if data['error'] == 'offline' else str(data['error'])))
+        return
     if not groups:
         ui.ok('Nincs eltávolítható duplikátum.')
         return
@@ -1141,7 +1154,7 @@ def _menu_maintenance(api):
             _run_screen(api, 'block.bat', lambda: api.download_block_script())
         elif c == '7':
             _run_screen(api, 'Naplók letöltése', lambda: api.download_uploaded_logs(
-                ui.ask('Jelszó')))
+                ui.ask('Jelszó'), True, _ask_log_period()))
         elif c == '8':
             _shoplabel_flow(api)
         elif c == '9':
@@ -1291,7 +1304,7 @@ def _menu_settings(api):
             if p:
                 api.apply_target_os(p)
         elif c == '2':
-            api.target_os_path = None
+            api.reset_target_os()     # ugyanaz, mint a GUI-é (naplóz is)
             ui.ok('Visszaálltunk az élő rendszerre.')
             ui.pause()
         elif c == '3':

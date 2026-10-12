@@ -460,9 +460,15 @@ def sync_driver_store_apps(run, log, published_infs, fetch, check_cancel=None,
     after = installed_store_apps(run)
     if after is None:
         report['unverified'] = True
-        after = {}
     for entry in report['required']:
         if entry.get('result'):
+            continue
+        if after is None:
+            # A visszaolvasás elbukott: NEM "nincs fent" (eddig minden tétel ❌ lett, a
+            # frissen telepítettek is) - kimondjuk, hogy nem ellenőrizhető (2026-10-12).
+            entry['result'] = 'nem_ellenorizheto'
+            log(f"   ⚠️ {entry['title']}: a telepítő lefutott ({entry.get('method_result', '?')[:80]}), "
+                f"de az alkalmazás-lista most nem kérdezhető le - nem ellenőrizhető, fent van-e.")
             continue
         key = entry['pfn'].lower()
         now = after.get(key)

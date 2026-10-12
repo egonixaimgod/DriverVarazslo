@@ -174,5 +174,64 @@ class StagedAlreadyBound(unittest.TestCase):
         self.assertEqual(stub._catalog_staged_nobind, ['Sound Blaster Play! 4'])
 
 
+class StaleBinding(unittest.TestCase):
+    """2026-10-12, Lenovo 20KGS4032P (teszt-SSD egy ASRock B450M után): egy "AMD SMBus"
+    szellemeszköz a registryben `oem2.inf`-re mutatott, amit azóta a "Microsoft Print to
+    PDF" csomag (prnms009.inf, Printer) kapott meg - a gép-térkép a Chipset alá tette."""
+
+    NODES = [{'id': 'PCI\\VEN_1022&DEV_790B\\3&X', 'present': False, 'cls': 'System',
+              'desc': 'AMD SMBus', 'inf': 'oem2.inf', 'hwids': ['PCI\\VEN_1022&DEV_790B']}]
+    PKG = [{'published': 'oem2.inf', 'original': 'prnms009.inf', 'class': 'Printer',
+            'provider': 'Microsoft', 'version': '10.0.19041.1806', 'date': '2006-06-21'}]
+
+    def test_helper(self):
+        from app.driverusage_core import stale_binding
+        self.assertTrue(stale_binding('System', 'Printer'))
+        self.assertFalse(stale_binding('Printer', 'printer'))
+        self.assertFalse(stale_binding('', 'Printer'))           # nem tudjuk -> nem döntünk
+        self.assertFalse(stale_binding('System', '%ClassName%'))
+
+    def test_usage_and_map(self):
+        from app import driverusage_core as du, machinemap_core as mm
+        facts = {'oem2.inf': {'inf_class': 'Printer', 'hwid_count': 0, 'services': [], 'sys_files': []}}
+        quiet()
+        u = du.build_usage({'devices': du.devices_from_nodes(self.NODES), 'services': [],
+                            'filters': []}, facts, ['oem2.inf'])
+        m = mm.build_machine_map(self.NODES, self.PKG, facts, usage=u, printer_pubs=['oem2.inf'])
+        self.assertNotIn('AMD SMBus', ' '.join(u['oem2.inf'].get('reasons') or []))
+        self.assertNotIn('AMD SMBus', m['packages']['oem2.inf']['why'])
+        # ellenpróba: egyező osztálynál a kötés marad
+        nodes = [dict(self.NODES[0], cls='Printer')]
+        m2 = mm.build_machine_map(nodes, self.PKG, facts, printer_pubs=['oem2.inf'])
+        self.assertIn('AMD SMBus', m2['packages']['oem2.inf']['why'])
+
+
+class BootChainFromNodes(unittest.TestCase):
+    """2026-10-12: a boot-lánc bejárása az eszközfából (a Get-PnpDeviceProperty-s bejárás
+    54-133 mp volt). Terepi lánc: Lenovo 20KGS4032P, USB-s teszt-SSD."""
+
+    def test_lenovo_usb_ssd(self):
+        from app.wu_core import boot_chain_from_nodes, _collect_boot_path_protection
+        ids = ['SCSI\\DISK&VEN_IB-AC703&PROD_-U3\\6&4419B6D&0&000000', 'USB\\VID_174C&PID_55AA\\X1',
+               'USB\\ROOT_HUB30\\5&1', 'PCI\\VEN_8086&DEV_9D2F\\3&1', 'ACPI\\PNP0A08\\0',
+               'ACPI_HAL\\PNP0C08\\0', 'ROOT\\ACPI_HAL\\0000', 'HTREE\\ROOT\\0']
+        infs = ['disk.inf', 'uaspstor.inf', 'usbhub3.inf', 'usbxhci.inf', 'pci.inf', 'acpi.inf', 'hal.inf', '']
+        nodes = [{'id': i, 'parent': (ids[k + 1] if k + 1 < len(ids) else ''), 'inf': f, 'cls': 'X',
+                  'service': 's', 'desc': '@oem1.inf,%a%;Név' if k == 0 else 'n'}
+                 for k, (i, f) in enumerate(zip(ids, infs))]
+        nodes.append({'id': 'PCI\\VEN_1022&DEV_790B\\X', 'parent': ids[4], 'inf': 'oem2.inf'})  # nem a láncon
+        chain = boot_chain_from_nodes([ids[0].lower()], nodes)   # a Storage-út kisbetűs id-t ad
+        self.assertEqual([c['Inf'] for c in chain], infs[:7])   # a HTREE gyökér nem tag
+        self.assertEqual(chain[0]['Name'], 'Név')
+        self.assertEqual(boot_chain_from_nodes(['NINCS\\ILYEN'], nodes), [])
+        quiet()
+        run = lambda *a, **k: CommandResult(0, json.dumps({'DiskIds': ids[0]}), '')
+        infs_got, _c, det = _collect_boot_path_protection(run, node_fn=lambda: nodes)
+        self.assertTrue(det)
+        self.assertEqual(infs_got, set(infs[:7]))
+        run_empty = lambda *a, **k: CommandResult(0, json.dumps({'DiskIds': []}), '')
+        self.assertFalse(_collect_boot_path_protection(run_empty, node_fn=lambda: nodes)[2])  # fail-safe
+
+
 if __name__ == '__main__':
     unittest.main()
