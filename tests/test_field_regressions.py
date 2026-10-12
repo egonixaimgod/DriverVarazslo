@@ -174,6 +174,43 @@ class StagedAlreadyBound(unittest.TestCase):
         self.assertEqual(stub._catalog_staged_nobind, ['Sound Blaster Play! 4'])
 
 
+class GhostBindIsNotProof(unittest.TestCase):
+    """2026-10-12, Lenovo 20KG (Build 373): a vándorló SSD-n ugyanazon a PCI-helyen más
+    gépek szellemeszközei állnak (más SUBSYS). A pnputil ezekre "installed"-et írt, a valódi
+    eszközre "up-to-date"-et (a régi driverén maradt) - mégis "✅ telepítve" lett."""
+
+    from app.wu_core import package_bound_to_device_family as bound
+    bound = staticmethod(bound)
+    # a terepi napló kimenete szó szerint (rövidítve)
+    OUT = ('Adding driver package:  e1d.inf\nDriver package added successfully.\n'
+           'Published Name:         oem110.inf\n'
+           'Driver package installed on device: PCI\\VEN_8086&DEV_15D7&SUBSYS_07A61028&REV_21\\3&11583659&0&FE\n'
+           'Driver package installed on device: PCI\\VEN_8086&DEV_15D7&SUBSYS_225A17AA&REV_21\\3&11583659&0&FE\n'
+           'Driver package is up-to-date on device: PCI\\VEN_8086&DEV_15D7&SUBSYS_225C17AA&REV_21\\3&11583659&0&FE\n'
+           'Added driver packages:  1')
+    DEV = {'name': 'Intel(R) Ethernet Connection (4) I219-LM #7',
+           'pnp_id': 'PCI\\VEN_8086&DEV_15D7&SUBSYS_225C17AA&REV_21\\3&11583659&0&FE',
+           'all_hwids': ['PCI\\VEN_8086&DEV_15D7&SUBSYS_225C17AA&REV_21',
+                         'PCI\\VEN_8086&DEV_15D7&SUBSYS_225C17AA', 'PCI\\VEN_8086&DEV_15D7&CC_020000',
+                         'PCI\\VEN_8086&DEV_15D7']}
+
+    def test_mas_gep_szellemeszkoze_nem_bizonyitek(self):
+        self.assertFalse(self.bound(self.OUT, self.DEV, own_uptodate_counts=False))
+
+    def test_sajat_uptodate_alapbol_tovabbra_is_bizonyitek(self):
+        # a Sound Blaster-eset (már rákötött csomag) változatlan
+        self.assertTrue(self.bound(self.OUT, self.DEV))
+
+    def test_sajat_installed_bizonyitek(self):
+        out = self.OUT.replace('is up-to-date on device', 'installed on device')
+        self.assertTrue(self.bound(out, self.DEV, own_uptodate_counts=False))
+
+    def test_usb_gyerek_interfesz_tovabbra_is_bizonyitek(self):
+        dev = {'pnp_id': 'USB\\VID_041E&PID_3274\\5&1', 'all_hwids': ['USB\\VID_041E&PID_3274']}
+        out = 'Driver package installed on device: USB\\VID_041E&PID_3274&MI_00\\7&887c350&0&0000'
+        self.assertTrue(self.bound(out, dev, own_uptodate_counts=False))
+
+
 class StaleBinding(unittest.TestCase):
     """2026-10-12, Lenovo 20KGS4032P (teszt-SSD egy ASRock B450M után): egy "AMD SMBus"
     szellemeszköz a registryben `oem2.inf`-re mutatott, amit azóta a "Microsoft Print to

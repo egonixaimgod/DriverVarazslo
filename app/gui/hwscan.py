@@ -4464,7 +4464,13 @@ try {
                             # pnputil ilyenkor a gyereket nevezi meg ("installed/up-to-date
                             # on device: USB\VID_041E&PID_3274&MI_00\..."), és 2026-08-05-ig
                             # pont ezt az esetet könyveltük el "az eszköz nem vette át"-ként.
-                            if package_bound_to_device_family(pnp_out, drv):
+                            # A SAJÁT példány "up-to-date"-je itt nem bizonyíték: az INF nem
+                            # változott, tehát a Windows a régi driverét tartotta meg (kivéve,
+                            # ha a régi INF maga a mi most felrakott csomagunk).
+                            ours = {p.lower() for p in re.findall(
+                                r'Published Name\s*:\s*(oem\d+\.inf)', pnp_out or '', re.IGNORECASE)}
+                            if cur_inf in ours or package_bound_to_device_family(
+                                    pnp_out, drv, own_uptodate_counts=False):
                                 logging.info(f"[CATALOG_INSTALL] {drv.get('name')}: a csomag az eszköz "
                                              f"gyerek-interfészére kötött rá (a szülő marad "
                                              f"{drv.get('installed_inf')}, ez így helyes).")

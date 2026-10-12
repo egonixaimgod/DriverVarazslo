@@ -829,7 +829,10 @@ class GuiAutofixMixin:
             okok.append(f'{n_wrong} db esetében már bizonyítottuk, hogy más '
                         f'gépre/alaplapra készült (fel sem telepítettük)')
         if n_other:
-            okok.append(f'{n_other} db már felment, de az eszköz nem vette át')
+            # 2026-10-12, Lenovo 20KG: a 3 tételből az egyik naprakész volt, egy a régi
+            # driverén maradt - a "felment, de nem vette át" csak egy esetre igaz.
+            okok.append(f'{n_other} db-bal egy korábbi lábban már foglalkoztunk (feltelepült, '
+                        f'naprakész volt, vagy az eszköz nem vette át - lásd a lábak tételes mérlegét)')
         return n_wrong, n_other, (f'↷ {len(kihagyott or [])} katalógus-csomag kihagyva - '
                                   + '; '.join(okok) + '. Nem töltjük le újra.')
 
@@ -2676,11 +2679,19 @@ class GuiAutofixMixin:
             # mint a nyomtatóknál), és eltakarítjuk a WLAN-profil mentést, hogy ügyfélgépen
             # ne maradjon hátra hálózati profil-fájl.
             if getattr(self, '_autofix_wifi_mode', False):
+                wifi_outcome = getattr(self, '_autofix_wifi_outcome', None)
+                logging.info(f"[WIFI-SWAP] Záró állapot: {wifi_outcome}, csere={getattr(self, '_autofix_wifi_swapped', False)}")
                 if getattr(self, '_autofix_wifi_swapped', False):
                     self.emit('task_progress', {'task': task_id, 'log': '\n📶 Wi-Fi-s telepítés: az eszköz ÚJABB Wi-Fi drivert kapott, és a régi csomagot a végén eltávolítottuk - így minden driver kicserélődött.'})
-                else:
+                elif wifi_outcome == 'none':
+                    self.emit('task_progress', {'task': task_id, 'log': '\n📶 Wi-Fi-s telepítés: a Wi-Fi kártyának a lánc elején nem volt third-party drivere, így a törlésből nem kellett semmit kihagyni - a kártya a többi eszközzel együtt került a driver-keresésbe.'})
+                elif wifi_outcome == 'new':
+                    self.emit('task_progress', {'task': task_id, 'log': f'\n📶 Wi-Fi-s telepítés: a Wi-Fi kártya ÚJABB drivert kapott ({getattr(self, "_autofix_wifi_current_inf", "?")}), de a régi csomag a DriverStore-ban maradt (az ok a naplóban: [WIFI-SWAP]).'})
+                elif wifi_outcome == 'kept':
                     self.emit('task_progress', {'task': task_id, 'log': '\n📶 Wi-Fi-s telepítés: a Wi-Fi kártya drivere MEGMARADT, hogy a kapcsolat a lánc alatt ne szakadjon meg.'})
                     self.emit('task_progress', {'task': task_id, 'log': 'A Windows Update és a katalógus sem kínált hozzá újabbat, tehát a jelenlegi a legfrissebb elérhető. Ha mindenképp tiszta újratelepítést akarsz, tedd kábelre a gépet, és futtasd újra a fixet Wi-Fi mód nélkül.'})
+                else:
+                    self.emit('task_progress', {'task': task_id, 'log': '\n📶 Wi-Fi-s telepítés: a Wi-Fi kártya drivere ki volt hagyva a törlésből; hogy a végén melyik driveren fut, nem olvasható ki.'})
                 clear_wlan_backup()
             # A WU videokártya-driverei jellemzően hónapokkal a gyári kiadás mögött járnak.
             # 2026-09-02-ig itt az állt, hogy a manuális szken "az NVIDIA/AMD/Intel gyári
@@ -2933,23 +2944,35 @@ class GuiAutofixMixin:
         INF-nevű régi verziót amúgy is eltakarítja. Ez a lépés arra az esetre kell, amikor
         a gyártó NEVET is váltott (pl. netwtw08.inf -> netwtw10.inf) - olyankor a két csomag
         külön csoportba esik, és a régi különben örökre bent maradna."""
+        # A záró "📶" sor ebből dönt (2026-10-12): eddig minden nem-csere esetre azt írta,
+        # hogy "a WU és a katalógus sem kínált újabbat", akkor is, ha nem volt mit
+        # megtartani, és a katalógus közben új drivert tett a kártyára (Lenovo 20KG).
+        self._autofix_wifi_outcome = 'none'
+        self._autofix_wifi_swapped = False
         old_pkgs = self._autofix_stats_get('wifi_old_driver') or []
         if not old_pkgs:
+            logging.info("[WIFI-SWAP] A törlésből nem volt védett third-party Wi-Fi csomag - nincs mit kivezetni.")
             return
+        self._autofix_wifi_outcome = 'unknown'
         state = detect_wifi_state(self._run)
         current_inf = (state.get('inf') or '').lower()
         if not current_inf:
             logging.info("[WIFI-SWAP] A Wi-Fi eszköz aktuális INF-je nem olvasható ki - a régi driver marad.")
             return
+        self._autofix_wifi_outcome = 'new'
+        self._autofix_wifi_current_inf = current_inf
         present = {(d.get('published') or '').lower(): d for d in self._get_third_party_drivers()}
         candidates = []
+        gone_by_cleanup = False
         for p in old_pkgs:
             pub = (p.get('published') or '').lower()
             if pub == current_inf:
                 logging.info(f"[WIFI-SWAP] Az eszköz TOVÁBBRA IS a régi Wi-Fi driveren fut ({pub}) - "
                              "nem kapott újabbat, marad.")
+                self._autofix_wifi_outcome = 'kept'
                 continue
             if pub not in present:
+                gone_by_cleanup = True
                 logging.info(f"[WIFI-SWAP] A régi Wi-Fi csomag ({pub}) már nincs a DriverStore-ban "
                              "(a duplikátum-takarítás elvitte) - nincs teendő.")
                 continue
@@ -2959,6 +2982,9 @@ class GuiAutofixMixin:
                 continue
             candidates.append(p)
         if not candidates:
+            # Új driveren fut, a régit a duplikátum-takarítás már elvitte: ez is csere.
+            if self._autofix_wifi_outcome == 'new' and gone_by_cleanup:
+                self._autofix_wifi_swapped = True
             return
         if not self._check_internet():
             logging.warning("[WIFI-SWAP] Nincs internet a lánc végén - a régi Wi-Fi drivert biztonságból MEGTARTJUK.")

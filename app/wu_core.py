@@ -2055,18 +2055,39 @@ def pnputil_bound_devices(stdout):
     Ez az EGYETLEN olyan adat, amiből látszik, hogy egy composite USB szülőre szánt
     csomag a GYEREK-interfészre ment fel - a szülő INF-je ilyenkor jogosan marad usb.inf,
     és a régi kötés-ellenőrzés emiatt hamisan "nem vette át"-ot jelentett."""
-    out = []
-    for m in re.finditer(r'(?:installed|up-to-date)\s+on\s+device\s*:?\s*(\S+)',
-                         stdout or '', re.IGNORECASE):
-        out.append(m.group(1).strip().upper())
-    return out
+    return [inst for _, inst in _pnputil_device_lines(stdout)]
 
 
-def package_bound_to_device_family(stdout, dev):
+def _pnputil_device_lines(stdout):
+    """(állapot, példány) párok a pnputil kimenetéből; állapot: 'installed' / 'up-to-date'."""
+    return [(m.group(1).lower(), m.group(2).strip().upper())
+            for m in re.finditer(r'(installed|up-to-date)\s+on\s+device\s*:?\s*(\S+)',
+                                 stdout or '', re.IGNORECASE)]
+
+
+def _subsys_tokens(ids):
+    return {m.group(1) for s in ids
+            for m in [re.search(r'&(SUBSYS_[0-9A-F]{8})', (s or '').upper())] if m}
+
+
+def package_bound_to_device_family(stdout, dev, own_uptodate_counts=True):
     """Rákötött-e a csomag az eszköz SAJÁT családjának valamelyik példányára (akár egy
     gyerek-interfészre)? A kötés-ellenőrzés ezt fogadja el sikerként akkor is, ha maga
-    a lekérdezett (szülő) eszköz INF-je nem változott."""
+    a lekérdezett (szülő) eszköz INF-je nem változott.
+
+    `own_uptodate_counts=False`: a SAJÁT példányra írt "up-to-date" nem bizonyíték. Akkor
+    kell, ha tudjuk, hogy az eszköz INF-je nem változott, és nem a mi csomagunk: ilyenkor
+    az "up-to-date" azt jelenti, hogy a Windows a MEGLÉVŐ (jobb rangú) driverét tartotta
+    meg, és a mi csomagunkat nem vette át (2026-10-12, Lenovo 20KG: Intel I219-LM és DPTF)."""
     stems = _hwid_family_stems(dev)
+    # MÁS ALAPLAP UGYANOLYAN CHIPJE NEM A CSALÁD (2026-10-12): a vándorló teszt-SSD-n
+    # ugyanazon a PCI-helyen (`3&11583659&0&FE`) ott állnak a korábbi gépek (Dell, HP,
+    # másik Lenovo) szellemeszközei, más SUBSYS-szel. A pnputil ezekre "installed"-et ír,
+    # és a VEN&DEV-törzs illesztése ebből hamis "✅ telepítve"-t csinált, miközben a
+    # valódi eszköz "up-to-date" maradt a régi driverén. Ha mindkét oldal közöl SUBSYS-t,
+    # és nincs közös, az egy másik gép eszköze.
+    own_subsys = _subsys_tokens([(dev or {}).get('pnp_id') or '', (dev or {}).get('id') or '']
+                                + list((dev or {}).get('all_hwids') or []))
     # MAGA AZ ESZKÖZ IS ELÉG BIZONYÍTÉK, nem csak a családja (2026-09-26). A családtörzs
     # csak USB/PCI/HDAUDIO alakot ismer, tehát egy ACPI- vagy HID-eszköznél (tapipad,
     # AMD GPIO/I2C, Wacom) a függvény MINDIG hamisat adott - akkor is, ha a pnputil szó
@@ -2078,9 +2099,14 @@ def package_bound_to_device_family(stdout, dev):
     # nem következtetés, hanem maga a tény.
     own = {(dev or {}).get('pnp_id', '').strip().upper()} - {''}
     own_hw = [str(h).strip().upper() for h in ((dev or {}).get('all_hwids') or []) if h]
-    for inst in pnputil_bound_devices(stdout):
+    for state, inst in _pnputil_device_lines(stdout):
         if inst in own or any(inst.startswith(h + '\\') for h in own_hw):
+            if state == 'up-to-date' and not own_uptodate_counts:
+                continue
             return True
+        inst_subsys = _subsys_tokens([inst])
+        if own_subsys and inst_subsys and not (own_subsys & inst_subsys):
+            continue
         for stem in stems:
             if inst.startswith(stem + '&') or inst.startswith(stem + '\\') or inst == stem:
                 return True
