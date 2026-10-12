@@ -3958,7 +3958,7 @@ function cmRenderSystem() {
     '<div class="cm-sys-body"><div class="cm-sys-t">' + (aGuard ? '⛔ AUTOMATIKUS SZÍNKEZELÉS TARTÓSAN LETILTVA'
                                                                  : '✅ AUTOMATIKUS SZÍNKEZELÉS ENGEDÉLYEZVE') + '</div>' +
     '<div class="cm-sys-h">' + (aGuard
-      ? 'Minden kijelzőn ki van kapcsolva, és minden bejelentkezéskor újra kikapcsolja — a Windows sem kapcsolhatja vissza.'
+      ? 'Minden kijelzőn ki van kapcsolva, és minden bejelentkezéskor újra kikapcsolja. Ha a Windows közben visszakapcsolja (pl. 10 bites mód), a következő bejelentkezéskor vagy e nézet megnyitásakor kapcsol ki újra.'
       : 'A Windows dönt, kijelzőnként pedig kézzel is kapcsolhatod (1. rész).') +
     '<small>' + (aGuard
       ? 'Utolsó ellenőrzés: ' + (aLast ? dispEsc(aLast) : 'még nem futott (a következő bejelentkezéskor fut)')
@@ -4055,7 +4055,7 @@ function cmToggleAcmAllowed(el) {
   el.checked = !allow;
   const msg = allow
     ? 'A tartós tiltás megszűnik: a bejelentkezéskori zár törlődik, és az automatikus színkezelésről újra a Windows dönt (kijelzőnként kézzel is kapcsolhatod). Folytatod?'
-    : 'Az automatikus színkezelés MOST kikapcsol az összes kijelzőn, és a program minden bejelentkezéskor ellenőrzi és újra kikapcsolja — így a Windows (frissítés, új monitor) sem kapcsolhatja vissza.\n\nVisszakapcsolás: ugyanez a kapcsoló, vagy a gyári visszaállítás. Folytatod?';
+    : 'Az automatikus színkezelés MOST kikapcsol az összes kijelzőn, és a program minden bejelentkezéskor ellenőrzi és újra kikapcsolja (háttérfolyamat nem marad). Ha a Windows a munkamenet közben visszakapcsolja (10 bites mód, új monitor), a következő bejelentkezéskor vagy a Kijelző nézet megnyitásakor kapcsol ki újra.\n\nVisszakapcsolás: ugyanez a kapcsoló, vagy a gyári visszaállítás. Folytatod?';
   showConfirm(allow ? '✅ Automatikus színkezelés engedélyezése' : '⛔ Automatikus színkezelés tartós letiltása', msg).then(function (ok) {
     if (ok) cmAct(allow ? 'Engedélyezés...' : 'Letiltás...', function () { api().set_acm_lock(!allow); });
   });

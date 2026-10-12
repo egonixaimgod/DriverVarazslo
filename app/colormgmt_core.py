@@ -431,12 +431,23 @@ def set_gamma(gdi_name, ramp, why=''):
     # A verdikt a VISSZAOLVASÁS: a kiírt tábla és a kijelzőn lévő legnagyobb eltérése.
     back = display_core.read_gamma_ramp(gdi_name)
     if back is not None:
-        want_linear = ramp == _linear_ramp()
+        want_linear = _ramp_deviation(ramp) <= display_core.GAMMA_LINEAR_TOLERANCE
         if want_linear and not back.get('linear'):
             logging.error(f"[COLOR] Gamma: lineárist írtunk, de a visszaolvasott tábla módosított "
                           f"({back.get('max_deviation')}/65535) - valami felülírta.")
             return False, 'a visszaolvasott gamma-tábla nem lineáris - egy másik program felülírta'
+        # A fordított eset: görbét írtunk, a driver elfogadta, de a kijelzőn lineáris maradt.
+        if not want_linear and back.get('linear'):
+            logging.error(f"[COLOR] Gamma: görbét írtunk ({_ramp_deviation(ramp)}/65535 eltérés), de a "
+                          f"visszaolvasott tábla lineáris - a meghajtó figyelmen kívül hagyta.")
+            return False, 'a meghajtó elfogadta, de nem töltötte be a gamma-görbét (a visszaolvasott tábla lineáris)'
     return True, ''
+
+
+def _ramp_deviation(ramp):
+    """A tábla legnagyobb eltérése a lineáristól - ugyanaz a mérce, mint a read_gamma_ramp-é."""
+    lin = _linear_ramp()[0]
+    return max(abs(ramp[c][i] - lin[i]) for c in range(3) for i in range(256))
 
 
 def reset_gamma(gdi_name, why='lineáris visszaállítás'):
@@ -620,6 +631,16 @@ def remove_all_associations(reason):
     return removed
 
 
+def associations_left(reason):
+    """VISSZAOLVASÁS a remove_all_associations után: ami még ott van (az _remove_from_instance
+    egy írási hibát csak naplóz). Visszaad: a megmaradt társítások leírása."""
+    left = [f"{a['root']} {a['instance']} {'HDR' if a['hdr'] else 'SDR'}: {', '.join(a['profiles'])}"
+            for a in all_associations()]
+    if left:
+        logging.error(f"[COLOR] {reason}: a törlés után is maradt {len(left)} társítás: {left}")
+    return left
+
+
 def remove_orphans(displays):
     removed = []
     for inst in sorted({a['instance'] for a in orphan_associations(displays)}):
@@ -674,9 +695,9 @@ def set_profile_loading(enabled, run, displays):
     `dccw` - visszakapcsolta). ENGEDÉLYEZÉSKOR a zár lekerül, és semmi nem kerül vissza:
     csak újra LEHET profilt aktiválni. A tiltás többszöri hívása ártalmatlan (idempotens) -
     ezzel pótolható a zár egy régebbi verzióval letiltott gépen.
-    Visszaad: dict(ok, prev, removed, gamma, guard_ok, guard_msg)."""
+    Visszaad: dict(ok, prev, removed, left, gamma, guard_ok, guard_msg)."""
     ok, prev = display_core.set_calibration_management(bool(enabled))
-    out = {'ok': ok, 'prev': prev, 'removed': [], 'gamma': [], 'guard_ok': True, 'guard_msg': ''}
+    out = {'ok': ok, 'prev': prev, 'removed': [], 'left': [], 'gamma': [], 'guard_ok': True, 'guard_msg': ''}
     if not ok:
         return out
     if enabled:
@@ -684,6 +705,7 @@ def set_profile_loading(enabled, run, displays):
             out['guard_ok'] = remove_guard(run, PROFILE_GUARD)
         return out
     out['removed'] = remove_all_associations('a profil-betöltés letiltása')
+    out['left'] = associations_left('a profil-betöltés letiltása')
     for d in displays:
         g_ok, g_msg = reset_gamma(d.get('gdi_name', ''), 'profil-betöltés letiltva')
         out['gamma'].append((d.get('name'), g_ok, g_msg))
@@ -1081,19 +1103,32 @@ def factory_reset(run, displays, delete_printer_profiles=True, log=None):
             if h.get('wcg_enabled') and not h.get('enabled'):
                 ok, _s = display_core.set_acm(aid, tid, False)
                 out.append(f"{d.get('name')} ACM ki{'' if ok else ' (NEM sikerült)'}")
+                if not ok:
+                    errors.append(f"{d.get('name')}: az ACM nem kapcsolható ki")
         return ', '.join(out) or 'már alapállapotban'
     step('HDR / ACM', _live)
 
     # 2) Mindkét zár eltávolítása (a felhasználó szerint a gyári gomb oldja fel őket). A
     #    profil-zárnak a 6. lépés ELŐTT kell mennie: különben a következő bejelentkezéskor
     #    visszatiltaná a profil-betöltést, amit a visszaállítás épp engedélyez.
-    step('ACM-zár', lambda: ('eltávolítva' if remove_acm_guard(run) else 'NEM sikerült eltávolítani')
-         if plan['acm_guard'] else '')
-    step('Profil-zár', lambda: ('eltávolítva' if remove_guard(run, PROFILE_GUARD) else 'NEM sikerült eltávolítani')
-         if plan['profile_guard'] else '')
+    def _unguard(g, installed):
+        if not installed:
+            return ''
+        if remove_guard(run, g):
+            return 'eltávolítva'
+        errors.append(f"{g['label']}: a bejelentkezéskori feladat nem távolítható el")
+        return 'NEM sikerült eltávolítani'
+    step('ACM-zár', lambda: _unguard(ACM_GUARD, plan['acm_guard']))
+    step('Profil-zár', lambda: _unguard(PROFILE_GUARD, plan['profile_guard']))
 
     # 3) Minden kijelző-társítás (élő és árva példányok, SDR+HDR, HKCU+HKLM).
-    step('Profil-társítások', lambda: f"{len(remove_all_associations('gyári visszaállítás'))} törölve")
+    def _assocs():
+        n = len(remove_all_associations('gyári visszaállítás'))
+        left = associations_left('gyári visszaállítás')
+        if left:
+            errors.append('nem törölhető profil-társítás: ' + '; '.join(left))
+        return f"{n} törölve" + (f", {len(left)} MARADT" if left else '')
+    step('Profil-társítások', _assocs)
 
     # 4) Hozzáadott profilfájlok (a Windows sajátjai maradnak - az a gyári állapot).
     def _files():
@@ -1132,18 +1167,24 @@ def factory_reset(run, displays, delete_printer_profiles=True, log=None):
     # 6) Profil-betöltés engedélyezve + a kalibráló alapértéke + a Windows gamma-betöltője.
     def _calib():
         k = winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, _ICM_CALIB, 0, winreg.KEY_ALL_ACCESS)
-        winreg.SetValueEx(k, 'CalibrationManagementEnabled', 0, winreg.REG_DWORD, 1)
         winreg.SetValueEx(k, 'DisplayCalibrator', 0, winreg.REG_SZ, DISPLAY_CALIBRATOR_DEFAULT)
         run(['schtasks', '/change', '/tn', CALIB_LOADER_TASK, '/enable'], timeout=30, ok_codes=(0, 1))
-        return f"engedélyezve (előtte: {plan['calibration'] if plan['calibration'] is not None else 'nincs beállítva'})"
+        ok, _prev = display_core.set_calibration_management(True)     # visszaolvasással
+        before = plan['calibration'] if plan['calibration'] is not None else 'nincs beállítva'
+        if not ok:
+            errors.append('a profil-betöltés nem engedélyezhető (részletek a naplóban)')
+            return f'NEM sikerült engedélyezni (előtte: {before})'
+        return f"engedélyezve (előtte: {before})"
     step('Profil-betöltés', _calib)
 
     # 7) Gamma azonnal lineárisra minden kijelzőn.
     def _gamma():
         out = []
         for d in displays:
-            ok, _m = reset_gamma(d.get('gdi_name', ''), 'gyári visszaállítás')
+            ok, m = reset_gamma(d.get('gdi_name', ''), 'gyári visszaállítás')
             out.append(f"{d.get('name')}{'' if ok else ' (NEM sikerült)'}")
+            if not ok:
+                errors.append(f"{d.get('name')}: a gamma nem állítható lineárisra ({m})")
         return 'lineáris: ' + ', '.join(out) if out else ''
     step('Gamma', _gamma)
 

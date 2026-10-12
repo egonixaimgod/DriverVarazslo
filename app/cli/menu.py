@@ -923,7 +923,7 @@ def _menu_display(api):
             hdr = m.get('hdr') or {}
             pr = m.get('profiles') or {}
             lum = (m.get('edid') or {}).get('luminance') or {}
-            gamma = m.get('gamma_ramp') or {}
+            gamma = m.get('gamma_ramp')
             ui.write('')
             ui.panel(f"{i}. {m.get('name') or m.get('gdi_name') or 'Kijelző'}", [
                 f"Csatlakozás    : {m.get('connection') or '-'}"
@@ -934,7 +934,8 @@ def _menu_display(api):
                                        else ('BE' if hdr.get('wcg_enabled') else 'KI')),
                 f"SDR-profil     : {pr.get('active_sdr') or 'nincs (Windows alapértelmezés)'}",
                 f"HDR-profil     : {pr.get('active_hdr') or 'nincs (Windows alapértelmezés)'}",
-                'Gamma (GPU)    : ' + ('LINEÁRIS' if gamma.get('linear') else 'MÓDOSÍTOTT'),
+                'Gamma (GPU)    : ' + ('nem olvasható' if not gamma
+                                       else ('LINEÁRIS' if gamma.get('linear') else 'MÓDOSÍTOTT')),
                 f"Csúcsfényerő   : {lum.get('peak_nits') or '-'} nit (a GYÁRTÓ adata, nem mérés)",
                 f"Monitor driver : {m.get('monitor_driver') or '-'}",
             ])
@@ -1021,6 +1022,14 @@ def _menu_display(api):
                 f"HDR kikapcsolása        : {', '.join(plan.get('hdr_on') or []) or '-'}",
                 f"ACM kikapcsolása        : {', '.join(plan.get('acm_on') or []) or '-'}",
                 f"ACM-zár eltávolítása    : {'igen' if plan.get('acm_guard') else '-'}",
+                f"Profil-zár eltávolítása : {'igen' if plan.get('profile_guard') else '-'}",
+                f"Regisztráció gyárira    : {len(plan.get('registered') or [])}",
+                f"Profil-betöltés         : engedélyezés (most: "
+                f"{ {0: 'letiltva', 1: 'engedélyezve'}.get(plan.get('calibration'), 'nincs beállítva') })",
+                f"Gamma lineárisra        : {', '.join(plan.get('gamma_modified') or []) or '-'}",
+                f"Nem csatl. monitor-adat : {len(plan.get('datastore') or [])} érték törlése",
+                f"Éjszakai fény törlése   : {'igen' if plan.get('night_light') else '-'}",
+                f"Színszűrő kikapcsolása  : {'igen' if plan.get('color_filter') else '-'}",
                 'Megmarad (Windows gyári): ' + ', '.join(plan.get('kept_windows') or []),
             ])
             if ui.confirm('Biztosan MINDENT visszaállítasz gyárira?', False):

@@ -207,6 +207,11 @@ def set_acm(adapter_id, target_id, enable):
         logging.warning("[DISPLAY] Ezen a kijelzőn/Windowson az ACM nem elérhető (nincs WCG-támogatás "
                         "vagy a Windows régebbi, mint 11 24H2).")
         return False, before
+    if before.get('enabled'):
+        # HDR-ben a 17-es hívás hatását soha nem mértük - nem küldjük ki (a GUI is letiltja).
+        logging.warning("[DISPLAY] A kijelző HDR módban van - az ACM itt nem kapcsolható "
+                        "(HDR-ben a Windows mindig színkezelt); a hívás NEM ment ki.")
+        return False, before
     s = w32._DISPLAYCONFIG_SET_WCG_STATE()
     s.header.type = w32.DISPLAYCONFIG_DEVICE_INFO_SET_WCG_STATE
     s.header.size = ctypes.sizeof(s)
@@ -735,6 +740,13 @@ def set_calibration_management(enabled):
         winreg.SetValueEx(k, 'CalibrationManagementEnabled', 0, winreg.REG_DWORD, want)
     except OSError as e:
         logging.error(f"[DISPLAY] A kalibrációkezelés átállítása nem sikerült: {e}")
+        return False, prev
+    # A verdikt a VISSZAOLVASÁS: a calibration_management() az ICM gyökerét is nézi, és ha ott
+    # egy idegen program 0-t hagyott, az engedélyezés hatástalan (a nézet továbbra is tiltottat mutat).
+    now = calibration_management()
+    if (now == 0) != (want == 0):
+        logging.error(f"[DISPLAY] A visszaolvasott CalibrationManagementEnabled = {now}, nem {want} "
+                      f"(a HKLM\\{_ICM_BASE} gyökérben eltérő érték állhat).")
         return False, prev
     logging.info(f"[DISPLAY] A Windows kijelzőkalibráció-kezelése "
                  f"{'BEkapcsolva' if want else 'KIkapcsolva'} "

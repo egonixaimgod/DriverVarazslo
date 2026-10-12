@@ -38,6 +38,11 @@ WINDOWS_COLOR_TOOLS = {
 }
 
 
+def _ident(d):
+    """Egy kijelző azonossága: a DisplayConfig adapter-LUID + target id."""
+    return (d.get('adapter_low'), d.get('adapter_high'), d.get('target_id'))
+
+
 class GuiDisplayMixin:
     """Kijelző & Színkezelés nézet. A DriverToolApi része (összerakás: app/gui/api.py)."""
 
@@ -52,6 +57,8 @@ class GuiDisplayMixin:
               'acm_guard_last': '', 'profile_guard': False, 'profile_guard_last': '', 'modern_api': colormgmt_core._API_ADD is not None, 'errors': []}
         try:
             st['displays'] = display_core.enumerate_displays()
+            # A nézet sorszáma -> a kijelző azonossága, ahogy a nézet LÁTTA (_fresh_display).
+            self._display_ident = {d.get('index'): _ident(d) for d in st['displays']}
         except Exception as e:
             logging.error(f"[DISPLAY] Kijelzők felderítése sikertelen: {e}", exc_info=True)
             st['errors'].append(f'Kijelzők felderítése: {e}')
@@ -144,9 +151,12 @@ class GuiDisplayMixin:
         threading.Thread(target=worker, daemon=True, name=f"display-{name}").start()
 
     def _fresh_display(self, index):
-        """A nézet sorszámához tartozó FRISS kijelző-rekord (a monitor közben lecsatlakozhatott)."""
+        """A nézet sorszámához tartozó FRISS kijelző-rekord (a monitor közben lecsatlakozhatott).
+        Az egyeztetés az AZONOSSÁG szerint megy (adapter + target), nem a sorszám szerint: ha
+        közben egy új monitor a többi elé sorolódik, ugyanaz a sorszám már egy másikat jelent."""
+        want = getattr(self, '_display_ident', {}).get(int(index))
         for d in display_core.enumerate_displays():
-            if d.get('index') == int(index):
+            if (_ident(d) == want) if want else (d.get('index') == int(index)):
                 return d
         self.emit('toast', {'message': '❌ Ez a kijelző már nem elérhető - frissítsd a nézetet!',
                             'type': 'error'})
@@ -186,8 +196,12 @@ class GuiDisplayMixin:
             aid, tid = display_core.find_display_target(d['adapter_low'], d['adapter_high'], d['target_id'])
             if aid is None:
                 return
-            ok, _st = display_core.set_acm(aid, tid, bool(enable))
-            if ok:
+            ok, st = display_core.set_acm(aid, tid, bool(enable))
+            if not ok and st.get('enabled'):
+                self.emit('toast', {'message': f"ℹ️ {d['name']} HDR módban van - ott az automatikus színkezelés "
+                                               f"nem kapcsolható (HDR-ben a Windows mindig színkezelt).",
+                                    'type': 'warning'})
+            elif ok:
                 extra = ''
                 if enable and colormgmt_core.acm_guard_installed(self._run):
                     extra = ' ⚠️ Az ACM-zár él: a következő bejelentkezéskor újra kikapcsolja!'
@@ -241,11 +255,13 @@ class GuiDisplayMixin:
                 bad = [g[0] for g in res['gamma'] if not g[1]]
                 guard = ('minden bejelentkezéskor újra leszedi a profilokat' if res['guard_ok']
                          else f"⚠️ a bejelentkezéskori zár NEM települt: {res['guard_msg']}")
+                left = (f" ⚠️ {len(res['left'])} társítás NEM törölhető (részletek a naplóban)"
+                        if res['left'] else '')
                 self.emit('toast', {'message': f"🔒 Profil-betöltés LETILTVA - {len(res['removed'])} profil-társítás "
-                                               f"leszedve, a gamma lineáris"
+                                               f"leszedve{left}, a gamma lineáris"
                                                + (f" (NEM sikerült: {', '.join(bad)})" if bad else '')
                                                + f'; {guard}.',
-                                    'type': 'warning' if bad or not res['guard_ok'] else 'success'})
+                                    'type': 'warning' if bad or left or not res['guard_ok'] else 'success'})
         self._display_action('profile-loading', run)
 
     def activate_color_profile(self, index, slot, profile_file):
