@@ -172,6 +172,10 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .panel-header-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 .panel-header-row .panel-title{margin-bottom:0}
 .count-badge{background:rgba(180,100,255,0.16);border:1px solid var(--glass-border);color:var(--green);font-size:12px;font-weight:700;padding:6px 14px;border-radius:999px;white-space:nowrap}
+.drv-target-tag{display:inline-block;margin-left:10px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:800;letter-spacing:.3px;vertical-align:middle;background:rgba(231,76,60,0.18);border:1px solid rgba(231,76,60,0.55);color:#ff8a7a}
+.drv-busy-msg{display:none;align-items:center;gap:10px;margin:8px 0;padding:10px 14px;border-radius:10px;background:rgba(180,100,255,0.12);border:1px solid var(--glass-border);font-weight:700}
+#drv-machine.drv-busy .drv-busy-msg{display:flex}
+#drv-machine.drv-busy #driver-table-wrap,#drv-machine.drv-busy .drv-tabsrow,#drv-machine.drv-busy #btn-delete,#drv-machine.drv-busy #lbl-hide-printers,#drv-machine.drv-busy .mm-map,#drv-machine.drv-busy .drv-tools{opacity:.35;filter:grayscale(.7);pointer-events:none;transition:opacity .2s}
 
 /* Live search box in toolbars */
 .search-box{position:relative;flex:1;min-width:160px;max-width:260px}
@@ -1633,7 +1637,10 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 
         <div class="panel glass">
           <div class="panel-header-row">
-            <div class="panel-title"><span class="emoji">💿</span> Harmadik féltől származó driverek</div>
+            <div class="panel-title"><span class="emoji">💿</span> Harmadik féltől származó driverek
+              <!-- OFFLINE-CÍMKE (2026-10-12, explicit user decision): a lista MELYIK lemezről szól -
+                   offline módban egy másik Windows driverei látszanak, ezt mindig ki kell mondani. -->
+              <span class="drv-target-tag" id="drv-target-tag" style="display:none"></span></div>
             <span class="count-badge" id="driver-count-badge">0 driver</span>
           </div>
 
@@ -1714,6 +1721,10 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                     <input type="text" id="driver-search" placeholder="Keresés név/gyártó/típus szerint..." oninput="filterDrivers()">
                   </div>
                 </div>
+                <!-- BETÖLTÉS KÖZBEN (2026-10-12, explicit user decision): a lista kiszürkül és nem
+                     kattintható, amíg a friss lista meg nem érkezik - egy félig betöltött / másik
+                     lemezről maradt listából nem lehet kijelölni és törölni. -->
+                <div class="drv-busy-msg" id="drv-busy-msg"><div class="spinner"></div><span id="drv-busy-text">Driverek betöltése...</span></div>
                 <!-- HASZNÁLAT-ÁLLAPOT SOR: CSAK RENDELLENES ÁLLAPOTBAN látszik (offline mód /
                      a felderítés hibája / felderítés folyamatban) - ilyenkor a fülek hiányoznak,
                      és magyarázat nélkül úgy tűnne, hogy eltűntek. Normál állapotban REJTVE
@@ -2829,6 +2840,10 @@ let driverSortDir = 'asc';
 let driverUsage = null;
 let driverUsageError = '';
 let driverUsageOffline = false;
+// A KIJELZETT lista lemeze ('' = élő rendszer) és a MOSTANI cél. A kettő eltérése = elavult
+// lista: azt nem mutatjuk, és a törlés a lista lemezét is elküldi (2026-10-12).
+let driversTarget = '';
+let currentTargetPath = '';
 let drvTab = 'all';
 // A GÉP FELÉPÍTÉSE (2026-09-17). A térkép a használat-felderítéssel EGY hívásból jön
 // (get_driver_usage 'machine'). `null` = még nincs / nem készült el - ilyenkor a
@@ -3059,11 +3074,24 @@ async function checkForUpdatesManual() {
 window.handlePyEvent = function(payload) {
   const {event, data} = payload;
   switch(event) {
-    case 'drivers_loading':
+    case 'drivers_loading': {
+      const lt = (data && data.target) || '';
       document.getElementById('driver-loading').style.display = 'block';
-      document.getElementById('driver-status').innerHTML = '<div class="spinner"></div> Driverek betöltése...';
+      document.getElementById('driver-status').innerHTML = '<div class="spinner"></div> Driverek betöltése'
+        + (lt ? ' a(z) ' + esc(lt) + ' meghajtóról (OFFLINE)' : '') + '...';
+      setDriversBusy(true, lt);
       break;
+    }
     case 'drivers_loaded':
+      // ELAVULT LISTA (2026-10-12, terepi hiba): egy másik lemez listája nem jelenhet meg
+      // a mostani cél alatt. A backend is eldobja; ez a második védvonal.
+      if (((data && data.target) || '') !== currentTargetPath) {
+        api().js_log('WARN', '[UI] Elavult driver-lista eldobva (lemez: ' + ((data && data.target) || 'élő rendszer')
+          + ', mostani cél: ' + (currentTargetPath || 'élő rendszer') + ')');
+        break;
+      }
+      setDriversBusy(false);
+      driversTarget = (data && data.target) || '';
       document.getElementById('driver-loading').style.display = 'none';
       drivers = data.drivers || [];
       selectedDrivers.clear();
@@ -3080,7 +3108,8 @@ window.handlePyEvent = function(payload) {
         document.getElementById('driver-status').innerHTML = '<span class="status-dot" style="background:#e74c3c"></span> ❌ Hiba a driverek betöltésekor: ' + esc(data.error);
         toast('❌ Hiba a driverek betöltésekor: ' + data.error, 'error');
       } else {
-        document.getElementById('driver-status').innerHTML = '<span class="status-dot"></span> ✅ ' + drivers.length + ' driver betöltve (' + data.elapsed + ' mp)';
+        document.getElementById('driver-status').innerHTML = '<span class="status-dot"></span> ✅ ' + drivers.length + ' driver betöltve'
+          + (driversTarget ? ' a(z) ' + esc(driversTarget) + ' meghajtóról (OFFLINE)' : '') + ' (' + data.elapsed + ' mp)';
       }
       updateDeleteBtn();
       break;
@@ -4278,6 +4307,8 @@ async function disableBitlocker() {
 /* ========== TARGET OS ========== */
 function updateTargetLabel(path, sysDrive) {
   const el = document.getElementById('target-label');
+  currentTargetPath = path || '';
+  renderTargetTag();
   if (path) {
     el.textContent = 'OFFLINE MÓD (' + path + ')';
     el.className = 'target-label offline';
@@ -4285,6 +4316,26 @@ function updateTargetLabel(path, sysDrive) {
     el.textContent = 'JELENLEGI RENDSZER (' + (sysDrive || 'C:\\') + ')';
     el.className = 'target-label online';
   }
+}
+/* Az OFFLINE-címke a driverlista címe mellett: a KIJELZETT lista lemezét mondja (amíg az
+   új lista tölt, a cél lemezét). Élő rendszeren rejtve. */
+function renderTargetTag() {
+  const tag = document.getElementById('drv-target-tag');
+  if (!tag) return;
+  const t = currentTargetPath;
+  tag.style.display = t ? '' : 'none';
+  tag.textContent = t ? '💽 OFFLINE MÓD · ' + t : '';
+  tag.title = t ? 'A lista NEM a futó gép driverei: a(z) ' + t + ' meghajtón lévő Windowsé. A törlés is oda megy.' : '';
+}
+function setDriversBusy(on, target) {
+  const box = document.getElementById('drv-machine');
+  if (box) box.classList.toggle('drv-busy', !!on);
+  const txt = document.getElementById('drv-busy-text');
+  if (txt) txt.textContent = target
+    ? 'Driverek betöltése a(z) ' + target + ' meghajtóról (OFFLINE) — ez lassú lemezen egy percig is tarthat, várd meg!'
+    : 'Driverek betöltése — várd meg, amíg elkészül!';
+  const del = document.getElementById('btn-delete');
+  if (del && on) del.disabled = true;
 }
 async function changeTarget() {
   try {
@@ -4330,6 +4381,7 @@ async function loadDrivers() {
     // felkínáljuk, a Python paraméter ezért maradt a helyén.
     await api().load_drivers(false);
   } catch (e) {
+    setDriversBusy(false);
     document.getElementById('driver-loading').style.display = 'none';
     document.getElementById('driver-status').innerHTML = '<span class="status-dot" style="background:var(--red)"></span> ❌ Hiba: ' + esc(String(e));
     toast('Driver lista betöltési hiba: ' + e, 'error');
@@ -4505,7 +4557,10 @@ function updateSortHeaders() {
    régi INF-név volt - a technikusnak azt kell látnia, MIT vesz el a géptől. */
 function drvUsageCell(d) {
   const e = drvUsageEntry(d);
-  return usageCellHtml(drvUsageOf(d), e && e.summary, e && e.reasons);
+  // Offline módban a felderítés NEM fut (és nem is fog): a "felderítés folyamatban" ott hazugság.
+  return usageCellHtml(drvUsageOf(d), e && e.summary, e && e.reasons,
+                       driverUsageOffline ? 'offline – nem állapítható meg'
+                         : (driverUsageError ? 'nem sikerült felderíteni' : ''));
 }
 /* A "Használat" cella EGY helyen: a Driverek nézet és az 1 kattintásos fix törlési
    előnézete is ezt hívja (2026-10-01), hogy a két képernyő ugyanazt a chipet mutassa. */
@@ -5367,6 +5422,9 @@ async function deleteSelected() {
     return;
   }
   let msg = 'Biztosan törlöd a kiválasztott ' + names.length + ' drivert?';
+  if (driversTarget) {
+    msg = '💽 OFFLINE MÓD: a(z) ' + driversTarget + ' meghajtón lévő Windowsból törölsz, NEM a futó gépből!\n\n' + msg;
+  }
   // HASZNÁLATBAN LÉVŐ CSOMAGOK NEVESÍTVE. Ez NEM tiltás és nem is szűrő (a CLAUDE.md
   // szabálya szerint minden drivert lehessen törölni) - de a technikusnak látnia kell,
   // MIT vesz el a géptől. Pont ez hiányzott a terepi ninja-esetnél: a távoli asztal
@@ -5396,7 +5454,9 @@ async function deleteSelected() {
   const ok = await showConfirm('Megerősítés', msg);
   if (!ok) return;
   try {
-    await api().delete_drivers(names);
+    // A lista lemeze is megy: ha azóta másik lemezre váltottál, a backend megtagadja
+    // (egy oemNN.inf szám lemezenként mást jelent).
+    await api().delete_drivers(names, false, false, driversTarget);
   } catch (e) {
     toast('Hiba a törlés során: ' + e, 'error');
   }

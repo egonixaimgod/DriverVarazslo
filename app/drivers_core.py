@@ -265,22 +265,23 @@ DISM_BUSY_RETRIES = 3
 DISM_BUSY_WAIT_S = 4
 
 
-def _run_dism_list(run, cmd):
-    """Egy `dism ... /Get-Drivers` hívás, a FOGLALTSÁG rövid kivárásával.
+def _run_dism_list(run, cmd, **kw):
+    """Egy DISM-hívás (`/Get-Drivers`, offline `/Remove-Driver`), a FOGLALTSÁG rövid
+    kivárásával.
 
     Csak akkor próbálkozik újra, ha a DISM maga mondja, hogy foglalt (`dism_is_busy`) -
     egy jogosultsági vagy útvonal-hibán az újrapróbálás csak időt pazarolna."""
-    res = run(cmd)
+    res = run(cmd, **kw)
     for attempt in range(1, DISM_BUSY_RETRIES + 1):
         if not dism_is_busy(res.stdout, getattr(res, 'stderr', '')):
             return res
         logging.warning(f"[DRIVERS] A DISM foglalt (másik művelet dolgozik a lemezképen) - "
                         f"{attempt}/{DISM_BUSY_RETRIES}. újrapróbálás {DISM_BUSY_WAIT_S} mp múlva.")
         time.sleep(DISM_BUSY_WAIT_S)
-        res = run(cmd)
+        res = run(cmd, **kw)
     if dism_is_busy(res.stdout, getattr(res, 'stderr', '')):
-        logging.warning("[DRIVERS] A DISM a várakozás után is foglalt - a lista üres marad. "
-                        "Ez NEM azt jelenti, hogy nincs driver a gépen.")
+        logging.warning("[DRIVERS] A DISM a várakozás után is foglalt - a művelet nem futott le. "
+                        "(Listánál: ez NEM azt jelenti, hogy nincs driver a gépen.)")
     return res
 
 
@@ -413,7 +414,11 @@ def delete_driver_package(run, pub, target_os_path=None, timeout=None):
     tárolóvezérlő) percekig lógatja - timeout nélkül ez az egész AutoFix lábat
     megakasztja. Időtúllépéskor a _run CMD_TIMEOUT_RETURNCODE-dal tér vissza."""
     if target_os_path:
-        return run(['dism', f'/Image:{target_os_path}', '/Remove-Driver', f'/Driver:{pub}'], timeout=timeout)
+        # /English: a hiba okát a szövegből olvassuk ki (dism_failure_reason) - magyar
+        # kimenetnél a technikus a DISM fejlécét kapta ok helyett (2026-10-12, Error 183).
+        # Foglalt lemezképnél (egy még futó lista-lekérdezés) rövid kivárás.
+        return _run_dism_list(run, ['dism', '/English', f'/Image:{target_os_path}', '/Remove-Driver',
+                                    f'/Driver:{pub}'], timeout=timeout)
     # ok_codes 3010: siker, de reboot kell a lezáráshoz - a delete_succeeded sikeresnek veszi.
     return run(['pnputil', '/delete-driver', pub, '/uninstall', '/force'], ok_codes=(0, 3010), timeout=timeout)
 
@@ -605,11 +610,16 @@ def delete_failure_text(res, limit=140):
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if delete_blocked_in_use(res):
         return 'egy telepített eszköz még használja ezt az INF-et'
+    # Offline (DISM) törlés: az ismert DISM-hibák magyar oka (pl. Error 183 = foglalt kép).
+    dism_why = dism_failure_reason(text)
+    if dism_why:
+        return dism_why[:limit]
     for ln in lines:
         if ln.lower().startswith('failed to'):
             return ln[:limit]
+    _header = ('pnp utility', 'deployment image servicing', 'version:', 'image version:')
     for ln in lines:
-        if 'pnp utility' not in ln.lower():
+        if not ln.lower().startswith(_header) and 'pnp utility' not in ln.lower():
             return ln[:limit]
     rc = getattr(res, 'returncode', '?')
     return f'a pnputil nem adott magyarázatot (kód {rc})'

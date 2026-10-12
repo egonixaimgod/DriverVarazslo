@@ -143,18 +143,32 @@ class GuiDriversMixin:
     # DRIVER LISTING
     # ================================================================
     def load_drivers(self, all_drivers=False):
-        logging.info(f"[API] load_drivers(all_drivers={all_drivers})")
+        # SORSZÁM + CÉLLEMEZ (2026-10-12, terepi napló, Build 372): az induláskori C:-lista
+        # (8 mp) a D:-re váltás UTÁN ért be, és "OFFLINE MÓD (D:\)" alatt jelent meg; a
+        # technikus abból törölt a D:\ képen - egy másik Windowsban ugyanaz az oemNN.inf
+        # egészen más driver. Csak a LEGUTÓBBI betöltés eredménye mehet ki, és csak akkor,
+        # ha a céllemez azóta nem változott.
+        self._drv_load_gen = getattr(self, '_drv_load_gen', 0) + 1
+        gen, target = self._drv_load_gen, self.target_os_path
+        logging.info(f"[API] load_drivers(all_drivers={all_drivers}) - #{gen}, cél: {target or 'élő rendszer'}")
         def worker():
-            self.emit('drivers_loading')
+            self.emit('drivers_loading', {'target': target or ''})
             start = time.monotonic()
             # A DISM felismert hibái ide gyűlnek. MIÉRT KELL (2026-09-07, terepi naplóból):
             # egy foglalt DISM ("another DISM operation") üres listát ad, amit a felület
             # eddig ugyanúgy `0 driver`-ként mutatott, mint a "tényleg nincs csomag" esetet.
             # A kettő gyökeresen mást jelent a technikusnak, ezért a hibát ki kell mondani.
             problems = []
+            def _stale():
+                if gen == self._drv_load_gen and target == self.target_os_path:
+                    return False
+                logging.warning(f"[DRIVERS] A #{gen} betöltés ({target or 'élő rendszer'}) ELAVULT "
+                                f"(azóta: #{self._drv_load_gen}, cél: {self.target_os_path or 'élő rendszer'}) "
+                                f"- az eredménye nem jelenik meg.")
+                return True
             try:
-                if self.target_os_path:
-                    logging.info(f"[DRIVERS] Offline mód: {self.target_os_path}")
+                if target:
+                    logging.info(f"[DRIVERS] Offline mód: {target}")
                     drivers = self._get_offline_drivers(all_drivers, problems)
                 elif all_drivers:
                     logging.info("[DRIVERS] Összes driver lekérdezés (élő rendszer)")
@@ -164,7 +178,9 @@ class GuiDriversMixin:
                     drivers = self._get_third_party_drivers(problems)
                 elapsed = time.monotonic() - start
                 logging.info(f"[DRIVERS] Betöltve: {len(drivers)} driver ({elapsed:.1f}s)")
-                payload = {'drivers': drivers, 'elapsed': round(elapsed, 1)}
+                if _stale():
+                    return
+                payload = {'drivers': drivers, 'elapsed': round(elapsed, 1), 'target': target or ''}
                 if problems and not drivers:
                     payload['error'] = (f"A driver-lista lekérdezése nem sikerült: {problems[0]}. "
                                         f"Ez NEM azt jelenti, hogy nincs driver a gépen - "
@@ -173,8 +189,10 @@ class GuiDriversMixin:
             except Exception as e:
                 logging.error(f"[DRIVERS] Betöltési hiba: {e}")
                 logging.error(traceback.format_exc())
-                self.emit('drivers_loaded', {'drivers': [], 'elapsed': 0, 'error': str(e)})
-        threading.Thread(target=worker, daemon=True, name="drivers-load").start()
+                if not _stale():
+                    self.emit('drivers_loaded', {'drivers': [], 'elapsed': 0, 'error': str(e),
+                                                 'target': target or ''})
+        threading.Thread(target=worker, daemon=True, name=f"drivers-load-{gen}").start()
 
     def _get_third_party_drivers(self, problems=None):
         """A third-party csomagok listája - RÖVID ÉLETŰ GYORSÍTÓTÁRRAL.
@@ -242,9 +260,19 @@ class GuiDriversMixin:
     # ================================================================
     # DRIVER DELETION
     # ================================================================
-    def delete_drivers(self, published_names, list_all=False, reboot=False):
-        logging.info(f"[API] delete_drivers() - {len(published_names)} driver, list_all={list_all}, reboot={reboot}")
+    def delete_drivers(self, published_names, list_all=False, reboot=False, list_target=None):
+        logging.info(f"[API] delete_drivers() - {len(published_names)} driver, list_all={list_all}, "
+                     f"reboot={reboot}, a lista lemeze: {list_target!r}, a mostani cél: {self.target_os_path!r}")
         logging.info(f"[DELETE] Törlendő driverek: {published_names}")
+        # A KIJELÖLÉS LEMEZE = A TÖRLÉS LEMEZE (2026-10-12, lásd load_drivers): az oemNN.inf
+        # szám lemezenként mást jelent, egy másik lemez listájáról jött névvel SOHA nem törlünk.
+        if list_target is not None and (list_target or None) != (self.target_os_path or None):
+            logging.error(f"[DELETE] MEGTAGADVA: a kijelölt lista a(z) {list_target or 'élő rendszer'} "
+                          f"lemezéről jött, a cél viszont {self.target_os_path or 'az élő rendszer'}.")
+            self.emit('toast', {'message': '❌ A kijelölt lista egy MÁSIK lemezről jött - a törlés megtagadva. '
+                                           'Frissítsd a listát, és jelöld ki újra!', 'type': 'error'})
+            return
+        where = f' – OFFLINE: {self.target_os_path}' if self.target_os_path else ''
         def worker():
             total = len(published_names)
             success = 0
@@ -258,8 +286,8 @@ class GuiDriversMixin:
             # kockázat lenne, ezért gyűjtjük őket.
             in_use = []
             logging.info(f"[DELETE] Törlés indulása: {total} db driver")
-            self.emit('task_start', {'task': 'delete', 'title': f'Törlés folyamatban... ({total} driver)'})
-            self.emit('task_progress', {'task': 'delete', 'log': f'Kijelölt driverek törlése indult ({total} db)'})
+            self.emit('task_start', {'task': 'delete', 'title': f'Törlés folyamatban... ({total} driver{where})'})
+            self.emit('task_progress', {'task': 'delete', 'log': f'Kijelölt driverek törlése indult ({total} db{where})'})
 
             cancelled = False
             for i, pub in enumerate(published_names):
