@@ -157,3 +157,11 @@ There is no test suite and no `requirements.txt`; the only third-party runtime d
 - **Run from source**: `python driver_tool.py` (GUI, self-elevates via UAC) or `python driver_tool.py --cli`.
 - `DriverVarazslo.spec`, `version_info.txt`, and `dist/DriverVarazslo.exe` are intentionally tracked in git — the exe is what the in-app updater downloads.
 
+### 2026-10-12: review-javítások (frissítő, letöltő, indítás)
+
+Kódolvasásból, a felhasználó kérésére; terepen NEM reprodukálva. Teszt: `tests/test_update_truth.py` (5 eset; a 3 hiba-eset elbukik a régi kódon, a 2 jó-út eset mindkettőn átmegy).
+
+- **Csonka letöltés:** a `download_with_cert_fallback` Python-ága nem vetette össze a letöltött bájtokat a `Content-Length`-del, a `http.client` pedig bontott kapcsolatnál kivétel NÉLKÜL ad rövid fájlt (a katalógusnál terepen mérve: 1,22 GB-ból 139 MB). Az updaterben egy 1 MB fölötti, `MZ`-vel kezdődő csonka exe átment volna a kapun (a verzió-erőforrás a fájl végén van, tehát az sem olvasható). Most eltérésnél a csonk törlődik és kivétel jön — minden letöltésre (updater, stresstools, BootFixer, WebView2…).
+- **Régi exe a CDN-ről:** a raw úton a `driver_tool.py` és a `dist/DriverVarazslo.exe` KÜLÖN kerül a Fastly-cache-be; a push után a raw már az új BUILD_NUMBER-t mutathatja, miközben az exe még a régi → „frissítés” ugyanarra a buildre, és minden indulás újra felajánlja. Most a `stage_update` a letöltött exe fájlverziójának harmadik tagját (= build, `version_info.txt`, `bump_build.py` tartja szinkronban) összeveti az `expect_build`-del; ha kisebb, a régit törli és „próbáld 5 perc múlva” hibát ad. Ha a verzió nem olvasható, nem dönt (nem blokkol). Élőben ellenőrizve a `dist/DriverVarazslo.exe`-n: `1.0.371.0 -> 371`.
+- **A `--cli` indítás kilépése** `sys.exit(0)` volt, nem `cleanup_zombies()` + `os._exit(0)` (8. fejezet); a `cleanup_zombies` ezért feljebb került. Két indítási kivételág `exc_info`-t kapott.
+

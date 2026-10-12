@@ -104,7 +104,9 @@ def build_ghost_ps(skip_classes=None):
         '    } catch { $code = 1 }\n'
         '    if ($stuck) {\n'
         '        Write-Output "TIMEOUT: $name"\n'
-        '    } elseif ($code -eq 0 -or $res -match "deleted" -or $res -match "törölve" -or $res -match "successfully") {\n'
+        # A 3010 (újraindítás kell) is SIKER: a magyar szövegben se 'deleted', se 'successfully'
+        # nincs, ezért a kód nélkül egy sikeres eltávolítás FAIL-nek látszott.
+        '    } elseif ($code -eq 0 -or $code -eq 3010 -or $res -match "deleted" -or $res -match "törölve" -or $res -match "successfully") {\n'
         '        Write-Output "OK: $name"\n'
         '        $count++\n'
         '    } else {\n'

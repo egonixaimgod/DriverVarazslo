@@ -108,6 +108,23 @@ def read_wu_status(run):
     """A WU driver-frissítés állapotának nyers tényei - a megjelenítendő szöveget a
     hívó formázza. Visszatérés: dict(policy_disabled, search_disabled,
     service_disabled, paused_until [ISO string vagy None])."""
+    policy_disabled, search_disabled = _driver_policy_state()
+
+    service_disabled = False
+    try:
+        res = run(['powershell', '-NoProfile', '-Command', '(Get-Service wuauserv).StartType'], encoding='utf-8')
+        if res.stdout and 'Disabled' in res.stdout:
+            service_disabled = True
+    except Exception as e:
+        logging.debug(f"[WU] wuauserv StartType lekérdezése sikertelen: {e}")
+
+    return {'policy_disabled': policy_disabled, 'search_disabled': search_disabled,
+            'service_disabled': service_disabled, 'paused_until': wu_paused_until()}
+
+
+def _driver_policy_state():
+    """(ExcludeWUDriversInQualityUpdate == 1, SearchOrderConfig == 0) - a két driver-tiltó
+    registry-érték, a WU nézet ÉS a beírások visszaolvasása is ezt használja."""
     policy_disabled = False
     search_disabled = False
     try:
@@ -127,15 +144,11 @@ def read_wu_status(run):
             logging.debug(f"[WU_STATUS] SearchOrderConfig = {val}")
     except (FileNotFoundError, OSError):
         logging.debug("[WU_STATUS] SearchOrderConfig kulcs nem létezik")
+    return policy_disabled, search_disabled
 
-    service_disabled = False
-    try:
-        res = run(['powershell', '-NoProfile', '-Command', '(Get-Service wuauserv).StartType'], encoding='utf-8')
-        if res.stdout and 'Disabled' in res.stdout:
-            service_disabled = True
-    except Exception as e:
-        logging.debug(f"[WU] wuauserv StartType lekérdezése sikertelen: {e}")
 
+def wu_paused_until():
+    """A WU-szünet lejárata (ISO string), ha a jövőben van; különben None."""
     paused_until = None
     try:
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings", 0, winreg.KEY_READ) as key:
@@ -146,15 +159,15 @@ def read_wu_status(run):
                     paused_until = val
     except Exception as e:
         logging.debug(f"[WU] PauseUpdatesExpiryTime olvasás/értelmezés sikertelen (nincs szünet beállítva?): {e}")
-
-    return {'policy_disabled': policy_disabled, 'search_disabled': search_disabled,
-            'service_disabled': service_disabled, 'paused_until': paused_until}
+    return paused_until
 
 
 def set_wu_driver_policy(run, disabled):
     """A WU driver-letöltést vezérlő két registry-érték beállítása.
     disabled=True: SearchOrderConfig=0 + ExcludeWUDriversInQualityUpdate=1;
-    disabled=False: SearchOrderConfig=1 + a policy-érték törlése."""
+    disabled=False: SearchOrderConfig=1 + a policy-érték törlése.
+    Visszaad: a VISSZAOLVASOTT állapot egyezik-e a kérttel (2026-10-12; eddig a hívó
+    feltétel nélkül "✅ letiltva"-t írt, egy ACL-lel lezárt kulcsnál is)."""
     if disabled:
         run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching',
              '/v', 'SearchOrderConfig', '/t', 'REG_DWORD', '/d', '0', '/f'])
@@ -166,6 +179,13 @@ def set_wu_driver_policy(run, disabled):
         # ok_codes 1: a kulcs nem létezik - várt eset, ha sosem volt letiltva.
         run(['reg', 'delete', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate',
              '/v', 'ExcludeWUDriversInQualityUpdate', '/f'], ok_codes=(0, 1))
+    pol, srch = _driver_policy_state()
+    ok = (pol and srch) if disabled else (not pol and not srch)
+    if not ok:
+        logging.error(f"[WU_SETTINGS] A driver-tiltás visszaolvasva nem egyezik (kért: "
+                      f"{'tiltás' if disabled else 'engedélyezés'}; ExcludeWUDrivers=1: {pol}, "
+                      f"SearchOrderConfig=0: {srch}).")
+    return ok
 
 
 def set_wu_pause(run, pause=True, days=AUTOFIX_WU_PAUSE_DAYS):
@@ -540,4 +560,10 @@ Start-Service wuauserv -ErrorAction SilentlyContinue
 
 try { (New-Object -ComObject Microsoft.Update.AutoUpdate).Resume() | Out-Null } catch {}
 """])
+    left = wu_paused_until()        # a verdikt a visszaolvasás
+    if left:
+        logging.error(f"[WU_SETTINGS] A szüneteltetés feloldása után a szünet még érvényes ({left}).")
+        log(f'⚠️ A szüneteltetés NEM oldódott fel (a registry szerint {left}-ig érvényes) - a Beállítások > Windows Update alatt kézzel folytatható.')
+        return False
     log('✅ Szüneteltetés feloldva!')
+    return True

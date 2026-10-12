@@ -197,7 +197,9 @@ def dism_failure_reason(stdout, stderr=''):
     Tiszta függvény, offline tesztelhető. Csak MAGYARÁZ - nem dönt semmiről."""
     text = f"{stdout or ''}\n{stderr or ''}".lower()
     for needle, why, _transient in DISM_ERROR_HINTS:
-        if needle in text:
+        # Számra végződő mintánál számhatár kell: az 'error: 2' különben az 'Error: 216'-ra
+        # is illeszkedne, és hamis okot írnánk ki.
+        if re.search(re.escape(needle) + (r'(?!\d)' if needle[-1].isdigit() else ''), text):
             return why
     return ''
 
@@ -292,9 +294,7 @@ def get_third_party_drivers(run, problems=None):
     res = _run_dism_list(run, ['dism', '/English', '/Online', '/Get-Drivers'])
     drivers = parse_dism_driver_list(res.stdout)
     if problems is not None and not drivers:
-        why = dism_failure_reason(res.stdout, getattr(res, 'stderr', ''))
-        if why:
-            problems.append(why)
+        problems.extend(_list_failure(res))
     return drivers
 
 
@@ -326,10 +326,18 @@ def get_offline_drivers(run, target_os_path, all_drivers=False, problems=None):
     res = _run_dism_list(run, cmd)
     drivers = parse_dism_driver_list(res.stdout)
     if problems is not None and not drivers:
-        why = dism_failure_reason(res.stdout, getattr(res, 'stderr', ''))
-        if why:
-            problems.append(why)
+        problems.extend(_list_failure(res))
     return filter_phantom_packages(drivers, target_os_path)
+
+
+def _list_failure(res):
+    """Egy ÜRES DISM-lista oka: [ok] ha a lekérdezés elbukott, [] ha tényleg nincs driver.
+    A fel nem ismert hiba (időtúllépés, ismeretlen kód) is hiba, nem "nincs driver"."""
+    why = dism_failure_reason(res.stdout, getattr(res, 'stderr', ''))
+    rc = getattr(res, 'returncode', 0)
+    if not why and rc != 0:
+        why = f'a DISM {rc} kóddal tért vissza'
+    return [why] if why else []
 
 
 # A törlés-kimenet SIKERTELENSÉGÉT jelző töredékek. Ezeket a pozitív tövek ELŐTT kell
@@ -622,7 +630,9 @@ def force_delete_driver_files(run, pub, target_os_path=None):
     """Agresszív force-törlés fallback (takeown/icacls/rmtree a FileRepository +
     Windows\\INF alól). CSAK "összes driver" módban, nem-oem csomagra hívható -
     third-party nézetben egy sikertelen törlés egyszerűen sikertelen marad.
-    Visszatérési érték: talált-e (és törölt-e) bármit."""
+    Visszatérési érték: 'deleted' (volt mit törölni, és VISSZAOLVASVA semmi nem maradt),
+    'remains' (volt, de maradt belőle), 'notfound' (nem volt mit törölni). 2026-10-12-ig
+    egy bool volt, ami akkor is igaz lett, ha a fájlok a gépen maradtak ("✅ törölve (force)")."""
     rep = _file_repository_path(target_os_path)
     inf_dir = _inf_dir_path(target_os_path)
     found_any = False
@@ -663,8 +673,14 @@ def force_delete_driver_files(run, pub, target_os_path=None):
                 logging.warning(f"[DRIVERS] Force-törlés - os.remove sikertelen ({fpath}): {e} - del /f /q következik")
                 run(f'del /f /q "{fpath}"', shell=True)
                 found_any = True
-    logging.warning(f"[DRIVERS] FORCE-TÖRLÉS vége: {pub} - talált/törölt: {found_any}")
-    return found_any
+    # A VERDIKT A VISSZAOLVASÁS: maradt-e bármi a fenti mappákból/fájlokból.
+    left = [d for d in dirs if os.path.exists(d)] + [
+        os.path.join(inf_dir, bname + ext) for ext in ('.inf', '.pnf')
+        if os.path.exists(os.path.join(inf_dir, bname + ext))]
+    verdict = 'notfound' if not found_any else ('remains' if left else 'deleted')
+    (logging.warning if verdict != 'deleted' else logging.info)(
+        f"[DRIVERS] FORCE-TÖRLÉS vége: {pub} - {verdict}" + (f", maradt: {left}" if left else ''))
+    return verdict
 
 
 # ---------------------------------------------------------------------------

@@ -43,7 +43,7 @@ import json
 import logging
 
 from app.common import _ps_quote
-from app.wu_core import WU_PNP_QUERY_PS
+from app.wu_core import query_pnp_devices
 from app.wu_core import _filter_wu_scan_devices
 from app.wu_core import _is_inbox_driver
 from app.wu_core import _hwid_tokens
@@ -369,7 +369,7 @@ class GuiRebindMixin:
         out = []
         dropped = {}
         for d in devices or []:
-            info = inst.get(d.get('pnp_id') or '')
+            info = inst.get((d.get('pnp_id') or '').upper())     # a kulcsok nagybetűsek
             if not info or not _is_inbox_driver(info):
                 continue                      # gyári driveren fut - nincs dolgunk vele
             cls = (d.get('pclass') or '').strip().upper()
@@ -504,10 +504,17 @@ class GuiRebindMixin:
         removed_devs = []
         self._rebind_pkg_cache = {}           # friss kör = friss INF-olvasás
         self.emit('task_progress', {'task': task_id, 'log': 'Eszközök és telepített driverek felmérése...', 'indeterminate': True})
-        res = self._run(["powershell", "-NoProfile", "-Command", WU_PNP_QUERY_PS], encoding='utf-8')
-        devices = _filter_wu_scan_devices(json.loads(res.stdout or '[]'))
+        # Egy elbukott lekérdezés nem "✅ nincs teendő" / "egyikhez sincs csomag" (3. elv):
+        # kivétel - a kézi gomb task_error-t ad, a lánc záró köre "nem futott le"-t mond.
+        pnp_data = query_pnp_devices(self._run)
+        if pnp_data is None:
+            raise Exception('a Windows eszközlistája nem kérdezhető le (WMI nem válaszolt)')
+        devices = _filter_wu_scan_devices(pnp_data)
         inst = self._get_installed_driver_info() or {}
-        third_party = [d for d in (self._get_third_party_drivers() or []) if d.get('original')]
+        why = []
+        third_party = [d for d in (self._get_third_party_drivers(why) or []) if d.get('original')]
+        if why and not third_party:
+            raise Exception(f'a driver-lista nem kérdezhető le ({why[0]})')
         self.emit('task_progress', {'task': task_id, 'log': f'{len(devices)} eszköz, {len(third_party)} gyári driver-csomag a gépen.'})
 
         # A rendszerlemez eszközlánca osztálytól függetlenül kimarad (a lánc felső fele
@@ -603,7 +610,7 @@ class GuiRebindMixin:
                 # mért valóság (0/26, 0/8) - és az újraindítás úgyis jön.
                 logging.warning(f"[REBIND] A záró állapot-lekérdezés nem sikerült: {e}")
             for d, name in removed_devs:
-                info = after_all.get(d.get('pnp_id')) or {}
+                info = after_all.get((d.get('pnp_id') or '').upper()) or {}     # a kulcsok nagybetűsek
                 if info and not _is_inbox_driver(info):
                     fixed += 1
                     logging.warning(f"[REBIND] SIKER (újrafelderítéssel): {name} -> {info.get('inf')}")

@@ -17,7 +17,8 @@ import queue
 from app.common import _ps_quote, _app_data_dir
 from app import dupdrivers_core
 from app import wusettings_core
-from app.wu_core import WU_PNP_QUERY_PS
+from app.wu_core import query_pnp_devices
+from app.wu_core import verify_failed_installs
 from app.wu_core import WuProcessAborted
 from app.wu_core import catalog_supports_device
 from app.wu_core import wu_search_error_text
@@ -704,13 +705,14 @@ class GuiHwScanMixin:
 
                 # PnP devices - a szűrés/kategorizálás a KÖZÖS _filter_wu_scan_devices-ben él
                 # (az AutoFix ugyanezt használja - ne ide írj eszköz-szűrési logikát!)
-                pnp_data = []
-                try:
-                    res = self._run(["powershell", "-NoProfile", "-Command", WU_PNP_QUERY_PS], encoding='utf-8')
-                    if res.stdout:
-                        pnp_data = json.loads(res.stdout)
-                except Exception as ex:
-                    logging.error(f"PNP Query error: {ex}")
+                pnp_data = query_pnp_devices(self._run)
+                if pnp_data is None:
+                    # NEM "✅ Kész, 0 eszköz": a lekérdezés bukott el (3. elv).
+                    self.emit('hw_scan_progress', {'status': '❌ Az eszközlista nem kérdezhető le'})
+                    self.emit('hw_scan_result', {'pool': [], 'installed': [], 'time': '',
+                                                  'sys_info': '❌ A Windows eszközlistája nem kérdezhető le '
+                                                              '(WMI nem válaszolt) - próbáld újra, vagy indítsd újra a gépet'})
+                    return
 
                 self.emit('hw_scan_progress', {'status': '2/6 · Eszközlista szűrése', 'detail': ''})
 
@@ -1256,8 +1258,14 @@ try {
 }
 """
             self._wu_hidden = []
+            self._wu_search_error = ('', '')      # egy korábbi keresés kódja ne szivárogjon át
             res = self._run(["powershell", "-NoProfile", "-Command", ps_cmd],
                             timeout=WU_SEARCH_TIMEOUT, encoding='utf-8')
+            if res.returncode == CMD_TIMEOUT_RETURNCODE:
+                # A _run időtúllépéskor NEM dob TimeoutExpired-et, hanem ezzel a kóddal tér
+                # vissza - az alábbi `except subprocess.TimeoutExpired` ág ezért 2026-10-12-ig
+                # halott volt: a WU-szolgáltatások újraindítása sosem futott le.
+                raise subprocess.TimeoutExpired('wu-search', WU_SEARCH_TIMEOUT)
             out = res.stdout.strip()
             err_lines = (res.stderr or '').splitlines()
             for line in err_lines:
@@ -2996,6 +3004,12 @@ try {
         # "semmit nem telepített" bejelentést nem lehet kivizsgálni.
         logging.info(f"[WU_INSTALL] Kért UpdateID-k ({len(pool_uids)}): {pool_uids}")
         logging.info(f"[WU_INSTALL] Kért HWID-ek ({len(pool_hwids)}): {pool_hwids}")
+        # A kör ELŐTTI csomaglista a hamis [kód=4]-ek utóellenőrzéséhez (verify_failed_installs,
+        # ugyanaz, mint a láncban). None = nem kérdezhető le -> az utóellenőrzés kimarad.
+        _why = []
+        pkgs_before = self._get_third_party_drivers(_why)
+        if _why and not pkgs_before:
+            pkgs_before = None
         logging.debug(f"[CMD] Popen futtatása: {ps_script[:300]}...")
         process = subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
@@ -3006,6 +3020,8 @@ try {
         fail = 0
         install_total = 0
         had_error = False
+        finished = False            # jött-e DONE/EMPTY sor (a szkript tényleg végigért)
+        failed_titles = []          # telepítés-hibás (nem letöltési) címek az utóellenőrzéshez
         # A kijelölt elemek nevei + a script FOUND: sorai: a végén ebből derül ki, ha egy
         # kiválasztott driver nem került a telepítési listába (lásd unoffered_requested_titles).
         requested_titles = [str(d.get('title') or d.get('name') or '') for d in selected_pool]
@@ -3051,12 +3067,17 @@ try {
                                                 'current': done, 'total': install_total, 'counter': f'{done}/{install_total}', 'ok': success, 'fail': fail})
                 elif line.startswith("FAIL:"):
                     fail += 1
+                    fail_text = line[5:].strip()
+                    if 'LETÖLTÉS HIBA' not in fail_text:
+                        failed_titles.append(re.sub(r'^\[[^\]]*\]\s*', '', fail_text))
                     done = success + fail
-                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  ❌ {line[5:].strip()}',
+                    self.emit('task_progress', {'task': 'wu_install', 'log': f'  ❌ {fail_text}',
                                                 'current': done, 'total': install_total, 'counter': f'{done}/{install_total}', 'ok': success, 'fail': fail})
                 elif line.startswith("DONE:"):
+                    finished = True
                     self.emit('task_progress', {'task': 'wu_install', 'log': f'\n--- {line[5:].strip()} ---'})
                 elif line.startswith("EMPTY:"):
+                    finished = True
                     self.emit('task_progress', {'task': 'wu_install', 'log': line[6:].strip()})
                 elif line.startswith("ERROR:"):
                     had_error = True
@@ -3079,11 +3100,28 @@ try {
             self.emit('task_progress', {'task': 'wu_install',
                                         'log': f'  ⏭ {t} - a Windows Update már telepítettként látja, nincs mit telepíteni.'})
 
+        # UTÓELLENŐRZÉS (a láncéval azonos, 2026-10-12): a WUA hamis orcFailed(4)-et is ad
+        # olyan csomagra, ami a DriverStore-ba rendben felkerült - a kézi út ezt eddig ❌-nek
+        # mutatta. Amit a csomaglista igazol, az siker.
+        if failed_titles and pkgs_before is not None:
+            verified = verify_failed_installs(failed_titles, pkgs_before, self._get_third_party_drivers())
+            if verified:
+                success += len(verified)
+                fail -= len(verified)
+                self.emit('task_progress', {'task': 'wu_install', 'log': f'\nℹ️ Utóellenőrzés: {len(verified)} "sikertelen" driver valójában FELKERÜLT (a Windows Update jelentése félrevezető volt):'})
+                for t in sorted(verified):
+                    self.emit('task_progress', {'task': 'wu_install', 'log': f'   ✅ {t}'})
+
         if success > 0:
             self.emit('task_progress', {'task': 'wu_install', 'log': 'Eszközök újraszkennelése...', 'status': 'Aktiválás...'})
             self._run(['pnputil', '/scan-devices'])
             self.emit('task_progress', {'task': 'wu_install', 'log': '✅ Eszközök frissítve!'})
 
+        if not finished and not had_error:
+            # A szkript DONE/EMPTY nélkül ért véget: nem "0 sikeres, 0 sikertelen, kész".
+            had_error = True
+            logging.error(f"[WU_INSTALL] A telepítő szkript nem ért végig (kód={process.returncode}).")
+            self.emit('task_progress', {'task': 'wu_install', 'log': f'❌ A Windows Update telepítő váratlanul leállt (kód {process.returncode}) - nem minden kijelölt driver települhetett.'})
         if had_error and success == 0 and fail == 0:
             self.emit('task_progress', {'task': 'wu_install', 'log': '❌ A WU telepítés hibával leállt! (részletek fent a naplóban)'})
         return success, fail, False
@@ -3470,19 +3508,15 @@ try {
         sets = [drv.get('all_hwids') or []]
         cached = getattr(self, '_present_hwids_cache', None)
         if cached is None:
-            cached = []
-            try:
-                res = self._run(["powershell", "-NoProfile", "-Command", WU_PNP_QUERY_PS],
-                                encoding='utf-8', timeout=180)
-                data = json.loads(res.stdout) if (res.stdout or '').strip() else []
-                for d in _filter_wu_scan_devices(data):
-                    if d.get('all_hwids'):
-                        cached.append(d['all_hwids'])
-                logging.info(f"[INF-SELECT] Eszközlista az INF-válogatáshoz: {len(cached)} eszköz.")
-            except Exception as e:
+            data = query_pnp_devices(self._run)
+            if data is None:
                 # Nem kritikus: enélkül csak a cél-eszközre szűkítünk (kevesebb INF
-                # minősül illeszkedőnek), a visszaesési ág pedig mindent helyrerak.
-                logging.warning(f"[INF-SELECT] Az eszközlista beolvasása sikertelen: {e}")
+                # minősül illeszkedőnek), a visszaesési ág pedig mindent helyrerak. A bukást
+                # viszont NEM tesszük el - a következő csomag újra megpróbálja.
+                logging.warning("[INF-SELECT] Az eszközlista nem kérdezhető le - csak a cél-eszközre szűkítünk.")
+                return sets
+            cached = [d['all_hwids'] for d in _filter_wu_scan_devices(data) if d.get('all_hwids')]
+            logging.info(f"[INF-SELECT] Eszközlista az INF-válogatáshoz: {len(cached)} eszköz.")
             self._present_hwids_cache = cached
         return sets + cached
 
@@ -3496,6 +3530,9 @@ try {
         Megjegyzés: a korábbi változat minden cab-ot KÉTSZER töltött le (egy elavult
         szekvenciális kör + a szálas feldolgozó) - a szekvenciális kör törölve."""
         logging.info(f"[CATALOG_INSTALL] _install_catalog_sync() - {len(selected_pool)} driver (task={task_id})")
+        # Friss eszközlista az INF-válogatáshoz: egy korábbi telepítés (pl. chipset) óta új
+        # eszközök jelenhettek meg, a GUI-munkamenet gyorsítótára ezt nem tudná.
+        self._present_hwids_cache = None
         import urllib.request, ssl
         ssl_ctx = ssl.create_default_context()
         total = len(selected_pool)
@@ -4118,6 +4155,8 @@ try {
                         else:
                             fail += 1
                     rc = res.returncode if res else '?'
+                    # A tételes záró mérlegbe is (eddig kimaradt belőle: "mi lett a maradékkal?").
+                    _mark('ok' if ok else 'fail', name, f'.msu, kód={rc}')
                     self.emit('task_progress', {'task': task_id, 'log': f'  {"✅" if ok else "❌"} {name} (.msu, kód={rc})'})
                     return
 
@@ -4354,6 +4393,7 @@ try {
                     self.emit('task_progress', {'task': task_id, 'log':
                               f'  ❌ {drv.get("name")}: váratlan hiba a telepítés közben ({e}) - '
                               f'a részletek a naplóban.'})
+                    _mark('fail', drv.get('name') or '?', f'váratlan hiba: {e}')
                     with counter_lock:
                         fail += 1
                 finally:

@@ -17,7 +17,7 @@ import threading
 import time
 import logging
 
-BUILD_NUMBER = 371
+BUILD_NUMBER = 372
 
 from app import common
 common.BUILD_NUMBER = BUILD_NUMBER
@@ -176,6 +176,17 @@ if __name__ == "__main__":
     # következtetni lehetett. Lásd app/prereq.py.
     prereq_env = log_environment()
 
+    def cleanup_zombies():
+        # Nem atexit-tel regisztrálva, mert a program mindig os._exit(0)-val lép ki,
+        # ami teljesen kihagyja az atexit hook-okat - ezért itt explicit hívjuk meg
+        # minden os._exit(0) előtt. A CLI-ág ELŐTT definiálva (2026-10-12): a `--cli`
+        # indítás eddig `sys.exit(0)`-val lépett ki, takarítás nélkül.
+        try:
+            pid = os.getpid()
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(pid)], creationflags=subprocess.CREATE_NO_WINDOW)
+        except Exception as e:
+            logging.debug(f"[MAIN] cleanup_zombies taskkill sikertelen: {e}")
+
     # CLI mód
     if '--cli' in sys.argv:
         if not is_admin():
@@ -188,7 +199,8 @@ if __name__ == "__main__":
             sys.exit(1)
         from app.cli.menu import run_cli_mode
         run_cli_mode()
-        sys.exit(0)
+        cleanup_zombies()
+        os._exit(0)
 
     if not is_admin():
         if not _relaunch_elevated():
@@ -213,16 +225,6 @@ if __name__ == "__main__":
             logging.error("[MAIN] WebView2 hiba detektálva exception handler-ben!")
             _webview_error.set()
     sys.excepthook = global_exception_handler
-
-    def cleanup_zombies():
-        # Nem atexit-tel regisztrálva, mert a program mindig os._exit(0)-val lép ki,
-        # ami teljesen kihagyja az atexit hook-okat - ezért itt explicit hívjuk meg
-        # minden os._exit(0) előtt.
-        try:
-            pid = os.getpid()
-            subprocess.run(['taskkill', '/F', '/T', '/PID', str(pid)], creationflags=subprocess.CREATE_NO_WINDOW)
-        except Exception as e:
-            logging.debug(f"[MAIN] cleanup_zombies taskkill sikertelen: {e}")
 
     def thread_exception_handler(args):
         err_str = str(args.exc_value)
@@ -527,7 +529,7 @@ if __name__ == "__main__":
                     )
 
             except Exception as e:
-                logging.error(f"[INIT] WebView2 telepítési hiba: {e}")
+                logging.error(f"[INIT] WebView2 telepítési hiba: {e}", exc_info=True)
                 print(f"\n  ✘ Hiba a telepítés közben: {e}")
                 print("    A program CLI (szöveges) módban folytatja.\n")
                 ctypes.windll.user32.MessageBoxW(
@@ -673,7 +675,7 @@ if __name__ == "__main__":
             gui_attempt_failed_cleanly('a webview.start() felület nélkül tért vissza')
     except Exception as e:
         gui_failed = True
-        logging.error(f"[MAIN] WebView indítási hiba: {e}")
+        logging.error(f"[MAIN] WebView indítási hiba: {e}", exc_info=True)
         logging.error("[MAIN] Automatikus CLI mód indítása...")
         # Elkapott kivétel = a folyamat él, ez NEM natív összeomlás: a GUI-őr jelzőjét
         # törölni kell, különben a következő indulások is CLI-be esnének (terepen, Build 344).

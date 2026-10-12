@@ -386,6 +386,24 @@ def stage_update(log, exe_url=None, expect_build=None):
             f"A letöltött fájl nem futtatható program ({downloaded_size} byte, "
             f"fejléc: {magic!r}). A frissítés megszakadt - a jelenlegi verzió sértetlen marad.")
 
+    # A LETÖLTÖTT EXE BUILD-SZÁMA (2026-10-12): a raw úton a `driver_tool.py` és az exe KÜLÖN
+    # kerül a Fastly CDN-be (5 perces cache, a `?t=` nem segít) - a push után a raw már az
+    # új BUILD_NUMBER-t mutathatja, miközben az exe még a régi. A régi exe-vel "frissítve" a
+    # gép ugyanott maradna, és minden indulás újra frissítést ajánlana. A fájlverzió harmadik
+    # tagja a build (version_info.txt, bump_build.py tartja szinkronban).
+    ver = common.file_version(new_exe)
+    got = _build_from_file_version(ver)
+    logging.info(f"[UPDATE] A letöltött exe fájlverziója: {ver} (build: {got}, várt: {expect_build})")
+    if expect_build is not None and got is not None and got < int(expect_build):
+        try:
+            os.remove(new_exe)
+        except OSError as e:
+            logging.warning(f"[UPDATE] A régi letöltött exe nem törölhető ({new_exe}): {e}")
+        raise RuntimeError(
+            f"A letöltött program még a RÉGI verzió (build {got}, várt: {expect_build}) - a GitHub "
+            f"tárhelye a kiadás után pár percig a régit adja. Próbáld újra 5 perc múlva; a "
+            f"jelenlegi verzió sértetlen marad.")
+
     log('✅ Letöltés kész! A program frissítése és újraindítása következik...')
 
     current_exe = _app_exe_path()
@@ -431,6 +449,15 @@ def stage_update(log, exe_url=None, expect_build=None):
               errors='replace', newline='') as f:
         f.write(bat_content)
     return bat_path
+
+
+def _build_from_file_version(ver):
+    """'1.0.371.0' -> 371, egyébként None (nem olvasható = nem döntünk róla)."""
+    parts = (ver or '').split('.')
+    try:
+        return int(parts[2]) if len(parts) >= 3 and int(parts[2]) > 0 else None
+    except ValueError:
+        return None
 
 
 def build_swap_bat(new_exe, current_exe, desktop_exe, log_path):

@@ -122,9 +122,10 @@ class GuiWuMixin:
         def worker():
             self.emit('task_start', {'task': 'resume_wu', 'title': 'WU Szüneteltetés Feloldása'})
             self.emit('task_progress', {'task': 'resume_wu', 'log': 'Windows Update szüneteltetés törlése...', 'indeterminate': True})
-            wusettings_core.resume_wu(
+            ok = wusettings_core.resume_wu(
                 self._run,
                 lambda msg: self.emit('task_progress', {'task': 'resume_wu', 'log': msg}))
-            self.emit('task_complete', {'task': 'resume_wu', 'status': '✅ Szüneteltetés feloldva!'})
+            self.emit('task_complete', {'task': 'resume_wu', 'status': '✅ Szüneteltetés feloldva!' if ok
+                                        else '⚠️ A szüneteltetés nem oldódott fel'})
 
         self._safe_thread('resume_wu', worker)

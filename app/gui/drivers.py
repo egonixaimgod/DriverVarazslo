@@ -203,10 +203,16 @@ class GuiDriversMixin:
                           f"{now - cached[0]:.0f} mp-e olvasva) - dism megspórolva.")
             return cached[1]
         logging.debug("[DRIVERS] dism /English /Online /Get-Drivers futtatása...")
-        drivers = drivers_core.get_third_party_drivers(self._run, problems)
+        why = []
+        drivers = drivers_core.get_third_party_drivers(self._run, why)
+        if problems is not None:
+            problems.extend(why)
         # A lekérdezés ALATT is történhetett módosítás (a lánc több szálon dolgozik):
-        # olyankor nem tesszük el, inkább a következő hívó kérdezze le újra.
-        if getattr(self, '_dv_cache_dirty_at', 0) <= now:
+        # olyankor nem tesszük el, inkább a következő hívó kérdezze le újra. Egy ELBUKOTT
+        # lekérdezést sem: a gyorsítótárból a következő hívó a hibajelzés nélkül kapná az üres listát.
+        if why:
+            logging.debug("[DRIVERS] A lekérdezés elbukott - nem gyorsítótárazunk.")
+        elif getattr(self, '_dv_cache_dirty_at', 0) <= now:
             self._dv_cache = (time.monotonic(), drivers)
         else:
             logging.debug("[DRIVERS] A lekérdezés alatt módosult a DriverStore - nem gyorsítótárazunk.")
@@ -270,9 +276,19 @@ class GuiDriversMixin:
                 })
                 try:
                     is_oem = pub.lower().startswith("oem")
-                    res = drivers_core.delete_driver_package(self._run, pub, self.target_os_path)
+                    # Időkorlát minden pnputil-törlésre (CLAUDE.md 11.): egy beragadt PnP-veremnél
+                    # csomagonként percekig lógna. Offline a DISM töröl, egy lemezképen az lassabb.
+                    res = drivers_core.delete_driver_package(
+                        self._run, pub, self.target_os_path,
+                        timeout=None if self.target_os_path else drivers_core.DELETE_DRIVER_TIMEOUT)
 
-                    if drivers_core.delete_succeeded(res):
+                    if drivers_core.delete_stalled(res):
+                        fail += 1
+                        logging.warning(f"[DELETE] BERAGADT: {pub} (returncode={res.returncode}) - "
+                                        f"az eszközverem nem válaszol, újraindítás után törölhető.")
+                        self.emit('task_progress', {'task': 'delete', 'log':
+                                  f'  ⏱️ {pub}: az eszköz nem válaszol a törlési kérésre - indítsd újra a gépet, és utána töröld újra.'})
+                    elif drivers_core.delete_succeeded(res):
                         success += 1
                         self.emit('task_progress', {'task': 'delete', 'log': f'  ✅ {pub} törölve'})
                     elif drivers_core.delete_blocked_in_use(res):
@@ -285,18 +301,24 @@ class GuiDriversMixin:
                     else:
                         # Az agresszív force-fallback csak "ÖSSZES driver" módban, nem-oem
                         # csomagra fut (lásd drivers_core.force_delete_driver_files).
+                        why = drivers_core.delete_failure_text(res)
                         if list_all and not is_oem:
-                            if drivers_core.force_delete_driver_files(self._run, pub, self.target_os_path):
+                            forced = drivers_core.force_delete_driver_files(self._run, pub, self.target_os_path)
+                            if forced == 'deleted':
                                 success += 1
                                 self.emit('task_progress', {'task': 'delete', 'log': f'  ✅ {pub} törölve (force)'})
                             else:
                                 fail += 1
-                                self.emit('task_progress', {'task': 'delete', 'log': f'  ❌ {pub} sikertelen (nem található)'})
+                                self.emit('task_progress', {'task': 'delete', 'log':
+                                          f'  ❌ {pub} sikertelen: {why}' + (' - a force-törlés után is MARADT fájl (részletek a naplóban)'
+                                                                            if forced == 'remains' else ' - a fájljai sem találhatók')})
                         else:
                             fail += 1
-                            self.emit('task_progress', {'task': 'delete', 'log': f'  ❌ {pub} sikertelen'})
+                            logging.warning(f"[DELETE] SIKERTELEN: {pub} (returncode={res.returncode}) - {why}")
+                            self.emit('task_progress', {'task': 'delete', 'log': f'  ❌ {pub} sikertelen: {why}'})
                 except Exception as e:
                     fail += 1
+                    logging.error(f"[DELETE] {pub} törlése kivétellel elszállt: {e}", exc_info=True)
                     self.emit('task_progress', {'task': 'delete', 'log': f'  ❌ {pub} hiba: {e}'})
 
             # MÁSODIK KÖR: amit "egy telepített eszköz használ" - a nyomtatósor átmeneti

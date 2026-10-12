@@ -21,6 +21,8 @@ from app.wu_core import _iso_date_or_none
 from app.wu_core import _parse_driver_version
 from app.drivers_core import delete_blocked_in_use
 from app.drivers_core import delete_failure_text
+from app.drivers_core import delete_succeeded
+from app.drivers_core import DELETE_DRIVER_TIMEOUT
 # === /AUTO-IMPORTS ===
 
 
@@ -72,7 +74,7 @@ def get_active_published_infs(run):
         logging.info(f"[DUPDRV] Aktívan használt inf-ek: {len(active)} db")
         return active
     except Exception as e:
-        logging.error(f"[DUPDRV] Aktív inf-lista lekérdezése sikertelen: {e}")
+        logging.error(f"[DUPDRV] Aktív inf-lista lekérdezése sikertelen: {e}", exc_info=True)
         return None
 
 
@@ -167,12 +169,18 @@ def _cleanup_duplicate_groups(run, log, get_drivers, check_cancel=None):
     (aktívan használt inf soha nem törlődik; ha az aktív-lista nem kérdezhető le, NEM
     törlünk semmit; csak oemXX.inf) - ezért felügyelet nélkül is biztonságos.
 
-    get_drivers: 0-argumentumos callable, a third-party driver-listát adja vissza
-    (GUI: self._get_third_party_drivers). Minden hiba fail-silent (log + visszatérés):
+    get_drivers: callable, a third-party driver-listát adja vissza, és egy opcionális
+    `problems` listába írja a lekérdezés hibáját (GUI: self._get_third_party_drivers).
+    Minden hiba fail-silent (log + visszatérés):
     egy takarítási hiba SOSEM buktathatja el magát a telepítést.
     Visszatérés: (törölt, sikertelen, kihagyott) darabszám."""
     try:
-        drivers = get_drivers() or []
+        why = []
+        drivers = get_drivers(why) or []
+        if why and not drivers:
+            # Egy elbukott lista nem "nincs régi verzió" (3. elv).
+            log(f'  ⚠️ A driver-lista nem kérdezhető le ({why[0]}) - a duplikátum-takarítás kimarad.')
+            return 0, 0, 0
         active = get_active_published_infs(run)
         if active is None:
             log('  ⚠️ Az aktív driver-lista nem kérdezhető le - a duplikátum-takarítás kimarad (biztonsági szabály).')
@@ -207,7 +215,8 @@ def _cleanup_duplicate_groups(run, log, get_drivers, check_cancel=None):
         log(f'  🧹 DriverStore-takarítás kész: {ok} törölve' + (f', {fail} sikertelen' if fail else '') + (f', {skipped} kihagyva' if skipped else '') + '.')
         return ok, fail, skipped
     except Exception as e:
-        logging.warning(f"[DUPDRV] Automatikus duplikátum-takarítás hiba (a telepítést nem érinti): {e}")
+        logging.warning(f"[DUPDRV] Automatikus duplikátum-takarítás hiba (a telepítést nem érinti): {e}",
+                        exc_info=True)
         try:
             log(f'  ⚠️ DriverStore-takarítási hiba (a telepítést nem érinti): {e}')
         except Exception:
@@ -354,7 +363,7 @@ def retire_superseded_packages(run, log, get_drivers, check_cancel=None):
                 continue
             logging.warning(f"[DUPDRV] KIVÁLTOTT csomag törlése: {cimke} - eszköz(ök): "
                             f"{s['devices']} - helyette fut: {uj}")
-            res = run(['pnputil', '/delete-driver', pub], ok_codes=(0, 3010))
+            res = run(['pnputil', '/delete-driver', pub], ok_codes=(0, 3010), timeout=DELETE_DRIVER_TIMEOUT)
             if res and res.returncode in (0, 3010):
                 ok += 1
                 log(f'  ✅ {cimke} törölve - kiváltotta: {uj}')
@@ -425,13 +434,17 @@ def delete_duplicate_packages(run, log, names, active_infs, check_cancel=None, d
             continue
         # ROMBOLÓ LÉPÉS: a cél a MŰVELET ELŐTT megy a naplóba, névvel.
         logging.warning(f"[DUPDRV] Törlés indul: {_cimke(name)}")
-        res = run(['pnputil', '/delete-driver', name], ok_codes=(0, 3010))
-        deleted = bool(res) and (res.returncode == 0 or 'deleted' in (res.stdout or '').lower() or 'törölve' in (res.stdout or '').lower())
+        # A siker a KÖZÖS `delete_succeeded` (3010 = siker; a tagadó alakok előbb). A régi
+        # saját feltétel ('deleted'/'törölve') a magyar 3010-es kimenetet bukásnak vette,
+        # és egy már törölt csomagra futtatta a /force-ot. Időkorlát: CLAUDE.md 11.
+        res = run(['pnputil', '/delete-driver', name], ok_codes=(0, 3010), timeout=DELETE_DRIVER_TIMEOUT)
+        deleted = bool(res) and delete_succeeded(res)
         if not deleted:
             # Második kör /force-szal: a nem használt, de valamihez még bejegyzett
             # régi verziókat csak így engedi el a pnputil.
-            res = run(['pnputil', '/delete-driver', name, '/force'], ok_codes=(0, 3010))
-            deleted = bool(res) and (res.returncode == 0 or 'deleted' in (res.stdout or '').lower() or 'törölve' in (res.stdout or '').lower())
+            res = run(['pnputil', '/delete-driver', name, '/force'], ok_codes=(0, 3010),
+                      timeout=DELETE_DRIVER_TIMEOUT)
+            deleted = bool(res) and delete_succeeded(res)
         if deleted:
             ok += 1
             logging.warning(f"[DUPDRV] Törölve: {_cimke(name)}")

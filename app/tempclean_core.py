@@ -82,7 +82,8 @@ def _delete_contents(folder, st, cancel_check=None):
         entries = list(os.scandir(folder))
     except OSError as e:
         st['failed'] += 1
-        st['samples'].append(f'{folder} (nem olvasható: {e.__class__.__name__})')
+        if len(st['samples']) < FAILED_SAMPLE_MAX:
+            st['samples'].append(f'{folder} (nem olvasható: {e.__class__.__name__})')
         return
     for e in entries:
         if cancel_check and cancel_check():
@@ -97,7 +98,8 @@ def _delete_contents(folder, st, cancel_check=None):
             except OSError:
                 if not _remove_file(full):
                     st['failed'] += 1
-                    st['samples'].append(full)
+                    if len(st['samples']) < FAILED_SAMPLE_MAX:
+                        st['samples'].append(full)
             continue
         try:
             is_dir = e.is_dir(follow_symlinks=False)
@@ -364,11 +366,13 @@ def stop_services(run, names):
     leállított szolgáltatás elindítása ugyanúgy hamis állapot lenne)."""
     if not names:
         return []
+    # A RUNNING sor a leállítás ELŐTT megy ki: ha a Stop-Service időtúllépésbe fut, a sor
+    # akkor is megvan, és a már leállított szolgáltatások visszaindulnak.
     ps = ("$r=@(); foreach($n in @(" + ','.join(f"'{n}'" for n in names) + ")) { "
           "$s=Get-Service -Name $n -ErrorAction SilentlyContinue; "
           "if ($s -and $s.Status -eq 'Running') { $r += $n } }; "
-          "Stop-Service -Name @(" + ','.join(f"'{n}'" for n in names) + ") -Force -ErrorAction SilentlyContinue; "
-          "'RUNNING:' + ($r -join ',')")
+          "'RUNNING:' + ($r -join ','); [Console]::Out.Flush(); "
+          "Stop-Service -Name @(" + ','.join(f"'{n}'" for n in names) + ") -Force -ErrorAction SilentlyContinue")
     res = run(['powershell', '-NoProfile', '-Command', ps], timeout=90)
     out = getattr(res, 'stdout', '') or ''
     running = []

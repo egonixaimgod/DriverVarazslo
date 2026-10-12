@@ -278,3 +278,15 @@ One diagnostic finding from that investigation is worth keeping regardless of ap
 
 **A VALÓDI, ÁLTALÁNOSÍTHATÓ TANULSÁG:** ha egy leletre a válaszod egy ÚJ SZŰRŐ vagy KIZÁRÁS, előbb keresd meg ebben a fájlban, hogy az adott lista miért olyan amilyen. Ennek a projektnek a szűrői mind vérrel írt szabályok — és a törlés-oldali szűrés kifejezetten tiltott. Egy „logikusnak tűnő" új kizárás itt szinte mindig egy már meghozott termékdöntés felülírása.
 
+### 2026-10-12: review-javítások a törlő funkciókban (szűrő NÉLKÜL)
+
+Kódolvasásból, a felhasználó kérésére („javíts, írd le, menj tovább”). Terepen NEM reprodukálva; teszt: `tests/test_delete_truth.py` (13 eset, 12 elbukik a régi kódon `git stash`-sel ellenőrizve; a 13. azt őrzi, hogy a `/force` kör megmaradt).
+
+- **Időkorlát nélküli `pnputil /delete-driver`:** a kézi törlés (`delete_drivers`) és a duplikátum-/kiváltott-csomag takarítás (ez a lánc végén, felügyelet nélkül fut) nem kapott időkorlátot, holott a 11. fejezet mindenre előírja. Most `DELETE_DRIVER_TIMEOUT`; a kézi törlés a beragadást („indítsd újra, utána töröld”) külön mondja. Az offline DISM-törlés szándékosan korlát nélkül marad.
+- **A duplikátum-takarítás saját sikerfeltétele** (`rc == 0 or 'deleted'/'törölve' in stdout`): a 3010 ok_code volt, de nem siker, és a magyar 3010-es szöveg egyiket sem tartalmazza → bukásnak vette, `/force`-szal újrapróbálta a már törölt csomagot, és „❌ sikertelen”-t írt. Most a közös `delete_succeeded`. **A `/force` kör megmaradt minden nem-sikerre** — egy első változatban kihagytam a „használatban” esetre, és még a tesztek előtt visszavettem: az egy új szűrő lett volna a törlésben (1. elv).
+- **Szellemeszköz-szkript:** `$code -eq 3010` = siker (ugyanaz az ok); DONE sor nélkül véget ért szkript „NEM ért végig” (GUI és lánc), nem „✅ befejeződött”.
+- **Force-törlés:** a `found_any` bool akkor is igaz volt, ha az `rmtree`/`del` elbukott → „✅ törölve (force)”. Most visszaolvasás: `'deleted'`/`'remains'`/`'notfound'`.
+- **Kézi törlés hibaága:** a „❌ sikertelen” mellé most a `delete_failure_text` oka kerül; a WARNING-sor és a kivételág `exc_info`-ja hiányzott.
+- **DISM-lista:** az offline lista is jelenti az ismeretlen nem-0 kódot (`_list_failure`, közös az online-nal); a `DISM_ERROR_HINTS` számra végződő mintái számhatárt kapnak (az `error: 2` az `Error: 216`-ra is illeszkedett). A duplikátum-nézet és a záró duplikátum-takarítás egy elbukott listát nem mond „nincs duplikátum”-nak.
+- **Temp-takarítás:** a `stop_services` a „futott-e előtte” sort a leállítás ELŐTT írja ki (időtúllépésnél a részleges kimenetből is visszaindítható, amit leállítottunk); a kihagyott-minta lista mindenhol `FAILED_SAMPLE_MAX`-ra korlátozva.
+

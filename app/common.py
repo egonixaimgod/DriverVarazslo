@@ -767,30 +767,37 @@ def download_with_cert_fallback(run_fn, url, dest, *, timeout=60, ps_timeout=120
     import urllib.request
     import urllib.error
     import ssl
-    import shutil as _shutil
     logging.info(f"[{log_tag}] Letöltés innen: {url}")
     ssl_ctx = ssl.create_default_context()
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
     try:
         with urllib.request.urlopen(req, context=ssl_ctx, timeout=timeout) as resp, open(dest, 'wb') as f:
-            if progress_cb is None:
-                _shutil.copyfileobj(resp, f)
-            else:
-                try:
-                    total = int(resp.headers.get('Content-Length') or 0) or None
-                except Exception:
-                    total = None
-                done = 0
-                while True:
-                    chunk = resp.read(262144)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    done += len(chunk)
+            try:
+                total = int(resp.headers.get('Content-Length') or 0) or None
+            except (TypeError, ValueError):
+                total = None
+            done = 0
+            while True:
+                chunk = resp.read(262144)
+                if not chunk:
+                    break
+                f.write(chunk)
+                done += len(chunk)
+                if progress_cb is not None:
                     try:
                         progress_cb(done, total)
                     except Exception as cb_err:
                         logging.debug(f"[{log_tag}] progress_cb hiba (figyelmen kívül hagyva): {cb_err}")
+        # CSONKA LETÖLTÉS (2026-10-12): a http.client egy bontott kapcsolatnál KIVÉTEL NÉLKÜL
+        # adhat vissza rövid fájlt (terepen mérve a katalógusnál: 1,22 GB-ból 139 MB). Egy
+        # csonka, de MZ-vel kezdődő és 1 MB-nál nagyobb exe az updater kapuján is átmenne.
+        if total is not None and done != total:
+            try:
+                os.remove(dest)
+            except OSError as rm_err:
+                logging.debug(f"[{log_tag}] A csonka fájl törlése nem sikerült: {rm_err}")
+            logging.error(f"[{log_tag}] CSONKA letöltés: {done} bájt jött a várt {total} helyett.")
+            raise Exception(error_msg or f"A letöltés megszakadt ({done} / {total} bájt).")
     except (urllib.error.URLError, ssl.SSLError) as dl_err:
         # ssl.SSLError is elkapva: az urlopen a legtöbb TLS-hibát URLError-ba csomagolja,
         # de nem mindet - és mindkettő OSError-leszármazott, tehát a szűk, konkrét

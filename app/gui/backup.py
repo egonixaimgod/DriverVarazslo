@@ -91,8 +91,10 @@ class GuiBackupMixin:
                 self.emit('task_complete', {'task': 'backup', 'status': '❌ Nincs elég szabad hely!'})
             else:
                 size_mb = result['size_mb']
+                hibatlan = result['dism_ok'] and result.get('copy_ok', True)
                 self.emit('task_complete', {'task': 'backup',
-                                            'status': f'✅ Kész! OEM: {"Sikeres" if result["dism_ok"] else "Sikertelen"}, Inbox másolva. Méret: {size_mb:.0f} MB',
+                                            'status': f'{"✅" if hibatlan else "⚠️"} Kész! OEM: {"Sikeres" if result["dism_ok"] else "Sikertelen"}, '
+                                                      f'Inbox: {"másolva" if result.get("copy_ok", True) else "HIÁNYOS"}. Méret: {size_mb:.0f} MB',
                                             'log': f'\n--- Export kész: {result["folder"]} ({size_mb:.0f} MB) ---'})
         self._safe_thread('backup', worker)
 

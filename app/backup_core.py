@@ -141,7 +141,9 @@ def backup_all_drivers(run, log, check_cancel, dest, target_os_path):
         log(f'❌ Nincs elég szabad hely a célmeghajtón! Szükséges kb. {needed_bytes // (1024*1024)} MB, elérhető: {free_bytes // (1024*1024)} MB.')
         return {'status': 'no_space', 'folder': folder, 'size_mb': 0, 'dism_ok': dism_ok}
 
-    run(['robocopy', driverstore, inbox_folder, '/E', '/R:0', '/W:0', '/NFL', '/NDL', '/NJH', '/NJS', '/NC', '/NS', '/NP'])
+    # A robocopy 8+ kódja HIBA (0-7: siker különböző fokozatai) - eddig eldobtuk, és a
+    # mentés "Inbox másolva"-t mondott egy hiányos másolatra (2026-10-12).
+    rc_repo = run(['robocopy', driverstore, inbox_folder, '/E', '/R:0', '/W:0', '/NFL', '/NDL', '/NJH', '/NJS', '/NC', '/NS', '/NP']).returncode
 
     if check_cancel and check_cancel():
         return {'status': 'cancelled', 'folder': folder, 'size_mb': 0, 'dism_ok': dism_ok}
@@ -150,12 +152,16 @@ def backup_all_drivers(run, log, check_cancel, dest, target_os_path):
     inf_src = os.path.join(windows_dir, 'INF')
     inbox_inf_folder = os.path.join(folder, '_Windows_Inbox_INF')
     os.makedirs(inbox_inf_folder, exist_ok=True)
-    run(['robocopy', inf_src, inbox_inf_folder, '/E', '/R:0', '/W:0', '/NFL', '/NDL', '/NJH', '/NJS', '/NC', '/NS', '/NP'])
+    rc_inf = run(['robocopy', inf_src, inbox_inf_folder, '/E', '/R:0', '/W:0', '/NFL', '/NDL', '/NJH', '/NJS', '/NC', '/NS', '/NP']).returncode
+    copy_ok = rc_repo < 8 and rc_inf < 8
+    if not copy_ok:
+        logging.error(f"[BACKUP] Az inbox-másolás hibás (robocopy: FileRepository={rc_repo}, INF={rc_inf}).")
+        log(f'⚠️ Az inbox driverek másolása hibákkal ért véget (robocopy kód: {rc_repo}/{rc_inf}) - a mentés hiányos lehet.')
 
     total_size = sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fns in os.walk(folder) for f in fns
                      if os.path.exists(os.path.join(dp, f)))
     size_mb = total_size / (1024 * 1024)
-    return {'status': 'ok', 'folder': folder, 'size_mb': size_mb, 'dism_ok': dism_ok}
+    return {'status': 'ok', 'folder': folder, 'size_mb': size_mb, 'dism_ok': dism_ok, 'copy_ok': copy_ok}
 
 
 def run_restore(run, log, check_cancel, si, nw, online, source, target):
@@ -189,6 +195,9 @@ def run_restore(run, log, check_cancel, si, nw, online, source, target):
             log(f'Return code: {returncode}')
         return returncode, cancelled
 
+    # A DISM/pnputil KILÉPÉSI KÓDJA IS A VERDIKT RÉSZE (2026-10-12): eddig minden ágon
+    # eldobtuk, és egy teljesen elbukott regisztrálás után is "✅ Visszaállítás befejezve!"
+    # jött. 3010 = siker, újraindítással; pnputil 259 = nem volt mit telepíteni (nem hiba).
     if online:
         cmd = ['pnputil', '/add-driver', f"{norm_source}\\*.inf", '/subdirs', '/install']
         log(f'Parancs: {" ".join(cmd)}')
@@ -196,6 +205,9 @@ def run_restore(run, log, check_cancel, si, nw, online, source, target):
         if cancelled:
             return 'cancelled'
         log(f'\nReturn code: {returncode}')
+        if returncode not in (0, 259, 3010):
+            logging.error(f"[RESTORE] A pnputil {returncode} kóddal tért vissza.")
+            restore_had_errors = True
     elif is_wim_extract:
         # WIM-ből kimentett driverek (Windows_Gyari_Alap_Driverek_*) - FileRepository + INF formátum
         log('WIM-ből kimentett gyári driverek visszaállítása...')
@@ -301,22 +313,34 @@ def run_restore(run, log, check_cancel, si, nw, online, source, target):
 
         if oem_folders:
             log(f'\n--- 2. LÉPÉS: {len(oem_folders)} db OEM driver mappa DISM regisztrálása ---')
+            oem_failed = []
             for i, oem_path in enumerate(oem_folders):
                 if check_cancel and check_cancel():
                     return 'cancelled'
                 log(f'\n[{i+1}/{len(oem_folders)}] {os.path.basename(oem_path)}:')
-                _, dism_cancelled = run_dism_add_driver(oem_path, "  ")
+                rc, dism_cancelled = run_dism_add_driver(oem_path, "  ")
                 if dism_cancelled:
                     return 'cancelled'
-            log('\n✅ OEM driverek DISM regisztrálása kész!')
+                if rc not in (0, 3010):
+                    oem_failed.append(f'{os.path.basename(oem_path)} (kód {rc})')
+            if oem_failed:
+                restore_had_errors = True
+                logging.error(f"[RESTORE] {len(oem_failed)} OEM driver-mappa DISM-regisztrálása elbukott: {oem_failed}")
+                log(f'\n⚠️ {len(oem_failed)} OEM driver-mappa regisztrálása NEM sikerült: {", ".join(oem_failed[:8])}')
+            else:
+                log('\n✅ OEM driverek DISM regisztrálása kész!')
         else:
             log('\nNincs OEM driver mappa a backup-ban.')
 
     else:
         # Egyéb mappa (pl. DriverVarázsló_Export / Driver_Backup third-party export) - tisztán DISM
-        _, dism_cancelled = run_dism_add_driver(norm_source, "")
+        rc, dism_cancelled = run_dism_add_driver(norm_source, "")
         if dism_cancelled:
             return 'cancelled'
+        if rc not in (0, 3010):
+            logging.error(f"[RESTORE] A DISM /Add-Driver {rc} kóddal tért vissza.")
+            log(f'⚠️ A DISM driver-regisztrálás hibával tért vissza (kód {rc}) - nem minden driver került fel.')
+            restore_had_errors = True
 
     # Post-install
     if online:
@@ -330,7 +354,10 @@ def run_restore(run, log, check_cancel, si, nw, online, source, target):
     else:
         # === BCD JAVÍTÁS (boot loader) ===
         log('\n--- BOOT LOADER (BCD) JAVÍTÁS ---')
-        bcd_core.repair_bcd(run, log, norm_target)
+        if not bcd_core.repair_bcd(run, log, norm_target):
+            restore_had_errors = True
+            log('❌ A boot loader (BCD) javítása NEM sikerült - a gép lehet, hogy nem indul el. '
+                'Töltsd le és futtasd a BootFixert (Mentés és Visszaállítás → BCD Boot Hiba Javítása).')
 
         # Automata PnP rescan beállítása az asztal betöltésére
         log('\nElső bejelentkezési rescan script beállítása...')
@@ -532,9 +559,18 @@ def create_restore_point(run, log, desc=None):
 
 def create_restore_point_quick(run, desc):
     """Gyors (nem ellenőrzött) visszaállítási pont - az AutoFix használja, ahol egy
-    elutasított pont nem állítja meg a folyamatot. Visszatérés: sikerült-e a parancs."""
+    elutasított pont nem állítja meg a folyamatot. Visszatérés: sikerült-e a parancs.
+
+    A `-ErrorAction SilentlyContinue` mellett a kilépési kód MINDIG 0 volt, tehát a lánc
+    akkor is "✅ Visszaállítási pont elkészült"-t írt, ha a Windows elutasította (2026-10-12).
+    Most a parancs kimenete (OK/FAIL) dönt."""
     run(["powershell", "-NoProfile", "-Command", 'Enable-ComputerRestore -Drive "$($env:SystemDrive)\\" -ErrorAction SilentlyContinue'])
     run(['reg', 'add', r'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore', '/v', 'SystemRestorePointCreationFrequency', '/t', 'REG_DWORD', '/d', '0', '/f'])
-    ps_cmd = f'Checkpoint-Computer -Description "{desc}" -RestorePointType "MODIFY_SETTINGS" -ErrorAction SilentlyContinue'
+    ps_cmd = (f'try {{ Checkpoint-Computer -Description "{desc}" -RestorePointType "MODIFY_SETTINGS" '
+              f'-ErrorAction Stop; Write-Output "RPOK" }} catch {{ Write-Output ("RPFAIL: " + $_.Exception.Message) }}')
     res = run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd], encoding='utf-8')
-    return res.returncode == 0
+    out = (res.stdout or '').strip()
+    ok = 'RPOK' in out
+    if not ok:
+        logging.warning(f"[RESTORE_POINT] A gyors visszaállítási pont nem készült el: {out[:300]}")
+    return ok

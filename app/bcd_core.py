@@ -114,8 +114,9 @@ def _find_efi_partition(run, target_letter, log):
 
 def repair_bcd(run, log, target_drive):
     """BCD újraépítése a target_drive-on lévő Windowshoz (EFI-kereséssel, több
-    fallback-lépcsővel - lásd a modul docstringjét). Visszatérés: True, ha a
-    Windows mappa létezett és a javítási lánc lefutott."""
+    fallback-lépcsővel - lásd a modul docstringjét). Visszatérés: True, ha a BCD
+    BIZONYÍTOTTAN újraépült (egy bcdboot 0-val, vagy a bootrec-lánc minden lépése 0-val).
+    2026-10-12-ig akkor is True volt, ha minden lépés elbukott ("a lánc lefutott")."""
     target_drive = target_drive.rstrip('\\') + '\\'
     target_letter = target_drive[0].upper()
     windows_path = os.path.join(target_drive, 'Windows')
@@ -162,9 +163,12 @@ def repair_bcd(run, log, target_drive):
 
     if not success:
         log("bootrec parancsok futtatása...")
+        bootrec_ok = True
         for cmd in ['/fixmbr', '/fixboot', '/rebuildbcd']:
             res = run(['bootrec', cmd])
+            bootrec_ok = bootrec_ok and res.returncode == 0
             log(f"  bootrec {cmd}: {'✅' if res.returncode == 0 else '⚠️ (nem elérhető)'}")
+        success = bootrec_ok
 
-    logging.info(f"[BCD] Javítás befejezve, success={success}")
-    return True
+    logging.log(logging.INFO if success else logging.ERROR, f"[BCD] Javítás befejezve, success={success}")
+    return success

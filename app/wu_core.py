@@ -371,6 +371,31 @@ WU_PNP_QUERY_PS = ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
                    "Select-Object Name, PNPClass, PNPDeviceID, HardwareID, ConfigManagerErrorCode | ConvertTo-Json -Compress")
 
 
+def query_pnp_devices(run):
+    """A WU_PNP_QUERY_PS nyers eszközlistája, vagy None, ha két próbára sem jött
+    értelmezhető válasz. Egy élő Windowson MINDIG vannak eszközök: az üres válasz a
+    lekérdezés bukása, nem "nincs eszköz" (3. elv). EGY példány: a lánc, a kézi szken és
+    az újrakötés is ezt hívja (2026-10-12 előtt öt saját másolat értelmezte a kimenetet,
+    és bukásra "✅ 0 eszköz / Minden telepítve / Nem maradt hibakódos eszköz" lett)."""
+    for probe in range(2):
+        res = run(["powershell", "-NoProfile", "-Command", WU_PNP_QUERY_PS], encoding='utf-8')
+        out = (res.stdout or '').strip()
+        try:
+            data = json.loads(out) if out else None
+        except ValueError as e:
+            logging.warning(f"[PNP] Az eszközlista JSON-ja nem értelmezhető ({probe + 1}/2): {e}")
+            data = None
+        if isinstance(data, dict):
+            data = [data]
+        if data:
+            return data
+        logging.warning(f"[PNP] Az eszköz-lekérdezés üres választ adott ({probe + 1}/2, "
+                        f"kód={res.returncode}).")
+    logging.error("[PNP] Az eszköz-lekérdezés két próbára sem adott eszközlistát - ez a "
+                  "lekérdezés BUKÁSA, nem 'nincs eszköz'.")
+    return None
+
+
 def _filter_wu_scan_devices(pnp_data):
     """A WU_PNP_QUERY_PS JSON kimenetéből kiszűri a driver-kereséshez érdemi eszközöket
     (virtuális/ROOT/ignorált osztályok nélkül, HWID szerint deduplikálva) és kategorizálja őket."""

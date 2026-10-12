@@ -23,7 +23,13 @@ class GuiDupDriversMixin:
 
         def worker():
             try:
-                drivers = self._get_third_party_drivers()
+                why = []
+                drivers = self._get_third_party_drivers(why)
+                if why and not drivers:
+                    # Egy elbukott lista nem "nincs duplikátum" (3. elv).
+                    self.emit('dup_drivers_loaded', {'groups': [], 'error':
+                              f'A driver-lista nem kérdezhető le: {why[0]}'})
+                    return
                 active_infs = dupdrivers_core.get_active_published_infs(self._run)
                 result, deletable = dupdrivers_core.build_duplicate_groups(drivers, active_infs)
                 # A CSOPORTOK MEGŐRZÉSE A TÖRLÉSHEZ: a JS csak `oemNN.inf` neveket küld

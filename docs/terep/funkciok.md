@@ -338,3 +338,12 @@ Vagyis **ezen a gépen EGYETLEN SMBIOS mező sem hordozza a gyártót**; az egye
 
 A nem-mappa lépések (miniatűr, Lomtár, komponenstár) egy helyen: `SPECIAL_CATEGORIES`; a GUI és a CLI is abból dolgozik. **Ellenőrizve:** a törlés a zárolt/junction/írásvédett/mély-mappa próbán (bájtra pontos), a méret-felmérés élőben, a két szolgáltatás-szkript szintaxisa (PSParser, 0 hiba) és logikája csonkkal, a nézet DOM-meghajtással (a törlés gomb pontosan a kipipált kategóriákat küldi) és képernyőképpel. **Nem futott élőben** (nem emelt jogú shell): maga a szolgáltatás-leállítás és a DISM.
 
+### 2026-10-12: review-javítások — mentés, visszaállítás, BCD
+
+Kódolvasásból, a felhasználó kérésére; terepen NEM reprodukálva. Teszt: `tests/test_backup_truth.py` (7 eset; 6 elbukik a régi kódon, a 7. a jó-út eset).
+
+- **`run_restore`:** a pnputil (élő) és a DISM `/Add-Driver` (offline: OEM-mappák és a tisztán DISM-es ág) kilépési kódját eddig minden ágon eldobtuk — egy teljesen elbukott regisztrálás után is „✅ Visszaállítás befejezve!” jött. Most: pnputil 0/259/3010, DISM 0/3010 = rendben, minden más `'errors'`. A WIM-ág DISM-hibái szándékosan maradnak figyelmen kívül (ott a fizikai másolás az elsődleges, és az inbox-driverek DISM-hibája normális).
+- **`bcd_core.repair_bcd`:** mindig `True`-t adott („a lánc lefutott”), akkor is, ha a bcdboot és a bootrec mind elbukott — az offline visszaállítás így egy nem bootoló gépre is sikert mondott. Most csak bizonyított újraépítésnél `True`; a visszaállítás ilyenkor `'errors'` + a BootFixer teendője (a kártya a Mentés és Visszaállítás nézetben van — ellenőrizve a `ui.html`-ben).
+- **`backup_all_drivers`:** a robocopy kódját (≥8 = hiba) eldobta, a nézet „Inbox másolva”-t írt egy hiányos mentésre. Most `copy_ok`, és a nézet „⚠️ … HIÁNYOS”-t mond.
+- **`create_restore_point_quick`** (a lánc és a kézi telepítés visszaállítási pontja): `-ErrorAction SilentlyContinue` mellett a kilépési kód mindig 0 volt → a lánc mindig „✅ Visszaállítási pont elkészült”-t írt. Most `try/catch` + `RPOK`/`RPFAIL` kimenet dönt.
+

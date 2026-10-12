@@ -73,6 +73,7 @@ class GuiGhostMixin:
 
             success = 0
             total = 0
+            finished = False
 
             for line in process.stdout:
                 if self._check_cancel():
@@ -99,11 +100,20 @@ class GuiGhostMixin:
                     logging.warning(f"[GHOST] Törlés IDŐTÚLLÉPÉS ({GHOST_REMOVE_TIMEOUT}s), kilőve: {data}")
                     self.emit('task_progress', {'task': 'ghost', 'log': f'  ⏱️ Beragadt, kihagyva {GHOST_REMOVE_TIMEOUT} mp után: {data}', 'current': success, 'counter': f'{success} / {total}'})
                 elif event == 'done':
+                    finished = True
                     self.emit('task_progress', {'task': 'ghost', 'log': f'\n{data}'})
                 else:
                     self.emit('task_progress', {'task': 'ghost', 'log': data})
 
             process.wait()
+            logging.info(f"[GHOST] Szellemeszköz-törlő script vége (returncode={process.returncode}, "
+                         f"végigért={finished}, törölve {success}/{total}).")
+            if not finished:
+                # A szkript a DONE sor előtt leállt (PowerShell-hiba) - ez nem "befejeződött".
+                logging.error("[GHOST] A szellemeszköz-törlő szkript nem ért végig (nincs DONE sor).")
+                self.emit('task_progress', {'task': 'ghost', 'log': f'⚠️ A szellemeszköz-törlés NEM ért végig (a PowerShell-szkript leállt, kód {process.returncode}) - részletek a naplóban.'})
+                self.emit('task_complete', {'task': 'ghost', 'status': f'⚠️ Félbemaradt! Törölve: {success} / {total}'})
+                return
             self.emit('task_progress', {'task': 'ghost', 'log': '✅ Szellemeszközök törlése befejeződött.'})
             self.emit('task_complete', {'task': 'ghost', 'status': f'Kész! Törölve: {success} / {total}'})
 
