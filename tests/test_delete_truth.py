@@ -4,9 +4,6 @@ egy elbukott lekérdezés vagy félbemaradt szkript ne "✅ kész" legyen.
 
 A törlés SZŰRŐ NÉLKÜLI marad (CLAUDE.md 1. elv) - ezek a tesztek csak a jelentés
 őszinteségét és az időkorlátokat fogják. Valódi rendszerhez semmi nem nyúl."""
-import os
-import shutil
-import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -94,21 +91,22 @@ class ManualDeleteTest(unittest.TestCase):
         self.assertIn('indítsd újra', d.logs())
 
 
-class ForceDeleteVerdictTest(unittest.TestCase):
-    def setUp(self):
-        quiet()
-        self.root = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.root, True)
-        self.repo = os.path.join(self.root, 'Windows', 'System32', 'DriverStore', 'FileRepository')
-        os.makedirs(os.path.join(self.repo, 'mydrv.inf_amd64_abc'))
-        os.makedirs(os.path.join(self.root, 'Windows', 'INF'))
+class ThirdPartyOnlyTest(unittest.TestCase):
+    """2026-10-13 (explicit user decision): a Windows saját drivereinek listázása/törlése
+    sehol nem érhető el - se paraméter, se force-törlés."""
+    def test_no_all_drivers_path(self):
+        import inspect
+        from app.gui.drivers import GuiDriversMixin
+        self.assertFalse(hasattr(drivers_core, 'get_all_drivers'))
+        self.assertFalse(hasattr(drivers_core, 'force_delete_driver_files'))
+        self.assertEqual(list(inspect.signature(GuiDriversMixin.load_drivers).parameters), ['self'])
+        self.assertNotIn('list_all', inspect.signature(GuiDriversMixin.delete_drivers).parameters)
+        self.assertNotIn('all_drivers', inspect.signature(drivers_core.get_offline_drivers).parameters)
 
-    def test_deleted_remains_notfound(self):
-        noop = lambda *a, **k: _res()
-        with mock.patch.object(drivers_core.shutil, 'rmtree'):     # semmit nem töröl
-            self.assertEqual(drivers_core.force_delete_driver_files(noop, 'mydrv.inf', self.root), 'remains')
-        self.assertEqual(drivers_core.force_delete_driver_files(noop, 'mydrv.inf', self.root), 'deleted')
-        self.assertEqual(drivers_core.force_delete_driver_files(noop, 'mydrv.inf', self.root), 'notfound')
+    def test_offline_list_never_asks_for_all(self):
+        seen = []
+        drivers_core.get_offline_drivers(lambda cmd, **k: seen.append(cmd) or _res(''), r'D:\\')
+        self.assertTrue(seen and '/all' not in [c.lower() for c in seen[0]])
 
 
 class DuplicateDeleteTest(unittest.TestCase):

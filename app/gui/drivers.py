@@ -142,7 +142,11 @@ class GuiDriversMixin:
     # ================================================================
     # DRIVER LISTING
     # ================================================================
-    def load_drivers(self, all_drivers=False):
+    def load_drivers(self):
+        # CSAK THIRD-PARTY (2026-10-13, explicit user decision: *"nem akarom véletlenül
+        # kitörölni az összes drivert a gépről"*). Az "összes driver" mód (a Windows saját
+        # csomagjai, a nem-oem csomagok force-törlése) a GUI-ból 2026-09-18-án, a CLI-ből és
+        # innen a backendből 2026-10-13-án kikerült - ne éleszd újra.
         # SORSZÁM + CÉLLEMEZ (2026-10-12, terepi napló, Build 372): az induláskori C:-lista
         # (8 mp) a D:-re váltás UTÁN ért be, és "OFFLINE MÓD (D:\)" alatt jelent meg; a
         # technikus abból törölt a D:\ képen - egy másik Windowsban ugyanaz az oemNN.inf
@@ -150,7 +154,7 @@ class GuiDriversMixin:
         # ha a céllemez azóta nem változott.
         self._drv_load_gen = getattr(self, '_drv_load_gen', 0) + 1
         gen, target = self._drv_load_gen, self.target_os_path
-        logging.info(f"[API] load_drivers(all_drivers={all_drivers}) - #{gen}, cél: {target or 'élő rendszer'}")
+        logging.info(f"[API] load_drivers() - #{gen}, cél: {target or 'élő rendszer'}")
         def worker():
             self.emit('drivers_loading', {'target': target or ''})
             start = time.monotonic()
@@ -169,10 +173,7 @@ class GuiDriversMixin:
             try:
                 if target:
                     logging.info(f"[DRIVERS] Offline mód: {target}")
-                    drivers = self._get_offline_drivers(all_drivers, problems)
-                elif all_drivers:
-                    logging.info("[DRIVERS] Összes driver lekérdezés (élő rendszer)")
-                    drivers = self._get_all_drivers()
+                    drivers = self._get_offline_drivers(problems)
                 else:
                     logging.info("[DRIVERS] Third-party driverek lekérdezés")
                     drivers = self._get_third_party_drivers(problems)
@@ -244,24 +245,17 @@ class GuiDriversMixin:
         self._dv_cache = None
         self._dv_cache_dirty_at = time.monotonic()
 
-    def _get_all_drivers(self):
-        logging.debug("[DRIVERS] _get_all_drivers() indult")
-        drivers = drivers_core.get_all_drivers(self._run)
-        logging.debug(f"[DRIVERS] _get_all_drivers: {len(drivers)} valid driver")
-        return drivers
-
-    def _get_offline_drivers(self, all_drivers=False, problems=None):
-        logging.debug(f"[DRIVERS] _get_offline_drivers(all_drivers={all_drivers})")
-        drivers = drivers_core.get_offline_drivers(self._run, self.target_os_path,
-                                                   all_drivers, problems)
+    def _get_offline_drivers(self, problems=None):
+        logging.debug("[DRIVERS] _get_offline_drivers()")
+        drivers = drivers_core.get_offline_drivers(self._run, self.target_os_path, problems)
         logging.debug(f"[DRIVERS] _get_offline_drivers: {len(drivers)} valid driver")
         return drivers
 
     # ================================================================
     # DRIVER DELETION
     # ================================================================
-    def delete_drivers(self, published_names, list_all=False, reboot=False, list_target=None):
-        logging.info(f"[API] delete_drivers() - {len(published_names)} driver, list_all={list_all}, "
+    def delete_drivers(self, published_names, reboot=False, list_target=None):
+        logging.info(f"[API] delete_drivers() - {len(published_names)} driver, "
                      f"reboot={reboot}, a lista lemeze: {list_target!r}, a mostani cél: {self.target_os_path!r}")
         logging.info(f"[DELETE] Törlendő driverek: {published_names}")
         # A KIJELÖLÉS LEMEZE = A TÖRLÉS LEMEZE (2026-10-12, lásd load_drivers): az oemNN.inf
@@ -303,7 +297,6 @@ class GuiDriversMixin:
                     'log': f'🗑 Törlés: {pub}'
                 })
                 try:
-                    is_oem = pub.lower().startswith("oem")
                     # Időkorlát minden pnputil-törlésre (CLAUDE.md 11.): egy beragadt PnP-veremnél
                     # csomagonként percekig lógna. Offline a DISM töröl, egy lemezképen az lassabb.
                     res = drivers_core.delete_driver_package(
@@ -327,23 +320,10 @@ class GuiDriversMixin:
                         self.emit('task_progress', {'task': 'delete', 'log':
                                   f'  ⏸️ {pub}: egy telepített eszköz még használja - a végén újrapróbáljuk'})
                     else:
-                        # Az agresszív force-fallback csak "ÖSSZES driver" módban, nem-oem
-                        # csomagra fut (lásd drivers_core.force_delete_driver_files).
                         why = drivers_core.delete_failure_text(res)
-                        if list_all and not is_oem:
-                            forced = drivers_core.force_delete_driver_files(self._run, pub, self.target_os_path)
-                            if forced == 'deleted':
-                                success += 1
-                                self.emit('task_progress', {'task': 'delete', 'log': f'  ✅ {pub} törölve (force)'})
-                            else:
-                                fail += 1
-                                self.emit('task_progress', {'task': 'delete', 'log':
-                                          f'  ❌ {pub} sikertelen: {why}' + (' - a force-törlés után is MARADT fájl (részletek a naplóban)'
-                                                                            if forced == 'remains' else ' - a fájljai sem találhatók')})
-                        else:
-                            fail += 1
-                            logging.warning(f"[DELETE] SIKERTELEN: {pub} (returncode={res.returncode}) - {why}")
-                            self.emit('task_progress', {'task': 'delete', 'log': f'  ❌ {pub} sikertelen: {why}'})
+                        fail += 1
+                        logging.warning(f"[DELETE] SIKERTELEN: {pub} (returncode={res.returncode}) - {why}")
+                        self.emit('task_progress', {'task': 'delete', 'log': f'  ❌ {pub} sikertelen: {why}'})
                 except Exception as e:
                     fail += 1
                     logging.error(f"[DELETE] {pub} törlése kivétellel elszállt: {e}", exc_info=True)

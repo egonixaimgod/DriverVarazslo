@@ -4420,10 +4420,9 @@ async function resetTarget() {
 /* ========== DRIVER LIST ========== */
 async function loadDrivers() {
   try {
-    // A `list_all` (a Windows gyári drivereinek listázása) a GUI-ból 2026-09-18-án
-    // kikerült (explicit user decision) - a CLI driver-menüjében továbbra is
-    // felkínáljuk, a Python paraméter ezért maradt a helyén.
-    await api().load_drivers(false);
+    // CSAK THIRD-PARTY: az "összes driver" mód a GUI-ból 2026-09-18-án, a CLI-ből és a
+    // backendből 2026-10-13-án kikerült (explicit user decision).
+    await api().load_drivers();
   } catch (e) {
     setDriversBusy(false);
     document.getElementById('driver-loading').style.display = 'none';
@@ -5506,7 +5505,7 @@ async function deleteSelected() {
   try {
     // A lista lemeze is megy: ha azóta másik lemezre váltottál, a backend megtagadja
     // (egy oemNN.inf szám lemezenként mást jelent).
-    await api().delete_drivers(names, false, false, driversTarget);
+    await api().delete_drivers(names, false, driversTarget);   // (nevek, reboot, a lista lemeze)
   } catch (e) {
     toast('Hiba a törlés során: ' + e, 'error');
   }

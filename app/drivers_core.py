@@ -16,8 +16,6 @@ alatt különben némán üres listát ad. A driver-verzió a valódi kimenetben
 import os
 import re
 import time
-import shutil
-import json
 import glob
 import logging
 from app.common import CMD_TIMEOUT_RETURNCODE
@@ -220,13 +218,6 @@ def _file_repository_path(target_os_path=None):
     return os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), "System32", "DriverStore", "FileRepository")
 
 
-def _inf_dir_path(target_os_path=None):
-    """A Windows\\INF mappa útvonala (online/offline)."""
-    if target_os_path:
-        return os.path.join(target_os_path, "Windows", "INF")
-    return os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), "INF")
-
-
 def filter_phantom_packages(drivers, target_os_path=None):
     """Szellem (korábban force-delete-elt) csomagok kiszűrése: egy nem-oem publikált
     nevű bejegyzés csak akkor valódi, ha még van hozzá tartozó mappa a DriverStore
@@ -299,31 +290,13 @@ def get_third_party_drivers(run, problems=None):
     return drivers
 
 
-def get_all_drivers(run):
-    """Összes driver listája (online, veszélyes mód). JSON-hiba esetén kivételt dob -
-    a hívó dönt (a GUI hibát jelenít meg, a CLI üres listával folytat)."""
-    cmd = ['powershell', '-NoProfile', '-Command',
-           '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-WindowsDriver -Online -All | Select-Object ProviderName, ClassName, Version, Driver, OriginalFileName | ConvertTo-Json -Depth 2 -WarningAction SilentlyContinue']
-    res = run(cmd, encoding='utf-8')
-    out = (res.stdout or '').strip()
-    if not out:
-        return []
-    data = json.loads(out)
-    if isinstance(data, dict):
-        data = [data]
-    parsed_drivers = [{"published": d.get("Driver", ""), "original": d.get("OriginalFileName", ""),
-                       "provider": d.get("ProviderName", ""), "class": d.get("ClassName", ""),
-                       "version": d.get("Version", "")} for d in data]
-    return filter_phantom_packages(parsed_drivers)
-
-
-def get_offline_drivers(run, target_os_path, all_drivers=False, problems=None):
-    """Offline cél-OS drivereinek listája (dism /Image:...).
+def get_offline_drivers(run, target_os_path, problems=None):
+    """Offline cél-OS third-party drivereinek listája (dism /Image:...). Csak third-party:
+    a Windows saját drivereinek listázása és törlése 2026-10-13 óta sehol nem érhető el
+    (explicit user decision - lásd GuiDriversMixin.load_drivers).
 
     `problems`: lásd get_third_party_drivers - a DISM felismert hibája ide kerül."""
     cmd = ['dism', '/English', f'/Image:{target_os_path}', '/Get-Drivers']
-    if all_drivers:
-        cmd.append('/all')
     res = _run_dism_list(run, cmd)
     drivers = parse_dism_driver_list(res.stdout)
     if problems is not None and not drivers:
@@ -634,63 +607,6 @@ def in_use_explanation(count):
             f'eltávolítani (Beállítások → Bluetooth és eszközök → Nyomtatók és lapolvasók), '
             f'és utána törölhető a driver. A Windows saját virtuális nyomtatóinál '
             f'(Print to PDF, XPS Document Writer) ez normális, és nincs is vele teendő.')
-
-
-def force_delete_driver_files(run, pub, target_os_path=None):
-    """Agresszív force-törlés fallback (takeown/icacls/rmtree a FileRepository +
-    Windows\\INF alól). CSAK "összes driver" módban, nem-oem csomagra hívható -
-    third-party nézetben egy sikertelen törlés egyszerűen sikertelen marad.
-    Visszatérési érték: 'deleted' (volt mit törölni, és VISSZAOLVASVA semmi nem maradt),
-    'remains' (volt, de maradt belőle), 'notfound' (nem volt mit törölni). 2026-10-12-ig
-    egy bool volt, ami akkor is igaz lett, ha a fájlok a gépen maradtak ("✅ törölve (force)")."""
-    rep = _file_repository_path(target_os_path)
-    inf_dir = _inf_dir_path(target_os_path)
-    found_any = False
-    # A takeown/icacls/rmdir a _run-on át naplózódik, de a Python-oldali shutil.rmtree /
-    # os.remove NEM hagyna semmi nyomot - pedig ez a legdestruktívabb művelet a
-    # programban (a DriverStore FileRepository mappáit tünteti el). Ha egy force-törlés
-    # olyat visz el, amit nem kellett volna, a logból pontosan látszania kell, MIT.
-    logging.warning(f"[DRIVERS] FORCE-TÖRLÉS indul: {pub} (repo={rep}, inf={inf_dir})")
-
-    dirs = glob.glob(os.path.join(rep, f"{pub}_*"))
-    logging.info(f"[DRIVERS] Force-törlés: {len(dirs)} FileRepository mappa illeszkedik a(z) {pub} névre.")
-    if dirs:
-        for d in dirs:
-            logging.warning(f"[DRIVERS] Force-törlés - mappa: {d}")
-            run(f'takeown /f "{d}" /r /A', shell=True)
-            run(f'icacls "{d}" /grant *S-1-5-32-544:F /t', shell=True)
-            try:
-                shutil.rmtree(d)
-                logging.info(f"[DRIVERS] Force-törlés - rmtree OK: {d}")
-            except Exception as e:
-                logging.warning(f"[DRIVERS] Force-törlés - rmtree sikertelen ({d}): {e} - rmdir következik")
-            run(f'rmdir /s /q "{d}"', shell=True)
-            logging.info(f"[DRIVERS] Force-törlés - mappa maradt-e: {os.path.exists(d)} ({d})")
-        found_any = True
-
-    bname = os.path.splitext(pub)[0]
-    for ext in ['.inf', '.pnf', '.INF', '.PNF']:
-        fpath = os.path.join(inf_dir, bname + ext)
-        if os.path.exists(fpath):
-            logging.warning(f"[DRIVERS] Force-törlés - fájl: {fpath}")
-            run(f'takeown /f "{fpath}" /A', shell=True)
-            run(f'icacls "{fpath}" /grant *S-1-5-32-544:F', shell=True)
-            try:
-                os.remove(fpath)
-                logging.info(f"[DRIVERS] Force-törlés - fájl törölve: {fpath}")
-                found_any = True
-            except OSError as e:
-                logging.warning(f"[DRIVERS] Force-törlés - os.remove sikertelen ({fpath}): {e} - del /f /q következik")
-                run(f'del /f /q "{fpath}"', shell=True)
-                found_any = True
-    # A VERDIKT A VISSZAOLVASÁS: maradt-e bármi a fenti mappákból/fájlokból.
-    left = [d for d in dirs if os.path.exists(d)] + [
-        os.path.join(inf_dir, bname + ext) for ext in ('.inf', '.pnf')
-        if os.path.exists(os.path.join(inf_dir, bname + ext))]
-    verdict = 'notfound' if not found_any else ('remains' if left else 'deleted')
-    (logging.warning if verdict != 'deleted' else logging.info)(
-        f"[DRIVERS] FORCE-TÖRLÉS vége: {pub} - {verdict}" + (f", maradt: {left}" if left else ''))
-    return verdict
 
 
 # ---------------------------------------------------------------------------

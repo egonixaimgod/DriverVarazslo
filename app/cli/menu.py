@@ -155,9 +155,11 @@ def _run_screen(api, title_text, fn):
 # 1. DRIVEREK KEZELÉSE
 # ---------------------------------------------------------------------------
 
-def _drivers_list(api, all_drivers=False):
+def _drivers_list(api):
+    """A third-party driverek listája. Az "ÖSSZES driver" mód (a Windows sajátjai) 2026-10-13
+    óta a CLI-ből is kikerült, ugyanúgy, mint a GUI-ból (explicit user decision)."""
     ui.info('Driverek lekérdezése (dism) — ez 15-50 másodperc is lehet...')
-    _sync(api, api.load_drivers, all_drivers=all_drivers)
+    _sync(api, api.load_drivers)
     data = api._cli_take('drivers_loaded', {})
     drivers = data.get('drivers') or []
     if data.get('error'):
@@ -237,7 +239,7 @@ def _drivers_usage_screen(api):
     A GUI Driverek nézetének megfelelője. Az indoklás (melyik eszköz, melyik futó
     szolgáltatás) itt is látszik, nem csak a verdikt - egy besorolás, aminek nem
     látszik az oka, a technikus számára ugyanolyan vak, mint a puszta INF-név volt."""
-    drivers = _drivers_list(api, False)
+    drivers = _drivers_list(api)
     if not drivers:
         ui.warn('Nincs megjeleníthető driver.')
         return
@@ -330,34 +332,31 @@ def _menu_drivers(api):
         _header(api, 'Driverek kezelése')
         c = ui.menu([
             ('1', 'Third-party driverek listázása', 'Amit a gyártók telepítettek (oemNN.inf)'),
-            ('2', 'ÖSSZES driver listázása', 'A Windows sajátjaival együtt — veszélyes terület'),
-            ('3', 'Driver(ek) törlése', 'Számozott listából, nyomtató-szűrővel'),
-            ('4', 'Hardver újraszkennelése', 'pnputil /scan-devices — új eszközök felderítése'),
-            ('5', 'Szellemeszközök törlése', 'Nem jelenlévő (ghost) eszközök kitakarítása'),
-            ('6', 'Driver-duplikátumok takarítása', 'DriverStore: a régi verziók eltávolítása'),
-            ('7', 'Eszközök újrakötése a gyári driverre',
+            ('2', 'Driver(ek) törlése', 'Third-party driverek, pipálható listából, nyomtató-szűrővel'),
+            ('3', 'Hardver újraszkennelése', 'pnputil /scan-devices — új eszközök felderítése'),
+            ('4', 'Szellemeszközök törlése', 'Nem jelenlévő (ghost) eszközök kitakarítása'),
+            ('5', 'Driver-duplikátumok takarítása', 'DriverStore: a régi verziók eltávolítása'),
+            ('6', 'Eszközök újrakötése a gyári driverre',
              'Ami a Windows alapdriverén ragadt — újraindítással fejeződik be'),
-            ('8', 'Mit használ MOST a gép?',
+            ('7', 'Mit használ MOST a gép?',
              'Melyik csomag van használatban, és melyikre nem hivatkozik semmi'),
         ], back_label='Vissza a főmenübe')
         if c == '0':
             return
         if c == '1':
-            _run_screen(api, 'Third-party driverek', lambda: _drivers_table(_drivers_list(api, False)))
+            _run_screen(api, 'Third-party driverek', lambda: _drivers_table(_drivers_list(api)))
         elif c == '2':
-            _run_screen(api, 'Összes driver', lambda: _drivers_table(_drivers_list(api, True)))
-        elif c == '8':
-            _run_screen(api, 'Mit használ a gép', lambda: _drivers_usage_screen(api))
-        elif c == '3':
             _run_screen(api, 'Driver törlése', lambda: _delete_drivers_flow(api))
-        elif c == '4':
+        elif c == '3':
             _run_screen(api, 'Hardver újraszkennelés', lambda: _rescan_hw(api))
-        elif c == '5':
+        elif c == '4':
             _run_screen(api, 'Szellemeszközök', lambda: api.delete_ghost_devices())
-        elif c == '6':
+        elif c == '5':
             _run_screen(api, 'Driver-duplikátumok', lambda: _dupdrivers_flow(api))
-        elif c == '7':
+        elif c == '6':
             _run_screen(api, 'Eszközök újrakötése', lambda: _rebind_flow(api))
+        elif c == '7':
+            _run_screen(api, 'Mit használ a gép', lambda: _drivers_usage_screen(api))
 
 
 def _rescan_hw(api):
@@ -369,8 +368,7 @@ def _rescan_hw(api):
 
 
 def _delete_drivers_flow(api):
-    all_mode = ui.confirm('ÖSSZES driver módban (a Windows sajátjait is beleértve)?', False)
-    drivers = _drivers_list(api, all_mode)
+    drivers = _drivers_list(api)
     if not drivers:
         ui.warn('Nincs megjeleníthető driver.')
         return
@@ -441,8 +439,7 @@ def _delete_drivers_flow(api):
         ui.dim('Megszakítva.')
         return
     reboot = ui.confirm('Törlés után újraindítás?', False)
-    api.delete_drivers([d.get('published') for d in to_delete],
-                       list_all=all_mode, reboot=reboot)
+    api.delete_drivers([d.get('published') for d in to_delete], reboot=reboot)
 
 
 def _dupdrivers_flow(api):
