@@ -16,7 +16,24 @@ if %errorlevel%==0 (
     echo [FIGYELEM] A DriverVarazslo.exe fut, ezert a dist mappa nem irhato felul.
     set /p VALASZ="Bezarjam most? [i/n] "
     if /i "!VALASZ!"=="i" (
-        taskkill /f /im "DriverVarazslo.exe" >nul 2>&1
+        REM A program UAC-vel rendszergazdakent fut, egy nem emelt cmd taskkill-je ezt
+        REM "Hozzaferes megtagadva"-val nem tudja leloni - ezert visszaolvasunk, es ha
+        REM meg fut, emelt joggal (UAC ablak) probaljuk ujra. A ping = varakozas: a
+        REM `timeout` atiranyitott bemenettel (^< nul) nem mukodik.
+        taskkill /f /t /im "DriverVarazslo.exe" >nul 2>&1
+        ping -n 3 127.0.0.1 >nul
+        tasklist /fi "imagename eq DriverVarazslo.exe" 2>nul | find /i "DriverVarazslo.exe" >nul
+        if !errorlevel!==0 (
+            echo      A program rendszergazdakent fut - a bezarashoz UAC ablak jon, nyomj Igent.
+            powershell -NoProfile -Command "Start-Process taskkill -ArgumentList '/f','/t','/im','DriverVarazslo.exe' -Verb RunAs -Wait -WindowStyle Hidden" >nul 2>&1
+            ping -n 3 127.0.0.1 >nul
+            tasklist /fi "imagename eq DriverVarazslo.exe" 2>nul | find /i "DriverVarazslo.exe" >nul
+            if !errorlevel!==0 (
+                echo [!] A DriverVarazslo.exe NEM zarult be ^(UAC elutasitva?^). Zard be kezzel, es inditsd ujra ezt a szkriptet.
+                pause
+                exit /b 1
+            )
+        )
         echo      Bezarva.
     ) else (
         echo Zard be a programot, es inditsd ujra ezt a szkriptet.

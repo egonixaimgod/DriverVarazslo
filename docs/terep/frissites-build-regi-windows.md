@@ -157,6 +157,10 @@ There is no test suite and no `requirements.txt`; the only third-party runtime d
 - **Run from source**: `python driver_tool.py` (GUI, self-elevates via UAC) or `python driver_tool.py --cli`.
 - `DriverVarazslo.spec`, `version_info.txt`, and `dist/DriverVarazslo.exe` are intentionally tracked in git — the exe is what the in-app updater downloads.
 
+### 2026-10-13: a kiadó szkript „Bezárjam?” kérdése nem zárta be a programot
+
+**Terepi bejelentés:** *„kiírja nekem hogy zarjam be a futo peldanyt, ranyomok h i bezarom de nem is zarja be”*. Ok: a DriverVarázsló indításkor UAC-vel emelt jogra vált, a `.bat` pedig egy sima (nem emelt) cmd-ben fut; egy nem emelt `taskkill` egy emelt folyamatra „Hozzáférés megtagadva”-t ad. A hibát a `>nul 2>&1` elnyelte, és utána feltétel nélkül „Bezarva.” jött (4. elv: néma hamis siker). Javítás: `taskkill /f /t`, 2 mp várakozás (`ping`, mert a `timeout` `< nul` bemenettel nem működik), `tasklist` visszaolvasás; ha még fut → `Start-Process taskkill -Verb RunAs` (UAC-ablak), újra visszaolvasás; ha akkor is fut → hibaüzenet, `exit /b 1` (nem buildel a zárolt exe mellett). **Ellenőrizve:** egy „DriverVarazslo.exe” nevű, nem emelt próbafolyamattal (a normál ág lelőtte, a build-lépés felé engedett; nem futó programnál nem kérdez). **Az emelt (UAC-os) ág nincs gépen kipróbálva** (UAC-kattintás kell hozzá). Csapda a teszteléshez: Git Bash alól a PATH-on a GNU `find` van elöl, a `.bat` `find /i` sora ott hibát ad — PowerShellből vagy cmd-ből futtasd.
+
 ### 2026-10-12: review-javítások (frissítő, letöltő, indítás)
 
 Kódolvasásból, a felhasználó kérésére; terepen NEM reprodukálva. Teszt: `tests/test_update_truth.py` (5 eset; a 3 hiba-eset elbukik a régi kódon, a 2 jó-út eset mindkettőn átmegy).
