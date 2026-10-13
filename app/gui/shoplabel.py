@@ -139,7 +139,7 @@ class GuiShopLabelMixin:
         logging.info(f"[BOLTI-TABLA] Kitöltött tábla: {out} -> nyomtató: '{printer}' "
                      f"(laponként {sc.PAGES_PER_SHEET[0]} oldal, A4-re méretezve)")
         r = self._run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
-                       sc.build_word_print_ps(out, printer)], timeout=sc.WORD_PRINT_TIMEOUT)
+                       sc.build_word_print_ps(out, printer, machines=machines)], timeout=sc.WORD_PRINT_TIMEOUT)
         if r.returncode == CMD_TIMEOUT_RETURNCODE:
             logging.error(f"[BOLTI-TABLA] A Word {sc.WORD_PRINT_TIMEOUT} mp alatt sem végzett.")
             return {'ok': False, 'message': (f'A Word {sc.WORD_PRINT_TIMEOUT} másodperc alatt sem válaszolt '
@@ -154,7 +154,7 @@ class GuiShopLabelMixin:
             msg = sc.error_text(p, printer) if p['error_stage'] else \
                 f"A Word nem jelzett sikert (kimenet: {(r.stdout or r.stderr or '')[:300]})"
             logging.error(f"[BOLTI-TABLA] Nem sikerült: {msg}")
-            return {'ok': False, 'message': msg}
+            return {'ok': False, 'message': msg, 'long_fields': p['long']}
         self._shoplabel_settings({'printer': printer})
         names = ' + '.join(str(m.get('name') or '').strip() for m in machines)
         return {'ok': True, 'message': f"Elküldve a(z) {printer} nyomtatóra: {names}"}

@@ -1379,6 +1379,8 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .sl-preset.on{border-color:rgba(46,224,138,0.6);background:rgba(46,224,138,0.12);color:#66ffb2}
 .sl-input.sl-todo{border-color:rgba(255,179,71,0.6);box-shadow:inset 3px 0 0 rgba(255,179,71,0.85)}
 .sl-input.sl-missing{border-color:#ff4d5e;box-shadow:0 0 10px rgba(255,77,94,0.3)}
+.sl-long{margin-top:4px;font-size:11.5px;font-weight:700;color:#ff8a94}
+.sl-long.ok{color:#66ffb2}
 .sl-sep{height:1px;background:var(--glass-border);opacity:0.5;margin:10px 0 12px}
 /* AKCIÓ pipa + élő kupon-előnézet (2026-10-08) */
 .sl-sale{display:flex;align-items:center;gap:10px;margin:4px 0 10px 128px;padding:8px 12px;border-radius:10px;cursor:pointer;
@@ -3248,6 +3250,14 @@ function goHome() {
 let slInfo = null;
 let slState = [slEmpty(), slEmpty()];
 let slBusy = false;
+/* TÚL HOSSZÚ SOROK (2026-10-13): ha a Word szerint egy mező két sorba tört (emiatt 3 oldal
+   lett), a nyomtatás eredménye megnevezi (long_fields), mi pedig a mezőt pirossal jelöljük,
+   alatta élő számlálóval a Wordben mért maximumig. Kulcs: '<gép 0-tól>|<data-sl kulcs>'. */
+let slLong = {};
+function slLongHint(len, max) {
+  return len > max ? '✂️ ' + len + ' / kb. ' + max + ' karakter fér ki egy sorba — vegyél vissza ' + (len - max) + '-t'
+                   : '✓ ' + len + ' / kb. ' + max + ' karakter — most már kifér';
+}
 function slEmpty() {
   // A Windows-telepítés alapból bepipálva, 15 000 Ft-tal (2026-10-09, explicit user decision).
   return {kind: null, name: '', price: '', sale: false, sale_price: '', windows: true,
@@ -3351,9 +3361,12 @@ function slRenderCards() {
 function slRow(i, key, label, example, value, big, field) {
   const presets = (field && field.presets) || [];
   const todo = field && slIsUnfilled(field, value);
+  const max = slLong[i + '|' + key], len = String(value || '').trim().length;
+  const long = max !== undefined && len > max;
   let h = '<div class="sl-row' + (big ? ' sl-big' : '') + (presets.length ? ' sl-has-presets' : '') + '"><label>' + esc(label) + '</label>'
-    + '<div class="sl-cell"><input class="sl-input' + (todo ? ' sl-todo' : '') + '" data-sl="' + i + '|' + esc(key) + '" value="' + esc(value || '')
+    + '<div class="sl-cell"><input class="sl-input' + (todo ? ' sl-todo' : '') + (long ? ' sl-missing' : '') + '" data-sl="' + i + '|' + esc(key) + '" value="' + esc(value || '')
     + '" placeholder="pl. ' + esc(example) + '" oninput="slInput(this)" onfocus="slFocus(this)">';
+  if (max !== undefined) h += '<div class="sl-long' + (long ? '' : ' ok') + '">' + esc(slLongHint(len, max)) + '</div>';
   if (presets.length) {
     // A mousedown-os preventDefault miatt a gomb nem veszi el a fókuszt a mezőtől.
     h += '<div class="sl-presets">' + presets.map((p, n) =>
@@ -3437,6 +3450,13 @@ function slInput(el) {
     if (f) slSyncField(el, f);
   } else st[key] = el.value;
   el.classList.remove('sl-missing');
+  const max = slLong[i + '|' + key], hint = el.parentNode.querySelector('.sl-long');
+  if (max !== undefined && hint) {
+    const len = el.value.trim().length;
+    el.classList.toggle('sl-missing', len > max);
+    hint.classList.toggle('ok', len <= max);
+    hint.textContent = slLongHint(len, max);
+  }
   if (key === 'price' || key === 'sale_price' || key === 'windows_fee') {
     const pv = document.getElementById('sl-pricepv-' + i);
     if (pv) pv.innerHTML = slPricePreview(st);
@@ -3515,6 +3535,7 @@ function slSetKind(i, kind) {
 function slClearAll() {
   if (slBusy) return;
   slState = [slEmpty(), slEmpty()];
+  slLong = {};
   slRenderCards();
   const r = document.getElementById('sl-result'); r.style.display = 'none';
 }
@@ -3592,6 +3613,11 @@ function slShowResult(ok, msg) {
 
 function onShopLabelResult(d) {
   slSetBusy(false);
+  slLong = {};
+  ((d && d.long_fields) || []).forEach(x => {
+    slLong[(x.machine - 1) + '|' + (x.key === 'name' ? 'name' : 'v:' + x.key)] = x.max;
+  });
+  slRenderCards();
   slShowResult(!!(d && d.ok), (d && d.message) || '');
 }
 

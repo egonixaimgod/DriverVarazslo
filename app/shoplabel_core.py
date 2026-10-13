@@ -728,10 +728,25 @@ def word_installed():
         return False
 
 
-def build_word_print_ps(docx_path, printer, copies=1):
+def _long_probes_ps(machines):
+    """A túl hosszú sorok keresésének bemenete a szkriptnek: (gép, kulcs, címke) - a név
+    sorát a szövege azonosítja, a táblázat sorait a címkéjük."""
+    probes = []
+    for i, m in enumerate(machines or [], 1):
+        probes.append((i, 'name', str(m.get('name') or '').strip()))
+        probes += [(i, k, lab) for k, lab, _ex in fields_for(m.get('kind'))]
+    return ', '.join(f"@({i}, '{k}', '{_ps_quote(lab)}')" for i, k, lab in probes)
+
+
+def build_word_print_ps(docx_path, printer, copies=1, machines=()):
     """A Word COM-os nyomtató szkript. Sor-protokoll a kimeneten:
     `PAGES|n`, `PRINTER|<ActivePrinter>`, `DEFAULT|<rendszer alapért.>`, `OK`,
     vagy `ERR|<szakasz>|<üzenet>`.
+
+    Ha nem 2 oldal lett, előtte minden két sorba tört mezőre `LONG|<gép>|<kulcs>|<hossz>|<max>`
+    (2026-10-13, explicit user decision: a technikus lássa, MELYIK sor hosszú, és mennyit
+    vegyen vissza). A `max` a Word-ben mérve: az érték leghosszabb eleje, ami még egy sorba
+    fér (a dokumentumot csak a memóriában írjuk át, nem mentjük).
 
     Három védőháló van benne, mindegyik a 4. elvből (néma hamis siker > minden más hiba):
       - oldalszám != 2 -> nem nyomtat (a tartalom átlógott egy harmadik oldalra);
@@ -758,7 +773,34 @@ try {{
   $stage = 'pages'
   $pages = $doc.ComputeStatistics(2)
   "PAGES|$pages"
-  if ($pages -ne 2) {{ "ERR|pages|$pages"; return }}
+  if ($pages -ne 2) {{
+    foreach ($pr in @({_long_probes_ps(machines)})) {{
+      try {{
+        $m = $pr[0]; $key = $pr[1]; $lab = $pr[2]; $rg = $null
+        if ($key -eq 'name') {{
+          foreach ($p in $doc.Paragraphs) {{
+            if (-not $p.Range.Information(12) -and $p.Range.Text.Trim() -eq $lab) {{
+              $rg = $p.Range; [void]$rg.MoveEnd(1, -1); break }} }}
+        }} else {{
+          $tbl = $doc.Tables.Item($m)
+          foreach ($r in 1..$tbl.Rows.Count) {{
+            if ($tbl.Cell($r, 1).Range.Text.Trim([char]13, [char]7, ' ') -eq $lab) {{
+              $c = $tbl.Cell($r, 2).Range; $rg = $doc.Range($c.Start, $c.End - 1); break }} }}
+        }}
+        if (-not $rg -or $rg.ComputeStatistics(1) -le 1) {{ continue }}
+        $full = $rg.Text; $lead = $full.Length - $full.TrimStart().Length; $len = $full.Length - $lead
+        $lo = 0; $hi = $len - 1
+        while ($lo -lt $hi) {{
+          $k = [int][Math]::Ceiling(($lo + $hi) / 2)
+          $rg.Text = $full.Substring(0, $lead + $k)
+          if ($rg.ComputeStatistics(1) -le 1) {{ $lo = $k }} else {{ $hi = $k - 1 }}
+        }}
+        $rg.Text = $full
+        "LONG|$m|$key|$len|$lo"
+      }} catch {{ "LONGERR|$($pr[0])|$($pr[1])|$($_.Exception.Message)" }}
+    }}
+    "ERR|pages|$pages"; return
+  }}
   $stage = 'printer'
   [void][System.__ComObject].InvokeMember('FilePrintSetup', [Reflection.BindingFlags]::InvokeMethod, $null, $word.WordBasic, @($printer, 1), $null, $null, [string[]]@('Printer', 'DoNotSetAsSysDefault'))
   $ap = [string]$word.ActivePrinter
@@ -781,12 +823,22 @@ try {{
 
 
 def parse_word_print_output(text):
-    """A szkript kimenete -> {ok, pages, printer, error_stage, error, default, default_after}."""
+    """A szkript kimenete -> {ok, pages, printer, error_stage, error, default, default_after,
+    long: [{machine, key, length, max}]}."""
     r = {'ok': False, 'pages': None, 'printer': None, 'error_stage': None, 'error': None,
-         'default': None, 'default_after': None}
+         'default': None, 'default_after': None, 'long': []}
     for line in (text or '').splitlines():
         line = line.strip()
-        if line == 'OK':
+        if line.startswith('LONG|'):
+            parts = line.split('|')
+            try:
+                r['long'].append({'machine': int(parts[1]), 'key': parts[2],
+                                  'length': int(parts[3]), 'max': int(parts[4])})
+            except (IndexError, ValueError):
+                logging.warning(f"[BOLTI-TABLA] Értelmezhetetlen LONG sor: {line}")
+        elif line.startswith('LONGERR|'):
+            logging.warning(f"[BOLTI-TABLA] Egy sor hosszát nem sikerült megmérni: {line}")
+        elif line == 'OK':
             r['ok'] = True
         elif line.startswith('PAGES|'):
             try:
@@ -816,6 +868,13 @@ def error_text(parsed, printer):
                 f"aktiválva). A bolti tábla a Worddel nyomtat. Részletek: {msg}")
     if st == 'open':
         return f"A Word nem tudta megnyitni a kitöltött táblát: {msg}"
+    if st == 'pages' and parsed.get('long'):
+        labels = dict([('name', 'Gép neve')] + [(k, lab) for k, lab, _lo, _ex in FIELDS])
+        lines = [f"  • {x['machine']}. gép - {labels.get(x['key'], x['key'])}: {x['length']} karakter, "
+                 f"kb. {x['max']} fér ki egy sorba -> vegyél vissza legalább {x['length'] - x['max']}-t"
+                 for x in parsed['long']]
+        return (f"A kitöltött tábla {msg} oldal lett 2 helyett, mert ezek a sorok nem férnek ki "
+                "egy sorba (pirossal jelölve):\n" + '\n'.join(lines) + "\nNEM nyomtattam semmit.")
     if st == 'pages':
         return (f"A kitöltött tábla {msg} oldal lett 2 helyett - valamelyik szöveg túl hosszú, "
                 "és átlógott a következő oldalra. Rövidítsd (jellemzően az Állapot vagy a gép "

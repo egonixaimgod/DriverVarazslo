@@ -131,5 +131,35 @@ class SaleTemplateTests(unittest.TestCase):
         self.assertIn('Most olcsóbb!', x)
 
 
+class LongLineTests(unittest.TestCase):
+    """2026-10-13: a 3 oldalas hiba megnevezi a két sorba tört mezőt. A kimenet a valódi
+    Word-futás sorai (1. gép: név + Tárhely, 51 karakter, max 27; Wordben ellenőrizve:
+    27-nél 2 oldal, 28-nál 3)."""
+    OUT = 'DEFAULT|X\nPAGES|3\nLONG|1|name|51|27\nLONG|1|storage|51|27\nERR|pages|3\nDEFAULT_AFTER|X\n'
+
+    def test_parse_and_text(self):
+        p = sc.parse_word_print_output(self.OUT)
+        self.assertEqual(p['error_stage'], 'pages')
+        self.assertEqual(p['long'], [{'machine': 1, 'key': 'name', 'length': 51, 'max': 27},
+                                     {'machine': 1, 'key': 'storage', 'length': 51, 'max': 27}])
+        t = sc.error_text(p, 'X')
+        self.assertIn('1. gép - Gép neve: 51 karakter, kb. 27', t)
+        self.assertIn('Tárhely', t)
+        self.assertIn('legalább 24-t', t)
+
+    def test_no_long_keeps_generic_text(self):
+        p = sc.parse_word_print_output('PAGES|3\nLONGERR|1|name|x\nERR|pages|3\n')
+        self.assertEqual(p['long'], [])
+        self.assertIn('valamelyik szöveg túl hosszú', sc.error_text(p, 'X'))
+
+    def test_probes_in_script(self):
+        m2 = dict(machine('desktop'), name="O'Neil PC")
+        ps = sc.build_word_print_ps('c:\\a.docx', 'P', machines=[machine(), m2])
+        self.assertIn("@(1, 'name', 'Dell Latitude 7410')", ps)
+        self.assertIn("@(1, 'condition', 'Állapot')", ps)
+        self.assertIn("@(2, 'name', 'O''Neil PC')", ps)
+        self.assertNotIn("@(2, 'condition'", ps)   # asztalinál nincs Állapot sor
+
+
 if __name__ == '__main__':
     unittest.main()
