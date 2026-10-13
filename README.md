@@ -261,7 +261,7 @@ Minden eszközön ugyanaz a döntési lánc fut le — a kézi szkenben és az 1
 | **Technológia** | pywebview + Microsoft WebView2, sötét „glassmorphism” téma | natív Windows-konzol, színes és keretes megjelenítés, ASCII-tartalékkal |
 | **Mikor** | alapértelmezés minden modern gépen | régi vagy gyenge gépen, illetve ha a WebView2/.NET nem érhető el |
 | **Funkciók** | a teljes eszközkészlet | ugyanaz a logika — ugyanazokat a modulokat hívja |
-| **Váltás** | a felső sáv **CLI mód** gombja | `DriverVarazslo.exe --cli` |
+| **Váltás** | az oldalsáv **CLI mód** gombja (a Build-szám alatt); vissza: a CLI főmenü **Grafikus mód** pontja | `DriverVarazslo.exe --cli` |
 
 Ha a grafikus felület egy gépen nem tud elindulni, a program ezt a következő indításkor felismeri, és magától a parancssoros módot hozza fel.
 
@@ -358,7 +358,7 @@ DriverVarazslo/
 **Előfeltételek:** Windows 10/11, Python 3.12, rendszergazdai jogosultság.
 
 ```bash
-pip install pywebview pyinstaller pyflakes
+pip install pywebview pyinstaller pyflakes rich==14.1.0 questionary==2.1.1
 
 python driver_tool.py          # indítás forrásból (grafikus felület)
 python driver_tool.py --cli    # indítás forrásból (parancssoros mód)

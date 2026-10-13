@@ -79,6 +79,10 @@ body::after{content:'';position:fixed;width:700px;height:700px;background:radial
 .sidebar-clearlog{padding:0 12px 2px;text-align:center;color:var(--text3);font-size:10.5px;cursor:pointer;transition:color var(--t)}
 .sidebar-clearlog:hover{color:var(--red)}
 .sidebar-clearlog.busy{opacity:.5;pointer-events:none}
+.sidebar-cli{align-self:center;margin:2px 0 6px;padding:3px 10px;border-radius:7px;border:1px solid var(--glass-border);
+  background:rgba(180,100,255,0.08);color:var(--text2);font-size:10.5px;font-family:var(--font);cursor:pointer;transition:all var(--t)}
+.sidebar-cli:hover{background:rgba(180,100,255,0.2);color:var(--text);border-color:rgba(180,100,255,0.45)}
+.sidebar-cli:disabled{opacity:.6;cursor:default}
 
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
 
@@ -464,7 +468,11 @@ tr.g-standby{--gc:255,180,80}
    oszlopfejléc z-indexe ezért nagyobb (lásd lent). */
 tr.drv-group td{padding:0!important;max-width:none!important;white-space:normal!important;
   overflow:visible!important;border:0!important;background:transparent!important;
-  position:sticky;top:var(--thh,31px);z-index:2}  /* a tartalék a mért fejléc-magasság (31 px) - a valódi értéket a ResizeObserver adja */
+  position:sticky;top:calc(var(--thh,31px) - 3px);z-index:2}  /* a tartalék a mért fejléc-magasság (31 px) - a valódi értéket a ResizeObserver adja */
+/* A -3px (2026-10-13, terepi képernyőkép): pontosan a fejléc alá tapadva ~2 px rés maradt (a
+   `border-collapse` miatt a fejléc 2 px-es, félig átlátszó alsó szegélyének fele a cellán
+   KÍVÜL esik, és a sáv cellájának teteje 1 px-ig átlátszó), és azon átlátszott a sor. Így a
+   sáv teteje a fejléc (z-index 3) ALÁ csúszik - nincs rés, és nem kell hozzá extra sor sem. */
 #driver-table-wrap th,#mc-del-list th{z-index:3}
 tr.drv-group .dg{display:flex;align-items:center;gap:11px;padding:9px 14px 9px 12px;
   background:linear-gradient(90deg,rgba(var(--gc),0.30),rgba(var(--gc),0.12) 55%,rgba(var(--gc),0.05)),#1b0f30;
@@ -1484,6 +1492,11 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
          menüpont"*) - a kartya a "Operacios rendszer" nezet 4. szakasza. Ez is a
          Windows sajat szolgaltatasa (tuzfal-szabalyok), nem driver. -->
     <div class="sidebar-bottom" id="build-label">Build ---</div>
+    <!-- CLI MÓD (2026-10-13 óta itt, explicit user decision): a felső sávban csak a Driverek
+         és a Mentés nézetben látszott, pedig bármikor át kell tudni váltani. A program új
+         konzolablakban indul újra, ez a példány kilép; a CLI "Grafikus mód" menüpontja hoz vissza. -->
+    <button class="sidebar-cli" onclick="switchToCliMode()" id="btn-cli-mode"
+            title="Átvált szöveges (CLI) módra: a program új konzolablakban indul újra, ugyanazzal a tudással, de a nehéz grafikus réteg nélkül. Régi, lassú gépeken ez a használható mód. Vissza: a CLI főmenüjében a &quot;Grafikus mód&quot;.">🖥️ CLI mód</button>
     <div class="sidebar-clearlog" id="clear-log-label" title="Törli a gép saját debug-naplóit (DriverVarázsló_debug.log és a rotált másai), hogy a következő futás tisztán olvasható legyen. A Naplók nézetbe letöltött, MÁS gépekről származó naplókat nem bántja." onclick="clearDebugLogs()">🧹 napló törlése</div>
     <div class="sidebar-datadir" id="data-dir-label" title="Ide menti a program a debug naplót és a Rendszer Riport HTML fájlokat - kattints a megnyitáshoz" onclick="openAppDataDir()">📁 ...</div>
   </nav>
@@ -1495,11 +1508,6 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
          A megjelenítést kizárólag a switchView dönti el (drivers / backup nézet). -->
     <div class="target-bar" style="display:none">
       <span class="target-label online" id="target-label">JELENLEGI RENDSZER</span>
-      <!-- CLI MÓD: a régi/lassú gépeken a grafikus felület használhatatlan, ezért egy
-           kattintással át lehet váltani szöveges módba (a program új konzolablakban
-           indul újra, ez a példány kilép). -->
-      <button class="btn btn-sm" onclick="switchToCliMode()" id="btn-cli-mode"
-              title="Átvált szöveges (CLI) módra: a program új konzolablakban indul újra, ugyanazzal a tudással, de a nehéz grafikus réteg nélkül. Régi, lassú gépeken ez a használható mód.">🖥️ CLI mód</button>
       <button class="btn btn-sm" onclick="changeTarget()">Másik lemez kiválasztása</button>
       <button class="btn btn-sm" onclick="resetTarget()">Vissza (Jelenlegi lemez)</button>
     </div>

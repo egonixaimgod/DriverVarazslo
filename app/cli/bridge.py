@@ -65,6 +65,8 @@ class CliBridgeMixin:
             ui.write('')
             ui.title(data.get('title') or 'Folyamat', color=ui.PURPLE)
             self._cli_task_title = data.get('title') or ''
+            # Pörgő jelző a művelet végéig (2026-10-13): a naplósorok fölötte görögnek.
+            ui.busy((data.get('title') or 'Dolgozom') + '…')
             return
 
         if event == 'task_progress':
@@ -76,6 +78,8 @@ class CliBridgeMixin:
             pct = data.get('progress')
             if isinstance(pct, (int, float)) and not data.get('indeterminate'):
                 ui.progress(int(pct), 100, data.get('status') or '')
+            elif data.get('status'):
+                ui.busy(data['status'])
             return
 
         if event == 'task_complete':
@@ -117,8 +121,8 @@ class CliBridgeMixin:
                             f"{status}  {data.get('detail') or ''}".strip())
             elif status and status != getattr(self, '_cli_last_scan_status', None):
                 self._cli_last_scan_status = status
-                ui.progress_done()
                 ui.info(status)
+                ui.busy(status)
                 if data.get('detail'):
                     ui.dim(data['detail'])
             return
@@ -172,6 +176,7 @@ class CliBridgeMixin:
             logging.error(f"[CLI-TASK] '{task}' kivétellel állt le: {e}", exc_info=True)
             ui.err(f"Hiba: {e}")
         finally:
+            ui.progress_done()
             self._task_busy = None
             logging.info(f"[CLI-TASK] '{task}' vége.")
 

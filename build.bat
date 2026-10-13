@@ -24,6 +24,15 @@ del temp_build.txt
 echo      Uj Build verzio: %NEW_BUILD%
 echo.
 
+REM A CLI felulete (rich + questionary, 2026-10-13). Ha hianyzik, a PyInstaller hiba nelkul
+REM epitene egy olyan exet, aminek a CLI modja nem indul - ezert elotte ellenorizzuk/telepitjuk.
+python -c "import rich, questionary" 2>nul || python -m pip install rich==14.1.0 questionary==2.1.1
+python -c "import rich, questionary" || (
+    echo [!] A rich / questionary csomag nem telepitheto - a build megall.
+    pause
+    exit /b 1
+)
+
 echo [2/2] Program leforditasa (PyInstaller)...
 python -m PyInstaller --clean DriverVarazslo.spec
 if %ERRORLEVEL% neq 0 (

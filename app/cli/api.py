@@ -56,6 +56,7 @@ from app.gui.updater import GuiUpdaterMixin
 from app.gui.shoplabel import GuiShopLabelMixin
 from app.gui.storeapps import GuiStoreAppsMixin
 from app.gui.powerplan import GuiPowerPlanMixin
+from app.gui.climode import GuiCliModeMixin
 
 # --- A CLI saját metódusai ---
 #
@@ -79,6 +80,7 @@ class CliApi(CliBridgeMixin, GuiBaseMixin,
              GuiStressMixin, GuiStressAutomationMixin, GuiToolsInstallMixin,
              GuiBenchmarkMixin, GuiUpdaterMixin, GuiShopLabelMixin,
              GuiStoreAppsMixin, GuiPowerPlanMixin,
+             GuiCliModeMixin,   # vissza a grafikus módba (switch_to_gui_mode)
              # CLI-specifikus (nem duplikátum): a konzolos frissítés-ellenőrzés
              CliUpdaterMixin):
     """A CLI backend: ugyanaz a funkcionalitás, mint a GUI-é, konzolos kimenettel."""

@@ -124,7 +124,7 @@ def _header(api, screen=''):
         sub += "  ·  Jelenlegi rendszer (online)"
     if screen:
         sub += f"  ·  {screen}"
-    ui.title('DRIVERVARÁZSLÓ — CLI mód', sub)
+    ui.title('DriverVarázsló  ·  CLI', sub)
 
 
 def _ask_log_period():
@@ -408,8 +408,16 @@ def _delete_drivers_flow(api):
             order.get(((usage.get((d.get('published') or '').lower()) or {}).get('state')), 9),
             (d.get('class') or '').lower(), (d.get('published') or '').lower()))
 
-    _drivers_table(drivers, usage=usage if usage else None, machine=machine)
-    idx = ui.pick_indices("Törlendő sorszámok (pl. 1,3,5-8 vagy 'mind')", len(drivers))
+    # PIPÁLHATÓ LISTA (2026-10-13): a sorban ott a használat, a csomag, a gyártó és a "Mire
+    # való" - ugyanaz, amit a táblázat mutatott, csak most ki is lehet benne jelölni.
+    labels = []
+    for d in drivers:
+        st = ((usage.get((d.get('published') or '').lower()) or {}).get('state', 'unknown')) if usage else None
+        mark = (_USAGE_MARK.get(st, _USAGE_MARK['unknown'])[1] + '  ') if st else ''
+        what = _machine_what(machine, d) if machine else (d.get('class') or '')
+        labels.append(f"{mark}{d.get('original') or d.get('published')}  ·  {d.get('provider') or '?'}  ·  "
+                      f"{d.get('version') or '?'}  ({d.get('published')})" + (f"  —  {what}" if what else ''))
+    idx = ui.pick_indices('Melyik csomagokat törlöm?', len(drivers), labels=labels)
     if not idx:
         ui.dim('Nincs kijelölve semmi.')
         return
@@ -460,8 +468,8 @@ def _dupdrivers_flow(api):
     if not rows:
         ui.ok('Minden duplikátum aktív használatban van — nincs mit törölni.')
         return
-    ui.table(['#', 'Published', 'Eredeti INF', 'Verzió', 'Dátum'], rows, widths=[4, 14, 24, 18, 12])
-    idx = ui.pick_indices("Törlendő sorszámok (vagy 'mind')", len(deletable))
+    idx = ui.pick_indices('Melyik régi csomagokat törlöm?', len(deletable),
+                          labels=[f"{r[2]}  ·  {r[3]}  ·  {r[4]}  ({r[1]})" for r in rows])
     if idx and ui.confirm(f"Törlöd a kijelölt {len(idx)} régi csomagot?", False):
         api.delete_duplicate_drivers([deletable[i].get('published') for i in idx])
 
@@ -597,25 +605,18 @@ def _hwscan_install(api):
     if not pool:
         ui.warn('Előbb futtass egy keresést (1. menüpont).')
         return
-    _hwscan_table(api, pool)
-    ui.dim("Alapértelmezés: a nem kockázatos, nem downgrade tételek.")
-    raw = ui.ask("Telepítendő sorszámok ('mind', 'ajanlott', vagy pl. 1,3,5-7)", 'ajanlott')
-    if raw.lower() in ('ajanlott', 'ajánlott', ''):
-        idx = [i for i, p in enumerate(pool)
-               if not p.get('risky') and not p.get('downgrade') and not p.get('prev_no_bind')]
-        ui.info(f"{len(idx)} ajánlott tétel kijelölve.")
-    elif raw.lower() in ('mind', 'all'):
-        idx = list(range(len(pool)))
-    else:
-        idx = []
-        for part in raw.replace(' ', '').split(','):
-            if '-' in part[1:]:
-                a, _, b = part.partition('-')
-                if a.isdigit() and b.isdigit():
-                    idx.extend(range(int(a) - 1, int(b)))
-            elif part.isdigit():
-                idx.append(int(part) - 1)
-        idx = [i for i in dict.fromkeys(idx) if 0 <= i < len(pool)]
+    # Az AJÁNLOTT tételek (nem kockázatos, nem régebbi, nem "korábban nem kötött") előre
+    # bepipálva - ugyanaz az alapállapot, mint a régi 'ajanlott' alapértelmezés.
+    rec = [i for i, p in enumerate(pool)
+           if not p.get('risky') and not p.get('downgrade') and not p.get('prev_no_bind')]
+    labels = []
+    for p in pool:
+        flags = [t for k, t in (('risky', 'KOCKÁZATOS'), ('downgrade', 'régebbi'),
+                                ('generic_ok', 'gyári csere'), ('prev_no_bind', 'korábban nem kötött')) if p.get(k)]
+        labels.append(f"{p.get('name') or '?'}  →  {p.get('wu_title') or '?'}"
+                      f"  (most: {p.get('installed_version') or '-'})" + (f"  [{', '.join(flags)}]" if flags else ''))
+    ui.dim(f"{len(rec)} ajánlott tétel előre bepipálva.")
+    idx = ui.pick_indices('Mit telepítsek?', len(pool), labels=labels, defaults=rec)
     if not idx:
         ui.dim('Nincs kijelölve semmi.')
         return
@@ -657,7 +658,9 @@ def _hwscan_problems(api):
     fixable = [p for p in probs if p.get('has_fix')]
     if not fixable:
         return
-    sel = ui.pick_indices('Melyiket javítsam? (sorszám)', len(probs))
+    sel = ui.pick_indices('Melyiket javítsam?', len(probs),
+                          labels=[f"{p.get('name')} (Code {p.get('code')})" + ('' if p.get('has_fix') else '  — nincs gyors javítás')
+                                  for p in probs])
     for i in sel:
         p = probs[i]
         if p.get('has_fix') and p.get('pnp_id'):
@@ -682,8 +685,8 @@ def _menu_autofix(api):
     ui.panel('MIT CSINÁL', [
         'Visszaállítási pont, a Gyors Rendszerindítás és a WU-driverek tiltása,',
         'szellemeszközök + MINDEN third-party driver törlése, majd a legfrissebb',
-        'driverek telepítése a Windows Update-ről, a Microsoft Update Catalogból',
-        'és a gyártó (Lenovo/Dell/HP) katalógusából — újraindítás-lánccal.',
+        'driverek telepítése a Windows Update-ről és a Microsoft Update Catalogból —',
+        'újraindítás-lánccal.',
         '',
         'A gép a folyamat alatt TÖBBSZÖR ÚJRAINDUL, és magától folytatja a munkát.',
         'Időigény: jellemzően 20-60 perc.',
@@ -722,15 +725,73 @@ def _menu_autofix(api):
         f"MS Update Catalog keresés    : {'IGEN' if use_catalog else 'NEM (gyors mód)'}",
     ], color=ui.YELLOW)
 
+    keep = _autofix_keep_packages(api, skip_printer, wifi_mode, rebuild_wifi)
     if not ui.confirm('INDULHAT a fix? (a gép többször újraindul)', False):
         ui.dim('Megszakítva.')
         ui.pause()
         return
     _header(api, '1 Kattintásos Driver Fix — folyamatban')
-    api.run_autofix(skip_printer_drivers=skip_printer, wifi_mode=wifi_mode,
+    api.run_autofix(skip_printer_drivers=skip_printer, wifi_mode=wifi_mode, keep_packages=keep,
                     rebuild_wifi_driver=rebuild_wifi, pause_windows_update=wu_pause,
                     use_catalog=use_catalog)
     ui.pause()
+
+
+def _autofix_lock(d, skip_printer, wifi_mode, rebuild_wifi, boot_detected):
+    """A GUI `delRowForce`-ának párja: (törlődik?, ok) a zárolt soroknál, egyébként None.
+    A zárolást a törlési fázis MAGA is betartja (ugyanazok a Python-függvények döntenek) -
+    ez csak azt mutatja meg előre, hogy a technikus ne pipálgasson zárolt sort."""
+    g = d.get('group')
+    if g == 'boot':
+        return False, ('a rendszerlemez indítási útvonalán van' if boot_detected
+                       else 'a rendszerlemez útja nem deríthető fel - biztonságból minden tároló-driver marad')
+    if g == 'wifi' and wifi_mode:
+        if rebuild_wifi:
+            return True, 'Wi-Fi újraépítés: törlődik, majd azonnal visszatöltődik'
+        return False, 'Wi-Fi-s telepítés újraépítés nélkül: marad'
+    if g == 'printer' and skip_printer:
+        return False, 'nyomtató-megtartás'
+    return None
+
+
+def _autofix_keep_packages(api, skip_printer, wifi_mode, rebuild_wifi):
+    """A GUI megerősítő ablakának törlési előnézete a CLI-ben (2026-10-13 előtt hiányzott):
+    név szerint mi törlődik, mi zárolt, és csomagonként KIVEHETŐ, ami maradjon. Ugyanaz a
+    `get_autofix_delete_preview`, mint a GUI-é. Visszatérés: a `keep_packages` lista."""
+    ui.write('')
+    ui.busy('Törlési előnézet: eszközhasználat, nyomtató, Wi-Fi, rendszerlemez-lánc…')
+    prev = api.get_autofix_delete_preview() or {}
+    ui.progress_done()
+    rows = prev.get('drivers') or []
+    if prev.get('error'):
+        ui.warn(f"Az előnézet nem készült el ({prev['error']}). A törlés ettől még ugyanazokkal a "
+                f"védelmekkel fut, csak csomagonként nem lehet kivenni semmit.")
+        return []
+    if not rows:
+        ui.ok('Nincs törölhető third-party driver a gépen.')
+        return []
+    locked, free = [], []
+    for d in rows:
+        f = _autofix_lock(d, skip_printer, wifi_mode, rebuild_wifi, prev.get('boot_detected'))
+        (locked if f else free).append((d, f))
+    if locked:
+        ui.panel(f"ZÁROLT CSOMAGOK  [{len(locked)} db] - ezekről a kapcsolók / a boot-védelem dönt",
+                 [f"{'törlődik' if f[0] else 'MARAD   '}  {d.get('original') or d.get('published')}  —  {f[1]}"
+                  for d, f in locked], color=ui.YELLOW)
+    labels = []
+    for d, _f in free:
+        st = d.get('usage') or 'unknown'
+        dev = ', '.join((d.get('devices') or [])[:2]) or d.get('usage_text') or ''
+        labels.append(f"{_USAGE_MARK.get(st, _USAGE_MARK['unknown'])[1]}  {d.get('original') or d.get('published')}"
+                      f"  ·  {d.get('provider') or '?'}" + (f"  —  {dev}" if dev else ''))
+    ui.write('')
+    ui.dim(f"{len(free)} csomag törlődik. Amit itt BEPIPÁLSZ, az MEGMARAD (pl. egy távoli asztali program drivere).")
+    picked = ui.pick_indices('Mit hagyjon meg a fix?', len(free), labels=labels) if free else []
+    keep = [{'published': free[i][0].get('published'), 'original': free[i][0].get('original')} for i in picked]
+    n_del = len(free) - len(keep) + sum(1 for _d, f in locked if f[0])
+    ui.info(f"Törlődik: {n_del} csomag · marad: {len(rows) - n_del}"
+            + (f" (ebből kézzel kivéve: {len(keep)})" if keep else ''))
+    return keep
 
 
 def _autofix_resume(api):
@@ -972,17 +1033,22 @@ def _menu_display(api):
             ('7', 'Hibás bejegyzések javítása', None),
             ('8', 'MINDEN színbeállítás GYÁRI visszaállítása', None),
             ('9', 'Windows Színkezelés megnyitása', None),
+            ('10', 'Gamma visszaállítása lineárisra', 'A betöltött gamma-korrekció azonnali eldobása'),
+            ('11', 'Színprofil hozzáadása (ICC/ICM fájl)', 'Utána az 5. ponttal aktiválható'),
         ], back_label='Vissza a főmenübe')
-        if not c:
+        # '0' a vissza (a régi `if not c` a '0'-ra sosem teljesült: a menüből nem lehetett kilépni).
+        if c == '0':
             return
 
         def pick_mon():
             if len(mons) == 1:
                 return mons[0]
-            i = ui.pick_indices('Melyik kijelző? (sorszám)', len(mons))
+            i = ui.pick_indices('Melyik kijelző?', len(mons), single=True,
+                                labels=[m.get('name') or m.get('gdi_name') or f'{k}. kijelző'
+                                        for k, m in enumerate(mons, 1)])
             return mons[i[0]] if i else None
 
-        if c in ('1', '2', '5') and not mons:
+        if c in ('1', '2', '5', '10') and not mons:
             continue
         if c == '1':
             m = pick_mon()
@@ -1008,18 +1074,17 @@ def _menu_display(api):
                 continue
             slot = 'hdr' if ui.confirm('HDR-módra? (Nem = SDR)', False) else 'sdr'
             libs = [p for p in (data.get('library') or []) if p.get('selectable')]
-            ui.table(['#', 'Profil', 'Típus'], [[str(k), p.get('file'), 'HDR' if p.get('hdr') else 'SDR']
-                                                for k, p in enumerate(libs, 1)])
-            ui.dim('0 = profil levétele (Windows alapértelmezés)')
-            raw = ui.ask('Sorszám', '0').strip()
-            if raw.isdigit() and 0 <= int(raw) <= len(libs):
-                f = libs[int(raw) - 1]['file'] if int(raw) else ''
+            i = ui.pick_indices('Melyik profil legyen aktív?', len(libs) + 1, single=True,
+                                labels=['(nincs - a profil levétele, Windows alapértelmezés)']
+                                + [f"{p.get('file')}  ({'HDR' if p.get('hdr') else 'SDR'})" for p in libs])
+            if i:
+                f = libs[i[0] - 1]['file'] if i[0] else ''
                 _run_screen(api, 'Profil', lambda: api.activate_color_profile(m['index'], slot, f))
         elif c == '6':
             libs = data.get('library') or []
-            ui.table(['#', 'Fájl', 'Eredet'], [[str(k), p.get('file'), 'Windows' if p.get('windows') else 'hozzáadott']
-                                               for k, p in enumerate(libs, 1)])
-            i = ui.pick_indices('Melyik fájlt törlöm?', len(libs))
+            i = ui.pick_indices('Melyik fájlt törlöm?', len(libs), single=True,
+                                labels=[f"{p.get('file')}  ({'Windows' if p.get('windows') else 'hozzáadott'})"
+                                        for p in libs])
             if i and ui.confirm(f"Biztosan törlöd: {libs[i[0]]['file']}?", False):
                 f = libs[i[0]]['file']
                 _run_screen(api, 'Törlés', lambda: api.uninstall_icc_profile(f))
@@ -1050,6 +1115,12 @@ def _menu_display(api):
                 _run_screen(api, 'Gyári visszaállítás', lambda: api.factory_reset_colors(pr))
         elif c == '9':
             api.open_windows_color_tool('colorcpl')
+        elif c == '10':
+            m = pick_mon()
+            if m:
+                _run_screen(api, 'Gamma', lambda: api.reset_display_gamma(m['index']))
+        elif c == '11':
+            _run_screen(api, 'Színprofil hozzáadása', lambda: api.install_icc_profile())
 
 
 def _menu_stress(api):
@@ -1061,6 +1132,7 @@ def _menu_stress(api):
             ('3', 'Futó tesztek leállítása', None),
             ('4', 'Szervíz programok telepítése', 'Program Files + asztali parancsikon'),
             ('5', 'Benchmark futtatása', 'Cinebench + FurMark, feltöltés a ranglistára'),
+            ('6', 'Benchmark-ranglista', 'A bolt felhős ranglistája'),
         ], back_label='Vissza a főmenübe')
         if c == '0':
             return
@@ -1074,13 +1146,14 @@ def _menu_stress(api):
             _run_screen(api, 'Telepítés', lambda: _tools_install(api))
         elif c == '5':
             _run_screen(api, 'Benchmark', lambda: _benchmark_flow(api))
+        elif c == '6':
+            _run_screen(api, 'Ranglista', lambda: _leaderboard(api))
 
 
 def _stress_single(api):
     from app.stress_defs import STRESS_TOOLS
     keys = list(STRESS_TOOLS.keys())
-    ui.table(['#', 'Program'], [[str(i), k] for i, k in enumerate(keys, 1)], widths=[4, 40])
-    sel = ui.pick_indices('Melyiket indítsam? (sorszám)', len(keys))
+    sel = ui.pick_indices('Melyiket indítsam?', len(keys), labels=keys, single=True)
     if sel:
         api.start_stress_tool(keys[sel[0]])
 
@@ -1091,10 +1164,8 @@ def _tools_install(api):
         ui.warn('Nem sikerült lekérdezni a programlistát.')
         return
     keys = list(status.keys())
-    rows = [[str(i), k, 'telepítve' if status[k].get('installed') else '-']
-            for i, k in enumerate(keys, 1)]
-    ui.table(['#', 'Program', 'Állapot'], rows, widths=[4, 36, 14])
-    sel = ui.pick_indices("Melyeket telepítsem? (pl. 1,3 vagy 'mind')", len(keys))
+    sel = ui.pick_indices('Melyeket telepítsem?', len(keys),
+                          labels=[k + ('  (telepítve)' if status[k].get('installed') else '') for k in keys])
     if sel:
         api.install_service_tools([keys[i] for i in sel])
 
@@ -1117,6 +1188,31 @@ def _benchmark_flow(api):
             api.upload_benchmark_result(res.get('cinebench'), res.get('furmark'), name)
 
 
+def _leaderboard(api):
+    """A benchmark-ranglista (a GUI Benchmark nézetének táblázata), ugyanabból a hívásból."""
+    ui.busy('Ranglista letöltése…')
+    _sync(api, api.fetch_leaderboard)
+    data = api._cli_take('leaderboard_data', {}) or {}
+    ui.progress_done()
+    if not data.get('configured', True):
+        ui.warn('A ranglista nincs beállítva ebben a buildben.')
+        return
+    if data.get('error'):
+        ui.err(f"A ranglista nem tölthető le: {data['error']}")
+        return
+
+    def num(v):
+        try:
+            return float(str(v).replace(',', '.'))
+        except (TypeError, ValueError):
+            return -1.0
+    rows = sorted(data.get('entries') or [], key=lambda r: num(r.get('cinebench')), reverse=True)
+    ui.table(['#', 'Gép', 'Cinebench R20', 'FurMark FPS', 'Mikor'],
+             [[str(i), r.get('machine_name') or '?', r.get('cinebench') or '-',
+               r.get('furmark') or r.get('heaven') or '-', str(r.get('ts') or '')[:10]]
+              for i, r in enumerate(rows, 1)])
+
+
 def _menu_maintenance(api):
     while True:
         _header(api, 'Karbantartás')
@@ -1131,6 +1227,7 @@ def _menu_maintenance(api):
             ('8', 'Bolti tábla nyomtatás', 'Két gép A5-ös árlapja egy A4-es lapra, a bolti Word-sablonnal'),
             # Ugyanaz a beállítás, mint az 1 kattintásos fix végén (app/gui/powerplan.py).
             ('9', 'Teljesítmény mód (energiaséma)', 'Teljesítménycentrikus séma, a fix végén beállított értékekkel'),
+            ('10', 'A gép debug-naplójának törlése', 'A következő futás naplója tisztán olvasható lesz'),
         ], back_label='Vissza a főmenübe')
         if c == '0':
             return
@@ -1163,6 +1260,14 @@ def _menu_maintenance(api):
                 ui.info('Jelenlegi energiaséma: ' + st['name'])
             if ui.confirm('Beállítsam a teljesítmény módot? (laptopon rövidebb akkus üzemidő)', True):
                 _run_screen(api, 'Teljesítmény mód', lambda: api.apply_performance_mode())
+        elif c == '10':
+            if ui.confirm('Törlöd a gép SAJÁT debug-naplóit? (a letöltött, más gépekről jött naplók maradnak)', False):
+                r = api.clear_debug_logs() or {}
+                if r.get('success'):
+                    ui.ok(f"Napló törölve ({r.get('removed', 0)} fájl, {r.get('mb', 0)} MB).")
+                else:
+                    ui.err('A napló törlése nem sikerült: ' + ('; '.join(r.get('errors') or []) or 'ismeretlen hiba'))
+                ui.pause()
 
 
 def _shoplabel_flow(api):
@@ -1218,13 +1323,16 @@ def _shoplabel_flow(api):
         machines.append(m)
     ui.write('')
     last = info.get('last_printer') or ''
-    rows = [[str(n), p['name'] + ('  (Windows alapért.)' if p.get('default') else '')
-             + ('  <- legutóbb' if p['name'] == last else '')] for n, p in enumerate(printers, 1)]
-    ui.table(['#', 'Nyomtató'], rows, widths=[4, 70])
-    choice = ''
-    while not (choice.isdigit() and 1 <= int(choice) <= len(printers)):
-        choice = ui.ask('Melyik nyomtatón? (sorszám)')
-    printer = printers[int(choice) - 1]['name']
+    labels = [p['name'] + ('  (Windows alapért.)' if p.get('default') else '')
+              + ('  ← legutóbb' if p['name'] == last else '') for p in printers]
+    sel = []
+    while not sel:
+        sel = ui.pick_indices('Melyik nyomtatón?', len(printers), labels=labels, single=True)
+        if not sel and not ui.confirm('Nincs nyomtató kiválasztva. Újra?', True):
+            ui.dim('Megszakítva.')
+            ui.pause()
+            return
+    printer = printers[sel[0]]['name']
     api._cli_reset_events()
     r = _sync(api, api.print_shop_labels, machines, printer) or {}
     if not r.get('started'):
@@ -1268,13 +1376,16 @@ def _tempclean_flow(api):
     def sz(k):
         b = (sizes.get(k) or {}).get('bytes')
         return 'futáskor derül ki' if b is None else tc._fmt_bytes(b)
-    rows = [[str(i), label, sz(key), 'BE' if default else '-'] for i, (key, label, default) in enumerate(items, 1)]
-    ui.table(['#', 'Kategória', 'Méret', 'Alapból'], rows, widths=[4, 52, 16, 8])
     free = (meas.get('disk') or {}).get('free')
     if free is not None:
-        ui.dim(f'Szabad hely most: {tc._fmt_bytes(free)}. Az alapból BE jelölésűek a biztonságos törzs-tartalom.')
-    sel = ui.pick_indices("Melyeket törölje? (ENTER = az alapértelmezettek)", len(items))
-    opts = {key: (i in sel) for i, (key, _l, _d) in enumerate(items)} if sel else None
+        ui.dim(f'Szabad hely most: {tc._fmt_bytes(free)}. Az előre bepipáltak a biztonságos törzs-tartalom.')
+    sel = ui.pick_indices('Mit töröljön?', len(items),
+                          labels=[f"{label}  ({sz(key)})" for key, label, _d in items],
+                          defaults=[i for i, (_k, _l, d) in enumerate(items) if d])
+    if not sel:
+        ui.dim('Nincs kijelölve semmi.')
+        return
+    opts = {key: (i in sel) for i, (key, _l, _d) in enumerate(items)}
     api.clean_temp_files(opts)
 
 
@@ -1365,12 +1476,23 @@ def run_cli_mode():
             ('8', 'Stress teszt, szervíz programok, benchmark', None),
             ('9', 'Karbantartás', 'Temp, riport, nyomtatás, BitLocker, naplók, scriptek'),
             ('10', 'Beállítások', 'Offline cél, frissítés'),
+            ('11', 'Grafikus mód', 'Visszavált az ablakos felületre (ez a konzol bezárul)'),
         ], prompt='Menüpont', back_label='Kilépés')
         if c == '0':
             ui.write('')
             ui.dim('Viszlát!')
             logging.info('[CLI] Kilépés a menüből.')
             return
+        if c == '11':
+            if not ui.confirm('Átváltasz grafikus módra? (ez a konzolablak bezárul)', default=True):
+                continue
+            if api.switch_to_gui_mode().get('success'):
+                ui.ok('A grafikus felület indul...')
+                logging.info('[CLI] Kilépés: átváltás grafikus módra.')
+                return
+            ui.err('A grafikus mód indítása nem sikerült - a részletek a naplóban.')
+            ui.pause()
+            continue
         {
             '1': _menu_drivers, '2': _menu_hwscan, '3': _menu_autofix, '4': _menu_backup,
             '5': _menu_wu, '6': _menu_winact, '7': _menu_display, '8': _menu_stress,

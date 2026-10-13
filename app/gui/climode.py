@@ -1,4 +1,4 @@
-"""DriverVarázsló GUI - átváltás CLI módba (a felső sáv kapcsolója).
+"""DriverVarázsló GUI - átváltás CLI módba és vissza (oldalsáv-gomb + CLI menüpont).
 
 MIÉRT (explicit user decision, 2026-08-29): a bolt régi gépein a grafikus felület
 használhatatlanul lassú, a CLI viszont mindenhol elindul. A technikusnak ezért kell egy
@@ -22,7 +22,8 @@ from app.common import relaunch_detached
 
 
 class GuiCliModeMixin:
-    """A felső sáv "CLI mód" kapcsolója. A DriverToolApi része (összerakás: app/gui/api.py)."""
+    """A "CLI mód" gomb (oldalsáv, a Build-szám alatt) és a CLI "Grafikus mód" menüpontja.
+    A DriverToolApi ÉS a CliApi része (összerakás: app/gui/api.py, app/cli/api.py)."""
 
     def switch_to_cli_mode(self):
         """Újraindítja a programot szöveges (CLI) módban, saját konzolablakban.
@@ -46,6 +47,18 @@ class GuiCliModeMixin:
         # cleanup_zombies + os._exit párost a belépési pont végzi, ezért itt csak
         # jelezzük a felületnek, hogy záródik - a tényleges kilépést a JS kéri.
         self.emit('toast', {'message': '🖥️ CLI mód indul egy új ablakban...', 'type': 'success'})
+        return {'success': True}
+
+    def switch_to_gui_mode(self):
+        """A CLI-ből vissza a grafikus felületre (2026-10-13, explicit user decision).
+
+        Ugyanaz a közös `relaunch_detached`, csak `--cli` nélkül. A hívó (app/cli/menu.py)
+        siker esetén kilép. Ha a gépen a GUI nem indulhat (hiányzó .NET/WebView2, vagy a
+        GUI-összeomlás-őr jelzője), az új példány a szokásos módon maga dönt, és CLI-ben
+        indul az okkal - itt szándékosan NINCS `--force-gui`."""
+        logging.info("[API] switch_to_gui_mode() - átváltás grafikus módra")
+        if not relaunch_detached([], 'GUI módra váltás'):
+            return {'success': False, 'error': 'relaunch failed'}
         return {'success': True}
 
     def exit_app(self):
