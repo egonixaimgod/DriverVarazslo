@@ -438,8 +438,8 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
    1) KATEGÓRIA-SÁV (`tr.drv-group`): saját, színes háttér + vastag bal szegély + ikon-
       csempe + kétszintű cím (kis címke: "Hálózat", alatta nagyban az eszköz) + darabszám-
       címke. Nem egy sor a sorok között, hanem egy FEJLÉC.
-   2) HÉZAG (`tr.drv-gap`) minden kategória előtt (az első kivételével) - a kategóriák így
-      külön blokkok, nem egy folyam.
+   2) ~~HÉZAG (`tr.drv-gap`) a kategóriák között~~ - 2026-10-13 óta NINCS (explicit user
+      decision): az üres sáv a bal csíkkal úgy hatott, mintha egy új sor teteje kandikálna ki.
    3) A KATEGÓRIA SZÍNE (`--gc`, RGB-hármas) a fejléc bal szegélyétől LEFUT az adatsorok
       bal szélén: egy pillantásra látszik, melyik sor melyik kategóriáé.
    4) CSÍKOZÁS KATEGÓRIÁN BELÜL (`tr.drv-row.alt`), csoportonként újrakezdve.
@@ -488,10 +488,6 @@ tr.drv-group .dg-hint{font-size:11px;line-height:15px;font-weight:400;color:var(
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 tr.drv-group .dg-count{flex:0 0 auto;padding:4px 11px;border-radius:999px;font-size:11.5px;font-weight:800;
   color:#fff;background:rgba(var(--gc),0.26);border:1px solid rgba(var(--gc),0.6);white-space:nowrap}
-tr.drv-gap td{height:14px;padding:0!important;border:0!important;background:transparent!important}
-/* A hézagon is végigfut a bal csík (az előző csoport színében, a JS `g-<tónus>`-t ad rá),
-   különben a csoport utolsó sora alatt megszakadt (2026-10-11, terepi képernyőkép). */
-tr.drv-gap td{box-shadow:inset 4px 0 0 rgba(var(--gc),0.55)}
 /* Adatsorok: a kategória színe a bal szélen (3), csíkozás kategórián belül (4). */
 /* A `tbody` előtag nem díszítés: a globális `tbody tr:nth-child(even) td` különben
    specifikusabb lenne, és a régi csíkozás átütne. A hover és a kijelölés !important,
@@ -706,7 +702,6 @@ tr.drv-row.selected td{background:rgba(180,100,255,0.24)!important}
 #driver-table-wrap tr.drv-group .dg-name,#mc-del-list tr.drv-group .dg-name{font-size:12.5px;min-width:0}
 #driver-table-wrap tr.drv-group .dg-hint,#mc-del-list tr.drv-group .dg-hint{display:none}
 #driver-table-wrap tr.drv-group .dg-count,#mc-del-list tr.drv-group .dg-count{font-size:10.5px;padding:2px 9px}
-#driver-table-wrap tr.drv-gap td,#mc-del-list tr.drv-gap td{height:7px}
 /* A DRIVEREK NÉZET egy hajszállal nagyobb (teljes szélességű táblázat, explicit kérés:
    "vagy kicsit nagyobb, nyilván itt ki tudja tenni a full screent"). */
 #driver-table-wrap table{font-size:11.5px}
@@ -718,7 +713,6 @@ tr.drv-row.selected td{background:rgba(180,100,255,0.24)!important}
 #driver-table-wrap tr.drv-group .dg{min-height:40px}
 #driver-table-wrap tr.drv-group .dg-name{font-size:13px}
 #driver-table-wrap tr.drv-group .dg-title{font-size:10.5px}
-#driver-table-wrap tr.drv-gap td{height:9px}
 /* A fülek tömören (a fix dialógusával azonos méret); tördelnek, nem csonkolnak. */
 .mm-tablecol .hw-tabs{gap:6px}
 .mm-tablecol .hw-tab{padding:4px 10px;font-size:11px;gap:6px}
@@ -4633,15 +4627,10 @@ function renderDriverTable() {
   let lastSlot = undefined;
   // A csoport TÓNUSA (színe) és a csoporton belüli sorszám: a csíkozás csoportonként
   // indul újra, és az adatsorok bal szélén a csoport színe fut végig (2026-10-01).
-  let tone = 'plain', inGroup = 0, groups = 0;
+  // Nincs hézag-sor a csoportok között (2026-10-13, explicit user decision): az üres sáv
+  // a bal csíkkal úgy hatott, mintha egy új sor kezdődne alatta.
+  let tone = 'plain', inGroup = 0;
   const openGroup = (meta) => {
-    // HÉZAG a csoportok között - a kategóriák így vizuálisan is külön blokkok.
-    if (groups++) {
-      const sp = document.createElement('tr');
-      sp.className = 'drv-gap g-' + tone;  // az előző csoport színe: a bal csík végigfut a hézagon
-      sp.innerHTML = '<td colspan="4"></td>';
-      tbody.appendChild(sp);
-    }
     tone = meta.tone || 'none';
     inGroup = 0;
     const gtr = document.createElement('tr');
@@ -8081,7 +8070,6 @@ function renderDeletePreview() {
           + ' onclick="event.stopPropagation()" onchange="toggleDeleteGroup(' + gi + ', this.checked)">'
         // Csupa zárolt sor: nincs mit pipálni, de a fejléc ne csússzon el, és mondja ki, miért.
         : '<span class="dg-lock" title="A csoport minden sora zárolt - róluk a bal oldali kapcsolók / a boot-védelem dönt">🔒</span>';
-      if (gi) rows.push('<tr class="drv-gap g-' + tone + '"><td colspan="4"></td></tr>');
       tone = meta.tone || 'none';
       inGroup = 0;
       rows.push('<tr class="drv-group g-' + tone + '"><td colspan="4">' + drvGroupHead(meta, cb) + '</td></tr>');
