@@ -340,6 +340,8 @@ def _menu_drivers(api):
              'Ami a Windows alapdriverén ragadt — újraindítással fejeződik be'),
             ('7', 'Mit használ MOST a gép?',
              'Melyik csomag van használatban, és melyikre nem hivatkozik semmi'),
+            ('8', 'Bluetooth tiszta lap',
+             'MINDEN BT-párosítás és beragadt BT-eszköz törlése'),
         ], back_label='Vissza a főmenübe')
         if c == '0':
             return
@@ -357,6 +359,11 @@ def _menu_drivers(api):
             _run_screen(api, 'Eszközök újrakötése', lambda: _rebind_flow(api))
         elif c == '7':
             _run_screen(api, 'Mit használ a gép', lambda: _drivers_usage_screen(api))
+        elif c == '8':
+            if ui.confirm('MINDEN Bluetooth-párosítás törlődik (fülhallgató, kontroller, BT-egér és '
+                          '-billentyűzet is - ezek azonnal lecsatlakoznak), utána újra kell párosítani '
+                          'őket. Indulhat?', default=False):
+                _run_screen(api, 'Bluetooth tiszta lap', lambda: api.clear_bluetooth_devices())
 
 
 def _rescan_hw(api):

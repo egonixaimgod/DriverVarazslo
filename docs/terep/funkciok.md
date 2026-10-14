@@ -364,3 +364,18 @@ Kódolvasásból, a felhasználó kérésére; terepen NEM reprodukálva. Teszt:
 - **BitLocker kikapcsolás:** `-ErrorAction Stop` nélkül egy nem-végzetes hiba után is rc=0 → „✅ Dekódolás megkezdve”. Most `-ErrorAction Stop` + visszaolvasás (dekódolás folyamatban / nincs titkosítva).
 - **CLI:** a duplikátum-lista hibáját (`error` mező) „✅ Nincs eltávolítható duplikátum”-nak írta; a lemez-visszaváltás a naplózó `reset_target_os`-on megy.
 
+### Bluetooth tiszta lap (2026-10-14) — `app/bluetooth_core.py`, teszt: `tests/test_bluetooth_clean.py`
+
+**A kérés** (explicit user decision): *„annyi ilyen beragadt szar van benne amit egyszeruen a szellemeszközökkel nem tudok kitörölni … nem tudom uninstallolni őket mert akkor lefagy az egesz körözik örökre”*, *„forcell master pro 2x van benne … 1 db fülesem van a psvr kontrollerjeim random benne vannak neha neha nem”*. A felhasználó választhatott: külön menüpont, vagy a szellemeszköz-törlés bővítése. **Külön panel lett**, mert a szellemeszköz-törlést a fix B lába is futtatja: ott egy BT-párosítás-törlés a lánc közepén lecsatlakoztatná a BT-egeret/-billentyűzetet.
+
+**MÉRVE a felhasználó gépén (2026-10-14, csak olvasás, `win32.enumerate_device_nodes` + `reg query`, admin nélkül):**
+- Rádió: `USB\VID_0B05&PID_190E\00E04C239987` (ASUS USB-BT500), konténer `0c39aaad-…` — **NEM a gép konténere**. A `BTH\MS_RFCOMM`, `MS_BTHLE`, `MS_BTHBRB`, `MS_BTHPAN` csomópontok ebben a konténerben vannak. Egy naiv „a BT-csomópontok konténerében minden megy” kibontás a rádiót is törölte volna → a rádiók konténere kizárva.
+- 40 BT-enumerátoros csomópont (`BTHENUM`, `BTHHFENUM`, `BTH`), **mind nem jelenlévő**. A két „Forcell Master Pro” két külön párosítás: `Dev_3B9ED7071C80` és `Dev_D52C42B1345B`, mindkettő ~12 csomóponttal (A2DP, AVRCP, HFP, 6× „Hands-Free AG”, SPP/COM-port, `JL_SPP`). Plusz PS VR2 Sense (`88034C7C65DC`) és DualShock 4 (`8430951E43C0`).
+- A konténer-kibontás 2 további csomópontot hozott: a két kontroller `HID\{00001124-…}` játékvezérlő-gyerekét (nem BT-enumerátoros!). Összesen 42 törlendő; USB-billentyűzet, egér, PCI: 0.
+- `BTHPORT\Parameters\Devices`: 5 MAC-nevű kulcs = a Beállítások listája. A `Keys` admin nélkül: „Requested registry access is not allowed” (a link-kulcsok; a kód SYSTEM-feladattal írja). A `PerDevices` és a `PnpId` üres volt.
+- **Miért nem segít a szellemeszköz-törlés:** a `build_ghost_ps` kihagyja a `System` (a 6 „Hands-Free AG”) és a `Net` (`MS_BTHPAN`) osztályt, és a registry-párosítást egyáltalán nem érinti — a Beállítások a párosítás-adatbázisból listáz, nem a csomópontokból.
+
+**NEM MÉRVE (gépen kell kipróbálni, a felhasználó saját gépe a jó próbapad):** maga a törlő kör (SYSTEM-feladat, `pnputil /disable-device` a rádióra, a csomópontok törlése letiltott rádió mellett, `/enable-device`); hogy a Beállítások lista újraindítás nélkül kiürül-e; hogy a `Keys` alatt a klasszikus kulcsok értékként, az LE-kulcsok alkulcsként vannak-e (a szkript mindkettőt kezeli, MAC-mintára: `^[0-9A-Fa-f]{12}$`). A `pnputil /disable-device` Win10 2004+ — régebbin a letiltás bukik, a kör figyelmeztetéssel tovább megy.
+
+**Döntések:** csak a BT-szolgáltatásokat indítjuk vissza, amiket MI állítottunk le; csak a rádiót kapcsoljuk vissza, amit MI tiltottunk le (egy eleve letiltott rádió úgy marad). Nincs automatikus újraindítás. A `✅` csak akkor jár, ha a SYSTEM-szkript `LEFT: 0`-t írt, a visszaolvasott fában egy törlendő csomópont sincs, a rádió hibakód nélkül él, és a szolgáltatások futnak.
+

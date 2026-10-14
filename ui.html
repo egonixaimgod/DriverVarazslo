@@ -540,7 +540,7 @@ tr.drv-row.selected td{background:rgba(180,100,255,0.24)!important}
 
      fent, mindkét oszlopon át : DRIVER-LISTA  (.mm-tablecol)
      bal alul                  : A GÉP FELÉPÍTÉSE (.mm-mapcol: fejléc + rajz + felugró ablak)
-     jobb alul                 : KARBANTARTÁS (.drv-tools: a három eszköz-panel, egymás alatt)
+     jobb alul                 : KARBANTARTÁS (.drv-tools: a négy eszköz-panel, egymás alatt)
 
    A korábbi `position:absolute` belső rétegek és a `--drv-table-min`/`--mm-tablecol-min`
    padlók azért kellettek, mert a táblázat egy rács-sorban osztozott a kártya-hasábbal. Most
@@ -583,7 +583,7 @@ tr.drv-row.selected td{background:rgba(180,100,255,0.24)!important}
 .drv-tools[data-fit] .panel > p{margin-bottom:10px!important;font-size:12.5px}
 .drv-tools[data-fit] .toolbar .btn{padding:7px 12px;font-size:12.5px}
 .drv-tools[data-fit] .mm-sec-head{margin-bottom:6px}
-.mm-wrap.mm-nomap .drv-tools{grid-column:1 / -1;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.mm-wrap.mm-nomap .drv-tools{grid-column:1 / -1;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
 @media (max-width:1150px){.mm-wrap.mm-nomap .drv-tools{grid-template-columns:minmax(0,1fr)}}
 
 /* A HÁROM NAGY RÉSZ LÁTHATÓAN KÜLÖN DOBOZBAN ÜL (2026-09-18, explicit user decision,
@@ -1864,6 +1864,17 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           <div class="toolbar">
             <button class="btn btn-primary" onclick="rebindDrivers()" id="btn-rebind"
                     title="Nem tölt le semmit. MINDEN Windows-alapdriveren futó eszközt újra felderíttet a Windowszal (újratelepítés, majd ha kell, az eszköz újraenumerálása) - kivéve a tárolóvezérlőket, a lemezt, a firmware-t és a rendszerlemez eszközláncát. Ha van a gépen hozzá gyári csomag, azt kapja meg; ha nincs, ugyanazt kapja vissza, rosszabb nem lesz. A kör az USB-vezérlőt is érintheti, ezért a végén a gép automatikusan újraindul.">🔄 Újrakötés indítása</button>
+          </div>
+        </div>
+
+        <!-- BLUETOOTH TISZTA LAP (2026-10-14, explicit user decision: a szellemeszköz-törlés
+             a beragadt BT-párosításokat nem viszi el - a Beállítások listája a párosítás-
+             adatbázisból jön). Backend: app/bluetooth_core.py, app/gui/bluetooth.py. -->
+        <div class="panel glass">
+          <div class="panel-title"><span class="emoji">📶</span> Bluetooth tiszta lap</div>
+          <p style="margin-bottom:12px;color:var(--text3)">Kitöröl MINDEN Bluetooth-párosítást és a hozzájuk tartozó eszköz-bejegyzéseket — a duplán látszó fülhallgatót, a hol megjelenő, hol eltűnő kontrollert, és amit a Beállításokban eltávolítani sem lehet, mert örökké pörög. A törlés idejére az adaptert letiltja, így semmi nem akad be, a végén visszakapcsolja. <b style="color:var(--text2)">Utána minden BT-eszközt újra kell párosítani (a BT-egeret és -billentyűzetet is).</b></p>
+          <div class="toolbar">
+            <button class="btn btn-primary" onclick="clearBluetoothDevices()" id="btn-bt-clear">📶 Bluetooth törlése</button>
           </div>
         </div>
         </div>
@@ -7373,6 +7384,20 @@ async function deleteGhostDevices() {
     } catch (e) {
       toast('Hiba a törlés során: ' + e, 'error');
     }
+  }
+}
+
+async function clearBluetoothDevices() {
+  const ok = await showConfirm('Bluetooth tiszta lap',
+    'MINDEN Bluetooth-párosítás és Bluetooth-eszközbejegyzés törlődik (fülhallgató, kontroller, ' +
+    'telefon...).\n\n❗ A Bluetooth-os egér és billentyűzet AZONNAL lecsatlakozik - legyen kéznél ' +
+    'vezetékes. Utána minden eszközt újra kell párosítani.\n\nA törlés idejére az adapter letiltódik, ' +
+    'a végén visszakapcsol.\n\nIndulhat?');
+  if (!ok) return;
+  try {
+    await api().clear_bluetooth_devices();
+  } catch (e) {
+    toast('Hiba a Bluetooth törlése során: ' + e, 'error');
   }
 }
 

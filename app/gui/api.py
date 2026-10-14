@@ -18,6 +18,7 @@ from app.gui.drivers import GuiDriversMixin
 from app.gui.dupdrivers import GuiDupDriversMixin
 from app.gui.bcd import GuiBcdMixin
 from app.gui.ghost import GuiGhostMixin
+from app.gui.bluetooth import GuiBluetoothMixin
 from app.gui.tempclean import GuiTempCleanMixin
 from app.gui.hwscan import GuiHwScanMixin
 from app.gui.wu import GuiWuMixin
@@ -41,7 +42,7 @@ from app.gui.powerplan import GuiPowerPlanMixin
 class DriverToolApi(GuiBaseMixin, GuiUpdaterMixin, GuiStressMixin,
                     GuiStressAutomationMixin, GuiToolsInstallMixin,
                     GuiDriversMixin, GuiDupDriversMixin,
-                    GuiBcdMixin, GuiGhostMixin, GuiTempCleanMixin, GuiHwScanMixin,
+                    GuiBcdMixin, GuiGhostMixin, GuiBluetoothMixin, GuiTempCleanMixin, GuiHwScanMixin,
                     GuiWuMixin, GuiAutofixMixin, GuiBackupMixin, GuiBitlockerMixin,
                     GuiReportMixin, GuiStorePrintMixin, GuiBlockScriptMixin,
                     GuiLogsMixin, GuiWinActMixin, GuiCliModeMixin,

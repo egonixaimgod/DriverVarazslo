@@ -36,6 +36,7 @@ from app.gui.dupdrivers import GuiDupDriversMixin
 from app.gui.backup import GuiBackupMixin
 from app.gui.bcd import GuiBcdMixin
 from app.gui.ghost import GuiGhostMixin
+from app.gui.bluetooth import GuiBluetoothMixin
 from app.gui.tempclean import GuiTempCleanMixin
 from app.gui.hwscan import GuiHwScanMixin
 from app.gui.wu import GuiWuMixin
@@ -72,7 +73,7 @@ from app.cli.updater import CliUpdaterMixin
 class CliApi(CliBridgeMixin, GuiBaseMixin,
              # GUI feature-mixinek
              GuiDriversMixin, GuiDupDriversMixin, GuiBackupMixin, GuiBcdMixin,
-             GuiGhostMixin, GuiTempCleanMixin, GuiHwScanMixin, GuiWuMixin,
+             GuiGhostMixin, GuiBluetoothMixin, GuiTempCleanMixin, GuiHwScanMixin, GuiWuMixin,
              GuiAutofixMixin, GuiRebindMixin,
              GuiBitlockerMixin, GuiReportMixin, GuiStorePrintMixin,
              GuiBlockScriptMixin,
