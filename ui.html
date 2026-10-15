@@ -2925,6 +2925,8 @@ let driverUsageOffline = false;
 // A KIJELZETT lista lemeze ('' = élő rendszer) és a MOSTANI cél. A kettő eltérése = elavult
 // lista: azt nem mutatjuk, és a törlés a lista lemezét is elküldi (2026-10-12).
 let driversTarget = '';
+// A betöltött lista melyik DriverStore-állapotról készült (backend: driver_store_gen).
+let driversStoreGen = null;
 let currentTargetPath = '';
 let drvTab = 'all';
 // A GÉP FELÉPÍTÉSE (2026-09-17). A térkép a használat-felderítéssel EGY hívásból jön
@@ -3174,6 +3176,7 @@ window.handlePyEvent = function(payload) {
       }
       setDriversBusy(false);
       driversTarget = (data && data.target) || '';
+      driversStoreGen = (data && data.store_gen != null) ? data.store_gen : null;
       document.getElementById('driver-loading').style.display = 'none';
       drivers = data.drivers || [];
       selectedDrivers.clear();
@@ -3184,8 +3187,10 @@ window.handlePyEvent = function(payload) {
       renderDriverTable();
       // A két felderítés a lista MEGJELENÍTÉSE UTÁN indul, háttérben: néhány
       // PowerShell-hívás, és a táblázatnak nem kell rá várnia.
-      loadPrinterDriverInfs();
-      loadDriverUsage();
+      // AutoFix-lábon a két felderítés kimarad (senki nem nézi a felületet), KIVÉVE ha a
+      // technikus épp a Driverek nézetben van - akkor azért jött, hogy lássa.
+      loadPrinterDriverInfs(currentView === 'drivers');
+      loadDriverUsage(currentView === 'drivers');
       if (data.error) {
         document.getElementById('driver-status').innerHTML = '<span class="status-dot" style="background:#e74c3c"></span> ❌ Hiba a driverek betöltésekor: ' + esc(data.error);
         toast('❌ Hiba a driverek betöltésekor: ' + data.error, 'error');
@@ -3205,6 +3210,7 @@ window.handlePyEvent = function(payload) {
     case 'task_complete':
       currentTask = null;
       onTaskComplete(data);
+      refreshDriversIfStale(data && data.task);
       break;
     case 'task_error':
       if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
@@ -3215,6 +3221,7 @@ window.handlePyEvent = function(payload) {
       // Stressz-hibánál is felajánljuk az összes teszt bezárását - lehet, hogy a hiba
       // előtt már elindult néhány program.
       if (currentTask === 'stress') document.getElementById('mp-stop-stress-btn').style.display = 'inline-flex';
+      refreshDriversIfStale(currentTask);
       currentTask = null;
       break;
     case 'hw_scan_progress':
@@ -3701,16 +3708,16 @@ function switchView(name) {
   if (logo) logo.classList.toggle('on-home', name === 'home');
   currentView = name;
   if (name === 'stress') refreshServiceTools();
-  // AutoFix-lábon a nyomtató-felderítés kimarad (senki nem nézi a felületet), de ha a
-  // technikus mégis IDEJÖN, itt utólag lefuttatjuk - így a szűrő ugyanúgy működik, csak
-  // nem fizetünk érte a láncban. Nulla ára van: ha már megvan, azonnal visszatér.
-  if (name === 'drivers' && printerInfs === null) loadPrinterDriverInfs(true);
+  // A DRIVEREK NÉZETBE LÉPVE MINDIG TELJES FRISSÍTÉS (2026-10-15, explicit user decision:
+  // *"amikor rámegyek a driverek kezelése menüpontra a sidebarban minden esetben
+  // FRISSÍTSEN LE MINDENT alapbol"*; előzmény: egy fix után a régi, 106-os lista maradt a
+  // képernyőn, a valóságban 63 csomag volt). A lista, a nyomtató-felismerés, a használat és
+  // a gép-rajz a `drivers_loaded`-ból indul újra; ha a DriverStore nem változott, a backend
+  // a gyorsítótárból válaszol (dism nélkül). A kijelölés ilyenkor törlődik.
+  if (name === 'drivers') loadDrivers();
   // A ragadós kategória-sáv a fejléc mért magasságához igazodik - a nézet MOST vált
   // láthatóvá, tehát a mérés itt már pontos (a ResizeObserver mellett második védőháló).
   if (name === 'drivers') syncStickyHead('driver-table-wrap');
-  // Ugyanez a használat-felderítésre: a láncban kihagyjuk, itt viszont épp azért jött a
-  // technikus, hogy lássa, mi van használatban.
-  if (name === 'drivers' && driverUsage === null && !driverUsageError && !driverUsageOffline) loadDriverUsage(true);
   if (name === 'benchmark') loadBenchmarkView();
   if (name === 'display') loadDisplayView();
   if (name === 'tempclean') scanTempSizes();
@@ -4480,6 +4487,25 @@ async function resetTarget() {
 }
 
 /* ========== DRIVER LIST ========== */
+/* ELAVULT LISTA FELADAT UTÁN (2026-10-15, terepi hiba, Lenovo X1 Yoga, Build 382): a fix
+   utolsó lábának elején betöltött 106-os lista a képernyőn maradt, pedig a záró takarítás
+   utána 38 csomagot törölt (valójában 68 maradt). A törölt sorok „? nem ellenőrizhető (az
+   INF nem olvasható)” jelzést kaptak, és úgy látszott, mintha a gép egy csomó feltett drivert
+   át sem vett volna. Minden feladat végén megkérdezzük, változott-e azóta a DriverStore, és
+   ha igen, újratöltünk. */
+async function refreshDriversIfStale(task) {
+  try {
+    if (driversStoreGen === null) return;   // még nincs (élő) lista, nincs mit frissíteni
+    const g = await api().driver_store_gen();
+    if (g === driversStoreGen) return;
+    api()?.js_log?.('INFO', '[UI] A driver-lista elavult (DriverStore #' + driversStoreGen + ' -> #' + g
+      + ', feladat: ' + (task || '?') + ') - újratöltés.');
+    driversStoreGen = null;
+    loadDrivers();
+  } catch (e) {
+    api()?.js_log?.('WARN', '[UI] A driver-lista frissességének ellenőrzése nem sikerült: ' + e);
+  }
+}
 async function loadDrivers() {
   try {
     // CSAK THIRD-PARTY: az "összes driver" mód a GUI-ból 2026-09-18-án, a CLI-ből és a

@@ -158,6 +158,8 @@ class GuiDriversMixin:
         def worker():
             self.emit('drivers_loading', {'target': target or ''})
             start = time.monotonic()
+            # A lekérdezés ELŐTT olvasva: ha közben módosul a DriverStore, a lista elavultnak számít.
+            store_gen = self.driver_store_gen()
             # A DISM felismert hibái ide gyűlnek. MIÉRT KELL (2026-09-07, terepi naplóból):
             # egy foglalt DISM ("another DISM operation") üres listát ad, amit a felület
             # eddig ugyanúgy `0 driver`-ként mutatott, mint a "tényleg nincs csomag" esetet.
@@ -181,7 +183,8 @@ class GuiDriversMixin:
                 logging.info(f"[DRIVERS] Betöltve: {len(drivers)} driver ({elapsed:.1f}s)")
                 if _stale():
                     return
-                payload = {'drivers': drivers, 'elapsed': round(elapsed, 1), 'target': target or ''}
+                payload = {'drivers': drivers, 'elapsed': round(elapsed, 1), 'target': target or '',
+                           'store_gen': store_gen}
                 if problems and not drivers:
                     payload['error'] = (f"A driver-lista lekérdezése nem sikerült: {problems[0]}. "
                                         f"Ez NEM azt jelenti, hogy nincs driver a gépen - "
@@ -244,6 +247,17 @@ class GuiDriversMixin:
             logging.debug("[DRIVERS] A csomaglista-gyorsítótár eldobva (DriverStore módosult).")
         self._dv_cache = None
         self._dv_cache_dirty_at = time.monotonic()
+        # A DriverStore "verziója": a képernyőn lévő lista ehhez méri, elavult-e
+        # (lásd `driver_store_gen` és a `ui.html` onTaskComplete-je).
+        self._dv_store_gen = getattr(self, '_dv_store_gen', 0) + 1
+
+    def driver_store_gen(self):
+        """A DriverStore módosításainak számlálója. A felület egy feladat végén ezzel
+        dönti el, hogy a betöltött driver-lista elavult-e (2026-10-15, terepi hiba: a fix
+        záró takarítása 38 csomagot törölt, a képernyőn mégis a láb elején betöltött
+        106-os lista maradt, a törölt sorok „nem ellenőrizhető (az INF nem olvasható)”
+        jelzéssel)."""
+        return getattr(self, '_dv_store_gen', 0)
 
     def _get_offline_drivers(self, problems=None):
         logging.debug("[DRIVERS] _get_offline_drivers()")

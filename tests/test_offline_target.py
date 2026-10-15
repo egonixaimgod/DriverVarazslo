@@ -70,6 +70,47 @@ class StaleListTest(unittest.TestCase):
         self.assertEqual([d['published'] for d in loaded[0]['drivers']], ['oem4.inf'])
 
 
+class StoreGenTest(unittest.TestCase):
+    """2026-10-15, terepi napló (Lenovo X1 Yoga, Build 382): a fix utolsó lábának elején
+    betöltött 106-os lista a képernyőn maradt, pedig a záró takarítás utána 38 csomagot
+    törölt. A lista a betöltés ELŐTTI DriverStore-számlálót hordozza; ha közben (vagy utána)
+    módosul a tár, a felület ebből látja, hogy újra kell tölteni."""
+
+    def test_list_carries_generation_read_before_query(self):
+        quiet()
+        h = _Host()
+        h.invalidate_driver_cache()                      # egy korábbi telepítés
+        gen0 = h.driver_store_gen()
+
+        def online(problems=None):
+            h.invalidate_driver_cache()                  # törlés a lekérdezés KÖZBEN
+            return [{'published': 'oem40.inf'}]
+
+        threads = []
+        real_thread = threading.Thread
+
+        def capture(*a, **k):
+            t = real_thread(*a, **k)
+            threads.append(t)
+            return t
+
+        with mock.patch.object(h, '_get_third_party_drivers', side_effect=online), \
+                mock.patch.object(gdrv.threading, 'Thread', side_effect=capture):
+            h.load_drivers()
+            threads[0].join(5)
+        loaded = [p for e, p in h.events if e == 'drivers_loaded']
+        self.assertEqual(loaded[0]['store_gen'], gen0)
+        self.assertNotEqual(h.driver_store_gen(), loaded[0]['store_gen'])   # -> a felület újratölt
+
+    def test_every_store_mutation_bumps_generation(self):
+        h = _Host()
+        g = h.driver_store_gen()
+        for cmd in ('pnputil /delete-driver oem40.inf', 'pnputil /add-driver x.inf /install'):
+            self.assertTrue(drivers_core.mutates_driver_store(cmd))
+            h.invalidate_driver_cache()                  # a `_run` ezt hívja minden ilyen parancs után
+        self.assertEqual(h.driver_store_gen(), g + 2)
+
+
 class DeleteTargetGuardTest(unittest.TestCase):
     def test_delete_from_other_disk_list_is_refused(self):
         quiet()
