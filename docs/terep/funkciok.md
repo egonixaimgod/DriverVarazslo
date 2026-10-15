@@ -377,5 +377,40 @@ Kódolvasásból, a felhasználó kérésére; terepen NEM reprodukálva. Teszt:
 
 **NEM MÉRVE (gépen kell kipróbálni, a felhasználó saját gépe a jó próbapad):** maga a törlő kör (SYSTEM-feladat, `pnputil /disable-device` a rádióra, a csomópontok törlése letiltott rádió mellett, `/enable-device`); hogy a Beállítások lista újraindítás nélkül kiürül-e; hogy a `Keys` alatt a klasszikus kulcsok értékként, az LE-kulcsok alkulcsként vannak-e (a szkript mindkettőt kezeli, MAC-mintára: `^[0-9A-Fa-f]{12}$`). A `pnputil /disable-device` Win10 2004+ — régebbin a letiltás bukik, a kör figyelmeztetéssel tovább megy.
 
-**Döntések:** csak a BT-szolgáltatásokat indítjuk vissza, amiket MI állítottunk le; csak a rádiót kapcsoljuk vissza, amit MI tiltottunk le (egy eleve letiltott rádió úgy marad). Nincs automatikus újraindítás. A `✅` csak akkor jár, ha a SYSTEM-szkript `LEFT: 0`-t írt, a visszaolvasott fában egy törlendő csomópont sincs, a rádió hibakód nélkül él, és a szolgáltatások futnak.
+**Döntések:** csak a BT-szolgáltatásokat indítjuk vissza, amiket MI állítottunk le; ~~csak a rádiót kapcsoljuk vissza, amit MI tiltottunk le (egy eleve letiltott rádió úgy marad)~~ (**VISSZAVONVA 2026-10-15**, lásd lent: a rádióhoz egyáltalán nem nyúlunk). Nincs automatikus újraindítás. A `✅` csak akkor jár, ha a SYSTEM-szkript `LEFT: 0`-t írt, a visszaolvasott fában egy törlendő csomópont sincs, **minden jelenlévő rádió** hibakód nélkül él (az eleve letiltott is jelentendő), és a szolgáltatások futnak.
+
+#### 2026-10-15: a rádió-letiltás VISSZAVONVA — újraindítás után halott BT a felhasználó gépén (Build 385)
+
+**A bejelentés:** *„lefuttattam a gombbal a bluetooth clearelest es most meg a bluetooth sem mukodik a gépemen XD be se tudom kapcsolni”*. Mérve utána: `ASUS USB-BT500` Status=Error, **Code 22 (CM_PROB_DISABLED)**, `oem9.inf`, BTHUSB.
+
+**A napló (`C:\DriverVarazslo\DriverVarázsló_debug.log`, Build 385, két futás egymás után):**
+```
+22:20:11 [CMD] Futtatás: pnputil /disable-device USB\VID_0B05&PID_190E\00E04C239987
+22:20:11 [CMD] OK - várt kód: 3010 (0.0s)
+         Disabling device: ...  System reboot is needed to complete configuration operations!
+22:20:13 (16/16 csomópont törölve, mind 0.0s — a rádió ekkor még ÉLT)
+22:20:13 [CMD] Futtatás: pnputil /enable-device USB\VID_0B05&PID_190E\00E04C239987
+22:20:13 [WARNING] [CMD] Visszatérési kód: 50
+         Failed to enable device: ... Device is pending system reboot to complete a previous operation.
+22:20:15 [BT] Eredmény: {'ok': True, ... 'radio_problems': [] ...}   -> ✅
+22:20:38 (2. futás) pnputil /disable-device -> rc=50 "pending system reboot" -> a kör letiltás nélkül ment, 13/13 törölve, 0.0s
+LastBootUpTime: 22:22:11  -> a függőben lévő letiltás élesedett -> Code 22
+```
+A 2026-10-14-i futáson a letiltás még 0-val ment (`Device disabled successfully`), ezért nem jött elő. Hogy 2026-10-15-én MI tartotta a rádiót (a 3 BT-szolgáltatás leállt), **nem mértük**.
+
+**Három hiba egy láncban:** (1) a 3010-et „letiltva”-nak vettük, pedig az = *a letiltás a következő indulásra ütemezve*, tartósan (a `pnputil` a `CONFIGFLAG_DISABLED`-et írja); (2) az `/enable-device` kódját senki nem nézte, és egy függő letiltást nem is tud visszavonni; (3) a visszaolvasás az újraindítás ELŐTT jött, amikor a rádió még élt → hamis ✅ (4. elv). Ugyanez a vég jött volna, ha a program a letiltás és a visszakapcsolás között bezárul.
+
+**A javítás:** a letiltás kikerült (nincs `/disable-device`, `/enable-device`, `/scan-devices`). Indok, mérve: mindkét 10-15-i futás élő rádió mellett törölt (29/29 csomópont, mind 0,0 mp). NEM mérve: egy éppen *csatlakoztatott* BT-eszköz csomópontjának törlése élő rádió mellett — erre a meglévő beragadás-őr (`BT_MAX_STUCK`, 60 mp/lépés) ad őszinte hibát. A végén **minden jelenlévő rádiót** visszaolvasunk (az eleve letiltottat is: a 382–385-ös buildek a terepen is hagyhattak letiltott rádiót, és egy újrafuttatás különben halott BT mellé adna ✅-t). Tesztek: `tests/test_bluetooth_clean.py` (`_radio_untouched`, `test_dead_radio_after_run_is_not_ok`, `test_already_disabled_radio_reported_not_touched`).
+
+**Elvetett alternatíva:** `CM_Disable_DevNode` a `CM_DISABLE_PERSIST` bit nélkül (nem tartós, újraindítás visszaállítja). A dokumentáció szerint ez működne, de nem mértük, és az élő rádiós törlés mérten elég.
+
+#### 2026-10-15 (ugyanaznap): a kör a hibás BT-t MEG IS JAVÍTJA
+
+**A kérés** (explicit user decision): *„ne javitsa is meg a bluetoothot igen csináld meg ezt is, tehát a körben is legyen benne ebben a gombban is legyen benne hogyha el van baszva a bluetooth akkor csinálja meg a program”*. (Előzmény: a fenti visszavonás után azt kérdeztem, hogy a Build 382–385 által letiltva hagyott rádiót a kör javítsa-e, vagy csak jelentse.)
+
+**Mit csinál** (`repair_radios`, a `finally`-ben, tehát megszakításkor is): minden, a kör ELEJÉN jelenlévő rádiót újraolvas; Code 22 → `pnputil /enable-device`, más hibakód → `pnputil /restart-device` (Win10 2004+); `ok_codes=(0,)`, mert itt a 3010 sem siker. Sikeres pnputil után `BT_RADIO_SETTLE` (8 mp, NEM mért) ideig 0,5 mp-enként visszaolvas, amíg él. A verdikt a visszaolvasott hibakód (`radio_fixed` / `radio_problems`), nem a pnputil kódja. A kör közben kihúzott rádiót nem javítjuk (nem lehet), de jelentjük. A `start_bt_services` rádiós gépen a `bthserv`-et akkor is elindítja, ha nem mi állítottuk le, és ha `Disabled`, előbb `Manual`-ra állítja (ez a gyári alapja). Rádió nélküli gépen nem erőltetjük: ott a `bthserv` nem maradna futva, és hamis „nem indult vissza” lenne belőle.
+
+**MÉRVE (csak olvasás, csonkolt `run`, élő eszközfa, a felhasználó gépe, admin nélkül):** a rádió `problem=22`; a javító-ág egyetlen parancsot választott: `pnputil /enable-device USB\VID_0B05&PID_190E\00E04C239987`. A generált szolgáltatás-PowerShell `PSParser` szerint 0 hibával tokenizál. **NEM MÉRVE:** maga az engedélyezés élesben (a shell nem volt admin; kézzel ugyanez a parancs „Access is denied”-et adott admin nélkül); hogy mennyi idő alatt indul el a rádió; a `/restart-device` ág bármilyen valódi hibakódon; a `bthserv` Disabled → Manual ág. **Ami nem javítható és nem is próbáljuk:** a még újraindításra váró (függő) letiltás (a 382–385 egy 3010-es futása után, újraindítás előtt): a rádió ilyenkor hibakód nélkül él, és az `/enable-device` rc=50-et ad. Újraindítás után Code 22 lesz belőle, amit egy újabb futtatás már javít. A Beállításokban kikapcsolt rádió (a BT-kapcsoló) nem hiba, ahhoz nem nyúlunk.
+
+Tesztek: `test_radio_disabled_during_run_is_fixed`, `test_fix_fails_is_not_ok` (rc=50), `test_other_problem_code_restarts`, `test_already_disabled_radio_is_enabled_never_disabled`, `test_bthserv_ensured_only_with_radio`.
 

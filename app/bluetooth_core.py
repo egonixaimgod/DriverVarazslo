@@ -11,11 +11,21 @@ párosítás-adatbázisból jön (`BTHPORT\\Parameters\\Devices` + `Keys`), amit
 Az eszközönkénti "Eszköz eltávolítása" pedig percekig pörög, mert a verem közben a
 rádión keresztül próbál beszélni az eszközzel.
 
-A SORREND ezért: szolgáltatások le -> a rádió LETILTVA (innentől semmi nem beszél a
-fülhallgatóval, a gyerek-csomópontok nem jelenlévők, a törlésük tizedmásodperc) ->
-párosítások törlése SYSTEM-ként (a `Keys` ACL-je csak SYSTEM-nek ad jogot, mérve: admin
-nélkül "Requested registry access is not allowed") -> csomópontok törlése -> visszaolvasás
--> a rádió vissza + szolgáltatások vissza (`finally`, megszakításnál is).
+A SORREND ezért: szolgáltatások le -> párosítások törlése SYSTEM-ként (a `Keys` ACL-je csak
+SYSTEM-nek ad jogot, mérve: admin nélkül "Requested registry access is not allowed") ->
+csomópontok törlése -> visszaolvasás (a csomópontok ÉS a rádió) -> szolgáltatások vissza
+(`finally`, megszakításnál is).
+
+A RÁDIÓT NEM TILTJUK LE (2026-10-15, visszavonva): a `pnputil /disable-device` 3010-nél a
+KÖVETKEZŐ indulásra ütemezi a letiltást, az `/enable-device` ezt nem vonja vissza ("pending
+system reboot", rc=50) - újraindítás után a rádió Code 22-vel halott maradt (mérve a
+felhasználó gépén). Ugyanez lett volna egy letiltás és visszakapcsolás közötti
+programbezárás vége. Élő rádió mellett a törlés mérve 29/29 csomópont, mind 0,0 mp.
+
+A HIBÁS BT-T MEGJAVÍTJA (2026-10-15, explicit user decision: *"hogyha el van baszva a
+bluetooth akkor csinálja meg a program"*): a kör végén (`finally`) a letiltott rádiót
+engedélyezi, a más hibakódosat újraindítja, a letiltott `bthserv`-et kézire állítja és
+elindítja. A verdikt a visszaolvasott hibakód.
 
 1. elv: ez TÖRLŐ funkció, NINCS benne kivétel - minden BT-párosítás megy, a technikus BT-
 egere/billentyűzete is (a megerősítő ezt kimondja). A rádió (adapter) maga nem párosítás,
@@ -26,6 +36,7 @@ annak a csomópontja és a drivere marad.
 import logging
 import os
 import re
+import time
 from app.common import CMD_TIMEOUT_RETURNCODE, _app_data_dir, _ps_quote
 from app.win32 import PC_CONTAINER_ID
 # === /AUTO-IMPORTS ===
@@ -37,6 +48,7 @@ BT_ENUMERATORS = ('BTHENUM\\', 'BTHLE\\', 'BTHLEDEVICE\\', 'BTHHFENUM\\', 'BTH\\
 BT_SERVICES = ('bthserv', 'BTAGService', 'BthAvctpSvc')
 BT_STEP_TIMEOUT = 60          # mp - egy pnputil / szolgáltatás-lépés felső határa
 BT_MAX_STUCK = 3              # ennyi egymás utáni beragadt törlés után feladjuk (újraindítás kell)
+BT_RADIO_SETTLE = 8           # mp - ennyit várunk, hogy a javított rádió hibakód nélkül elinduljon (nem mért)
 CM_PROB_DISABLED = 22
 BT_CLEAR_TASK = 'DriverVarazsloBtClear'
 
@@ -220,21 +232,89 @@ def stop_bt_services(run):
     return stopped
 
 
-def start_bt_services(run, names):
-    """A leállított szolgáltatások visszaindítása, visszaolvasva. Visszaad: ami NEM fut."""
+def start_bt_services(run, names, ensure=(), log=None):
+    """A leállított szolgáltatások (`names`) + az `ensure` szolgáltatások indítása, visszaolvasva;
+    ami le van tiltva, azt előbb kézire állítja (a `bthserv` alapja is kézi). Visszaad: ami NEM fut."""
+    names = list(dict.fromkeys(list(ensure) + list(names)))
     if not names:
         return []
+    logging.info(f"[BT] Szolgáltatások indítása (ha le van tiltva: kézire állítva): {names}")
     lst = ', '.join(f"'{_ps_quote(s)}'" for s in names)
-    ps = (f"foreach ($x in @({lst})) {{ try {{ Start-Service -Name $x -ErrorAction Stop }} catch {{ }}; "
+    ps = (f"foreach ($x in @({lst})) {{ $s = Get-Service -Name $x -ErrorAction SilentlyContinue; "
+          "if ($s -and $s.StartType -eq 'Disabled') { try { Set-Service -Name $x -StartupType Manual -ErrorAction Stop; "
+          "'UNDISABLED:' + $x } catch { 'UNDISFAIL:' + $x + ':' + $_.Exception.Message } }; "
+          "try { Start-Service -Name $x -ErrorAction Stop } catch { }; "
           "$s = Get-Service -Name $x -ErrorAction SilentlyContinue; "
           "if (-not $s -or $s.Status -ne 'Running') { 'NOTRUNNING:' + $x } }")
     r = run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], timeout=BT_STEP_TIMEOUT)
     if getattr(r, 'returncode', 1) == CMD_TIMEOUT_RETURNCODE:
-        return list(names)
-    bad = [l[11:].strip() for l in (getattr(r, 'stdout', '') or '').splitlines() if l.startswith('NOTRUNNING:')]
+        return names
+    lines = (getattr(r, 'stdout', '') or '').splitlines()
+    for l in lines:
+        if l.startswith('UNDISABLED:'):
+            logging.warning(f"[BT] Letiltott szolgáltatás kézire állítva: {l[11:].strip()}")
+            if log:
+                log(f'🔧 A(z) {l[11:].strip()} szolgáltatás le volt tiltva - visszakapcsolva.')
+        elif l.startswith('UNDISFAIL:'):
+            logging.warning(f"[BT] A szolgáltatás tiltása nem oldható fel: {l[10:].strip()}")
+    bad = [l[11:].strip() for l in lines if l.startswith('NOTRUNNING:')]
     if bad:
         logging.warning(f"[BT] Nem indult vissza: {bad}")
     return bad
+
+
+# --- A rádió (adapter) javítása ---------------------------------------------------------
+def _radio_states(enum_nodes, radios):
+    """{id: csomópont | None}, vagy None, ha az eszközfa nem olvasható (az nem "rendben van")."""
+    try:
+        now = {n['id'].upper(): n for n in enum_nodes()}
+    except Exception as e:
+        logging.error(f"[BT] A rádió állapota nem olvasható: {e}", exc_info=True)
+        return None
+    return {r['id']: now.get(r['id'].upper()) for r in radios}
+
+
+def _radio_ok(n):
+    return bool(n and n.get('present') and not n.get('problem'))
+
+
+def repair_radios(run, log, enum_nodes, radios):
+    """A hibás rádiók javítása: letiltott (Code 22) -> engedélyezés, más hibakód -> újraindítás.
+    Visszaad: (megjavítottak, továbbra is hibásak) név szerint; a verdikt a visszaolvasás."""
+    st = _radio_states(enum_nodes, radios)
+    tried = []
+    for r in (radios if st is not None else []):
+        n = st[r['id']]
+        if _radio_ok(n) or not n or not n.get('present'):
+            continue  # ép, vagy közben kihúzták (azt nem tudjuk javítani; a visszaolvasás jelenti)
+        code, name = n.get('problem'), node_label(r)
+        verb = '/enable-device' if code == CM_PROB_DISABLED else '/restart-device'
+        logging.warning(f"[BT] HIBÁS RÁDIÓ (Code {code}) -> pnputil {verb}: {r['id']} ({name})")
+        log(f"🔧 Az adapter {'le volt tiltva - visszakapcsolás' if code == CM_PROB_DISABLED else f'hibát jelez (Code {code}) - újraindítás'}: {name}")
+        res = run(['pnputil', verb, r['id']], timeout=BT_STEP_TIMEOUT, ok_codes=(0,))
+        rc = getattr(res, 'returncode', 1)
+        if rc != 0:
+            logging.warning(f"[BT] pnputil {verb} rc={rc}: {(getattr(res, 'stdout', '') or '')[-300:]}")
+        tried.append((r, rc))
+    # Ha a pnputil sikert mondott, az indulásra várunk; különben egy visszaolvasás elég.
+    deadline = time.monotonic() + (BT_RADIO_SETTLE if any(rc == 0 for _, rc in tried) else 0)
+    while tried:
+        st = _radio_states(enum_nodes, radios)
+        if (st is not None and all(_radio_ok(st[r['id']]) for r, _ in tried)) or time.monotonic() >= deadline:
+            break
+        time.sleep(0.5)
+    if st is None:
+        return [], [node_label(r) for r in radios]
+    fixed = [node_label(r) for r, _ in tried if _radio_ok(st[r['id']])]
+    bad = [node_label(r) for r in radios if not _radio_ok(st[r['id']])]
+    for name in fixed:
+        logging.info(f"[BT] Rádió megjavítva (visszaolvasva): {name}")
+    for r in radios:
+        if not _radio_ok(st[r['id']]):
+            n = st[r['id']]
+            logging.error(f"[BT] A rádió NEM működik: {r['id']} ({node_label(r)}) - "
+                          f"{'eltűnt' if not n or not n.get('present') else 'Code ' + str(n.get('problem'))}")
+    return fixed, bad
 
 
 # --- A teljes kör -----------------------------------------------------------------------
@@ -246,7 +326,7 @@ def clear_bluetooth(run, log, enum_nodes, check_cancel=None, system_clear=None):
     check_cancel = check_cancel or (lambda: False)
     system_clear = system_clear or clear_pairings_as_system
     rep = {'ok': False, 'cancelled': False, 'pairings': [], 'pairings_left': None,
-           'removed': 0, 'total': 0, 'left_nodes': [], 'radio_problems': [],
+           'removed': 0, 'total': 0, 'left_nodes': [], 'radio_fixed': [], 'radio_problems': [],
            'services_down': [], 'errors': [], 'stuck': False}
     try:
         nodes = enum_nodes()
@@ -263,25 +343,13 @@ def clear_bluetooth(run, log, enum_nodes, check_cancel=None, system_clear=None):
     log(f"📶 Bluetooth-adapter: {', '.join(node_label(r) for r in radios) or 'nincs a gépben'}")
     log(f"🔎 {len(targets)} Bluetooth-eszközcsomópont (párosított eszközök és szolgáltatásaik).")
 
-    stopped, disabled = [], []
+    stopped = []
+    # A rádiót nem tiltjuk le (lásd a modul elején); a végén a hibásat javítjuk - az eleve
+    # hibásat is (pl. Build 382-385 óta letiltott), különben halott BT mellé ✅ jönne.
+    present_radios = [r for r in radios if r.get('present')]
     try:
         log('⏸️ Bluetooth-szolgáltatások leállítása...')
         stopped = stop_bt_services(run)
-        # Csak az engedélyezett, jelenlévő rádiót tiltjuk le - és csak azt kapcsoljuk vissza.
-        for r in radios:
-            if not r.get('present') or r.get('problem') == CM_PROB_DISABLED:
-                continue
-            logging.warning(f"[BT] RÁDIÓ LETILTÁSA a törlés idejére: {r['id']} ({node_label(r)})")
-            log(f'🔌 Az adapter ideiglenes letiltása: {node_label(r)}')
-            res = run(['pnputil', '/disable-device', r['id']], timeout=BT_STEP_TIMEOUT, ok_codes=(0, 3010))
-            rc = getattr(res, 'returncode', 1)
-            if rc in (0, 3010):
-                disabled.append(r)
-            else:
-                # Nem végzetes: a törlés így is mehet, csak lassabb/beragadhat - kimondjuk.
-                logging.warning(f"[BT] A rádió letiltása nem sikerült (rc={rc}): "
-                                f"{(getattr(res, 'stdout', '') or '')[:200]}")
-                log(f'  ⚠️ Nem sikerült letiltani (kód {rc}) - a törlés így is megy, de lassabb lehet.')
         if check_cancel():
             rep['cancelled'] = True
             return rep
@@ -322,7 +390,7 @@ def clear_bluetooth(run, log, enum_nodes, check_cancel=None, system_clear=None):
             # Az 1-es kód tipikusan: a csomópont már nincs meg (a szülőjével együtt ment) -
             # a végső döntés úgyis a lenti visszaolvasás.
 
-        # Visszaolvasás a rádió visszakapcsolása ELŐTT: utána a Windows a `BTH\MS_*`
+        # Visszaolvasás a szolgáltatások visszaindítása ELŐTT: utána a Windows a `BTH\MS_*`
         # protokoll-csomópontokat jogosan újra létrehozza.
         try:
             ids = {n['id'].upper() for n in enum_nodes()}
@@ -332,24 +400,10 @@ def clear_bluetooth(run, log, enum_nodes, check_cancel=None, system_clear=None):
             rep['left_nodes'] = None
             rep['errors'].append('a csomópontok visszaolvasása nem sikerült')
     finally:
-        for r in disabled:
-            logging.info(f"[BT] Rádió visszakapcsolása: {r['id']}")
-            log(f'🔌 Az adapter visszakapcsolása: {node_label(r)}')
-            run(['pnputil', '/enable-device', r['id']], timeout=BT_STEP_TIMEOUT, ok_codes=(0, 3010))
-        if disabled:
-            run(['pnputil', '/scan-devices'], timeout=120)
-            try:
-                now = {n['id'].upper(): n for n in enum_nodes()}
-                for r in disabled:
-                    cur = now.get(r['id'].upper())
-                    if not cur or not cur.get('present') or cur.get('problem'):
-                        rep['radio_problems'].append(node_label(r))
-            except Exception as e:
-                logging.error(f"[BT] A rádió állapota nem olvasható vissza: {e}", exc_info=True)
-                rep['radio_problems'] = [node_label(r) for r in disabled]
-            for name in rep['radio_problems']:
-                logging.error(f"[BT] A rádió NEM állt vissza: {name}")
-        rep['services_down'] = start_bt_services(run, stopped)
+        if present_radios:
+            rep['radio_fixed'], rep['radio_problems'] = repair_radios(run, log, enum_nodes, present_radios)
+        # A `bthserv` nélkül nincs Bluetooth: rádiós gépen akkor is fusson, ha nem mi állítottuk le.
+        rep['services_down'] = start_bt_services(run, stopped, ensure=('bthserv',) if present_radios else (), log=log)
 
     rep['ok'] = (not rep['cancelled'] and not rep['errors'] and not rep['stuck']
                  and rep['pairings_left'] == 0 and rep['left_nodes'] == []

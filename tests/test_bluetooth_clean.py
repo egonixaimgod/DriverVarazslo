@@ -1,5 +1,7 @@
 """Bluetooth tiszta lap (2026-10-14): a kiválasztás, a SYSTEM-eredmény olvasása és hogy a
-kör őszinte legyen (a rádió MINDIG visszakapcsol, a ✅ csak visszaolvasott üres állapotra jár).
+kör őszinte legyen (a rádióhoz SOHA nem nyúl - 2026-10-15 óta, egy 3010-es letiltás
+újraindítás után halott rádiót hagyott -, a ✅ csak visszaolvasott üres állapotra és élő
+rádióra jár).
 
 A bemenet a felhasználó gépének eszközfájából van (ASUS USB-BT500, két "Forcell Master Pro"
 párosítás, PS VR2 / DualShock kontroller). Valódi rendszerhez semmi nem nyúl: a `run`, az
@@ -43,12 +45,15 @@ def _res(rc=0, out=''):
 
 
 class _Sim:
-    """Állapotos csonk: a /remove-device tényleg eltávolít a fából."""
-    def __init__(self, remove_rc=0, stuck=False):
+    """Állapotos csonk: a /remove-device tényleg eltávolít a fából, az /enable-device és a
+    /restart-device (fix_rc=0 esetén) tényleg megjavítja a csomópontot."""
+    def __init__(self, remove_rc=0, stuck=False, fix_rc=0, stop_out='STOPPED:bthserv\n'):
         self.nodes = _tree()
         self.calls = []
         self.remove_rc = remove_rc
         self.stuck = stuck
+        self.fix_rc = fix_rc
+        self.stop_out = stop_out
 
     def run(self, cmd, **kw):
         self.calls.append(cmd)
@@ -58,9 +63,20 @@ class _Sim:
             if self.remove_rc == 0:
                 self.nodes = [n for n in self.nodes if n['id'] != cmd[2]]
             return _res(self.remove_rc)
+        if cmd[:2] in (['pnputil', '/enable-device'], ['pnputil', '/restart-device']):
+            if self.fix_rc == 0:
+                for n in self.nodes:
+                    if n['id'] == cmd[2]:
+                        n['problem'] = 0
+            return _res(self.fix_rc)
         if cmd[0] == 'powershell' and 'Stop-Service' in cmd[-1]:
-            return _res(0, 'STOPPED:bthserv\n')
+            return _res(0, self.stop_out)
         return _res(0)
+
+    def started(self):
+        """Az indított szolgáltatások listája (a Start-Service-es PowerShell-hívásból)."""
+        ps = [c[-1] for c in self.calls if c[0] == 'powershell' and 'Start-Service' in c[-1]]
+        return ps[-1].split('@(')[1].split(')')[0] if ps else ''
 
     def enum(self):
         return [dict(n) for n in self.nodes]
@@ -102,21 +118,64 @@ class FlowTest(unittest.TestCase):
         quiet()
         return bt.clear_bluetooth(sim.run, lambda s: None, sim.enum, system_clear=kw.pop('system_clear', _sys_ok), **kw)
 
-    def test_happy_path_is_ok_and_radio_back(self):
+    def _radio_untouched(self, sim):
+        self.assertFalse([c for c in sim.calls if c[0] == 'pnputil' and RADIO in c])
+        self.assertFalse([c for c in sim.calls if c[:2] in (['pnputil', '/disable-device'], ['pnputil', '/enable-device'])])
+
+    def test_happy_path_is_ok_and_radio_untouched(self):
         sim = _Sim()
         rep = self._go(sim)
         self.assertTrue(rep['ok'], rep)
-        self.assertEqual(sim.pnp('/disable-device'), [RADIO])
-        self.assertEqual(sim.pnp('/enable-device'), [RADIO])
+        self._radio_untouched(sim)
         self.assertTrue(any('Start-Service' in c[-1] for c in sim.calls if c[0] == 'powershell'))
 
-    def test_cancel_still_reenables_radio(self):
+    def test_cancel_removes_nothing_restarts_services(self):
         sim = _Sim()
         rep = self._go(sim, check_cancel=lambda: True)
         self.assertTrue(rep['cancelled'])
         self.assertFalse(rep['ok'])
-        self.assertEqual(sim.pnp('/enable-device'), [RADIO])
+        self._radio_untouched(sim)
         self.assertEqual(sim.pnp('/remove-device'), [])
+        self.assertTrue(any('Start-Service' in c[-1] for c in sim.calls if c[0] == 'powershell'))
+
+    def test_radio_disabled_during_run_is_fixed(self):
+        # 2026-10-15: a rádió a kör után Code 22-vel állt, és mégis ✅ jött.
+        sim = _Sim()
+
+        def sys_kills_radio(run, log):
+            sim.nodes[0]['problem'] = bt.CM_PROB_DISABLED
+            return _sys_ok(run, log)
+        rep = self._go(sim, system_clear=sys_kills_radio)
+        self.assertTrue(rep['ok'], rep)
+        self.assertEqual(sim.pnp('/enable-device'), [RADIO])
+        self.assertEqual(rep['radio_fixed'], ['ASUS USB-BT500'])
+
+    def test_fix_fails_is_not_ok(self):
+        sim = _Sim(fix_rc=50)   # "Device is pending system reboot" - mérve
+        sim.nodes[0]['problem'] = bt.CM_PROB_DISABLED
+        rep = self._go(sim)
+        self.assertFalse(rep['ok'])
+        self.assertEqual(rep['radio_fixed'], [])
+        self.assertEqual(rep['radio_problems'], ['ASUS USB-BT500'])
+
+    def test_other_problem_code_restarts(self):
+        sim = _Sim()
+        sim.nodes[0]['problem'] = 10
+        rep = self._go(sim)
+        self.assertTrue(rep['ok'], rep)
+        self.assertEqual(sim.pnp('/restart-device'), [RADIO])
+        self.assertEqual(sim.pnp('/enable-device'), [])
+
+    def test_bthserv_ensured_only_with_radio(self):
+        sim = _Sim(stop_out='')                 # semmi nem futott -> csak az ensure indul
+        self._go(sim)
+        self.assertIn("'bthserv'", sim.started())
+        self.assertIn("StartupType Manual", [c[-1] for c in sim.calls if c[0] == 'powershell'][-1])
+        sim = _Sim(stop_out='')
+        sim.nodes = sim.nodes[1:]               # nincs rádió a gépben
+        rep = self._go(sim)
+        self.assertEqual(sim.started(), '')     # bthserv-et nem erőltetünk -> nincs hamis ⚠️
+        self.assertEqual(rep['services_down'], [])
 
     def test_left_nodes_not_ok(self):
         rep = self._go(_Sim(remove_rc=1))
@@ -132,14 +191,16 @@ class FlowTest(unittest.TestCase):
         rep = self._go(sim)
         self.assertTrue(rep['stuck'])
         self.assertEqual(len(sim.pnp('/remove-device')), bt.BT_MAX_STUCK)
-        self.assertEqual(sim.pnp('/enable-device'), [RADIO])
+        self._radio_untouched(sim)
 
-    def test_disabled_radio_left_alone(self):
+    def test_already_disabled_radio_is_enabled_never_disabled(self):
+        # Build 382-385 letiltva hagyhatta: az újrafuttatás megjavítja, letiltani soha nem tilt.
         sim = _Sim()
         sim.nodes[0]['problem'] = bt.CM_PROB_DISABLED
-        self._go(sim)
+        rep = self._go(sim)
+        self.assertTrue(rep['ok'], rep)
+        self.assertEqual(sim.pnp('/enable-device'), [RADIO])
         self.assertEqual(sim.pnp('/disable-device'), [])
-        self.assertEqual(sim.pnp('/enable-device'), [])
 
 
 class GeneratedPsTest(unittest.TestCase):

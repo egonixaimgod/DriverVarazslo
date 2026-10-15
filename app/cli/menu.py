@@ -341,7 +341,7 @@ def _menu_drivers(api):
             ('7', 'Mit használ MOST a gép?',
              'Melyik csomag van használatban, és melyikre nem hivatkozik semmi'),
             ('8', 'Bluetooth tiszta lap',
-             'MINDEN BT-párosítás és beragadt BT-eszköz törlése'),
+             'MINDEN BT-párosítás és beragadt BT-eszköz törlése, a hibás adapter javítása'),
         ], back_label='Vissza a főmenübe')
         if c == '0':
             return

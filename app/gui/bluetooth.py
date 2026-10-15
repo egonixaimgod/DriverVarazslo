@@ -45,8 +45,11 @@ class GuiBluetoothMixin:
                     'másodszorra a csomópontok gyorsan mennek).')
             for e in rep['errors']:
                 log(f'⚠️ {e}')
+            for name in rep['radio_fixed']:
+                log(f'🔧 Az adapter megjavítva, újra működik: {name}')
             for name in rep['radio_problems']:
-                log(f'❌ Az adapter NEM indult vissza: {name} - Eszközkezelőben engedélyezd, vagy indítsd újra a gépet.')
+                log(f'❌ Az adapter nem működik (vagy nem ellenőrizhető): {name} - Eszközkezelőben '
+                    'nézd meg (ha le van tiltva: jobb klikk > Eszköz engedélyezése), vagy indítsd újra a gépet.')
             if rep['services_down']:
                 log(f"❌ Nem indult vissza: {', '.join(rep['services_down'])} - indítsd újra a gépet.")
             if rep['ok']:
