@@ -12,6 +12,7 @@ import shutil
 import logging
 import threading
 from app.common import _ps_quote
+from app.common import CMD_TIMEOUT_RETURNCODE
 from app.common import _app_data_dir
 # === /AUTO-IMPORTS ===
 
@@ -2846,8 +2847,31 @@ def _driver_backup_dir():
 # fixet buktassuk el helyhiánnyal.
 DRIVER_BACKUP_MIN_FREE_GB = 8
 
+# Egy csomag exportja mérve legfeljebb ~5 mp (1212 MB-os grafikus csomag). A 120 mp ennek
+# a 23-szorosa. TEREPI ESET (2026-10-15, Lenovo 20LE, Build 382): MINDEN export 300 mp-ig
+# lógott, és időtúllépéssel bukott. 162 export × 300 mp ≈ 13,5 óra lett volna, a technikus
+# 2 óra után lőtte le. Ha EGY export beragad, a többi is be fog (ugyanaz a driver-tár), ezért
+# az első időtúllépés után a lábon egyetlen további export sem indul (`guard`).
+EXPORT_DRIVER_TIMEOUT = 120
 
-def export_drivers_backup(run_fn, drivers, log=None):
+
+def _export_one(run_fn, pub, dest, guard, tag):
+    """Egy `pnputil /export-driver`, közös megszakítóval. A `guard` (dict) a hívó lábon
+    MINDEN export-hívásnak ugyanaz: ha egyszer beragadt (`guard['hung']`), az összes
+    további export kihagyva (None). Visszatérés: a CommandResult, vagy None, ha kihagytuk."""
+    if guard is not None and guard.get('hung'):
+        logging.warning(f"[{tag}] {pub} exportja kihagyva: egy korábbi export beragadt "
+                        f"({guard['hung']}).")
+        return None
+    res = run_fn(['pnputil', '/export-driver', pub, dest], timeout=EXPORT_DRIVER_TIMEOUT)
+    if getattr(res, 'returncode', None) == CMD_TIMEOUT_RETURNCODE and guard is not None:
+        guard['hung'] = pub
+        logging.error(f"[{tag}] A(z) {pub} exportja {EXPORT_DRIVER_TIMEOUT} mp alatt sem ért "
+                      f"véget: a Windows driver-tára nem válaszol. A többi export kimarad.")
+    return res
+
+
+def export_drivers_backup(run_fn, drivers, log=None, guard=None):
     """A TÖRLENDŐ csomagok biztonsági mentése, a törlés ELŐTT.
 
     EZ NEM A TILTOTT "MENTSD EL ÉS RAKD VISSZA" MINTA (CLAUDE.md: "re-driver from ZERO").
@@ -2891,8 +2915,12 @@ def export_drivers_backup(run_fn, drivers, log=None):
             continue
         sub = os.path.join(dest, os.path.splitext(pub)[0])
         try:
+            if guard is not None and guard.get('hung'):
+                logging.warning(f"[DRV-BACKUP] A mentés megszakítva: egy export beragadt "
+                                f"({guard['hung']}), a maradék csomag nem mentődik.")
+                break
             os.makedirs(sub, exist_ok=True)
-            res = run_fn(['pnputil', '/export-driver', pub, sub], timeout=300)
+            res = _export_one(run_fn, pub, sub, guard, 'DRV-BACKUP')
             if res and getattr(res, 'returncode', 1) == 0:
                 ok += 1
                 for root, _dirs, files in os.walk(sub):
@@ -2928,7 +2956,7 @@ def export_drivers_backup(run_fn, drivers, log=None):
     return ok, mb, elapsed
 
 
-def _export_net_driver_backup(run_fn, drivers):
+def _export_net_driver_backup(run_fn, drivers, guard=None):
     """A törlésre váró listából a Net-osztályú driver-csomagokat exportálja a
     _net_backup_dir()-be (előtte üríti, hogy ne keveredjen régi mentéssel).
     Visszaadja a sikeresen exportált csomagok számát."""
@@ -2944,7 +2972,7 @@ def _export_net_driver_backup(run_fn, drivers):
         return 0
     exported = 0
     for d in net_drivers:
-        res = run_fn(['pnputil', '/export-driver', d['published'], dest], timeout=300)
+        res = _export_one(run_fn, d['published'], dest, guard, 'NET-BACKUP')
         if res and res.returncode == 0:
             exported += 1
         else:
@@ -3137,7 +3165,7 @@ def _wifi_backup_dir():
     return os.path.join(_net_backup_dir(), 'wifi')
 
 
-def export_wifi_driver_backup(run_fn, wifi_pkgs):
+def export_wifi_driver_backup(run_fn, wifi_pkgs, guard=None):
     """A Wi-Fi csomag(ok) exportálása a saját mentési mappába (a teljes újraépítéshez).
     Visszatérés: a sikeresen exportált csomagok száma."""
     pkgs = [p for p in (wifi_pkgs or []) if p.get('published')]
@@ -3152,7 +3180,7 @@ def export_wifi_driver_backup(run_fn, wifi_pkgs):
         return 0
     exported = 0
     for p in pkgs:
-        res = run_fn(['pnputil', '/export-driver', p['published'], dest], timeout=300)
+        res = _export_one(run_fn, p['published'], dest, guard, 'WIFI-REBUILD')
         if res and res.returncode == 0:
             exported += 1
             logging.info(f"[WIFI-REBUILD] Mentve az újraépítéshez: {p['published']} ({p.get('original')})")

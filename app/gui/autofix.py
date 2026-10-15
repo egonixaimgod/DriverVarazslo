@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from app.common import _app_data_dir
 from app.common import _app_exe_path
 from app.common import _ps_quote
+from app import avcheck_core
 from app import backup_core
 from app import drivers_core
 from app import dupdrivers_core
@@ -369,6 +370,23 @@ class GuiAutofixMixin:
             logging.error("[GHOST] A szellemeszköz-törlő szkript nem ért végig (nincs DONE sor).")
             self.emit('task_progress', {'task': task_id, 'log': f'⚠️ A szellemeszközök törlése NEM ért végig (a PowerShell-szkript leállt, kód {process.returncode}) - a fix megy tovább.\n'})
 
+    def _autofix_export_hung(self, task_id, pub):
+        """A törlés előtti export beragadt (terepen: a vírusirtó, 2026-10-15). Megnézzük,
+        vírusirtó-e az ok, és kiírjuk. Vírusirtónál a lánc a TÖRLÉS ELŐTT megáll: egy
+        blokkolt gépen a törlés lemenne, a telepítés nem, és driver nélküli gép maradna.
+        Ha nem vírusirtó, a törlés megy tovább (a beragadt driver-tárat a 'wedged' ág
+        és az újraindítás kezeli), de a hiba hangosan kiíródik."""
+        self.emit('task_progress', {'task': task_id, 'log':
+                  f'\n⏱️ A driver-mentés elakadt ({pub}: a Windows nem válaszol) - ellenőrzöm, '
+                  f'hogy a vírusirtó akasztotta-e meg...'})
+        result, lines = avcheck_core.diagnose_hang(self._run, 'a driver-mentést')
+        for line in lines:
+            self.emit('task_progress', {'task': task_id, 'log': line})
+        if result['verdict'] in ('defender', 'thirdparty'):
+            raise Exception('A vírusirtó blokkolja a programot - az 1 kattintásos fix a törlés '
+                            'ELŐTT leállt, egyetlen driver sem lett törölve. Kapcsold ki a vírusirtót '
+                            '(vagy vedd fel kivételnek a programot), és indítsd újra a fixet.')
+
     def _delete_third_party_sync(self, task_id='autofix', skip_classes=None):
         """Third-party csomagok törlése. Visszatérés: 'ok' (végigért) vagy 'wedged'
         (beragadt eszközverem - a hívónak újra kell indítania és FOLYTATNIA a törlést;
@@ -530,7 +548,10 @@ class GuiAutofixMixin:
             # lecseréli és rosszul sül el), csak akkor van honnan visszahozni, ha
             # most elmentettük - a mentés pár másodperc, a hiánya viszont egy
             # internet nélkül maradt ügyfélgép.
-            backed_up = _export_net_driver_backup(self._run, drivers + wifi_protected_pkgs)
+            # Közös megszakító MINDEN exportnak ezen a lábon: ha egy beragad, a többi nem
+            # indul (terepen 162 × 300 mp lett volna, lásd wu_core.EXPORT_DRIVER_TIMEOUT).
+            export_guard = {}
+            backed_up = _export_net_driver_backup(self._run, drivers + wifi_protected_pkgs, guard=export_guard)
             if backed_up:
                 self.emit('task_progress', {'task': task_id, 'log': f'🛟 {backed_up} db hálózati driver biztonsági mentése kész (vész-visszaállításhoz).\n'})
 
@@ -541,7 +562,7 @@ class GuiAutofixMixin:
             # a teljes készlet negyed perc, ami a fix 20-60 perces keretében semmi.
             self.emit('task_progress', {'task': task_id, 'log': '💾 Biztonsági mentés a törlendő driverekről...'})
             saved, saved_mb, saved_sec = export_drivers_backup(
-                self._run, drivers,
+                self._run, drivers, guard=export_guard,
                 log=lambda m: self.emit('task_progress', {'task': task_id, 'log': m}))
             if saved:
                 self.emit('task_progress', {'task': task_id, 'log':
@@ -557,7 +578,9 @@ class GuiAutofixMixin:
             # visszatelepítésnek egyértelmű forrás kell (a netdrv_backup gyökeréből a
             # vezetékes régi csomagját is visszaraknánk - lásd _wifi_backup_dir).
             if getattr(self, '_autofix_rebuild_wifi', False) and wifi_protected_pkgs:
-                export_wifi_driver_backup(self._run, wifi_protected_pkgs)
+                export_wifi_driver_backup(self._run, wifi_protected_pkgs, guard=export_guard)
+            if export_guard.get('hung'):
+                self._autofix_export_hung(task_id, export_guard['hung'])
             self.emit('task_progress', {'task': task_id, 'log': f'{total} db third-party driver eltávolítása...\n'})
             # A törlésre kijelölt csomagok listája a lánc-állapotba: a záró láb ebből
             # tudja megmondani, MELYIK csomag nem került vissza a fix végére (a WU nem

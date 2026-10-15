@@ -233,3 +233,21 @@ Kódolvasásból talált hibák (a felhasználó kérésére: „javítsd ki min
 
 Nem javítva, a következő területekre maradt: a `_get_third_party_drivers` többi hívója (`hwscan`, `rebind`, `dupdrivers`, az autofix egészségjelentése és no-bind jelentése) még nem kéri a `problems` jelzést.
 
+
+
+## Vírusirtó megakasztotta a törlés előtti exportot (2026-10-15, Build 382)
+
+**Gép:** LENOVO 20LES23C00 (ThinkPad, i5-8350U), Win11 10.0.26100, 172 third-party csomag. Napló: `debug_logok/lenovo_2026-10-15.log`.
+
+**Mért adat a naplóból:**
+- A láb: `Register-ScheduledTask` (a `--resume-step1` regisztrálása) **1753,7 mp** (máskor 1–5 mp). Utána a gép újraindult.
+- B láb: a szellemeszközök törlése rendben (24/24). Utána **mind a 8 hálózati és a teljes mentés első 16 csomagjának `pnputil /export-driver`-e pontosan 300 mp-nél időtúllépett** (14:25:18 → 16:20:19), a technikus 16:21-kor megszakította. 154 törlendő + 8 hálózati csomag × 300 mp ≈ 13,5 óra lett volna. Egyetlen driver sem törlődött.
+- Az egész gép lassú volt: DISM-lista 40 mp, a `Win32_SystemDriver` lekérdezés 180 mp-es időtúllépés (a következő indításkor 119 mp).
+- Helyi kísérlet (Win10 19045): a `pnputil /export-driver` egy már létező célmappába is kérdés nélkül, 0,04 mp alatt exportál, tehát nem felülírás-kérdésre várt.
+- **A felhasználó a vírusirtó eltávolítása után újrafuttatta, és a fix azonnal továbbment.** A vírusirtó nevét a napló nem tartalmazza (akkor még semmi nem kérdezte le).
+
+**Javítás:** `wu_core.EXPORT_DRIVER_TIMEOUT` = 120 mp (a mért legrosszabb export ~5 mp), `_export_one` + közös `guard` dict a három export-függvényben (az első időtúllépés után minden további export kimarad). Az autofix `_autofix_export_hung` lefuttatja az `avcheck_core.diagnose_hang`-ot (SecurityCenter2 `AntiVirusProduct` + Defender Operational napló 1006/1015/1116/1117/1121/1123/1126 eseményei a programra/pnputil/PowerShell/DISM vonatkozóan + a régóta futó `drvinst`/`pnputil`/`DismHost`/`TiWorker` folyamatok + a `setupapi.dev.log` vége). Vírusirtó-verdiktnél (bizonyított vagy valószínű) a lánc a törlés előtt kivétellel megáll, a folytató feladat törlődik.
+
+**Élőben ellenőrizve (fejlesztői gép, Win10):** a lekérdezés ott a bekapcsolt ESET Security-t adta → `thirdparty`. A Lenovón NEM futott (nincs hozzá gép). Nem mérve: hogy a Lenovón melyik vírusirtó volt, és hogy az a SecurityCenter2-ben bekapcsoltként jelent-e meg; és az sem, hogy a vírusirtó a PowerShell-lekérdezést is megfogja-e (akkor `unknown` a verdikt, ami szintén kiírja a vírusirtós teendőt).
+
+**Nem javítva:** az A láb 29 perces `Register-ScheduledTask`-ja nem kap diagnózist (akkor sikeres lett, csak lassú volt).

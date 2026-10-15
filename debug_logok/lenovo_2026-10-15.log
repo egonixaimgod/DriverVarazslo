@@ -1,0 +1,1629 @@
+﻿2026-10-15 13:45:35 [INFO] [MainThread] ==================================================
+2026-10-15 13:45:35 [INFO] [MainThread] DriverVarázsló ELINDITVA (Build 382)
+2026-10-15 13:45:35 [INFO] [MainThread] Parancssor: ['C:\\Users\\User\\Desktop\\DriverVarazslo.exe']
+2026-10-15 13:45:35 [INFO] [MainThread] Futtatasi konyvtar: C:\Program Files\WireGuard
+2026-10-15 13:45:35 [INFO] [MainThread] Admin jog: True
+2026-10-15 13:45:35 [INFO] [MainThread] ==================================================
+2026-10-15 13:45:35 [INFO] [MainThread] [PREREQ] --------------------------------------------------------
+2026-10-15 13:45:35 [INFO] [MainThread] [PREREQ] Rendszer: Windows 11 (10.0.26100) AMD64
+2026-10-15 13:45:35 [INFO] [MainThread] [PREREQ] Admin: True | Fagyasztott exe: True | Szabad hely a rendszerlemezen: 52976 MB
+2026-10-15 13:45:35 [INFO] [MainThread] [PREREQ] .NET Framework: 4.8.1 (Release=533509) - MEGFELELŐ a grafikus felülethez
+2026-10-15 13:45:35 [INFO] [MainThread] [PREREQ] WebView2 Runtime: 155.0.4283.45
+2026-10-15 13:45:35 [INFO] [MainThread] [PREREQ] pywebview: ismeretlen, becsomagolt WebView2 SDK: 1.0.3856.49
+2026-10-15 13:45:35 [INFO] [MainThread] [PREREQ] PowerShell: 5.1.26100.8875
+2026-10-15 13:45:35 [INFO] [MainThread] [PREREQ] TLS 1.2 (kliens, schannel): alapértelmezett (nincs külön beállítva)
+2026-10-15 13:45:35 [INFO] [MainThread] [PREREQ] pnputil szintaxis: új (perjeles), /scan-devices is elérhető
+2026-10-15 13:45:35 [INFO] [MainThread] [PREREQ] --------------------------------------------------------
+2026-10-15 13:45:36 [DEBUG] [MainThread] [COLOR] Modern színprofil-API: add=OK, remove=OK, default=OK
+2026-10-15 13:45:36 [INFO] [MainThread] [INIT] WebView2 Runtime OK: v155.0.4283.45
+2026-10-15 13:45:36 [INFO] [MainThread] [INIT] DriverToolApi inicializálás...
+2026-10-15 13:45:36 [INFO] [MainThread] [INIT] sys_drive=C:\
+2026-10-15 13:45:36 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress()
+2026-10-15 13:45:36 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress -> None (0.00s)
+2026-10-15 13:45:36 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy()
+2026-10-15 13:45:36 [DEBUG] [MainThread] [AUTOFIX-CLEANUP] Nincs félbehagyott lánc-állapotfájl - nincs mit takarítani.
+2026-10-15 13:45:36 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy -> None (0.00s)
+2026-10-15 13:45:36 [DEBUG] [MainThread] [CALL] DriverToolApi._deferred_inf_cleanup_path()
+2026-10-15 13:45:36 [DEBUG] [MainThread] [CALL] DriverToolApi._deferred_inf_cleanup_path -> 'C:\\DriverVarazslo\\pending_inf_cleanup.json' (0.00s)
+2026-10-15 13:45:36 [INFO] [MainThread] [INIT] DriverToolApi kész.
+2026-10-15 13:45:36 [DEBUG] [MainThread] [GUI-ŐR] Indítási kísérlet jelölve (wv2=155.0.4283.45|net=533509).
+2026-10-15 13:45:36 [INFO] [MainThread] [MAIN] webview.start() hívása... (ez a natívan is elszállható szakasz; ha a napló itt ér véget, a felület omlott össze)
+2026-10-15 13:45:37 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window(<webview.window.Window object at 0x0000013ADC16E900>)
+2026-10-15 13:45:37 [INFO] [Thread-3 (on_start)] [WINDOW] WebView ablak beállítása...
+2026-10-15 13:45:38 [INFO] [Thread-8 (_call)] [CALL] DriverToolApi.get_init_data()
+2026-10-15 13:45:38 [INFO] [Thread-8 (_call)] [API] get_init_data() hívás - build=382, target=None
+2026-10-15 13:45:38 [INFO] [Thread-8 (_call)] [CALL] DriverToolApi.get_init_data -> {'build': 382, 'sys_drive': 'C:\\', 'target_os': None, 'resume_mode': False, 'resume_step1': False, 'app_data_dir': 'C:\\DriverVarazslo'} (0.00s)
+2026-10-15 13:45:38 [INFO] [Thread-3 (on_start)] [WINDOW] WebView2 DOM kész (1 próba után, 0.1s)
+2026-10-15 13:45:38 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.load_drivers()
+2026-10-15 13:45:38 [INFO] [Thread-10 (_call)] [API] load_drivers() - #1, cél: élő rendszer
+2026-10-15 13:45:38 [DEBUG] [Thread-3 (on_start)] [GUI-ŐR] A felület elindult - indítási jelző törölve.
+2026-10-15 13:45:38 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window -> None (1.43s)
+2026-10-15 13:45:38 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.get_service_tools_status()
+2026-10-15 13:45:38 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._load_tool_install_records()
+2026-10-15 13:45:38 [DEBUG] [drivers-load-1] [EMIT:drivers_loading] data={"target": ""}
+2026-10-15 13:45:38 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.load_drivers -> None (0.00s)
+2026-10-15 13:45:38 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._tool_install_record_path()
+2026-10-15 13:45:38 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.get_log_download_dir()
+2026-10-15 13:45:38 [INFO] [Thread-13 (_call)] [CALL] DriverToolApi.get_report_defaults()
+2026-10-15 13:45:38 [DEBUG] [Thread-13 (_call)] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+try {
+    $d = Get-Partition -DriveLetter ($env:SystemDrive.TrimEnd(':')) -ErrorAction Stop | Get-Disk -ErrorAction Stop
+    @{Number=$d.Number; Serial=$d.SerialNumber; Model=$d.FriendlyN
+2026-10-15 13:45:38 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.get_log_download_dir -> 'C:\\DriverVarazslo\\letoltott_naplok' (0.00s)
+2026-10-15 13:45:38 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._tool_install_record_path -> 'C:\\DriverVarazslo\\installed_tools.json' (0.00s)
+2026-10-15 13:45:38 [INFO] [Thread-14 (_call)] [CALL] DriverToolApi.check_for_updates()
+2026-10-15 13:45:38 [INFO] [Thread-14 (_call)] [UPDATE] check_for_updates()
+2026-10-15 13:45:38 [DEBUG] [Thread-11 (_call)] [CALL] DriverToolApi._load_tool_install_records -> {} (0.00s)
+2026-10-15 13:45:38 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.get_service_tools_status -> {'furmark': {'installed': False, 'path': None}, 'prime95': {'installed': False, 'path': None}, 'linpack': {'installed': False, 'path': None}, 'hwinfo': {'installed': False, 'path': None}, 'hdsentinel': {'installed': False, 'path': None}, 'cpuz': {'installed': False, 'path': None}, 'gpuz': {'installe...[+126 kar.] (0.01s)
+2026-10-15 13:45:38 [INFO] [Thread-1 (webview_watchdog)] [WATCHDOG] WebView2 sikeresen elindult
+2026-10-15 13:45:38 [INFO] [drivers-load-1] [DRIVERS] Third-party driverek lekérdezés
+2026-10-15 13:45:38 [DEBUG] [drivers-load-1] [CALL] DriverToolApi._get_third_party_drivers([])
+2026-10-15 13:45:38 [DEBUG] [drivers-load-1] [DRIVERS] dism /English /Online /Get-Drivers futtatása...
+2026-10-15 13:45:38 [DEBUG] [drivers-load-1] [CMD] Futtatás: dism /English /Online /Get-Drivers
+2026-10-15 13:45:39 [INFO] [Thread-14 (_call)] [UPDATE] Releases API: legfrissebb kiadás build-382 (exe melléklet: igen)
+2026-10-15 13:45:39 [INFO] [Thread-14 (_call)] [UPDATE] Kiadás-szám (API): 382, Helyi: 382
+2026-10-15 13:45:39 [INFO] [Thread-14 (_call)] [UPDATE] Az API nem adott újabb buildet (kiadás: 382) - a raw forrás ellenőrzése következik (1 próbálkozás).
+2026-10-15 13:45:39 [INFO] [Thread-14 (_call)] [UPDATE] Update ellenőrzése erről a címről (1/1. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1792064739
+2026-10-15 13:45:39 [INFO] [Thread-14 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 382, Helyi: 382
+2026-10-15 13:45:39 [INFO] [Thread-14 (_call)] [UPDATE] Nincs újabb verzió (kiadás: 382, raw: 382, helyi: 382).
+2026-10-15 13:45:39 [INFO] [Thread-14 (_call)] [CALL] DriverToolApi.check_for_updates -> {'has_update': False, 'source': 'api'} (0.72s)
+2026-10-15 13:45:43 [DEBUG] [Thread-19 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button[view=drivers] "💿 Driverek kezelése"
+2026-10-15 13:45:46 [DEBUG] [Thread-13 (_call)] [CMD] OK (8.0s)
+2026-10-15 13:45:46 [DEBUG] [Thread-13 (_call)] [CMD] stdout: {"Number":0,"Serial":"0025_38B5_81B5_B5D9.","Model":"SAMSUNG MZVLW256HEHP-000L7","Bus":"NVMe"}
+2026-10-15 13:45:46 [INFO] [Thread-13 (_call)] [REPORT] Rendszerlemez: PhysicalDrive0 'SAMSUNG MZVLW256HEHP-000L7' (sorozatszám=0025_38B5_81B5_B5D9., busz=NVMe)
+2026-10-15 13:45:46 [INFO] [Thread-13 (_call)] [REPORT] Alapállapot: a futó Windows lemeze nem USB-s (SAMSUNG MZVLW256HEHP-000L7, busz=NVMe)
+2026-10-15 13:45:46 [INFO] [Thread-13 (_call)] [CALL] DriverToolApi.get_report_defaults -> {'system_disk_usb': False, 'system_disk_known': True, 'model': 'SAMSUNG MZVLW256HEHP-000L7', 'bus': 'NVMe'} (8.04s)
+2026-10-15 13:46:15 [DEBUG] [Thread-20 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button[view=autofix] "🚀 1 Kattintásos Driver Fix"
+2026-10-15 13:46:18 [DEBUG] [drivers-load-1] [CMD] OK (39.5s)
+2026-10-15 13:46:18 [DEBUG] [drivers-load-1] [CMD] stdout: Deployment Image Servicing and Management tool
+Version: 10.0.26100.8972
+
+Image Version: 10.0.26100.9457
+
+Obtaining list of 3rd party drivers from the driver store...
+
+Driver packages listing:
+
+Published Name : oem0.inf
+Original File Name : ialpss2_i2c_cnl.inf
+Inbox : No
+Class Name : System
+Provider Name : Intel Corporation
+Date : 2019. 11. 22.
+Version : 30.100.1947.3
+
+Published Name : oem1.inf
+Original File Name : mewmiprov.inf
+Inbox : No
+Class Name : SoftwareComponent
+Provider Name : Intel
+Date : 2024. 02. 21.
+Version : 2408.5.4.0
+
+Published Name : oem10.inf
+Original File Name : hdx_lenovoext_dolby_forte_kd.inf
+Inbox : No
+Class Name : Extension
+Provider Name : Realtek Semiconductor Corp.
+Date : 2020. 12. 28.
+Version : 6.0.9091.1
+
+Published Name : oem100.inf
+Original File Name : intcdaud.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : Intel(R) Corporation
+Date : 2021. 11. 21.
+Version : 10.27.0.12
+
+Published Name : oem101.inf
+Original File Name : hdxlvj.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : Realtek Semiconductor Corp.
+Date : 2020. 07. 14.
+Version : 6.0.8988.1
+
+Published Name : oem102.inf
+Original File Name : ibmpmdrv.inf
+Inbox : No
+Class Name : System
+Provider Name : Lenovo
+Date : 2025. 10. 27.
+Version : 1.69.132.0
+
+Published Name : oem103.inf
+Original File Name : synawudfbiousblenovomissgxprod.inf
+Inbox : No
+Class Name : Biometric
+Provider Name : Synaptics Incorporated
+Date : 2022. 02. 21.
+Version : 5.2.3541.26
+
+Published Name : oem104.inf
+Original File Name : ntprint.inf
+Inbox : No
+Class Name : Printer
+Provider Name : Microsoft
+Date : 2006. 06. 21.
+Version : 10.0.19041.1889
+
+Published Name : oem105.inf
+Original File Name : mshdadac.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : Intel Corporation
+Date : 2025. 11. 05.
+Version : 31.0.101.2140
+
+Published Name : oem106.inf
+Original File Name : flashusb.inf
+Inbox : No
+Class Name : USB
+Provider Name : Fibocom Wireless Inc.
+Date : 2019. 06. 06.
+Version : 1.0.1.4
+
+Published Name : oem107.inf
+Original File Name : skylakesystemgmm.inf
+Inbox : No
+Class Name : System
+Provider Name : INTEL
+Date : 1968. 07. 18.
+Version : 10.1.7.3
+
+Published Name : oem108.inf
+Original File Name : sgx_base.inf
+Inbox : No
+Class Name : System
+Provider Name : Intel Corporation
+Date : 2024. 09. 13.
+Version : 2.25.100.3
+
+Published Name : oem109.inf
+Original File Name : modemcontrol.inf
+Inbox : No
+Class Name : System
+Provider Name : Intel
+Date : 2022. 06. 14.
+Version : 0.9.4.649
+
+Published Name : oem11.inf
+Original File Name : realtekservice.inf
+Inbox : No
+Class Name : SoftwareComponent
+Provider Name : Realtek
+Date : 2020. 12. 28.
+Version : 1.0.0.323
+
+Published Name : oem110.inf
+Original File Name : synservice.inf
+Inbox : No
+Class Name : SoftwareComponent
+Provider Name : Synaptics
+Date : 2020. 11. 25.
+Version : 19.5.19.75
+
+Published Name : oem111.inf
+Original File Name : lms.inf
+Inbox : No
+Class Name : SoftwareComponent
+Provider Name : Intel
+Date : 2020. 10. 14.
+Version : 2042.0.20.0
+
+Published Name : oem112.inf
+Original File Name : synhidmini.inf
+Inbox : No
+Class Name : HIDClass
+Provider Name : Synaptics
+Date : 2021. 05. 06.
+Version : 19.3.4.228
+
+Published Name : oem113.inf
+Original File Name : synpd.inf
+Inbox : No
+Class Name : Mouse
+Provider Name : Synaptics
+Date : 2020. 11. 25.
+Version : 19.5.19.75
+
+Published Name : oem114.inf
+Original File Name : ntprint.inf
+Inbox : No
+Class Name : Printer
+Provider Name : Microsoft
+Date : 2006. 06. 21.
+Version : 10.0.19041.2130
+
+Published Name : oem115.inf
+Original File Name : intcaudiobus.inf
+Inbox : No
+Class Name : System
+Provider Name : Intel(R) Corporation
+Date : 2019. 04. 30.
+Version : 9.21.0.4187
+
+Published Name : oem116.inf
+Original File Name : gameflt.inf
+Inbox : No
+Class Name : HSM
+Provider Name : Xbox
+Date : 2026. 08. 06.
+Version : 10.0.22021.3
+
+Published Name : oem117.inf
+Original File Name : hdxsstlvjda.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : Realtek Semiconductor Corp.
+Date : 2021. 09. 16.
+Version : 6.0.9239.1
+
+Published Name : oem118.inf... [TRUNCATED]
+2026-10-15 13:46:18 [DEBUG] [drivers-load-1] [CALL] DriverToolApi._get_third_party_drivers -> [{'version': '30.100.1947.3', 'published': 'oem0.inf', 'original': 'ialpss2_i2c_cnl.inf', 'class': 'System', 'provider': 'Intel Corporation', 'date': '2019-11-22'}, {'published': 'oem1.inf', 'original': 'mewmiprov.inf', 'class': 'SoftwareComponent', 'provider': 'Intel', 'date': '2024-02-21', 'versio...[+26722 kar.] (39.51s)
+2026-10-15 13:46:18 [INFO] [drivers-load-1] [DRIVERS] Betöltve: 172 driver (39.5s)
+2026-10-15 13:46:18 [DEBUG] [drivers-load-1] [EMIT:drivers_loaded] data={"drivers": [{"version": "30.100.1947.3", "published": "oem0.inf", "original": "ialpss2_i2c_cnl.inf", "class": "System", "provider": "Intel Corporation", "date": "2019-11-22"}, {"published": "oem1.inf
+2026-10-15 13:46:18 [INFO] [Thread-21 (_call)] [CALL] DriverToolApi.get_printer_driver_infs([{'version': '30.100.1947.3', 'published': 'oem0.inf', 'original': 'ialpss2_i2c_cnl.inf', 'class': 'System', 'provider': 'Intel Corporation', 'date': '2019-11-22'}, {'published': 'oem1.inf', 'original...[+26822 kar.])
+2026-10-15 13:46:18 [INFO] [Thread-21 (_call)] [API] get_printer_driver_infs(172 csomag)
+2026-10-15 13:46:18 [DEBUG] [Thread-21 (_call)] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$out = @{ Infs = @(); Providers = @() }
+try {
+    Get-PrinterDriver -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.InfPath) { $out.Infs += [System.IO.Path]::GetFileName("
+2026-10-15 13:46:18 [INFO] [Thread-22 (_call)] [CALL] DriverToolApi.get_driver_usage([{'version': '30.100.1947.3', 'published': 'oem0.inf', 'original': 'ialpss2_i2c_cnl.inf', 'class': 'System', 'provider': 'Intel Corporation', 'date': '2019-11-22'}, {'published': 'oem1.inf', 'original...[+26822 kar.])
+2026-10-15 13:46:18 [INFO] [Thread-22 (_call)] [API] get_driver_usage(172 csomag)
+2026-10-15 13:46:19 [DEBUG] [Thread-22 (_call)] [CMD] Futtatás: powershell -NoProfile -Command $ErrorActionPreference = 'SilentlyContinue'
+
+$services = @()
+foreach ($s in (Get-WmiObject Win32_SystemDriver)) {
+  $file = ''
+  $repo = ''
+  $dir = ''
+  if ($s.PathName) {
+    $file = [System.IO.Path]::GetFileName($s.PathName)
+    if ($s.PathName -match '(?i)FileRepos
+2026-10-15 13:46:30 [DEBUG] [Thread-27 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button "🛡️ Windows Defender Megnyitása"
+2026-10-15 13:46:30 [INFO] [Thread-28 (_call)] [CALL] DriverToolApi.open_defender()
+2026-10-15 13:46:30 [INFO] [Thread-28 (_call)] [API] open_defender() - Windows Defender megnyitása
+2026-10-15 13:46:30 [DEBUG] [Thread-28 (_call)] [CMD] Futtatás: start windowsdefender://threat
+2026-10-15 13:46:32 [DEBUG] [Thread-28 (_call)] [CMD] OK (1.3s)
+2026-10-15 13:46:32 [INFO] [Thread-28 (_call)] [CALL] DriverToolApi.open_defender -> True (1.35s)
+2026-10-15 13:46:41 [DEBUG] [Thread-31 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#btn-autofix "🚀 FIX INDÍTÁSA"
+2026-10-15 13:46:41 [INFO] [Thread-32 (_call)] [CALL] DriverToolApi.get_autofix_delete_preview([{'published': 'oem0.inf', 'original': 'ialpss2_i2c_cnl.inf', 'provider': 'Intel Corporation', 'version': '30.100.1947.3', 'class': 'System'}, {'published': 'oem1.inf', 'original': 'mewmiprov.inf', 'p...[+23038 kar.])
+2026-10-15 13:46:41 [INFO] [Thread-32 (_call)] [PREVIEW] A driver-listát a felülettől kaptuk (172 csomag) - a dism lekérdezés kihagyva.
+2026-10-15 13:46:41 [INFO] [Thread-33 (_call)] [CALL] DriverToolApi.get_autofix_net_state()
+2026-10-15 13:46:41 [DEBUG] [Thread-33 (_call)] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$out = @{ WifiUp = $false; WiredUp = $false; WifiPresent = $false; Adapter = ''; Alias = ''; Inf = ''; Ssid = ''; PnpId = '' }
+try {
+    # MINDEN fizikai adaptert végignézünk, nem csak a 
+2026-10-15 13:46:41 [DEBUG] [preview_1] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$out = @{ Infs = @(); Providers = @() }
+try {
+    Get-PrinterDriver -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.InfPath) { $out.Infs += [System.IO.Path]::GetFileName("
+2026-10-15 13:46:41 [DEBUG] [preview_3] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$out = @{ DiskIds = @() }
+$diskIds = @()
+$sysDrive = "$env:SystemDrive"
+# 1) Elsődleges út: WMI asszociációk C: -> partíció -> fizikai lemez PNPDeviceID.
+try {
+    $l2p = @(Get-CimInstanc
+2026-10-15 13:46:41 [DEBUG] [preview_2] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$out = @{ WifiUp = $false; WiredUp = $false; WifiPresent = $false; Adapter = ''; Alias = ''; Inf = ''; Ssid = ''; PnpId = '' }
+try {
+    # MINDEN fizikai adaptert végignézünk, nem csak a 
+2026-10-15 13:46:42 [DEBUG] [Thread-21 (_call)] [CMD] OK (23.7s)
+2026-10-15 13:46:42 [DEBUG] [Thread-21 (_call)] [CMD] stdout: {"Providers":["Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","HP","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft"],"Infs":["prnms014.inf","prnms006.inf","prnms001.inf","prnms015.inf","prnms011.inf","prnms009.inf","prnms012.inf","prnms002.inf","prnms003.inf","hpc1320u.inf","prnms003.inf","printqueue.inf","printqueue.inf","printqueue.inf","printqueue.inf","printqueue.inf","escl.inf","prnms012.inf","printqueue.inf","printqueue.inf"]}
+2026-10-15 13:46:42 [INFO] [Thread-21 (_call)] [PRINTER-PROTECT] Védett INF-ek: ['escl.inf', 'hpc1320u.inf', 'printqueue.inf', 'prnms001.inf', 'prnms002.inf', 'prnms003.inf', 'prnms006.inf', 'prnms009.inf', 'prnms011.inf', 'prnms012.inf', 'prnms014.inf', 'prnms015.inf'], nyomtató-gyártók: []
+2026-10-15 13:46:44 [DEBUG] [preview_0] [CMD] Futtatás: powershell -NoProfile -Command $ErrorActionPreference = 'SilentlyContinue'
+
+$services = @()
+foreach ($s in (Get-WmiObject Win32_SystemDriver)) {
+  $file = ''
+  $repo = ''
+  $dir = ''
+  if ($s.PathName) {
+    $file = [System.IO.Path]::GetFileName($s.PathName)
+    if ($s.PathName -match '(?i)FileRepos
+2026-10-15 13:46:54 [DEBUG] [preview_3] [CMD] OK (13.5s)
+2026-10-15 13:46:54 [DEBUG] [preview_3] [CMD] stdout: {"DiskIds":["SCSI\\DISK\u0026VEN_NVME\u0026PROD_SAMSUNG_MZVLW256\\5\u0026F33A799\u00260\u0026000000"]}
+2026-10-15 13:46:55 [INFO] [Thread-21 (_call)] [PRINTER-ID] 15 nyomtató-csomag a(z) 172 csomagból (okok: {'osztaly': 15}).
+2026-10-15 13:46:55 [INFO] [Thread-21 (_call)] [PRINTER-PROTECT] +15 csomag a driverből felismerve nyomtatóként (osztály/kulcsszó/fizikai eszköz): ['oem104.inf', 'oem114.inf', 'oem119.inf', 'oem125.inf', 'oem131.inf', 'oem137.inf', 'oem168.inf', 'oem169.inf', 'oem20.inf', 'oem39.inf', 'oem64.inf', 'oem65.inf', 'oem88.inf', 'oem91.inf', 'oem96.inf']
+2026-10-15 13:46:55 [INFO] [Thread-21 (_call)] [PRINTER] 15 nyomtató-csomag a(z) 172 csomagból.
+2026-10-15 13:46:55 [INFO] [Thread-21 (_call)] [PRINTER-FILTER] 15 nyomtató-driver a(z) 172 csomagból elrejtve.
+2026-10-15 13:46:55 [DEBUG] [Thread-21 (_call)] [PRINTER-FILTER] Tételek: ['ntprint.inf', 'ntprint.inf', 'ntprint.inf', 'ntprint.inf', 'ntprint.inf', 'ntprint.inf', 'prnms009.inf', 'prnms001.inf', 'prnms006.inf', 'ntprint.inf', 'ntprint.inf', 'hpc1320u.inf', 'ntprint.inf', 'ntprint.inf', 'ntprint.inf']
+2026-10-15 13:46:55 [INFO] [Thread-21 (_call)] [CALL] DriverToolApi.get_printer_driver_infs -> {'published': ['oem104.inf', 'oem114.inf', 'oem119.inf', 'oem125.inf', 'oem131.inf', 'oem137.inf', 'oem168.inf', 'oem169.inf', 'oem20.inf', 'oem39.inf', 'oem64.inf', 'oem65.inf', 'oem88.inf', 'oem91.inf', 'oem96.inf'], 'count': 15} (37.06s)
+2026-10-15 13:46:59 [INFO] [preview_3] [BOOT-PROTECT] Boot-lánc: SAMSUNG MZVLW256HEHP-000L7 [DiskDrive] INF=disk.inf szolgáltatás=disk
+2026-10-15 13:46:59 [INFO] [preview_3] [BOOT-PROTECT] Boot-lánc: Szabványos NVM Express-illesztő [SCSIAdapter] INF=stornvme.inf szolgáltatás=stornvme
+2026-10-15 13:46:59 [INFO] [preview_3] [BOOT-PROTECT] Boot-lánc: Mobile 6th/7th Generation Intel(R) Processor Family I/O PCI Express Root Port #5 - 9D14 [System] INF=oem163.inf szolgáltatás=pci
+2026-10-15 13:46:59 [INFO] [preview_3] [BOOT-PROTECT] Boot-lánc: PCI Express-gyökér komplex [System] INF=pci.inf szolgáltatás=pci
+2026-10-15 13:46:59 [INFO] [preview_3] [BOOT-PROTECT] Boot-lánc: Microsoft ACPI szabványnak megfelelő rendszer [System] INF=acpi.inf szolgáltatás=ACPI
+2026-10-15 13:46:59 [INFO] [preview_3] [BOOT-PROTECT] Boot-lánc: ACPI x64-alapú PC [Computer] INF=hal.inf szolgáltatás=\Driver\ACPI_HAL
+2026-10-15 13:46:59 [INFO] [preview_3] [BOOT-PROTECT] A rendszerlemez útvonalán lévő védett INF-ek: ['acpi.inf', 'disk.inf', 'hal.inf', 'oem163.inf', 'pci.inf', 'stornvme.inf']
+2026-10-15 13:47:11 [DEBUG] [preview_2] [CMD] OK (30.2s)
+2026-10-15 13:47:11 [DEBUG] [preview_2] [CMD] stdout: {"Adapter":"Intel(R) Dual Band Wireless-AC 8265","Alias":"Wi-Fi 3","PnpId":"PCI\\VEN_8086\u0026DEV_24FD\u0026SUBSYS_00108086\u0026REV_78\\7470FDFFFFBFE3E300","WiredUp":false,"Ssid":"MicroStore.hu 4","Inf":"oem93.inf","WifiUp":true,"WifiPresent":true}
+2026-10-15 13:47:11 [INFO] [preview_2] [WIFI] Hálózati állapot: wifi=True vezetékes=False kártya jelen=True adapter='Intel(R) Dual Band Wireless-AC 8265' alias='Wi-Fi 3' inf='oem93.inf' ssid='MicroStore.hu 4'
+2026-10-15 13:47:11 [INFO] [preview_2] [WIFI-PROTECT] Védett Wi-Fi INF: ['oem93.inf'] (adapter: Intel(R) Dual Band Wireless-AC 8265, csatlakozva: True)
+2026-10-15 13:47:11 [DEBUG] [Thread-33 (_call)] [CMD] OK (30.2s)
+2026-10-15 13:47:11 [DEBUG] [Thread-33 (_call)] [CMD] stdout: {"Adapter":"Intel(R) Dual Band Wireless-AC 8265","Alias":"Wi-Fi 3","PnpId":"PCI\\VEN_8086\u0026DEV_24FD\u0026SUBSYS_00108086\u0026REV_78\\7470FDFFFFBFE3E300","WiredUp":false,"Ssid":"MicroStore.hu 4","Inf":"oem93.inf","WifiUp":true,"WifiPresent":true}
+2026-10-15 13:47:11 [INFO] [Thread-33 (_call)] [WIFI] Hálózati állapot: wifi=True vezetékes=False kártya jelen=True adapter='Intel(R) Dual Band Wireless-AC 8265' alias='Wi-Fi 3' inf='oem93.inf' ssid='MicroStore.hu 4'
+2026-10-15 13:47:11 [INFO] [Thread-33 (_call)] [WIFI] Dialógus-javaslat: wifi-mód előre bejelölve=True
+2026-10-15 13:47:11 [INFO] [Thread-33 (_call)] [CALL] DriverToolApi.get_autofix_net_state -> {'wifi': True, 'wired': False, 'present': True, 'adapter': 'Intel(R) Dual Band Wireless-AC 8265', 'alias': 'Wi-Fi 3', 'inf': 'oem93.inf', 'ssid': 'MicroStore.hu 4', 'suggest': True} (30.20s)
+2026-10-15 13:47:50 [DEBUG] [preview_1] [CMD] OK (69.3s)
+2026-10-15 13:47:50 [DEBUG] [preview_1] [CMD] stdout: {"Providers":["Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","HP","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft"],"Infs":["prnms014.inf","prnms006.inf","prnms001.inf","prnms015.inf","prnms011.inf","prnms009.inf","prnms012.inf","prnms002.inf","prnms003.inf","hpc1320u.inf","prnms003.inf","printqueue.inf","printqueue.inf","printqueue.inf","printqueue.inf","printqueue.inf","escl.inf","prnms012.inf","printqueue.inf","printqueue.inf"]}
+2026-10-15 13:47:50 [INFO] [preview_1] [PRINTER-PROTECT] Védett INF-ek: ['escl.inf', 'hpc1320u.inf', 'printqueue.inf', 'prnms001.inf', 'prnms002.inf', 'prnms003.inf', 'prnms006.inf', 'prnms009.inf', 'prnms011.inf', 'prnms012.inf', 'prnms014.inf', 'prnms015.inf'], nyomtató-gyártók: []
+2026-10-15 13:48:05 [INFO] [preview_1] [PRINTER-ID] 15 nyomtató-csomag a(z) 172 csomagból (okok: {'osztaly': 15}).
+2026-10-15 13:48:05 [INFO] [preview_1] [PRINTER-PROTECT] +15 csomag a driverből felismerve nyomtatóként (osztály/kulcsszó/fizikai eszköz): ['oem104.inf', 'oem114.inf', 'oem119.inf', 'oem125.inf', 'oem131.inf', 'oem137.inf', 'oem168.inf', 'oem169.inf', 'oem20.inf', 'oem39.inf', 'oem64.inf', 'oem65.inf', 'oem88.inf', 'oem91.inf', 'oem96.inf']
+2026-10-15 13:48:05 [INFO] [preview_1] [PRINTER] 15 nyomtató-csomag a(z) 172 csomagból.
+2026-10-15 13:49:19 [ERROR] [Thread-22 (_call)] [CMD] IDŐTÚLLÉPÉS (180.1s, limit=180s): powershell -NoProfile -Command $ErrorActionPreference = 'SilentlyContinue'
+
+$services = @()
+foreach ($s in (Get-WmiObject Win32_SystemDriver)) {
+  $file = ''
+  $repo = ''
+  $dir = ''
+  if ($s.PathName
+2026-10-15 13:49:19 [WARNING] [Thread-22 (_call)] [USAGE] A rendszerállapot-lekérdezés üres kimenetet adott (returncode=-9001).
+2026-10-15 13:49:19 [WARNING] [Thread-22 (_call)] [USAGE] A felderítés nem adott eredményt - a felület 'ismeretlen' állapotot mutat, nem 'nem használt'-at.
+2026-10-15 13:49:19 [INFO] [Thread-22 (_call)] [CALL] DriverToolApi.get_driver_usage -> {'usage': {}, 'counts': {}, 'error': 'A használat-felderítés nem futott le.'} (181.06s)
+2026-10-15 13:49:45 [ERROR] [preview_0] [CMD] IDŐTÚLLÉPÉS (180.5s, limit=180s): powershell -NoProfile -Command $ErrorActionPreference = 'SilentlyContinue'
+
+$services = @()
+foreach ($s in (Get-WmiObject Win32_SystemDriver)) {
+  $file = ''
+  $repo = ''
+  $dir = ''
+  if ($s.PathName
+2026-10-15 13:49:45 [WARNING] [preview_0] [USAGE] A rendszerállapot-lekérdezés üres kimenetet adott (returncode=-9001).
+2026-10-15 13:49:45 [INFO] [Thread-32 (_call)] [PREVIEW] Törlési előnézet: 172 csomag, csoportok: {'normal': 155, 'printer': 15, 'boot': 1, 'wifi': 1}; használat: {'active': 0, 'standby': 0, 'unused': 0, 'unknown': 0}; eszközhöz kötött: 0; boot-lánc felderítve: True; Wi-Fi kártya: jelen=True csatlakozva=True inf=['oem93.inf']
+2026-10-15 13:49:45 [WARNING] [Thread-32 (_call)] [PREVIEW] Nincs gép-térkép, a lista használat szerint csoportosul: A használat-felderítés nem futott le, a gép felépítése nem rajzolható ki.
+2026-10-15 13:49:45 [INFO] [Thread-32 (_call)] [CALL] DriverToolApi.get_autofix_delete_preview -> {'drivers': [{'published': 'oem0.inf', 'original': 'ialpss2_i2c_cnl.inf', 'provider': 'Intel Corporation', 'version': '30.100.1947.3', 'class': 'System', 'date': '', 'devices': [], 'group': 'normal', 'usage': 'unknown', 'usage_text': '', 'usage_reasons': []}, {'published': 'oem1.inf', 'original': 'm...[+41345 kar.] (183.95s)
+2026-10-15 13:49:45 [WARNING] [Thread-44 (_call)] [JS_UI] [UI] A törlési előnézet gép-térkép nélkül jött vissza: A használat-felderítés nem futott le, a gép felépítése nem rajzolható ki. - használat szerinti csoportosítás.
+2026-10-15 13:51:05 [DEBUG] [Thread-45 (_call)] [JS_UI] [UI-AKCIO] Kattintás: tr "❔ nem sikerült felderíteni ibtusb.inf oem146.inf · Intel Cor"
+2026-10-15 13:52:28 [DEBUG] [Thread-46 (_call)] [JS_UI] [UI-AKCIO] Kattintás: label#mc-wu-pause-row "⏸️ Windows Update teljes szüneteltetése a végén (~10 év) – a"
+2026-10-15 13:52:28 [DEBUG] [Thread-47 (_call)] [JS_UI] [UI-AKCIO] Kattintás: input#mc-wu-pause(kattintas_utan checked=false) "on"
+2026-10-15 13:52:28 [DEBUG] [Thread-48 (_call)] [JS_UI] [UI-AKCIO] Mezőváltozás: input#mc-wu-pause(VEGLEGES checked=false) "on"
+2026-10-15 13:52:32 [DEBUG] [Thread-49 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#mc-yes "Igen"
+2026-10-15 13:52:32 [INFO] [Thread-50 (_call)] [CALL] DriverToolApi.run_autofix(True, False, False, True, [{'published': 'oem146.inf', 'original': 'ibtusb.inf'}], True, False, True)
+2026-10-15 13:52:32 [INFO] [Thread-50 (_call)] [API] run_autofix() indítása (skip_printer_drivers=True, allow_storage_drivers=False, allow_firmware=False, wifi_mode=True, rebuild_wifi_driver=True, pause_windows_update=False, use_catalog=True, keep_packages=1 db)
+2026-10-15 13:52:32 [DEBUG] [Thread-50 (_call)] [CALL] DriverToolApi._safe_thread('autofix', <function GuiAutofixMixin.run_autofix.<locals>.worker at 0x0000013AF8594040>)
+2026-10-15 13:52:32 [INFO] [task-autofix] [THREAD:autofix] Háttérszál indul...
+2026-10-15 13:52:32 [INFO] [task-autofix] [AUTOFIX] Nyomtató-kihagyás (érvényes érték): True (forrás: GUI dialógus)
+2026-10-15 13:52:32 [INFO] [task-autofix] [AUTOFIX] Tárolóvezérlő-driverek engedélyezve: False (forrás: véglegesen tiltva, nincs hozzá kapcsoló)
+2026-10-15 13:52:32 [INFO] [task-autofix] [AUTOFIX] Firmware-frissítések engedélyezve: False (forrás: véglegesen tiltva, nincs hozzá kapcsoló)
+2026-10-15 13:52:32 [DEBUG] [Thread-50 (_call)] [CALL] DriverToolApi._safe_thread -> None (0.00s)
+2026-10-15 13:52:32 [INFO] [Thread-50 (_call)] [CALL] DriverToolApi.run_autofix -> None (0.00s)
+2026-10-15 13:52:32 [INFO] [task-autofix] [AUTOFIX] Wi-Fi-s telepítés: True (forrás: GUI dialógus)
+2026-10-15 13:52:32 [INFO] [task-autofix] [AUTOFIX] Wi-Fi driver teljes újraépítése: True (kapcsoló=True, Wi-Fi mód=True, forrás: GUI dialógus)
+2026-10-15 13:52:32 [INFO] [task-autofix] [AUTOFIX] Záró Windows Update-szüneteltetés (~10 év): False (forrás: GUI dialógus)
+2026-10-15 13:52:32 [INFO] [task-autofix] [AUTOFIX] Microsoft Update Catalog keresés: True (forrás: GUI dialógus)
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [EMIT:task_start] data={"task": "autofix", "title": "1 Kattintásos Driver Javítás és Frissítés"}
+2026-10-15 13:52:32 [INFO] [task-autofix] [EMIT:task_progress] ⏳ Internetkapcsolat ellenőrzése...
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._net_wait_seconds()
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._net_wait_seconds -> 120 (0.00s)
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._wait_for_internet(120, 'autofix', 'a fix indítása előtt')
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._check_internet(require_dns=True, quiet=False)
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._check_internet -> True (0.02s)
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._wait_for_internet -> True (0.02s)
+2026-10-15 13:52:32 [INFO] [task-autofix] [EMIT:task_progress] -1. LÉPÉS: Windows Update szüneteltetése és újraindítás...
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_get('pre_packages')
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_get -> None (0.00s)
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_clear()
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_clear -> None (0.00s)
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_set('chain_started', 1792065152.7219875)
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_set -> None (0.01s)
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._chain_timer_start_new()
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_set('chain_timer', {'work_s': 0.0, 'gap_s': 0.0, 'estimated': False, 'last_end_wall': None, 'reboots': 0})
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_set -> None (0.01s)
+2026-10-15 13:52:32 [INFO] [task-autofix] [AUTOFIX-IDŐ] Lánc-idő mérése indul (lábak: monotonic óra, újraindulások: falióra-rés az uptime-mal ellenőrizve).
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._chain_timer_start_new -> None (0.01s)
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_set('keep_packages', [{'published': 'oem146.inf', 'original': 'ibtusb.inf'}])
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_set -> None (0.01s)
+2026-10-15 13:52:32 [INFO] [task-autofix] [AUTOFIX] A technikus 1 csomagot vett ki a törlésből: ['ibtusb.inf']
+2026-10-15 13:52:32 [INFO] [task-autofix] [EMIT:task_progress] 🔒 1 db drivert kézzel kivettél a törlésből - ezek megmaradnak.
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._disable_sleep_sync()
+2026-10-15 13:52:32 [INFO] [task-autofix] [EMIT:task_progress] Alvó mód ideiglenes blokkolása a folyamat végéig (Windows API)...
+2026-10-15 13:52:32 [INFO] [task-autofix] [EMIT:task_progress] ✅ Energiagazdálkodás felülbírálva.
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CALL] DriverToolApi._disable_sleep_sync -> None (0.02s)
+2026-10-15 13:52:32 [INFO] [task-autofix] [EMIT:task_progress] Windows Update szüneteltetése (~10 év)...
+2026-10-15 13:52:32 [DEBUG] [task-autofix] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+    $regPath = 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings'
+    if (!(Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+
+    $daysToAdd = 3650
+    $now = (Get-Date).ToUniversalTime()
+
+    $newDate = $now.AddDays($daysTo
+2026-10-15 13:52:36 [DEBUG] [task-autofix] [CMD] OK (3.9s)
+2026-10-15 13:52:36 [DEBUG] [task-autofix] [CMD] stdout: 2036-10-12T11:52:36Z
+2026-10-15 13:52:36 [INFO] [task-autofix] [EMIT:task_progress] ✅ Windows Update szüneteltetve (~10 év - a Beállításokban egy kattintással folytatható).
+2026-10-15 13:52:36 [INFO] [task-autofix] [EMIT:task_progress] 🔄 A számítógép újraindul, majd a folyamat a rendszer előkészítésével folytatódik!
+2026-10-15 13:52:36 [DEBUG] [task-autofix] [CALL] DriverToolApi._schedule_autofix_resume('--resume-step1')
+2026-10-15 13:52:36 [DEBUG] [task-autofix] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+        $action = New-ScheduledTaskAction -Execute 'C:\Users\User\Desktop\DriverVarazslo.exe' -Argument '--resume-step1 --skip-printer-drivers --wifi-mode --rebuild-wifi-driver --no-wu-pause'
+        $trigger = New-ScheduledTaskTrigger -AtLogOn
+2026-10-15 14:21:50 [DEBUG] [task-autofix] [CMD] OK (1753.7s)
+2026-10-15 14:21:50 [DEBUG] [task-autofix] [CMD] stdout: ARGS=--resume-step1 --skip-printer-drivers --wifi-mode --rebuild-wifi-driver --no-wu-pause
+2026-10-15 14:21:50 [INFO] [task-autofix] [AUTOFIX] A folytató feladat regisztrálva és visszaolvasva: --resume-step1 --skip-printer-drivers --wifi-mode --rebuild-wifi-driver --no-wu-pause
+2026-10-15 14:21:50 [DEBUG] [task-autofix] [CALL] DriverToolApi._schedule_autofix_resume -> True (1753.75s)
+2026-10-15 14:21:50 [DEBUG] [task-autofix] [CALL] DriverToolApi._reboot_or_cancel('Újraindulás felkészítve (-1. lépés)...')
+2026-10-15 14:21:50 [INFO] [task-autofix] [EMIT:task_complete] Újraindulás felkészítve (-1. lépés)...
+2026-10-15 14:21:55 [DEBUG] [task-autofix] [CALL] DriverToolApi._chain_timer_leg_end(reboot=True)
+2026-10-15 14:21:55 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_get('chain_timer')
+2026-10-15 14:21:55 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_get -> {'work_s': 0.0, 'gap_s': 0.0, 'estimated': False, 'last_end_wall': None, 'reboots': 0} (0.00s)
+2026-10-15 14:21:55 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_set('chain_timer', {'work_s': 1762.70768, 'gap_s': 0.0, 'estimated': False, 'last_end_wall': 1792066915.448746, 'reboots': 1})
+2026-10-15 14:21:55 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_set -> None (0.00s)
+2026-10-15 14:21:55 [INFO] [task-autofix] [AUTOFIX-IDŐ] A láb munkaideje: 1763 mp (eddig összesen: munka 1763 mp + újraindulások 0 mp).
+2026-10-15 14:21:55 [DEBUG] [task-autofix] [CALL] DriverToolApi._chain_timer_leg_end -> None (0.01s)
+2026-10-15 14:21:55 [DEBUG] [task-autofix] [CMD] Futtatás: shutdown /r /t 0 /f
+2026-10-15 14:21:55 [DEBUG] [task-autofix] [CMD] OK (0.1s)
+2026-10-15 14:21:55 [DEBUG] [task-autofix] [CALL] DriverToolApi._reboot_or_cancel -> None (5.10s)
+2026-10-15 14:21:55 [INFO] [task-autofix] [THREAD:autofix] Befejezve (1763.0s)
+2026-10-15 14:23:21 [INFO] [MainThread] ==================================================
+2026-10-15 14:23:21 [INFO] [MainThread] DriverVarázsló ELINDITVA (Build 382)
+2026-10-15 14:23:21 [INFO] [MainThread] Parancssor: ['C:\\Users\\User\\Desktop\\DriverVarazslo.exe', '--resume-step1', '--skip-printer-drivers', '--wifi-mode', '--rebuild-wifi-driver', '--no-wu-pause']
+2026-10-15 14:23:21 [INFO] [MainThread] Futtatasi konyvtar: C:\WINDOWS\system32
+2026-10-15 14:23:21 [INFO] [MainThread] Admin jog: True
+2026-10-15 14:23:21 [INFO] [MainThread] ==================================================
+2026-10-15 14:23:21 [INFO] [MainThread] [PREREQ] --------------------------------------------------------
+2026-10-15 14:23:21 [INFO] [MainThread] [PREREQ] Rendszer: Windows 11 (10.0.26100) AMD64
+2026-10-15 14:23:21 [INFO] [MainThread] [PREREQ] Admin: True | Fagyasztott exe: True | Szabad hely a rendszerlemezen: 52231 MB
+2026-10-15 14:23:21 [INFO] [MainThread] [PREREQ] .NET Framework: 4.8.1 (Release=533509) - MEGFELELŐ a grafikus felülethez
+2026-10-15 14:23:21 [INFO] [MainThread] [PREREQ] WebView2 Runtime: 155.0.4283.45
+2026-10-15 14:23:21 [INFO] [MainThread] [PREREQ] pywebview: ismeretlen, becsomagolt WebView2 SDK: 1.0.3856.49
+2026-10-15 14:23:21 [INFO] [MainThread] [PREREQ] PowerShell: 5.1.26100.8875
+2026-10-15 14:23:21 [INFO] [MainThread] [PREREQ] TLS 1.2 (kliens, schannel): alapértelmezett (nincs külön beállítva)
+2026-10-15 14:23:21 [INFO] [MainThread] [PREREQ] pnputil szintaxis: új (perjeles), /scan-devices is elérhető
+2026-10-15 14:23:21 [INFO] [MainThread] [PREREQ] --------------------------------------------------------
+2026-10-15 14:23:21 [DEBUG] [MainThread] [COLOR] Modern színprofil-API: add=OK, remove=OK, default=OK
+2026-10-15 14:23:21 [INFO] [MainThread] [INIT] WebView2 Runtime OK: v155.0.4283.45
+2026-10-15 14:23:21 [INFO] [MainThread] [INIT] DriverToolApi inicializálás...
+2026-10-15 14:23:21 [INFO] [MainThread] [INIT] sys_drive=C:\
+2026-10-15 14:23:21 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress()
+2026-10-15 14:23:21 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress -> None (0.00s)
+2026-10-15 14:23:21 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy()
+2026-10-15 14:23:21 [DEBUG] [MainThread] [AUTOFIX-CLEANUP] Resume láb - a NoAutoUpdate ellenőrzése kihagyva (élő lánc).
+2026-10-15 14:23:21 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy -> None (0.00s)
+2026-10-15 14:23:21 [DEBUG] [MainThread] [CALL] DriverToolApi._deferred_inf_cleanup_path()
+2026-10-15 14:23:21 [DEBUG] [MainThread] [CALL] DriverToolApi._deferred_inf_cleanup_path -> 'C:\\DriverVarazslo\\pending_inf_cleanup.json' (0.00s)
+2026-10-15 14:23:21 [INFO] [MainThread] [INIT] DriverToolApi kész.
+2026-10-15 14:23:21 [DEBUG] [MainThread] [GUI-ŐR] Indítási kísérlet jelölve (wv2=155.0.4283.45|net=533509).
+2026-10-15 14:23:21 [INFO] [MainThread] [MAIN] webview.start() hívása... (ez a natívan is elszállható szakasz; ha a napló itt ér véget, a felület omlott össze)
+2026-10-15 14:23:22 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window(<webview.window.Window object at 0x00000129EE3EE900>)
+2026-10-15 14:23:22 [INFO] [Thread-3 (on_start)] [WINDOW] WebView ablak beállítása...
+2026-10-15 14:23:24 [INFO] [Thread-9 (_call)] [CALL] DriverToolApi.get_init_data()
+2026-10-15 14:23:24 [INFO] [Thread-3 (on_start)] [WINDOW] WebView2 DOM kész (1 próba után, 0.1s)
+2026-10-15 14:23:24 [INFO] [Thread-9 (_call)] [API] get_init_data() hívás - build=382, target=None
+2026-10-15 14:23:24 [DEBUG] [Thread-3 (on_start)] [GUI-ŐR] A felület elindult - indítási jelző törölve.
+2026-10-15 14:23:24 [INFO] [Thread-3 (on_start)] [CALL] DriverToolApi.set_window -> None (2.07s)
+2026-10-15 14:23:24 [INFO] [Thread-9 (_call)] [CALL] DriverToolApi.get_init_data -> {'build': 382, 'sys_drive': 'C:\\', 'target_os': None, 'resume_mode': False, 'resume_step1': True, 'app_data_dir': 'C:\\DriverVarazslo'} (0.00s)
+2026-10-15 14:23:24 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.load_drivers()
+2026-10-15 14:23:24 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.get_service_tools_status()
+2026-10-15 14:23:24 [INFO] [Thread-13 (_call)] [CALL] DriverToolApi.get_log_download_dir()
+2026-10-15 14:23:24 [INFO] [Thread-11 (_call)] [API] load_drivers() - #1, cél: élő rendszer
+2026-10-15 14:23:24 [DEBUG] [Thread-12 (_call)] [CALL] DriverToolApi._load_tool_install_records()
+2026-10-15 14:23:24 [INFO] [Thread-1 (webview_watchdog)] [WATCHDOG] WebView2 sikeresen elindult
+2026-10-15 14:23:24 [INFO] [Thread-13 (_call)] [CALL] DriverToolApi.get_log_download_dir -> 'C:\\DriverVarazslo\\letoltott_naplok' (0.00s)
+2026-10-15 14:23:24 [DEBUG] [drivers-load-1] [EMIT:drivers_loading] data={"target": ""}
+2026-10-15 14:23:24 [DEBUG] [Thread-12 (_call)] [CALL] DriverToolApi._tool_install_record_path()
+2026-10-15 14:23:24 [INFO] [Thread-11 (_call)] [CALL] DriverToolApi.load_drivers -> None (0.02s)
+2026-10-15 14:23:24 [DEBUG] [Thread-12 (_call)] [CALL] DriverToolApi._tool_install_record_path -> 'C:\\DriverVarazslo\\installed_tools.json' (0.00s)
+2026-10-15 14:23:24 [DEBUG] [Thread-12 (_call)] [CALL] DriverToolApi._load_tool_install_records -> {} (0.02s)
+2026-10-15 14:23:24 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.get_service_tools_status -> {'furmark': {'installed': False, 'path': None}, 'prime95': {'installed': False, 'path': None}, 'linpack': {'installed': False, 'path': None}, 'hwinfo': {'installed': False, 'path': None}, 'hdsentinel': {'installed': False, 'path': None}, 'cpuz': {'installed': False, 'path': None}, 'gpuz': {'installe...[+126 kar.] (0.04s)
+2026-10-15 14:23:24 [INFO] [drivers-load-1] [DRIVERS] Third-party driverek lekérdezés
+2026-10-15 14:23:24 [DEBUG] [drivers-load-1] [CALL] DriverToolApi._get_third_party_drivers([])
+2026-10-15 14:23:24 [DEBUG] [drivers-load-1] [DRIVERS] dism /English /Online /Get-Drivers futtatása...
+2026-10-15 14:23:24 [DEBUG] [drivers-load-1] [CMD] Futtatás: dism /English /Online /Get-Drivers
+2026-10-15 14:23:25 [INFO] [Thread-16 (_call)] [CALL] DriverToolApi.run_autofix(True, False, False, False, [], True, True, True)
+2026-10-15 14:23:25 [INFO] [Thread-16 (_call)] [API] run_autofix() indítása (skip_printer_drivers=True, allow_storage_drivers=False, allow_firmware=False, wifi_mode=False, rebuild_wifi_driver=True, pause_windows_update=True, use_catalog=True, keep_packages=0 db)
+2026-10-15 14:23:25 [DEBUG] [Thread-16 (_call)] [CALL] DriverToolApi._safe_thread('autofix', <function GuiAutofixMixin.run_autofix.<locals>.worker at 0x00000129EE8BFD70>)
+2026-10-15 14:23:25 [INFO] [task-autofix] [THREAD:autofix] Háttérszál indul...
+2026-10-15 14:23:25 [INFO] [task-autofix] [AUTOFIX] Nyomtató-kihagyás (érvényes érték): True (forrás: sys.argv --skip-printer-drivers)
+2026-10-15 14:23:25 [INFO] [task-autofix] [AUTOFIX] Tárolóvezérlő-driverek engedélyezve: False (forrás: véglegesen tiltva, nincs hozzá kapcsoló)
+2026-10-15 14:23:25 [INFO] [task-autofix] [AUTOFIX] Firmware-frissítések engedélyezve: False (forrás: véglegesen tiltva, nincs hozzá kapcsoló)
+2026-10-15 14:23:25 [INFO] [task-autofix] [AUTOFIX] Wi-Fi-s telepítés: True (forrás: sys.argv --wifi-mode)
+2026-10-15 14:23:25 [INFO] [task-autofix] [AUTOFIX] Wi-Fi driver teljes újraépítése: True (kapcsoló=True, Wi-Fi mód=True, forrás: sys.argv --rebuild-wifi-driver)
+2026-10-15 14:23:25 [INFO] [task-autofix] [AUTOFIX] Záró Windows Update-szüneteltetés (~10 év): False (forrás: sys.argv --no-wu-pause)
+2026-10-15 14:23:25 [DEBUG] [Thread-16 (_call)] [CALL] DriverToolApi._safe_thread -> None (0.00s)
+2026-10-15 14:23:25 [INFO] [Thread-16 (_call)] [CALL] DriverToolApi.run_autofix -> None (0.00s)
+2026-10-15 14:23:25 [INFO] [task-autofix] [AUTOFIX] Microsoft Update Catalog keresés: True (forrás: sys.argv --no-catalog)
+2026-10-15 14:23:25 [DEBUG] [task-autofix] [EMIT:task_start] data={"task": "autofix", "title": "1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)"}
+2026-10-15 14:23:25 [DEBUG] [task-autofix] [CALL] DriverToolApi._chain_timer_leg_begin()
+2026-10-15 14:23:25 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_get('chain_timer')
+2026-10-15 14:23:25 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_get -> {'work_s': 1762.70768, 'gap_s': 0.0, 'estimated': False, 'last_end_wall': 1792066915.448746, 'reboots': 1} (0.00s)
+2026-10-15 14:23:25 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_set('chain_timer', {'work_s': 1762.70768, 'gap_s': 89.79874300956726, 'estimated': False, 'last_end_wall': None, 'reboots': 1})
+2026-10-15 14:23:25 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_set -> None (0.00s)
+2026-10-15 14:23:25 [INFO] [task-autofix] [AUTOFIX-IDŐ] Újraindulás: 90 mp (uptime 57 mp).
+2026-10-15 14:23:25 [DEBUG] [task-autofix] [CALL] DriverToolApi._chain_timer_leg_begin -> None (0.01s)
+2026-10-15 14:23:25 [DEBUG] [task-autofix] [CALL] DriverToolApi._schedule_autofix_resume('--resume-autofix')
+2026-10-15 14:23:25 [DEBUG] [task-autofix] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+        $action = New-ScheduledTaskAction -Execute 'C:\Users\User\Desktop\DriverVarazslo.exe' -Argument '--resume-autofix --skip-printer-drivers --wifi-mode --rebuild-wifi-driver --no-wu-pause'
+        $trigger = New-ScheduledTaskTrigger -AtLog
+2026-10-15 14:23:34 [DEBUG] [task-autofix] [CMD] OK (9.7s)
+2026-10-15 14:23:34 [DEBUG] [task-autofix] [CMD] stdout: ARGS=--resume-autofix --skip-printer-drivers --wifi-mode --rebuild-wifi-driver --no-wu-pause
+2026-10-15 14:23:34 [INFO] [task-autofix] [AUTOFIX] A folytató feladat regisztrálva és visszaolvasva: --resume-autofix --skip-printer-drivers --wifi-mode --rebuild-wifi-driver --no-wu-pause
+2026-10-15 14:23:34 [DEBUG] [task-autofix] [CALL] DriverToolApi._schedule_autofix_resume -> True (9.68s)
+2026-10-15 14:23:34 [INFO] [task-autofix] [EMIT:task_progress] 0. LÉPÉS: Rendszer előkészítése és régi driverek törlése...
+2026-10-15 14:23:34 [DEBUG] [task-autofix] [CALL] DriverToolApi._disable_sleep_sync()
+2026-10-15 14:23:34 [INFO] [task-autofix] [EMIT:task_progress] Alvó mód ideiglenes blokkolása a folyamat végéig (Windows API)...
+2026-10-15 14:23:34 [INFO] [task-autofix] [EMIT:task_progress] ✅ Energiagazdálkodás felülbírálva.
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [CALL] DriverToolApi._disable_sleep_sync -> None (0.03s)
+2026-10-15 14:23:35 [INFO] [task-autofix] [EMIT:task_progress] Windows Gyors Rendszerindítás (Fast Startup) kikapcsolása...
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [CMD] Futtatás: powercfg /h off
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [CMD] OK (0.1s)
+2026-10-15 14:23:35 [INFO] [task-autofix] [AUTOFIX] powercfg /h off returncode=0 (a Gyors Rendszerindítás kikapcsolása a PnP verem újraépüléséhez kell).
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [CALL] DriverToolApi._disable_wu_sync()
+2026-10-15 14:23:35 [INFO] [task-autofix] [EMIT:task_progress] Windows automata driver frissítések letiltása a Registryben...
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [CMD] Futtatás: reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching /v SearchOrderConfig /t REG_DWORD /d 0 /f
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [CMD] OK (0.1s)
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [CMD] stdout: A művelet sikeresen befejez‹d”tt.
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [CMD] Futtatás: reg add HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate /v ExcludeWUDriversInQualityUpdate /t REG_DWORD /d 1 /f
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [CMD] OK (0.1s)
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [CMD] stdout: A művelet sikeresen befejez‹d”tt.
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [WU_STATUS] ExcludeWUDriversInQualityUpdate = 1
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [WU_STATUS] SearchOrderConfig = 0
+2026-10-15 14:23:35 [INFO] [task-autofix] [EMIT:task_progress] ✅ Automatikus driver telepítés letiltva.
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [CALL] DriverToolApi._disable_wu_sync -> None (0.20s)
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [CALL] DriverToolApi._create_restore_point_sync()
+2026-10-15 14:23:35 [INFO] [task-autofix] [EMIT:task_progress] Registry Mentés (Restore Point) készítése folyamatban...
+2026-10-15 14:23:35 [DEBUG] [task-autofix] [CMD] Futtatás: powershell -NoProfile -Command Enable-ComputerRestore -Drive "$($env:SystemDrive)\" -ErrorAction SilentlyContinue
+2026-10-15 14:23:39 [DEBUG] [task-autofix] [CMD] OK (4.4s)
+2026-10-15 14:23:39 [DEBUG] [task-autofix] [CMD] Futtatás: reg add HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore /v SystemRestorePointCreationFrequency /t REG_DWORD /d 0 /f
+2026-10-15 14:23:39 [DEBUG] [task-autofix] [CMD] OK (0.0s)
+2026-10-15 14:23:39 [DEBUG] [task-autofix] [CMD] stdout: A művelet sikeresen befejez‹d”tt.
+2026-10-15 14:23:39 [DEBUG] [task-autofix] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command try { Checkpoint-Computer -Description "DriverVarázsló AutoFix - 2026-10-15 14:23" -RestorePointType "MODIFY_SETTINGS" -ErrorAction Stop; Write-Output "RPOK" } catch { Write-Output ("RPFAIL: " + $_.Exception.Message) }
+2026-10-15 14:24:04 [DEBUG] [drivers-load-1] [CMD] OK (40.2s)
+2026-10-15 14:24:04 [DEBUG] [drivers-load-1] [CMD] stdout: Deployment Image Servicing and Management tool
+Version: 10.0.26100.8972
+
+Image Version: 10.0.26100.9457
+
+Obtaining list of 3rd party drivers from the driver store...
+
+Driver packages listing:
+
+Published Name : oem0.inf
+Original File Name : ialpss2_i2c_cnl.inf
+Inbox : No
+Class Name : System
+Provider Name : Intel Corporation
+Date : 2019. 11. 22.
+Version : 30.100.1947.3
+
+Published Name : oem1.inf
+Original File Name : mewmiprov.inf
+Inbox : No
+Class Name : SoftwareComponent
+Provider Name : Intel
+Date : 2024. 02. 21.
+Version : 2408.5.4.0
+
+Published Name : oem10.inf
+Original File Name : hdx_lenovoext_dolby_forte_kd.inf
+Inbox : No
+Class Name : Extension
+Provider Name : Realtek Semiconductor Corp.
+Date : 2020. 12. 28.
+Version : 6.0.9091.1
+
+Published Name : oem100.inf
+Original File Name : intcdaud.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : Intel(R) Corporation
+Date : 2021. 11. 21.
+Version : 10.27.0.12
+
+Published Name : oem101.inf
+Original File Name : hdxlvj.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : Realtek Semiconductor Corp.
+Date : 2020. 07. 14.
+Version : 6.0.8988.1
+
+Published Name : oem102.inf
+Original File Name : ibmpmdrv.inf
+Inbox : No
+Class Name : System
+Provider Name : Lenovo
+Date : 2025. 10. 27.
+Version : 1.69.132.0
+
+Published Name : oem103.inf
+Original File Name : synawudfbiousblenovomissgxprod.inf
+Inbox : No
+Class Name : Biometric
+Provider Name : Synaptics Incorporated
+Date : 2022. 02. 21.
+Version : 5.2.3541.26
+
+Published Name : oem104.inf
+Original File Name : ntprint.inf
+Inbox : No
+Class Name : Printer
+Provider Name : Microsoft
+Date : 2006. 06. 21.
+Version : 10.0.19041.1889
+
+Published Name : oem105.inf
+Original File Name : mshdadac.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : Intel Corporation
+Date : 2025. 11. 05.
+Version : 31.0.101.2140
+
+Published Name : oem106.inf
+Original File Name : flashusb.inf
+Inbox : No
+Class Name : USB
+Provider Name : Fibocom Wireless Inc.
+Date : 2019. 06. 06.
+Version : 1.0.1.4
+
+Published Name : oem107.inf
+Original File Name : skylakesystemgmm.inf
+Inbox : No
+Class Name : System
+Provider Name : INTEL
+Date : 1968. 07. 18.
+Version : 10.1.7.3
+
+Published Name : oem108.inf
+Original File Name : sgx_base.inf
+Inbox : No
+Class Name : System
+Provider Name : Intel Corporation
+Date : 2024. 09. 13.
+Version : 2.25.100.3
+
+Published Name : oem109.inf
+Original File Name : modemcontrol.inf
+Inbox : No
+Class Name : System
+Provider Name : Intel
+Date : 2022. 06. 14.
+Version : 0.9.4.649
+
+Published Name : oem11.inf
+Original File Name : realtekservice.inf
+Inbox : No
+Class Name : SoftwareComponent
+Provider Name : Realtek
+Date : 2020. 12. 28.
+Version : 1.0.0.323
+
+Published Name : oem110.inf
+Original File Name : synservice.inf
+Inbox : No
+Class Name : SoftwareComponent
+Provider Name : Synaptics
+Date : 2020. 11. 25.
+Version : 19.5.19.75
+
+Published Name : oem111.inf
+Original File Name : lms.inf
+Inbox : No
+Class Name : SoftwareComponent
+Provider Name : Intel
+Date : 2020. 10. 14.
+Version : 2042.0.20.0
+
+Published Name : oem112.inf
+Original File Name : synhidmini.inf
+Inbox : No
+Class Name : HIDClass
+Provider Name : Synaptics
+Date : 2021. 05. 06.
+Version : 19.3.4.228
+
+Published Name : oem113.inf
+Original File Name : synpd.inf
+Inbox : No
+Class Name : Mouse
+Provider Name : Synaptics
+Date : 2020. 11. 25.
+Version : 19.5.19.75
+
+Published Name : oem114.inf
+Original File Name : ntprint.inf
+Inbox : No
+Class Name : Printer
+Provider Name : Microsoft
+Date : 2006. 06. 21.
+Version : 10.0.19041.2130
+
+Published Name : oem115.inf
+Original File Name : intcaudiobus.inf
+Inbox : No
+Class Name : System
+Provider Name : Intel(R) Corporation
+Date : 2019. 04. 30.
+Version : 9.21.0.4187
+
+Published Name : oem116.inf
+Original File Name : gameflt.inf
+Inbox : No
+Class Name : HSM
+Provider Name : Xbox
+Date : 2026. 08. 06.
+Version : 10.0.22021.3
+
+Published Name : oem117.inf
+Original File Name : hdxsstlvjda.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : Realtek Semiconductor Corp.
+Date : 2021. 09. 16.
+Version : 6.0.9239.1
+
+Published Name : oem118.inf... [TRUNCATED]
+2026-10-15 14:24:04 [DEBUG] [drivers-load-1] [CALL] DriverToolApi._get_third_party_drivers -> [{'version': '30.100.1947.3', 'published': 'oem0.inf', 'original': 'ialpss2_i2c_cnl.inf', 'class': 'System', 'provider': 'Intel Corporation', 'date': '2019-11-22'}, {'published': 'oem1.inf', 'original': 'mewmiprov.inf', 'class': 'SoftwareComponent', 'provider': 'Intel', 'date': '2024-02-21', 'versio...[+26722 kar.] (40.27s)
+2026-10-15 14:24:04 [INFO] [drivers-load-1] [DRIVERS] Betöltve: 172 driver (40.3s)
+2026-10-15 14:24:04 [DEBUG] [drivers-load-1] [EMIT:drivers_loaded] data={"drivers": [{"version": "30.100.1947.3", "published": "oem0.inf", "original": "ialpss2_i2c_cnl.inf", "class": "System", "provider": "Intel Corporation", "date": "2019-11-22"}, {"published": "oem1.inf
+2026-10-15 14:24:23 [DEBUG] [task-autofix] [CMD] OK (44.0s)
+2026-10-15 14:24:23 [DEBUG] [task-autofix] [CMD] stdout: RPOK
+2026-10-15 14:24:23 [INFO] [task-autofix] [EMIT:task_progress] ✅ Registry mentés / Visszaállítási pont elkészült.
+2026-10-15 14:24:23 [DEBUG] [task-autofix] [CALL] DriverToolApi._create_restore_point_sync -> None (48.48s)
+2026-10-15 14:24:23 [DEBUG] [task-autofix] [CALL] DriverToolApi._delete_ghost_devices_sync(skip_classes={'Printer', 'Image', 'PrintQueue'})
+2026-10-15 14:24:23 [INFO] [task-autofix] [EMIT:task_progress] Nem csatlakoztatott (fantom) eszközök azonosítása és törlése...
+2026-10-15 14:24:23 [DEBUG] [task-autofix] [CMD] Popen futtatása: [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$skippedGhosts = @(Get-PnpDevice -PresentOnly:$false | Where-Object { $_.Present -eq $false -and $_.InstanceId -ne $null -and ($_.PNPClass -eq 'Image' -or $_.PNPClass -eq 'PrintQueue' -or $_.PNPClass -eq 'Printer') }).Count
+Write-Output "SKIPP...
+2026-10-15 14:24:32 [INFO] [task-autofix] [EMIT:task_progress] 24 db szellemeszköz azonosítva. Törlés folyamatban...
+2026-10-15 14:24:32 [INFO] [task-autofix] [GHOST] Törlés indul: Filmek
+2026-10-15 14:24:33 [INFO] [task-autofix] [GHOST] Törölve: Filmek
+2026-10-15 14:24:33 [INFO] [task-autofix] [GHOST] Törlés indul: Keyboard_Filter_01
+2026-10-15 14:24:33 [INFO] [task-autofix] [GHOST] Törölve: Keyboard_Filter_01
+2026-10-15 14:24:33 [INFO] [task-autofix] [GHOST] Törlés indul: HID-szabványnak megfelelő fogyasztói vezérlőeszköz
+2026-10-15 14:24:33 [INFO] [task-autofix] [GHOST] Törölve: HID-szabványnak megfelelő fogyasztói vezérlőeszköz
+2026-10-15 14:24:33 [INFO] [task-autofix] [GHOST] Törlés indul: Fejbeszélő (TWS-Mate)
+2026-10-15 14:24:33 [INFO] [task-autofix] [GHOST] Törölve: Fejbeszélő (TWS-Mate)
+2026-10-15 14:24:33 [INFO] [task-autofix] [GHOST] Törlés indul: Fejbeszélő (TWS-Mate Hands-Free)
+2026-10-15 14:24:33 [INFO] [task-autofix] [GHOST] Törölve: Fejbeszélő (TWS-Mate Hands-Free)
+2026-10-15 14:24:33 [INFO] [task-autofix] [GHOST] Törlés indul: General UDisk USB Device
+2026-10-15 14:24:33 [INFO] [task-autofix] [GHOST] Törölve: General UDisk USB Device
+2026-10-15 14:24:33 [INFO] [task-autofix] [GHOST] Törlés indul: Általános kötet árnyékmásolata
+2026-10-15 14:24:33 [INFO] [task-autofix] [GHOST] Törölve: Általános kötet árnyékmásolata
+2026-10-15 14:24:33 [INFO] [task-autofix] [GHOST] Törlés indul: Kötet
+2026-10-15 14:24:34 [INFO] [task-autofix] [GHOST] Törölve: Kötet
+2026-10-15 14:24:34 [INFO] [task-autofix] [GHOST] Törlés indul: Kötet
+2026-10-15 14:24:34 [INFO] [task-autofix] [GHOST] Törölve: Kötet
+2026-10-15 14:24:34 [INFO] [task-autofix] [GHOST] Törlés indul: Ismeretlen USB-eszköz (sikertelen eszközleíró-kérés)
+2026-10-15 14:24:34 [INFO] [task-autofix] [GHOST] Törölve: Ismeretlen USB-eszköz (sikertelen eszközleíró-kérés)
+2026-10-15 14:24:34 [INFO] [task-autofix] [GHOST] Törlés indul: Fejhallgató (TWS-Mate)
+2026-10-15 14:24:34 [INFO] [task-autofix] [GHOST] Törölve: Fejhallgató (TWS-Mate)
+2026-10-15 14:24:34 [INFO] [task-autofix] [GHOST] Törlés indul: Intel(R) megjelenítő hang
+2026-10-15 14:24:36 [INFO] [task-autofix] [GHOST] Törölve: Intel(R) megjelenítő hang
+2026-10-15 14:24:36 [INFO] [task-autofix] [GHOST] Törlés indul: Microsoft Streaming cél/fogadók közötti konverter
+2026-10-15 14:24:36 [INFO] [task-autofix] [GHOST] Törölve: Microsoft Streaming cél/fogadók közötti konverter
+2026-10-15 14:24:36 [INFO] [task-autofix] [GHOST] Törlés indul: Microsoft megbízható hangillesztőprogramok
+2026-10-15 14:24:36 [INFO] [task-autofix] [GHOST] Törölve: Microsoft megbízható hangillesztőprogramok
+2026-10-15 14:24:36 [INFO] [task-autofix] [GHOST] Törlés indul: TUF GAMING M4 WIRELESS
+2026-10-15 14:24:36 [INFO] [task-autofix] [GHOST] Törölve: TUF GAMING M4 WIRELESS
+2026-10-15 14:24:36 [INFO] [task-autofix] [GHOST] Törlés indul: Mouse_Filter_01
+2026-10-15 14:24:36 [INFO] [task-autofix] [GHOST] Törölve: Mouse_Filter_01
+2026-10-15 14:24:36 [INFO] [task-autofix] [GHOST] Törlés indul: USB háttértár
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törölve: USB háttértár
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törlés indul: Audio Device on High Definition Audio Bus
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törölve: Audio Device on High Definition Audio Bus
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törlés indul: Microsoft Streaming minőségkezelő proxy
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törölve: Microsoft Streaming minőségkezelő proxy
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törlés indul: [TV] Samsung Q80
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törölve: [TV] Samsung Q80
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törlés indul: Fibocom USB Flash Loader Utility
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törölve: Fibocom USB Flash Loader Utility
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törlés indul: TUF GAMING M4 WIRELESS
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törölve: TUF GAMING M4 WIRELESS
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törlés indul: Microsoft Streaming óraproxy
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törölve: Microsoft Streaming óraproxy
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törlés indul: Microsoft Streaming cél/fogadók közötti konverter
+2026-10-15 14:24:37 [INFO] [task-autofix] [GHOST] Törölve: Microsoft Streaming cél/fogadók közötti konverter
+2026-10-15 14:24:38 [INFO] [task-autofix] [EMIT:task_progress] ✅ Törölve: 24 / 24
+2026-10-15 14:24:38 [INFO] [task-autofix] [GHOST] Szellemeszköz-törlő script vége (returncode=0, végigért=True).
+2026-10-15 14:24:38 [DEBUG] [task-autofix] [CALL] DriverToolApi._delete_ghost_devices_sync -> None (14.33s)
+2026-10-15 14:24:38 [DEBUG] [task-autofix] [CALL] DriverToolApi._delete_third_party_sync(skip_classes={'Printer', 'Image', 'PrintQueue'})
+2026-10-15 14:24:38 [INFO] [task-autofix] [EMIT:task_progress] Third-party driverek összegyűjtése és törlése...
+2026-10-15 14:24:38 [DEBUG] [task-autofix] [CALL] DriverToolApi._driver_list_checked()
+2026-10-15 14:24:38 [DEBUG] [task-autofix] [CALL] DriverToolApi._get_third_party_drivers([])
+2026-10-15 14:24:38 [DEBUG] [task-autofix] [DRIVERS] A csomaglista a gyorsítótárból (172 db, 34 mp-e olvasva) - dism megspórolva.
+2026-10-15 14:24:38 [DEBUG] [task-autofix] [CALL] DriverToolApi._get_third_party_drivers -> [{'version': '30.100.1947.3', 'published': 'oem0.inf', 'original': 'ialpss2_i2c_cnl.inf', 'class': 'System', 'provider': 'Intel Corporation', 'date': '2019-11-22'}, {'published': 'oem1.inf', 'original': 'mewmiprov.inf', 'class': 'SoftwareComponent', 'provider': 'Intel', 'date': '2024-02-21', 'versio...[+26722 kar.] (0.00s)
+2026-10-15 14:24:38 [DEBUG] [task-autofix] [CALL] DriverToolApi._driver_list_checked -> ([{'version': '30.100.1947.3', 'published': 'oem0.inf', 'original': 'ialpss2_i2c_cnl.inf', 'class': 'System', 'provider': 'Intel Corporation', 'date': '2019-11-22'}, {'published': 'oem1.inf', 'original': 'mewmiprov.inf', 'class': 'SoftwareComponent', 'provider': 'Intel', 'date': '2024-02-21', 'versi...[+26728 kar.] (0.00s)
+2026-10-15 14:24:38 [INFO] [task-autofix] [AUTOFIX-DELETE] Törlési fázis indul: 172 third-party csomag a listán (nyomtató-kihagyás osztályok: ['Image', 'PrintQueue', 'Printer']).
+2026-10-15 14:24:38 [DEBUG] [task-autofix] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$out = @{ DiskIds = @() }
+$diskIds = @()
+$sysDrive = "$env:SystemDrive"
+# 1) Elsődleges út: WMI asszociációk C: -> partíció -> fizikai lemez PNPDeviceID.
+try {
+    $l2p = @(Get-CimInstanc
+2026-10-15 14:24:42 [DEBUG] [task-autofix] [CMD] OK (4.3s)
+2026-10-15 14:24:42 [DEBUG] [task-autofix] [CMD] stdout: {"DiskIds":["SCSI\\DISK\u0026VEN_NVME\u0026PROD_SAMSUNG_MZVLW256\\5\u0026F33A799\u00260\u0026000000"]}
+2026-10-15 14:24:43 [INFO] [task-autofix] [BOOT-PROTECT] Boot-lánc: SAMSUNG MZVLW256HEHP-000L7 [DiskDrive] INF=disk.inf szolgáltatás=disk
+2026-10-15 14:24:43 [INFO] [task-autofix] [BOOT-PROTECT] Boot-lánc: Szabványos NVM Express-illesztő [SCSIAdapter] INF=stornvme.inf szolgáltatás=stornvme
+2026-10-15 14:24:43 [INFO] [task-autofix] [BOOT-PROTECT] Boot-lánc: Mobile 6th/7th Generation Intel(R) Processor Family I/O PCI Express Root Port #5 - 9D14 [System] INF=oem163.inf szolgáltatás=pci
+2026-10-15 14:24:43 [INFO] [task-autofix] [BOOT-PROTECT] Boot-lánc: PCI Express-gyökér komplex [System] INF=pci.inf szolgáltatás=pci
+2026-10-15 14:24:43 [INFO] [task-autofix] [BOOT-PROTECT] Boot-lánc: Microsoft ACPI szabványnak megfelelő rendszer [System] INF=acpi.inf szolgáltatás=ACPI
+2026-10-15 14:24:43 [INFO] [task-autofix] [BOOT-PROTECT] Boot-lánc: ACPI x64-alapú PC [Computer] INF=hal.inf szolgáltatás=\Driver\ACPI_HAL
+2026-10-15 14:24:43 [INFO] [task-autofix] [BOOT-PROTECT] A rendszerlemez útvonalán lévő védett INF-ek: ['acpi.inf', 'disk.inf', 'hal.inf', 'oem163.inf', 'pci.inf', 'stornvme.inf']
+2026-10-15 14:24:43 [INFO] [task-autofix] [EMIT:task_progress] 💾 Rendszerlemez útvonala: SAMSUNG MZVLW256HEHP-000L7 [DiskDrive] → Szabványos NVM Express-illesztő [SCSIAdapter] → Mobile 6th/7th Generation Intel(R) Processor Family I/O PCI Express Root Port #5 - 9D14 [System] → PCI Express-gyökér komplex [System] → Microsoft ACPI szabványnak megfelelő rendszer [System] → ACPI x64-alapú PC [Computer]
+2026-10-15 14:24:43 [INFO] [task-autofix] [EMIT:task_progress] 🛡️ 1 db boot-kritikus tárolódriver VÉDVE (nem töröljük, különben a gép nem indulna el):
+2026-10-15 14:24:43 [INFO] [task-autofix] [EMIT:task_progress] • oem163.inf (sunrisepoint-lpsystem.inf) - INTEL [System]
+2026-10-15 14:24:43 [WARNING] [task-autofix] [BOOT-PROTECT] Törlésből KIZÁRVA (boot-kritikus): oem163.inf (sunrisepoint-lpsystem.inf) - INTEL [System]
+2026-10-15 14:24:43 [DEBUG] [task-autofix] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$out = @{ Infs = @(); Providers = @() }
+try {
+    Get-PrinterDriver -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.InfPath) { $out.Infs += [System.IO.Path]::GetFileName("
+2026-10-15 14:25:04 [DEBUG] [task-autofix] [CMD] OK (20.9s)
+2026-10-15 14:25:04 [DEBUG] [task-autofix] [CMD] stdout: {"Providers":["Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","HP","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft"],"Infs":["prnms014.inf","prnms006.inf","prnms001.inf","prnms015.inf","prnms011.inf","prnms009.inf","prnms012.inf","prnms002.inf","prnms003.inf","hpc1320u.inf","prnms003.inf","printqueue.inf","printqueue.inf","printqueue.inf","printqueue.inf","printqueue.inf","escl.inf","prnms012.inf","printqueue.inf","printqueue.inf"]}
+2026-10-15 14:25:04 [INFO] [task-autofix] [PRINTER-PROTECT] Védett INF-ek: ['escl.inf', 'hpc1320u.inf', 'printqueue.inf', 'prnms001.inf', 'prnms002.inf', 'prnms003.inf', 'prnms006.inf', 'prnms009.inf', 'prnms011.inf', 'prnms012.inf', 'prnms014.inf', 'prnms015.inf'], nyomtató-gyártók: []
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-ID] 15 nyomtató-csomag a(z) 171 csomagból (okok: {'osztaly': 15}).
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] +15 csomag a driverből felismerve nyomtatóként (osztály/kulcsszó/fizikai eszköz): ['oem104.inf', 'oem114.inf', 'oem119.inf', 'oem125.inf', 'oem131.inf', 'oem137.inf', 'oem168.inf', 'oem169.inf', 'oem20.inf', 'oem39.inf', 'oem64.inf', 'oem65.inf', 'oem88.inf', 'oem91.inf', 'oem96.inf']
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER] 15 nyomtató-csomag a(z) 171 csomagból.
+2026-10-15 14:25:08 [INFO] [task-autofix] [EMIT:task_progress] 🖨️ 15 db nyomtatóhoz/szkennerhez tartozó driver védve (osztály + INF + gyártó alapú védelem).
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem104.inf (ntprint.inf) - Microsoft [Printer]
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem114.inf (ntprint.inf) - Microsoft [Printer]
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem119.inf (ntprint.inf) - Microsoft [Printer]
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem125.inf (ntprint.inf) - Microsoft [Printer]
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem131.inf (ntprint.inf) - Microsoft [Printer]
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem137.inf (ntprint.inf) - Microsoft [Printer]
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem168.inf (prnms009.inf) - Microsoft [Printer]
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem169.inf (prnms001.inf) - Microsoft [Printer]
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem20.inf (prnms006.inf) - Microsoft [Printer]
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem39.inf (ntprint.inf) - Microsoft [Printer]
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem64.inf (ntprint.inf) - Microsoft [Printer]
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem65.inf (hpc1320u.inf) - HP [Printer]
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem88.inf (ntprint.inf) - Microsoft [Printer]
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem91.inf (ntprint.inf) - Microsoft [Printer]
+2026-10-15 14:25:08 [INFO] [task-autofix] [PRINTER-PROTECT] Törlésből kizárva: oem96.inf (ntprint.inf) - Microsoft [Printer]
+2026-10-15 14:25:08 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_get('keep_packages')
+2026-10-15 14:25:08 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_get -> [{'published': 'oem146.inf', 'original': 'ibtusb.inf'}] (0.00s)
+2026-10-15 14:25:08 [INFO] [task-autofix] [EMIT:task_progress] 🔒 1 db driver kihagyva a törlésből (kézi választás a fix indításakor).
+2026-10-15 14:25:08 [INFO] [task-autofix] [AUTOFIX-DELETE] Kézi kivétel - törlésből kizárva: oem146.inf (ibtusb.inf) - Intel Corporation [Bluetooth]
+2026-10-15 14:25:08 [DEBUG] [task-autofix] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$out = @{ WifiUp = $false; WiredUp = $false; WifiPresent = $false; Adapter = ''; Alias = ''; Inf = ''; Ssid = ''; PnpId = '' }
+try {
+    # MINDEN fizikai adaptert végignézünk, nem csak a 
+2026-10-15 14:25:17 [DEBUG] [task-autofix] [CMD] OK (8.7s)
+2026-10-15 14:25:17 [DEBUG] [task-autofix] [CMD] stdout: {"Adapter":"Intel(R) Dual Band Wireless-AC 8265","Alias":"Wi-Fi 3","PnpId":"PCI\\VEN_8086\u0026DEV_24FD\u0026SUBSYS_00108086\u0026REV_78\\7470FDFFFFBFE3E300","WiredUp":false,"Ssid":"MicroStore.hu 4","Inf":"oem93.inf","WifiUp":true,"WifiPresent":true}
+2026-10-15 14:25:17 [INFO] [task-autofix] [WIFI] Hálózati állapot: wifi=True vezetékes=False kártya jelen=True adapter='Intel(R) Dual Band Wireless-AC 8265' alias='Wi-Fi 3' inf='oem93.inf' ssid='MicroStore.hu 4'
+2026-10-15 14:25:17 [INFO] [task-autofix] [WIFI-PROTECT] Védett Wi-Fi INF: ['oem93.inf'] (adapter: Intel(R) Dual Band Wireless-AC 8265, csatlakozva: True)
+2026-10-15 14:25:17 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_set('wifi_ssid', 'MicroStore.hu 4')
+2026-10-15 14:25:17 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_set -> None (0.01s)
+2026-10-15 14:25:17 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_set('wifi_old_driver', [{'published': 'oem93.inf', 'original': 'netwtw06.inf', 'provider': 'Intel', 'version': '20.70.30.1'}])
+2026-10-15 14:25:17 [DEBUG] [task-autofix] [CALL] DriverToolApi._autofix_stats_set -> None (0.02s)
+2026-10-15 14:25:17 [INFO] [task-autofix] [EMIT:task_progress] 📶 A Wi-Fi kártya drivere védve a törléstől (Intel(R) Dual Band Wireless-AC 8265) - így a kapcsolat a lánc alatt sem szakad meg.
+2026-10-15 14:25:17 [INFO] [task-autofix] [WIFI-PROTECT] Törlésből kizárva: oem93.inf (netwtw06.inf) - Intel [net]
+2026-10-15 14:25:17 [DEBUG] [task-autofix] [CMD] Futtatás: netsh wlan export profile folder=C:\DriverVarazslo\wlan_backup
+2026-10-15 14:25:17 [DEBUG] [task-autofix] [CMD] OK (0.5s)
+2026-10-15 14:25:17 [DEBUG] [task-autofix] [CMD] stdout: Interface profile "Fradi" is saved in file "C:\DriverVarazslo\wlan_backup\Wi-Fi 3-Fradi.xml" successfully.
+
+Interface profile "PARKOLO_IRODA_2Ghz" is saved in file "C:\DriverVarazslo\wlan_backup\Wi-Fi 3-PARKOLO_IRODA_2Ghz.xml" successfully.
+
+Interface profile "GĂˇbor's Galaxy S22 Ultra" is saved in file "C:\DriverVarazslo\wlan_backup\Wi-Fi 3-GĂˇbor's Galaxy S22 Ultra.xml" successfully.
+
+Interface profile "FestoGuestAccess" is saved in file "C:\DriverVarazslo\wlan_backup\Wi-Fi 3-FestoGuestAccess.xml" successfully.
+
+Interface profile "Tihany Yacht Club" is saved in file "C:\DriverVarazslo\wlan_backup\Wi-Fi 3-Tihany Yacht Club.xml" successfully.
+
+Interface profile "JURAK HOME" is saved in file "C:\DriverVarazslo\wlan_backup\Wi-Fi 3-JURAK HOME.xml" successfully.
+
+Interface profile "Youri" is saved in file "C:\DriverVarazslo\wlan_backup\Wi-Fi 3-Youri.xml" successfully.
+
+Interface profile "MicroStore.hu" is saved in file "C:\DriverVarazslo\wlan_backup\Wi-Fi 3-MicroStore.hu.xml" successfully.
+2026-10-15 14:25:17 [INFO] [task-autofix] [WLAN-BACKUP] 8 Wi-Fi profil elmentve: ['FestoGuestAccess', 'Fradi', "Gábor's Galaxy S22 Ultra", 'JURAK HOME', 'MicroStore.hu', 'PARKOLO_IRODA_2Ghz', 'Tihany Yacht Club', 'Youri']
+2026-10-15 14:25:17 [INFO] [task-autofix] [EMIT:task_progress] 🛟 8 Wi-Fi hálózat (jelszóval együtt) megjegyezve a lánc idejére - a mentés a végén törlődik.
+2026-10-15 14:25:17 [DEBUG] [task-autofix] [CMD] Futtatás: netsh wlan set profileparameter name=MicroStore.hu 4 connectionmode=auto
+2026-10-15 14:25:18 [WARNING] [task-autofix] [CMD] Visszatérési kód: 1 (0.2s)
+2026-10-15 14:25:18 [DEBUG] [task-autofix] [CMD] stdout: Profile "MicroStore.hu 4" is not found on any interface.
+2026-10-15 14:25:18 [INFO] [task-autofix] [WLAN] 'MicroStore.hu 4' automatikus csatlakozásra állítva (a lánc újraindításaihoz): nem sikerült (rc=1)
+2026-10-15 14:25:18 [INFO] [task-autofix] [AUTOFIX-DELETE] Ténylegesen törlendő csomagok: 154 db.
+2026-10-15 14:25:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem15.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 14:30:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.1s, limit=300s): pnputil /export-driver oem15.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 14:30:18 [WARNING] [task-autofix] [NET-BACKUP] Export sikertelen: oem15.inf (e1d68x64.inf)
+2026-10-15 14:30:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem156.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 14:35:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem156.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 14:35:18 [WARNING] [task-autofix] [NET-BACKUP] Export sikertelen: oem156.inf (wireguard.inf)
+2026-10-15 14:35:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem4.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 14:40:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem4.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 14:40:18 [WARNING] [task-autofix] [NET-BACKUP] Export sikertelen: oem4.inf (tbtp2pndisdrv.inf)
+2026-10-15 14:40:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem48.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 14:45:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem48.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 14:45:18 [WARNING] [task-autofix] [NET-BACKUP] Export sikertelen: oem48.inf (e1d68x64.inf)
+2026-10-15 14:45:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem68.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 14:50:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem68.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 14:50:18 [WARNING] [task-autofix] [NET-BACKUP] Export sikertelen: oem68.inf (e1d68x64.inf)
+2026-10-15 14:50:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem8.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 14:55:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem8.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 14:55:18 [WARNING] [task-autofix] [NET-BACKUP] Export sikertelen: oem8.inf (netwtw08.inf)
+2026-10-15 14:55:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem87.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 15:00:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem87.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 15:00:18 [WARNING] [task-autofix] [NET-BACKUP] Export sikertelen: oem87.inf (netwtw08.inf)
+2026-10-15 15:00:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem93.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 15:05:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem93.inf C:\DriverVarazslo\netdrv_backup
+2026-10-15 15:05:18 [WARNING] [task-autofix] [NET-BACKUP] Export sikertelen: oem93.inf (netwtw06.inf)
+2026-10-15 15:05:18 [INFO] [task-autofix] [NET-BACKUP] 0/8 hálózati driver elmentve ide: C:\DriverVarazslo\netdrv_backup
+2026-10-15 15:05:18 [INFO] [task-autofix] [EMIT:task_progress] 💾 Biztonsági mentés a törlendő driverekről...
+2026-10-15 15:05:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem0.inf C:\DriverVarazslo\driver_backup\oem0
+2026-10-15 15:10:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem0.inf C:\DriverVarazslo\driver_backup\oem0
+2026-10-15 15:10:18 [WARNING] [task-autofix] [DRV-BACKUP] oem0.inf mentése sikertelen (rc=-9001).
+2026-10-15 15:10:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem1.inf C:\DriverVarazslo\driver_backup\oem1
+2026-10-15 15:15:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem1.inf C:\DriverVarazslo\driver_backup\oem1
+2026-10-15 15:15:18 [WARNING] [task-autofix] [DRV-BACKUP] oem1.inf mentése sikertelen (rc=-9001).
+2026-10-15 15:15:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem10.inf C:\DriverVarazslo\driver_backup\oem10
+2026-10-15 15:20:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem10.inf C:\DriverVarazslo\driver_backup\oem10
+2026-10-15 15:20:18 [WARNING] [task-autofix] [DRV-BACKUP] oem10.inf mentése sikertelen (rc=-9001).
+2026-10-15 15:20:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem100.inf C:\DriverVarazslo\driver_backup\oem100
+2026-10-15 15:25:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem100.inf C:\DriverVarazslo\driver_backup\oem100
+2026-10-15 15:25:18 [WARNING] [task-autofix] [DRV-BACKUP] oem100.inf mentése sikertelen (rc=-9001).
+2026-10-15 15:25:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem101.inf C:\DriverVarazslo\driver_backup\oem101
+2026-10-15 15:30:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem101.inf C:\DriverVarazslo\driver_backup\oem101
+2026-10-15 15:30:18 [WARNING] [task-autofix] [DRV-BACKUP] oem101.inf mentése sikertelen (rc=-9001).
+2026-10-15 15:30:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem102.inf C:\DriverVarazslo\driver_backup\oem102
+2026-10-15 15:35:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem102.inf C:\DriverVarazslo\driver_backup\oem102
+2026-10-15 15:35:18 [WARNING] [task-autofix] [DRV-BACKUP] oem102.inf mentése sikertelen (rc=-9001).
+2026-10-15 15:35:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem103.inf C:\DriverVarazslo\driver_backup\oem103
+2026-10-15 15:40:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem103.inf C:\DriverVarazslo\driver_backup\oem103
+2026-10-15 15:40:18 [WARNING] [task-autofix] [DRV-BACKUP] oem103.inf mentése sikertelen (rc=-9001).
+2026-10-15 15:40:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem105.inf C:\DriverVarazslo\driver_backup\oem105
+2026-10-15 15:45:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem105.inf C:\DriverVarazslo\driver_backup\oem105
+2026-10-15 15:45:18 [WARNING] [task-autofix] [DRV-BACKUP] oem105.inf mentése sikertelen (rc=-9001).
+2026-10-15 15:45:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem106.inf C:\DriverVarazslo\driver_backup\oem106
+2026-10-15 15:50:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem106.inf C:\DriverVarazslo\driver_backup\oem106
+2026-10-15 15:50:18 [WARNING] [task-autofix] [DRV-BACKUP] oem106.inf mentése sikertelen (rc=-9001).
+2026-10-15 15:50:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem107.inf C:\DriverVarazslo\driver_backup\oem107
+2026-10-15 15:55:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem107.inf C:\DriverVarazslo\driver_backup\oem107
+2026-10-15 15:55:18 [WARNING] [task-autofix] [DRV-BACKUP] oem107.inf mentése sikertelen (rc=-9001).
+2026-10-15 15:55:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem108.inf C:\DriverVarazslo\driver_backup\oem108
+2026-10-15 16:00:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem108.inf C:\DriverVarazslo\driver_backup\oem108
+2026-10-15 16:00:18 [WARNING] [task-autofix] [DRV-BACKUP] oem108.inf mentése sikertelen (rc=-9001).
+2026-10-15 16:00:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem109.inf C:\DriverVarazslo\driver_backup\oem109
+2026-10-15 16:05:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem109.inf C:\DriverVarazslo\driver_backup\oem109
+2026-10-15 16:05:18 [WARNING] [task-autofix] [DRV-BACKUP] oem109.inf mentése sikertelen (rc=-9001).
+2026-10-15 16:05:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem11.inf C:\DriverVarazslo\driver_backup\oem11
+2026-10-15 16:10:18 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem11.inf C:\DriverVarazslo\driver_backup\oem11
+2026-10-15 16:10:18 [WARNING] [task-autofix] [DRV-BACKUP] oem11.inf mentése sikertelen (rc=-9001).
+2026-10-15 16:10:18 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem110.inf C:\DriverVarazslo\driver_backup\oem110
+2026-10-15 16:15:19 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.1s, limit=300s): pnputil /export-driver oem110.inf C:\DriverVarazslo\driver_backup\oem110
+2026-10-15 16:15:19 [WARNING] [task-autofix] [DRV-BACKUP] oem110.inf mentése sikertelen (rc=-9001).
+2026-10-15 16:15:19 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem111.inf C:\DriverVarazslo\driver_backup\oem111
+2026-10-15 16:20:19 [ERROR] [task-autofix] [CMD] IDŐTÚLLÉPÉS (300.0s, limit=300s): pnputil /export-driver oem111.inf C:\DriverVarazslo\driver_backup\oem111
+2026-10-15 16:20:19 [WARNING] [task-autofix] [DRV-BACKUP] oem111.inf mentése sikertelen (rc=-9001).
+2026-10-15 16:20:19 [DEBUG] [task-autofix] [CMD] Futtatás: pnputil /export-driver oem112.inf C:\DriverVarazslo\driver_backup\oem112
+2026-10-15 16:21:12 [DEBUG] [Thread-89 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#mp-cancel-btn "🛑 Folyamat Leállítása"
+2026-10-15 16:21:14 [DEBUG] [Thread-90 (_call)] [JS_UI] [UI-AKCIO] Kattintás: button#mc-yes "Igen"
+2026-10-15 16:21:14 [INFO] [Thread-91 (_call)] [CALL] DriverToolApi.cancel_task()
+2026-10-15 16:21:14 [WARNING] [Thread-91 (_call)] [API] cancel_task() — Felhasználó megszakítást kért!
+2026-10-15 16:21:14 [DEBUG] [Thread-91 (_call)] [EMIT:toast] data={"message": "⚠️ Megszakítás kérve...", "type": "warning"}
+2026-10-15 16:21:14 [INFO] [Thread-91 (_call)] [CALL] DriverToolApi.cancel_task -> True (0.03s)
+2026-10-15 16:22:30 [INFO] [MainThread] ==================================================
+2026-10-15 16:22:30 [INFO] [MainThread] DriverVarázsló ELINDITVA (Build 382)
+2026-10-15 16:22:30 [INFO] [MainThread] Parancssor: ['C:\\Users\\User\\Desktop\\DriverVarazslo.exe']
+2026-10-15 16:22:30 [INFO] [MainThread] Futtatasi konyvtar: C:\Users\User\Desktop
+2026-10-15 16:22:30 [INFO] [MainThread] Admin jog: True
+2026-10-15 16:22:30 [INFO] [MainThread] ==================================================
+2026-10-15 16:22:30 [INFO] [MainThread] [PREREQ] --------------------------------------------------------
+2026-10-15 16:22:30 [INFO] [MainThread] [PREREQ] Rendszer: Windows 11 (10.0.26100) AMD64
+2026-10-15 16:22:30 [INFO] [MainThread] [PREREQ] Admin: True | Fagyasztott exe: True | Szabad hely a rendszerlemezen: 55223 MB
+2026-10-15 16:22:30 [INFO] [MainThread] [PREREQ] .NET Framework: 4.8.1 (Release=533509) - MEGFELELŐ a grafikus felülethez
+2026-10-15 16:22:30 [INFO] [MainThread] [PREREQ] WebView2 Runtime: 155.0.4283.45
+2026-10-15 16:22:30 [INFO] [MainThread] [PREREQ] pywebview: ismeretlen, becsomagolt WebView2 SDK: 1.0.3856.49
+2026-10-15 16:22:30 [INFO] [MainThread] [PREREQ] PowerShell: 5.1.26100.8875
+2026-10-15 16:22:30 [INFO] [MainThread] [PREREQ] TLS 1.2 (kliens, schannel): alapértelmezett (nincs külön beállítva)
+2026-10-15 16:22:30 [INFO] [MainThread] [PREREQ] pnputil szintaxis: új (perjeles), /scan-devices is elérhető
+2026-10-15 16:22:30 [INFO] [MainThread] [PREREQ] --------------------------------------------------------
+2026-10-15 16:22:30 [DEBUG] [MainThread] [COLOR] Modern színprofil-API: add=OK, remove=OK, default=OK
+2026-10-15 16:22:30 [INFO] [MainThread] [INIT] WebView2 Runtime OK: v155.0.4283.45
+2026-10-15 16:22:30 [INFO] [MainThread] [INIT] DriverToolApi inicializálás...
+2026-10-15 16:22:30 [INFO] [MainThread] [INIT] sys_drive=C:\
+2026-10-15 16:22:30 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress()
+2026-10-15 16:22:30 [DEBUG] [MainThread] [CALL] DriverToolApi._restore_power_after_stress -> None (0.00s)
+2026-10-15 16:22:30 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy()
+2026-10-15 16:22:30 [DEBUG] [MainThread] [CMD] Futtatás: reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU /v NoAutoUpdate
+2026-10-15 16:22:30 [DEBUG] [MainThread] [CMD] OK - várt kód: 1 (0.0s)
+2026-10-15 16:22:30 [DEBUG] [MainThread] [CMD] stdout: 
+2026-10-15 16:22:30 [INFO] [MainThread] [AUTOFIX-CLEANUP] Nincs beragadt NoAutoUpdate házirend.
+2026-10-15 16:22:30 [DEBUG] [MainThread] [CALL] DriverToolApi._cleanup_leftover_autofix_policy -> None (0.03s)
+2026-10-15 16:22:30 [DEBUG] [MainThread] [CALL] DriverToolApi._deferred_inf_cleanup_path()
+2026-10-15 16:22:30 [DEBUG] [MainThread] [CALL] DriverToolApi._deferred_inf_cleanup_path -> 'C:\\DriverVarazslo\\pending_inf_cleanup.json' (0.00s)
+2026-10-15 16:22:30 [INFO] [MainThread] [INIT] DriverToolApi kész.
+2026-10-15 16:22:30 [DEBUG] [MainThread] [GUI-ŐR] Indítási kísérlet jelölve (wv2=155.0.4283.45|net=533509).
+2026-10-15 16:22:30 [INFO] [MainThread] [MAIN] webview.start() hívása... (ez a natívan is elszállható szakasz; ha a napló itt ér véget, a felület omlott össze)
+2026-10-15 16:22:31 [INFO] [Thread-5 (on_start)] [CALL] DriverToolApi.set_window(<webview.window.Window object at 0x000001CB7696ECF0>)
+2026-10-15 16:22:31 [INFO] [Thread-5 (on_start)] [WINDOW] WebView ablak beállítása...
+2026-10-15 16:22:32 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.get_init_data()
+2026-10-15 16:22:32 [INFO] [Thread-10 (_call)] [API] get_init_data() hívás - build=382, target=None
+2026-10-15 16:22:32 [INFO] [Thread-10 (_call)] [CALL] DriverToolApi.get_init_data -> {'build': 382, 'sys_drive': 'C:\\', 'target_os': None, 'resume_mode': False, 'resume_step1': False, 'app_data_dir': 'C:\\DriverVarazslo'} (0.00s)
+2026-10-15 16:22:32 [INFO] [Thread-5 (on_start)] [WINDOW] WebView2 DOM kész (1 próba után, 0.1s)
+2026-10-15 16:22:32 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.load_drivers()
+2026-10-15 16:22:32 [INFO] [Thread-12 (_call)] [API] load_drivers() - #1, cél: élő rendszer
+2026-10-15 16:22:32 [DEBUG] [drivers-load-1] [EMIT:drivers_loading] data={"target": ""}
+2026-10-15 16:22:32 [INFO] [Thread-13 (_call)] [CALL] DriverToolApi.get_service_tools_status()
+2026-10-15 16:22:32 [DEBUG] [Thread-13 (_call)] [CALL] DriverToolApi._load_tool_install_records()
+2026-10-15 16:22:32 [DEBUG] [Thread-13 (_call)] [CALL] DriverToolApi._tool_install_record_path()
+2026-10-15 16:22:32 [INFO] [Thread-12 (_call)] [CALL] DriverToolApi.load_drivers -> None (0.00s)
+2026-10-15 16:22:32 [INFO] [Thread-14 (_call)] [CALL] DriverToolApi.get_log_download_dir()
+2026-10-15 16:22:32 [DEBUG] [Thread-5 (on_start)] [GUI-ŐR] A felület elindult - indítási jelző törölve.
+2026-10-15 16:22:32 [INFO] [Thread-5 (on_start)] [CALL] DriverToolApi.set_window -> None (1.29s)
+2026-10-15 16:22:32 [DEBUG] [Thread-13 (_call)] [CALL] DriverToolApi._tool_install_record_path -> 'C:\\DriverVarazslo\\installed_tools.json' (0.00s)
+2026-10-15 16:22:32 [INFO] [Thread-15 (_call)] [CALL] DriverToolApi.get_report_defaults()
+2026-10-15 16:22:32 [DEBUG] [Thread-15 (_call)] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+try {
+    $d = Get-Partition -DriveLetter ($env:SystemDrive.TrimEnd(':')) -ErrorAction Stop | Get-Disk -ErrorAction Stop
+    @{Number=$d.Number; Serial=$d.SerialNumber; Model=$d.FriendlyN
+2026-10-15 16:22:32 [INFO] [Thread-14 (_call)] [CALL] DriverToolApi.get_log_download_dir -> 'C:\\DriverVarazslo\\letoltott_naplok' (0.00s)
+2026-10-15 16:22:32 [DEBUG] [Thread-13 (_call)] [CALL] DriverToolApi._load_tool_install_records -> {} (0.00s)
+2026-10-15 16:22:32 [INFO] [Thread-16 (_call)] [CALL] DriverToolApi.check_for_updates()
+2026-10-15 16:22:32 [INFO] [Thread-13 (_call)] [CALL] DriverToolApi.get_service_tools_status -> {'furmark': {'installed': False, 'path': None}, 'prime95': {'installed': False, 'path': None}, 'linpack': {'installed': False, 'path': None}, 'hwinfo': {'installed': False, 'path': None}, 'hdsentinel': {'installed': False, 'path': None}, 'cpuz': {'installed': False, 'path': None}, 'gpuz': {'installe...[+126 kar.] (0.01s)
+2026-10-15 16:22:32 [INFO] [Thread-16 (_call)] [UPDATE] check_for_updates()
+2026-10-15 16:22:32 [INFO] [drivers-load-1] [DRIVERS] Third-party driverek lekérdezés
+2026-10-15 16:22:32 [DEBUG] [drivers-load-1] [CALL] DriverToolApi._get_third_party_drivers([])
+2026-10-15 16:22:32 [DEBUG] [drivers-load-1] [DRIVERS] dism /English /Online /Get-Drivers futtatása...
+2026-10-15 16:22:32 [DEBUG] [drivers-load-1] [CMD] Futtatás: dism /English /Online /Get-Drivers
+2026-10-15 16:22:32 [INFO] [Thread-3 (webview_watchdog)] [WATCHDOG] WebView2 sikeresen elindult
+2026-10-15 16:22:33 [INFO] [Thread-16 (_call)] [UPDATE] Releases API: legfrissebb kiadás build-382 (exe melléklet: igen)
+2026-10-15 16:22:33 [INFO] [Thread-16 (_call)] [UPDATE] Kiadás-szám (API): 382, Helyi: 382
+2026-10-15 16:22:33 [INFO] [Thread-16 (_call)] [UPDATE] Az API nem adott újabb buildet (kiadás: 382) - a raw forrás ellenőrzése következik (1 próbálkozás).
+2026-10-15 16:22:33 [INFO] [Thread-16 (_call)] [UPDATE] Update ellenőrzése erről a címről (1/1. próbálkozás): https://raw.githubusercontent.com/egonixaimgod/DriverVarazslo/main/driver_tool.py?t=1792074153
+2026-10-15 16:22:33 [INFO] [Thread-16 (_call)] [UPDATE] Letöltött BUILD_NUMBER: 382, Helyi: 382
+2026-10-15 16:22:33 [INFO] [Thread-16 (_call)] [UPDATE] Nincs újabb verzió (kiadás: 382, raw: 382, helyi: 382).
+2026-10-15 16:22:33 [INFO] [Thread-16 (_call)] [CALL] DriverToolApi.check_for_updates -> {'has_update': False, 'source': 'api'} (1.03s)
+2026-10-15 16:22:36 [DEBUG] [Thread-21 (_call)] [JS_UI] [UI-AKCIO] Kattintás: div#data-dir-label "📁 C:\DriverVarazslo"
+2026-10-15 16:22:36 [INFO] [Thread-22 (_call)] [CALL] DriverToolApi.open_file('C:\\DriverVarazslo')
+2026-10-15 16:22:36 [INFO] [Thread-22 (_call)] [API] open_file: C:\DriverVarazslo
+2026-10-15 16:22:36 [INFO] [Thread-22 (_call)] [CALL] DriverToolApi.open_file -> True (0.11s)
+2026-10-15 16:22:38 [DEBUG] [Thread-15 (_call)] [CMD] OK (5.4s)
+2026-10-15 16:22:38 [DEBUG] [Thread-15 (_call)] [CMD] stdout: {"Number":0,"Serial":"0025_38B5_81B5_B5D9.","Model":"SAMSUNG MZVLW256HEHP-000L7","Bus":"NVMe"}
+2026-10-15 16:22:38 [INFO] [Thread-15 (_call)] [REPORT] Rendszerlemez: PhysicalDrive0 'SAMSUNG MZVLW256HEHP-000L7' (sorozatszám=0025_38B5_81B5_B5D9., busz=NVMe)
+2026-10-15 16:22:38 [INFO] [Thread-15 (_call)] [REPORT] Alapállapot: a futó Windows lemeze nem USB-s (SAMSUNG MZVLW256HEHP-000L7, busz=NVMe)
+2026-10-15 16:22:38 [INFO] [Thread-15 (_call)] [CALL] DriverToolApi.get_report_defaults -> {'system_disk_usb': False, 'system_disk_known': True, 'model': 'SAMSUNG MZVLW256HEHP-000L7', 'bus': 'NVMe'} (5.41s)
+2026-10-15 16:22:54 [DEBUG] [drivers-load-1] [CMD] OK (21.8s)
+2026-10-15 16:22:54 [DEBUG] [drivers-load-1] [CMD] stdout: Deployment Image Servicing and Management tool
+Version: 10.0.26100.8972
+
+Image Version: 10.0.26100.9457
+
+Obtaining list of 3rd party drivers from the driver store...
+
+Driver packages listing:
+
+Published Name : oem0.inf
+Original File Name : ialpss2_i2c_cnl.inf
+Inbox : No
+Class Name : System
+Provider Name : Intel Corporation
+Date : 2019. 11. 22.
+Version : 30.100.1947.3
+
+Published Name : oem1.inf
+Original File Name : mewmiprov.inf
+Inbox : No
+Class Name : SoftwareComponent
+Provider Name : Intel
+Date : 2024. 02. 21.
+Version : 2408.5.4.0
+
+Published Name : oem10.inf
+Original File Name : hdx_lenovoext_dolby_forte_kd.inf
+Inbox : No
+Class Name : Extension
+Provider Name : Realtek Semiconductor Corp.
+Date : 2020. 12. 28.
+Version : 6.0.9091.1
+
+Published Name : oem100.inf
+Original File Name : intcdaud.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : Intel(R) Corporation
+Date : 2021. 11. 21.
+Version : 10.27.0.12
+
+Published Name : oem101.inf
+Original File Name : hdxlvj.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : Realtek Semiconductor Corp.
+Date : 2020. 07. 14.
+Version : 6.0.8988.1
+
+Published Name : oem102.inf
+Original File Name : ibmpmdrv.inf
+Inbox : No
+Class Name : System
+Provider Name : Lenovo
+Date : 2025. 10. 27.
+Version : 1.69.132.0
+
+Published Name : oem103.inf
+Original File Name : synawudfbiousblenovomissgxprod.inf
+Inbox : No
+Class Name : Biometric
+Provider Name : Synaptics Incorporated
+Date : 2022. 02. 21.
+Version : 5.2.3541.26
+
+Published Name : oem104.inf
+Original File Name : ntprint.inf
+Inbox : No
+Class Name : Printer
+Provider Name : Microsoft
+Date : 2006. 06. 21.
+Version : 10.0.19041.1889
+
+Published Name : oem105.inf
+Original File Name : mshdadac.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : Intel Corporation
+Date : 2025. 11. 05.
+Version : 31.0.101.2140
+
+Published Name : oem106.inf
+Original File Name : flashusb.inf
+Inbox : No
+Class Name : USB
+Provider Name : Fibocom Wireless Inc.
+Date : 2019. 06. 06.
+Version : 1.0.1.4
+
+Published Name : oem107.inf
+Original File Name : skylakesystemgmm.inf
+Inbox : No
+Class Name : System
+Provider Name : INTEL
+Date : 1968. 07. 18.
+Version : 10.1.7.3
+
+Published Name : oem108.inf
+Original File Name : sgx_base.inf
+Inbox : No
+Class Name : System
+Provider Name : Intel Corporation
+Date : 2024. 09. 13.
+Version : 2.25.100.3
+
+Published Name : oem109.inf
+Original File Name : modemcontrol.inf
+Inbox : No
+Class Name : System
+Provider Name : Intel
+Date : 2022. 06. 14.
+Version : 0.9.4.649
+
+Published Name : oem11.inf
+Original File Name : realtekservice.inf
+Inbox : No
+Class Name : SoftwareComponent
+Provider Name : Realtek
+Date : 2020. 12. 28.
+Version : 1.0.0.323
+
+Published Name : oem110.inf
+Original File Name : synservice.inf
+Inbox : No
+Class Name : SoftwareComponent
+Provider Name : Synaptics
+Date : 2020. 11. 25.
+Version : 19.5.19.75
+
+Published Name : oem111.inf
+Original File Name : lms.inf
+Inbox : No
+Class Name : SoftwareComponent
+Provider Name : Intel
+Date : 2020. 10. 14.
+Version : 2042.0.20.0
+
+Published Name : oem112.inf
+Original File Name : synhidmini.inf
+Inbox : No
+Class Name : HIDClass
+Provider Name : Synaptics
+Date : 2021. 05. 06.
+Version : 19.3.4.228
+
+Published Name : oem113.inf
+Original File Name : synpd.inf
+Inbox : No
+Class Name : Mouse
+Provider Name : Synaptics
+Date : 2020. 11. 25.
+Version : 19.5.19.75
+
+Published Name : oem114.inf
+Original File Name : ntprint.inf
+Inbox : No
+Class Name : Printer
+Provider Name : Microsoft
+Date : 2006. 06. 21.
+Version : 10.0.19041.2130
+
+Published Name : oem115.inf
+Original File Name : intcaudiobus.inf
+Inbox : No
+Class Name : System
+Provider Name : Intel(R) Corporation
+Date : 2019. 04. 30.
+Version : 9.21.0.4187
+
+Published Name : oem116.inf
+Original File Name : gameflt.inf
+Inbox : No
+Class Name : HSM
+Provider Name : Xbox
+Date : 2026. 08. 06.
+Version : 10.0.22021.3
+
+Published Name : oem117.inf
+Original File Name : hdxsstlvjda.inf
+Inbox : No
+Class Name : MEDIA
+Provider Name : Realtek Semiconductor Corp.
+Date : 2021. 09. 16.
+Version : 6.0.9239.1
+
+Published Name : oem118.inf... [TRUNCATED]
+2026-10-15 16:22:54 [DEBUG] [drivers-load-1] [CALL] DriverToolApi._get_third_party_drivers -> [{'version': '30.100.1947.3', 'published': 'oem0.inf', 'original': 'ialpss2_i2c_cnl.inf', 'class': 'System', 'provider': 'Intel Corporation', 'date': '2019-11-22'}, {'published': 'oem1.inf', 'original': 'mewmiprov.inf', 'class': 'SoftwareComponent', 'provider': 'Intel', 'date': '2024-02-21', 'versio...[+26722 kar.] (21.77s)
+2026-10-15 16:22:54 [INFO] [drivers-load-1] [DRIVERS] Betöltve: 172 driver (21.8s)
+2026-10-15 16:22:54 [DEBUG] [drivers-load-1] [EMIT:drivers_loaded] data={"drivers": [{"version": "30.100.1947.3", "published": "oem0.inf", "original": "ialpss2_i2c_cnl.inf", "class": "System", "provider": "Intel Corporation", "date": "2019-11-22"}, {"published": "oem1.inf
+2026-10-15 16:22:54 [INFO] [Thread-23 (_call)] [CALL] DriverToolApi.get_printer_driver_infs([{'version': '30.100.1947.3', 'published': 'oem0.inf', 'original': 'ialpss2_i2c_cnl.inf', 'class': 'System', 'provider': 'Intel Corporation', 'date': '2019-11-22'}, {'published': 'oem1.inf', 'original...[+26822 kar.])
+2026-10-15 16:22:54 [INFO] [Thread-23 (_call)] [API] get_printer_driver_infs(172 csomag)
+2026-10-15 16:22:54 [DEBUG] [Thread-23 (_call)] [CMD] Futtatás: powershell -NoProfile -ExecutionPolicy Bypass -Command 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$out = @{ Infs = @(); Providers = @() }
+try {
+    Get-PrinterDriver -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.InfPath) { $out.Infs += [System.IO.Path]::GetFileName("
+2026-10-15 16:22:54 [INFO] [Thread-24 (_call)] [CALL] DriverToolApi.get_driver_usage([{'version': '30.100.1947.3', 'published': 'oem0.inf', 'original': 'ialpss2_i2c_cnl.inf', 'class': 'System', 'provider': 'Intel Corporation', 'date': '2019-11-22'}, {'published': 'oem1.inf', 'original...[+26822 kar.])
+2026-10-15 16:22:54 [INFO] [Thread-24 (_call)] [API] get_driver_usage(172 csomag)
+2026-10-15 16:22:55 [DEBUG] [Thread-24 (_call)] [CMD] Futtatás: powershell -NoProfile -Command $ErrorActionPreference = 'SilentlyContinue'
+
+$services = @()
+foreach ($s in (Get-WmiObject Win32_SystemDriver)) {
+  $file = ''
+  $repo = ''
+  $dir = ''
+  if ($s.PathName) {
+    $file = [System.IO.Path]::GetFileName($s.PathName)
+    if ($s.PathName -match '(?i)FileRepos
+2026-10-15 16:23:04 [DEBUG] [Thread-23 (_call)] [CMD] OK (10.3s)
+2026-10-15 16:23:04 [DEBUG] [Thread-23 (_call)] [CMD] stdout: {"Providers":["Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","HP","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft","Microsoft"],"Infs":["prnms014.inf","prnms006.inf","prnms001.inf","prnms015.inf","prnms011.inf","prnms009.inf","prnms012.inf","prnms002.inf","prnms003.inf","hpc1320u.inf","prnms003.inf","printqueue.inf","printqueue.inf","printqueue.inf","printqueue.inf","printqueue.inf","escl.inf","prnms012.inf","printqueue.inf","printqueue.inf"]}
+2026-10-15 16:23:04 [INFO] [Thread-23 (_call)] [PRINTER-PROTECT] Védett INF-ek: ['escl.inf', 'hpc1320u.inf', 'printqueue.inf', 'prnms001.inf', 'prnms002.inf', 'prnms003.inf', 'prnms006.inf', 'prnms009.inf', 'prnms011.inf', 'prnms012.inf', 'prnms014.inf', 'prnms015.inf'], nyomtató-gyártók: []
+2026-10-15 16:23:07 [INFO] [Thread-23 (_call)] [PRINTER-ID] 15 nyomtató-csomag a(z) 172 csomagból (okok: {'osztaly': 15}).
+2026-10-15 16:23:07 [INFO] [Thread-23 (_call)] [PRINTER-PROTECT] +15 csomag a driverből felismerve nyomtatóként (osztály/kulcsszó/fizikai eszköz): ['oem104.inf', 'oem114.inf', 'oem119.inf', 'oem125.inf', 'oem131.inf', 'oem137.inf', 'oem168.inf', 'oem169.inf', 'oem20.inf', 'oem39.inf', 'oem64.inf', 'oem65.inf', 'oem88.inf', 'oem91.inf', 'oem96.inf']
+2026-10-15 16:23:07 [INFO] [Thread-23 (_call)] [PRINTER] 15 nyomtató-csomag a(z) 172 csomagból.
+2026-10-15 16:23:07 [INFO] [Thread-23 (_call)] [PRINTER-FILTER] 15 nyomtató-driver a(z) 172 csomagból elrejtve.
+2026-10-15 16:23:07 [DEBUG] [Thread-23 (_call)] [PRINTER-FILTER] Tételek: ['ntprint.inf', 'ntprint.inf', 'ntprint.inf', 'ntprint.inf', 'ntprint.inf', 'ntprint.inf', 'prnms009.inf', 'prnms001.inf', 'prnms006.inf', 'ntprint.inf', 'ntprint.inf', 'hpc1320u.inf', 'ntprint.inf', 'ntprint.inf', 'ntprint.inf']
+2026-10-15 16:23:07 [INFO] [Thread-23 (_call)] [CALL] DriverToolApi.get_printer_driver_infs -> {'published': ['oem104.inf', 'oem114.inf', 'oem119.inf', 'oem125.inf', 'oem131.inf', 'oem137.inf', 'oem168.inf', 'oem169.inf', 'oem20.inf', 'oem39.inf', 'oem64.inf', 'oem65.inf', 'oem88.inf', 'oem91.inf', 'oem96.inf'], 'count': 15} (12.81s)
+2026-10-15 16:24:54 [DEBUG] [Thread-24 (_call)] [CMD] OK (119.5s)
+2026-10-15 16:24:54 [DEBUG] [Thread-24 (_call)] [CMD] stdout: {"services":[{"name":"1394ohci","state":"Stopped","start":"Manual","file":"1394ohci.sys","repo":"","dir":""},{"name":"3ware","state":"Stopped","start":"Manual","file":"3ware.sys","repo":"","dir":""},{"name":"ACPI","state":"Running","start":"Boot","file":"ACPI.sys","repo":"","dir":""},{"name":"AcpiAudioCompositorInbox","state":"Stopped","start":"Manual","file":"AcpiAudioCompositor.sys","repo":"acpiaudiocompositor.inf","dir":"acpiaudiocompositor.inf_amd64_3a22a3df84b6fbc6"},{"name":"AcpiDev","state":"Stopped","start":"Manual","file":"AcpiDev.sys","repo":"","dir":""},{"name":"acpiex","state":"Running","start":"Boot","file":"acpiex.sys","repo":"","dir":""},{"name":"acpipagr","state":"Running","start":"Manual","file":"acpipagr.sys","repo":"acpipagr.inf","dir":"acpipagr.inf_amd64_d1093347a27ff89c"},{"name":"AcpiPmi","state":"Stopped","start":"Manual","file":"acpipmi.sys","repo":"acpipmi.inf","dir":"acpipmi.inf_amd64_3ced06eb61dcc792"},{"name":"acpitime","state":"Stopped","start":"Manual","file":"acpitime.sys","repo":"","dir":""},{"name":"Acx01000","state":"Stopped","start":"Manual","file":"Acx01000.sys","repo":"","dir":""},{"name":"ADP80XX","state":"Stopped","start":"Manual","file":"ADP80XX.SYS","repo":"","dir":""},{"name":"AFD","state":"Running","start":"System","file":"afd.sys","repo":"","dir":""},{"name":"afunix","state":"Running","start":"System","file":"afunix.sys","repo":"","dir":""},{"name":"ahcache","state":"Running","start":"System","file":"ahcache.sys","repo":"","dir":""},{"name":"ALSysIO","state":"Stopped","start":"Manual","file":"ALSysIO64.sys","repo":"","dir":""},{"name":"amdgpio2","state":"Stopped","start":"Manual","file":"amdgpio2.sys","repo":"","dir":""},{"name":"amdi2c","state":"Stopped","start":"Manual","file":"amdi2c.sys","repo":"","dir":""},{"name":"AmdK8","state":"Stopped","start":"Manual","file":"amdk8.sys","repo":"","dir":""},{"name":"AmdPPM","state":"Stopped","start":"Manual","file":"amdppm.sys","repo":"","dir":""},{"name":"amdsata","state":"Stopped","start":"Manual","file":"amdsata.sys","repo":"","dir":""},{"name":"amdsbs","state":"Stopped","start":"Manual","file":"amdsbs.sys","repo":"","dir":""},{"name":"amdwps","state":"Running","start":"Boot","file":"amdwps.sys","repo":"","dir":""},{"name":"amdxata","state":"Stopped","start":"Manual","file":"amdxata.sys","repo":"","dir":""},{"name":"AppID","state":"Stopped","start":"Manual","file":"appid.sys","repo":"","dir":""},{"name":"AppleSSD","state":"Stopped","start":"Manual","file":"AppleSSD.sys","repo":"","dir":""},{"name":"applockerfltr","state":"Stopped","start":"Manual","file":"applockerfltr.sys","repo":"","dir":""},{"name":"AppvStrm","state":"Stopped","start":"Manual","file":"AppvStrm.sys","repo":"","dir":""},{"name":"AppvVemgr","state":"Stopped","start":"Manual","file":"AppvVemgr.sys","repo":"","dir":""},{"name":"AppvVfs","state":"Stopped","start":"Manual","file":"AppvVfs.sys","repo":"","dir":""},{"name":"arcsas","state":"Stopped","start":"Manual","file":"arcsas.sys","repo":"","dir":""},{"name":"AsyncMac","state":"Stopped","start":"Manual","file":"asyncmac.sys","repo":"","dir":""},{"name":"atapi","state":"Stopped","start":"Manual","file":"atapi.sys","repo":"","dir":""},{"name":"b06bdrv","state":"Stopped","start":"Manual","file":"bxvbda.sys","repo":"","dir":""},{"name":"bam","state":"Running","start":"System","file":"bam.sys","repo":"","dir":""},{"name":"BasicDisplay","state":"Running","start":"System","file":"BasicDisplay.sys","repo":"basicdisplay.inf","dir":"basicdisplay.inf_amd64_9f34636ebdd89def"},{"name":"BasicRender","state":"Running","start":"System","file":"BasicRender.sys","repo":"basicrender.inf","dir":"basicrender.inf_amd64_cf45ae7c2c82746d"},{"name":"bcmfn2","state":"Stopped","start":"Manual","file":"bcmfn2.sys","repo":"","dir":""},{"name":"Beep","state":"Running","start":"System","file":"Beep.sys","repo":"","dir":""},{"name":"bfs","state":"Running","start":"Auto","file":"bfs.sys","repo":"","dir":""},{"name":"bindflt","state":"Running","start":"Aut... [TRUNCATED]
+2026-10-15 16:25:19 [INFO] [Thread-24 (_call)] [USAGE] 172 csomag besorolva: 90 használatban, 13 készenlétben, 69 nem használt (forrás: eszközfa, 243 kötött eszköz-példány, 451 kernel-szolgáltatás, 23 szűrő-bejegyzés, 10 spooler-nyomtatódriver)
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem10.inf: HASZNÁLATBAN - Kiegészítő (Extension) INF, egy jelenlévő eszközre illik - a Windows a fő driver mellé tölti be: Realtek High Definition Audio(SST)
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem101.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: IntcAzAudAddService
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem103.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: WUDFRd, WINUSB, SynaMetSMI; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd, winusb
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem107.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Gaussian Mixture Model - 1911
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem108.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Software Guard Extensions Device; Fut a kernel-szolgáltatása: WUDFRd; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem109.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: ModemControl Device; Fut a kernel-szolgáltatása: WUDFRd; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem110.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: WUDFRd, mshidkmdf, SynTP; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem111.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Management and Security Application Local Management
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem112.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Synaptics HID-Compliant Touch pad Device; Fut a kernel-szolgáltatása: SynTP, mshidkmdf; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): syntp, mshidkmdf
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem113.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: SynTP; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): syntp
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem115.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: IntcAudioBus
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem116.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: gameflt
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem117.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Realtek High Definition Audio(SST); Fut a kernel-szolgáltatása: IntcAzAudAddService
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem12.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: System Interface Foundation V2 Device; Fut a kernel-szolgáltatása: WUDFRd; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem120.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Lenovo Pen Service
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem123.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: IntcAudioBus
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem124.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Serial IO I2C Host Controller - 9D60; Fut a kernel-szolgáltatása: iaLPSS2_I2C
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem126.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Graphics Control Panel
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem127.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: FWUpdateDriver Device; Fut a kernel-szolgáltatása: WUDFRd; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem128.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Voice Clarity
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem132.inf: HASZNÁLATBAN - Kiegészítő (Extension) INF, egy jelenlévő eszközre illik - a Windows a fő driver mellé tölti be: Fibocom L850-GL, USB kompozit eszköz
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem133.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Software Guard Extensions Software
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem134.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Smart Sound technológia hangvezérlő; Fut a kernel-szolgáltatása: IntcAudioBus
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem136.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Integrated Sensor Solution; Fut a kernel-szolgáltatása: ISH
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem14.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Lenovo Power and Battery; Fut a kernel-szolgáltatása: TPPWRIF
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem143.inf: HASZNÁLATBAN - Kiegészítő (Extension) INF, egy jelenlévő eszközre illik - a Windows a fő driver mellé tölti be: Intel(R) Dual Band Wireless-AC 8265
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem144.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Xvdd SCSI Miniport; Fut a kernel-szolgáltatása: Xvdd
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem149.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) megjelenítő hang; Fut a kernel-szolgáltatása: IntcDAud
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem151.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Thunderbolt(TM) HSA Component
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem152.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Integrated Camera
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem153.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: WUDFRd, WINUSB; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd, winusb
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem154.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Dynamic Tuning Memory Participant, Intel(R) Dynamic Tuning Manager, Intel(R) Dynamic Tuning Generic Participant; Fut a kernel-szolgáltatása: dptf_acpi
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem155.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) PROSet/Wireless WiFi szoftver
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem157.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: WUDFRd, WINUSB, SynaMetSMI; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd, winusb
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem158.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: HID PCI Minidriver for ISS; Fut a kernel-szolgáltatása: HID_PCI, mshidkmdf
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem159.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: SynTP, mshidkmdf; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): syntp, mshidkmdf
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem16.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Graphics Command Center
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem160.inf: HASZNÁLATBAN - Kiegészítő (Extension) INF, egy jelenlévő eszközre illik - a Windows a fő driver mellé tölti be: Lenovo Pen Device, Lenovo Pen Service
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem161.inf: HASZNÁLATBAN - Kiegészítő (Extension) INF, egy jelenlévő eszközre illik - a Windows a fő driver mellé tölti be: Intel(R) Dual Band Wireless-AC 8265
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem163.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Mobile 6th/7th Generation Intel(R) Processor Family I/O PCI Express Root Port #3 - 9D12, Mobile 6th/7th Generation Intel(R) Processor Family I/O PMC - 9D21, Mobile 6th/7th Generation Intel(R) Processor Family I/O PCI Express Root Port #5 - 9D14, Mobile 7th Generation Intel(R) Processor Family I/O LPC Controller (U with iHDCP2.2 Premium) - 9D4E (+2)
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem166.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Lenovo Smart Standby
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem167.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Detection Verification; Fut a kernel-szolgáltatása: WUDFRd; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem168.inf: HASZNÁLATBAN - Telepített nyomtató használja: Microsoft Print to PDF
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem169.inf: HASZNÁLATBAN - Telepített nyomtató használja: Microsoft XPS Document Writer
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem17.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: WUDFRd; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem170.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: USB Mobile Monitor Virtual Display; Fut a kernel-szolgáltatása: WUDFRd; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem171.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Nefarius Virtual Gamepad Emulation Bus; Fut a kernel-szolgáltatása: ViGEmBus
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem18.inf: HASZNÁLATBAN - Kiegészítő (Extension) INF, egy jelenlévő eszközre illik - a Windows a fő driver mellé tölti be: Intel(R) Management Engine Interface
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem19.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: SynTP, mshidkmdf; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): syntp, mshidkmdf
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem2.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Wide viewing angle & High density FlexView Display 1920x1080; Fut a kernel-szolgáltatása: monitor
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem20.inf: HASZNÁLATBAN - Telepített nyomtató használja: OneNote (Desktop)
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem21.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Realtek USB 3.0 Card Reader; Fut a kernel-szolgáltatása: RTSUER
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem23.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Watchdog Timer Driver (Intel(R) WDT); Fut a kernel-szolgáltatása: ICCWDT
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem26.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: TPPWRIF
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem3.inf: HASZNÁLATBAN - Kiegészítő (Extension) INF, egy jelenlévő eszközre illik - a Windows a fő driver mellé tölti be: Fibocom L850-GL, USB kompozit eszköz
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem31.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: IntcOED
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem32.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: WUDFRd; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem33.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Synaptics SMBus Driver; Fut a kernel-szolgáltatása: SmbDrvI
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem34.inf: HASZNÁLATBAN - Kiegészítő (Extension) INF, egy jelenlévő eszközre illik - a Windows a fő driver mellé tölti be: Realtek High Definition Audio(SST)
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem37.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Active Management Technology - SOL (COM7)
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem44.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Smart Sound technológia OED; Fut a kernel-szolgáltatása: IntcOED
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem55.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: SmbDrvI
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem56.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Synaptics Pointing Device; Fut a kernel-szolgáltatása: SynTP, SmbDrvI; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): syntp
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem57.inf: HASZNÁLATBAN - Kiegészítő (Extension) INF, egy jelenlévő eszközre illik - a Windows a fő driver mellé tölti be: Intel(R) Smart Sound technológia hangvezérlő
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem59.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Lenovo Intelligent Thermal Solution
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem6.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Fibocom GNSS Sensor; Fut a kernel-szolgáltatása: WUDFRd, WINUSB; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd, winusb
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem63.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Lenovo Pen Device; Fut a kernel-szolgáltatása: WacHIDRouterISD
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem68.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Ethernet Connection (4) I219-LM; Fut a kernel-szolgáltatása: e1dexpress
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem69.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Lenovo PM Device; Fut a kernel-szolgáltatása: IBMPMDRV, PMDRVS
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem7.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: monitor
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem72.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Management Engine Interface; Fut a kernel-szolgáltatása: MEIx64
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem73.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) XMM7360-P WWAN; Fut a kernel-szolgáltatása: UDE
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem74.inf: HASZNÁLATBAN - Kiegészítő (Extension) INF, egy jelenlévő eszközre illik - a Windows a fő driver mellé tölti be: Realtek High Definition Audio(SST)
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem75.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Thunderbolt(TM) Controller - 15D2; Fut a kernel-szolgáltatása: nhi, WUDFRd; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem76.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: IntcAzAudAddService
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem77.inf: HASZNÁLATBAN - Kiegészítő (Extension) INF, egy jelenlévő eszközre illik - a Windows a fő driver mellé tölti be: Lenovo PM Device
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem78.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Mobile 6th/7th Generation Intel(R) Processor Family I/O Thermal subsystem - 9D31
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem80.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Fn and function keys
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem81.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: WUDFRd; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): wudfrd
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem82.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: ThinkPad X1 Yoga 3rd System Firmware 1.40
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem84.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: ISS Dynamic Bus Enumerator; Fut a kernel-szolgáltatása: ISH_BusDriver
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem85.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: SmbDrvI
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem89.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Wireless Bluetooth(R); Fut a kernel-szolgáltatása: ibtusb; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): ibtusb
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem9.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: IntcAudioBus
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem90.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Extreme Tuning Utility Device Driver; Fut a kernel-szolgáltatása: XtuAcpiDriver
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem93.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Dual Band Wireless-AC 8265; Fut a kernel-szolgáltatása: Netwtw06
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem94.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) Dynamic Tuning Processor Participant; Fut a kernel-szolgáltatása: esif_lf, dptf_cpu, WUDFRd; Szűrő-driverként be van jegyezve (akkor lép működésbe, ha a hozzá tartozó eszköz csatlakozik): esif_lf, wudfrd
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem95.inf: HASZNÁLATBAN - Jelenlévő eszköz használja: Intel(R) UHD Graphics 620; Fut a kernel-szolgáltatása: igfx
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem97.inf: HASZNÁLATBAN - Kiegészítő (Extension) INF, egy jelenlévő eszközre illik - a Windows a fő driver mellé tölti be: Lenovo PM Device
+2026-10-15 16:25:19 [DEBUG] [Thread-24 (_call)] [USAGE] oem99.inf: HASZNÁLATBAN - Fut a kernel-szolgáltatása: IntcAzAudAddService
+2026-10-15 16:25:19 [INFO] [Thread-24 (_call)] [USAGE] Készenlétben (13): ['oem0.inf (ialpss2_i2c_cnl.inf)', 'oem106.inf (flashusb.inf)', 'oem146.inf (ibtusb.inf)', 'oem147.inf (rogkb.inf)', 'oem156.inf (wireguard.inf)', 'oem25.inf (ss_conn_usb_driver2.inf)', 'oem30.inf (ibtusb.inf)', 'oem49.inf (rtsper.inf)', 'oem50.inf (ssudmdm.inf)', 'oem54.inf (ialpss2_gpio2_cnl.inf)', 'oem61.inf (ssudbus.inf)', 'oem65.inf (hpc1320u.inf)', 'oem79.inf (rogms.inf)']
+2026-10-15 16:25:19 [INFO] [Thread-24 (_call)] [USAGE] Nem használt (69): ['oem1.inf (mewmiprov.inf)', 'oem100.inf (intcdaud.inf)', 'oem102.inf (ibmpmdrv.inf)', 'oem104.inf (ntprint.inf)', 'oem105.inf (mshdadac.inf)', 'oem11.inf (realtekservice.inf)', 'oem114.inf (ntprint.inf)', 'oem118.inf (mshdadac.inf)', 'oem119.inf (ntprint.inf)', 'oem121.inf (wiman.inf)', 'oem122.inf (n2jczstm7364.inf)', 'oem125.inf (ntprint.inf)', 'oem129.inf (igcc_dch.inf)', 'oem13.inf (intcdmic.inf)', 'oem130.inf (cui_dch.inf)', 'oem131.inf (ntprint.inf)', 'oem135.inf (igcc_dch.inf)', 'oem137.inf (ntprint.inf)', 'oem138.inf (fn.inf)', 'oem139.inf (sollmsextension.inf)', 'oem140.inf (n2iht.inf)', 'oem141.inf (intcdaud.inf)', 'oem142.inf (fmapo.inf)', 'oem145.inf (akccid.inf)', 'oem148.inf (smartstandbycomponent.inf)', 'oem15.inf (e1d68x64.inf)', 'oem150.inf (cannonlake-lpsystemthermal.inf)', 'oem162.inf (synrawpdo.inf)', 'oem164.inf (realtekapo.inf)', 'oem165.inf (litsdrv.inf)', 'oem22.inf (cui_dch.inf)', 'oem24.inf (igcc_dch.inf)', 'oem27.inf (tbthostcontrollerextension.inf)', 'oem28.inf (heci.inf)', 'oem29.inf (igcc_dch.inf)', 'oem35.inf (dax3_swc_hsa.inf)', 'oem36.inf (cui_dch.inf)', 'oem38.inf (cui_dch.inf)', 'oem39.inf (ntprint.inf)', 'oem4.inf (tbtp2pndisdrv.inf)', 'oem40.inf (n2jet.inf)', 'oem41.inf (intcdaud.inf)', 'oem42.inf (spuvcbvjp.inf)', 'oem43.inf (wiman_wlan_extension.inf)', 'oem45.inf (voiceclarityep_audio_component.inf)', 'oem46.inf (n2iet.inf)', 'oem47.inf (heci.inf)', 'oem48.inf (e1d68x64.inf)', 'oem5.inf (dal.inf)', 'oem51.inf (n2jht.inf)', 'oem52.inf (synautilapp_ext.inf)', 'oem53.inf (iigd_ext.inf)', 'oem58.inf (rtlejf.inf)', 'oem60.inf (synautilapp_cmp.inf)', 'oem62.inf (iclsclient.inf)', 'oem64.inf (ntprint.inf)', 'oem66.inf (n1wet.inf)', 'oem67.inf (intcdmic.inf)', 'oem70.inf (coffeelakesystem.inf)', 'oem71.inf (cannonlake-lpsystem.inf)', 'oem8.inf (netwtw08.inf)', 'oem83.inf (sgx_psw.inf)', 'oem86.inf (intcdaud.inf)', 'oem87.inf (netwtw08.inf)', 'oem88.inf (ntprint.inf)', 'oem91.inf (ntprint.inf)', 'oem92.inf (realtekhsa.inf)', 'oem96.inf (ntprint.inf)', 'oem98.inf (dax3_swc_aposvc.inf)']
+2026-10-15 16:25:27 [INFO] [Thread-24 (_call)] [PRINTER-ID] 15 nyomtató-csomag a(z) 172 csomagból (okok: {'osztaly': 15}).
+2026-10-15 16:25:31 [WARNING] [Thread-24 (_call)] [MACHINEMAP] Váratlan hely-kulcs 'nodev:battery' (1 csomag) - az 'Egyéb' kártyára kerül.
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] LENOVO 20LES23C00 (laptop: firmware: mobil gép (platform-szerep 2)) - 39 kártya {'parts': 14, 'external': 7, 'software': 1, 'nodev': 17}, 172 csomag
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🖥️ Grafika: Intel(R) UHD Graphics 620 [gpu:pci\ven_8086&dev_5917&subsys_225917aa&rev_07\3&11583659&0&10] - 4 csomag, 2 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🧠 Processzor: Intel Core i5-8350U [cpu] - 0 csomag, 1 eszköz (csak Windows beépített driver)
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🔊 Hang: Intel(R) Smart Sound technológia hangvezérlő [board:audio] - 4 csomag, 1 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🌐 Hálózat (LAN / Wi-Fi): ModemControl Device, Intel(R) Ethernet Connection (4) I219-LM (+9) [board:network] - 6 csomag, 8 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 📶 Bluetooth: Intel(R) Wireless Bluetooth(R) [board:bluetooth] - 1 csomag, 1 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 💽 Tároló-vezérlő és meghajtók: Realtek USB 3.0 Card Reader, SAMSUNG MZVLW256HEHP-000L7 (+1) [board:storage] - 1 csomag, 3 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🔌 USB-vezérlők: Intel(R) USB 3.0 eXtensible Host Controller - 1.0 (Microsoft) [board:usb] - 0 csomag, 1 eszköz (csak Windows beépített driver)
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] ⚙️ Chipset és rendszervezérlők: Mobile 7th Generation Intel(R) Processor Family I/O LPC Controller (U with iHDCP2.2 Premium) - 9D4E [board:chipset] - 20 csomag, 8 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🛡️ Biztonság (TPM): Platformmegbízhatósági modul 2.0 [board:security] - 0 csomag, 1 eszköz (csak Windows beépített driver)
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🧬 BIOS / UEFI firmware: ThinkPad X1 Yoga 3rd System Firmware 1.40, Eszközszintű belső vezérlőprogram [board:firmware] - 1 csomag, 4 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] ⌨️ Beépített billentyűzet, touchpad: Synaptics Pointing Device, Szabványos PS/2 billentyűzet (+6) [board:input] - 4 csomag, 8 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 📷 Beépített kamera: Integrated Camera [board:camera] - 1 csomag, 1 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 📡 Szenzorok: HID-érzékelőgyűjtemény v2, Intel(R) Integrated Sensor Solution [board:sensor] - 1 csomag, 4 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🔋 Akkumulátor: Microsoft tápadapter, Microsoft ACPI szabványnak megfelelő vezérlőmódú telep [board:battery] - 0 csomag, 2 eszköz (csak Windows beépített driver)
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🔊 Hangeszköz (fejhallgató, hangszóró): Bluetooth perifériaeszköz [ext:6477bc23-f573-5c45-a8cb-0b2fe9a29035] - 0 csomag, 5 eszköz (csak Windows beépített driver)
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🔊 Hangeszköz (fejhallgató, hangszóró): Bluetooth perifériaeszköz [ext:80fdd7dd-982b-556f-bad6-c99ba703a657] - 0 csomag, 5 eszköz (csak Windows beépített driver)
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🔊 Hangeszköz (fejhallgató, hangszóró): Bluetooth perifériaeszköz [ext:c8b33623-987b-509d-944b-454f649d938e] - 0 csomag, 5 eszköz (csak Windows beépített driver)
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🔊 Hangeszköz (fejhallgató, hangszóró): Bluetooth perifériaeszköz [ext:90de7d03-e20a-5ac6-9aae-2c3673a228c7] - 0 csomag, 6 eszköz (csak Windows beépített driver)
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 💽 Külső tároló: USB DISK 2.0 [ext:6c111f24-0f0f-5c91-8702-183a8310d325] - 0 csomag, 2 eszköz (csak Windows beépített driver)
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 📶 Bluetooth-eszköz: Bluetooth LE Device cc45a5fe1686 [ext:d9c6b9c3-0fbd-56cc-8af7-4701b8a557d9] - 0 csomag, 1 eszköz (csak Windows beépített driver)
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🧩 Külső eszköz: Alapvető rendszereszköz [ext:e3c81021-c410-11f1-8634-806e6f6e6963] - 2 csomag, 1 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🧰 Szoftveres driverek: vírusirtó, VPN, virtuális eszközök [software] - 10 csomag, 8 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🎮 Grafika: Videókártyához / grafikához [nodev:gpu] - 18 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🔊 Hang: Hanghoz [nodev:audio] - 11 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🌐 Hálózat (LAN / Wi-Fi): Hálózathoz (LAN / Wi-Fi) [nodev:network] - 9 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 📶 Bluetooth: Bluetooth-hoz [nodev:bluetooth] - 2 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] ⚙️ Chipset és rendszervezérlők: Chipsethez / alaplaphoz [nodev:chipset] - 34 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🔌 USB-vezérlők: USB-vezérlőhöz [nodev:usb] - 3 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] ⌨️ Beviteli eszköz: Beviteli eszközhöz (egér, billentyűzet, touchpad) [nodev:input] - 5 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 📷 Kamera: Kamerához / szkennerhez [nodev:camera] - 2 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🔒 Ujjlenyomat-olvasó: Ujjlenyomat-olvasóhoz [nodev:biometric] - 3 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 💳 Kártyaolvasó: Kártyaolvasóhoz [nodev:cardreader] - 1 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🛡️ Biztonság (TPM): Biztonsági eszközhöz [nodev:security] - 1 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🧬 BIOS / UEFI firmware: Firmware / BIOS [nodev:firmware] - 7 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🖥️ Monitor: Monitorhoz [nodev:monitor] - 1 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🖨️ Nyomtató: Nyomtatóhoz / szkennerhez [nodev:printer] - 15 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 📱 Telefon / mobileszköz: Telefonhoz / mobileszközhöz [nodev:phone] - 3 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🧩 Egyéb: Nem azonosítható [nodev:other] - 1 csomag, 0 eszköz
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [MACHINEMAP] 🧩 Egyéb: nodev:battery [nodev:battery] - 1 csomag, 0 eszköz
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem0.inf -> nodev:usb: Intel(R) Serial IO I2C Host Controller - 9DE8 (+7 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Serial IO I2C Host Controller - 9DE8'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem1.inf -> nodev:chipset: Intel(R) Management Engine WMI Provider | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Management Engine WMI Provider'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem10.inf -> nodev:chipset: Realtek Device Extension | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Realtek Device Extension'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem100.inf -> nodev:gpu: Intel(R) Display Audio | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a grafika HDMI/DP-hangja (HD Audio gyártókód 8086), INF: 'Intel(R) Display Audio'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem101.inf -> nodev:audio: Realtek High Definition Audio | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: MEDIA, INF: 'Realtek High Definition Audio'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem102.inf -> nodev:chipset: Lenovo PM Device | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: alaplapi (PCI/ACPI) eszköz driverje, INF: 'Lenovo PM Device'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem103.inf -> nodev:biometric: Synaptics WBDI | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Biometric, INF: 'Synaptics WBDI'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem104.inf -> nodev:printer: {D20EA372-DD35-4950-9ED8-A6335AFE79F0} (+5 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: '{D20EA372-DD35-4950-9ED8-A6335AFE79F0}'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem105.inf -> nodev:gpu: HD Audio Driver for Display Audio | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a grafika HDMI/DP-hangja (HD Audio gyártókód 8086), INF: 'HD Audio Driver for Display Audio'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem106.inf -> nodev:other: Fibocom USB Flash Loader Utility | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: USB, INF: 'Fibocom USB Flash Loader Utility'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem107.inf -> board:chipset: Intel(R) Gaussian Mixture Model - 1911 | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Gaussian Mixture Model - 1911. Hely: a hardver PCI-osztálykódja: 0880.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem108.inf -> board:chipset: Intel(R) Software Guard Extensions Device | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Software Guard Extensions Device. Hely: Windows-osztály: System.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem109.inf -> board:network: ModemControl Device | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: ModemControl Device. Hely: a hardver USB-osztálykódja: 02.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem11.inf -> nodev:audio: Realtek Audio Universal Service | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Realtek Audio Universal Service'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem110.inf -> nodev:chipset: Synaptics Service binaries | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Synaptics Service binaries'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem111.inf -> board:chipset: Intel(R) Management and Security Application Local Management | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Management and Security Application Local Management. Hely: a szülő eszközéhez tartozó komponens.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem112.inf -> software: Synaptics HID-Compliant Touch pad Device | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Synaptics HID-Compliant Touch pad Device. Hely: szoftveres / virtuális eszköz (nem fizikai buszon ül).
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem113.inf -> nodev:input: Synaptics Pointing Device | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Mouse, INF: 'Synaptics Pointing Device'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem114.inf -> nodev:printer: {D20EA372-DD35-4950-9ED8-A6335AFE79F0} (+5 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: '{D20EA372-DD35-4950-9ED8-A6335AFE79F0}'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem115.inf -> nodev:audio: Intel(R) Smart Sound Technology (Intel(R) SST) Audio Controller | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Smart Sound Technology (Intel(R) SST) Audio Controller'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem116.inf -> software: Xbox · szolgáltatás: gameflt (fut) | Nincs hozzá eszköz; szoftveres driver - az INF nem nevez meg hardvert (szoftveres driver), osztály: HSM. Fut: gameflt
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem117.inf -> board:audio: Realtek High Definition Audio(SST) | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Realtek High Definition Audio(SST). Hely: Windows-osztály: MEDIA.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem118.inf -> nodev:gpu: HD Audio Driver for Display Audio | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a grafika HDMI/DP-hangja (HD Audio gyártókód 8086), INF: 'HD Audio Driver for Display Audio'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem119.inf -> nodev:printer: {D20EA372-DD35-4950-9ED8-A6335AFE79F0} (+5 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: '{D20EA372-DD35-4950-9ED8-A6335AFE79F0}'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem12.inf -> software: System Interface Foundation V2 Device | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: System Interface Foundation V2 Device. Hely: szoftveres / virtuális eszköz (nem fizikai buszon ül).
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem120.inf -> board:input: Lenovo Pen Service | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Lenovo Pen Service. Hely: a szülő eszközéhez tartozó komponens.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem121.inf -> nodev:network: Intel(R) Wireless Manageability | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Wireless Manageability'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem122.inf -> nodev:firmware: ThinkPad T490s/X390 STM TPM Firmware 73.64 (from 73.08) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Firmware, INF: 'ThinkPad T490s/X390 STM TPM Firmware 73.64 (from 73.08)'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem123.inf -> nodev:audio: Intel(R) Smart Sound Technology (Intel(R) SST) Audio Controller | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Smart Sound Technology (Intel(R) SST) Audio Controller'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem124.inf -> board:chipset: Intel(R) Serial IO I2C Host Controller - 9D60 | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Serial IO I2C Host Controller - 9D60. Hely: a hardver PCI-osztálykódja: 1180.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem125.inf -> nodev:printer: {D20EA372-DD35-4950-9ED8-A6335AFE79F0} (+5 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: '{D20EA372-DD35-4950-9ED8-A6335AFE79F0}'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem126.inf -> gpu:pci\ven_8086&dev_5917&subsys_225917aa&rev_07\3&11583659&0&10: Intel(R) Graphics Control Panel | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Graphics Control Panel. Hely: a grafikus vezérlőhöz tartozik (eszközfa).
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem127.inf -> software: FWUpdateDriver Device | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: FWUpdateDriver Device. Hely: szoftveres / virtuális eszköz (nem fizikai buszon ül).
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem128.inf -> software: Voice Clarity | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Voice Clarity. Hely: a szülő eszközéhez tartozó komponens.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem129.inf -> nodev:gpu: Intel(R) Graphics Command Center | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Graphics Command Center'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem13.inf -> nodev:gpu: Intel® Smart Sound Technology (Intel® SST) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Intel kijelző-hang, INF: 'Intel® Smart Sound Technology (Intel® SST)'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem130.inf -> nodev:gpu: Intel(R) Graphics Control Panel | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Graphics Control Panel'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem131.inf -> nodev:printer: {D20EA372-DD35-4950-9ED8-A6335AFE79F0} (+5 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: '{D20EA372-DD35-4950-9ED8-A6335AFE79F0}'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem132.inf -> nodev:chipset: Fibocom L850-GL | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Fibocom L850-GL'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem133.inf -> board:chipset: Intel(R) Software Guard Extensions Software | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Software Guard Extensions Software. Hely: a szülő eszközéhez tartozó komponens.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem134.inf -> board:audio: Intel(R) Smart Sound technológia hangvezérlő | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Smart Sound technológia hangvezérlő. Hely: a hardver PCI-osztálykódja: 0403.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem135.inf -> nodev:gpu: Intel(R) Graphics Command Center | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Graphics Command Center'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem136.inf -> board:sensor: Intel(R) Integrated Sensor Solution | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Integrated Sensor Solution. Hely: eszköznév: 'Intel(R) Integrated Sensor Solution'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem137.inf -> nodev:printer: {D20EA372-DD35-4950-9ED8-A6335AFE79F0} (+5 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: '{D20EA372-DD35-4950-9ED8-A6335AFE79F0}'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem138.inf -> nodev:chipset: Fn and function keys | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Fn and function keys'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem139.inf -> nodev:chipset: Intel(R) SOL LMS Extension | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) SOL LMS Extension'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem14.inf -> board:chipset: Lenovo Power and Battery | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Lenovo Power and Battery. Hely: a szülő eszközéhez tartozó komponens.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem140.inf -> nodev:firmware: ThinkPad T490/T590/P53s Embedded controller Firmware 1.16 | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Firmware, INF: 'ThinkPad T490/T590/P53s Embedded controller Firmware 1.16'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem141.inf -> nodev:gpu: Intel(R) Display Audio | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a grafika HDMI/DP-hangja (HD Audio gyártókód 8086), INF: 'Intel(R) Display Audio'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem142.inf -> nodev:audio: Fortemedia Audio Effects Component | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Fortemedia Audio Effects Component'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem143.inf -> nodev:network: Intel(R) PROSet/Wireless WiFi Software Extension | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) PROSet/Wireless WiFi Software Extension'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem144.inf -> software: Xvdd SCSI Miniport | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Xvdd SCSI Miniport. Hely: szoftveres / virtuális eszköz (nem fizikai buszon ül).
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem145.inf -> nodev:security: Alcor Micro USB Smart Card Reader | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: SmartCardReader, INF: 'Alcor Micro USB Smart Card Reader'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem146.inf -> nodev:bluetooth: Intel(R) Wireless Bluetooth(R) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Bluetooth, INF: 'Intel(R) Wireless Bluetooth(R)'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem147.inf -> nodev:input: ROG STRIX IMPACT (+7 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Keyboard, INF: 'ROG STRIX IMPACT'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem148.inf -> nodev:chipset: Lenovo Smart Standby | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: alaplapi (PCI/ACPI) eszköz driverje, INF: 'Lenovo Smart Standby'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem149.inf -> board:audio: Intel(R) megjelenítő hang | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) megjelenítő hang. Hely: Windows-osztály: MEDIA.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem15.inf -> nodev:network: Intel(R) Ethernet Connection I217-LM (+7 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Net, INF: 'Intel(R) Ethernet Connection I217-LM'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem150.inf -> nodev:chipset: Intel(R) Thermal Subsystem - 9DF9 | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Thermal Subsystem - 9DF9'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem151.inf -> ext:e3c81021-c410-11f1-8634-806e6f6e6963: Thunderbolt(TM) HSA Component | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Thunderbolt(TM) HSA Component. Hely: külső eszköz (saját Windows-container).
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem152.inf -> board:camera: Integrated Camera | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Integrated Camera. Hely: a hardver USB-osztálykódja: 0E.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem153.inf -> nodev:biometric: Synaptics UWP WBDI | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Biometric, INF: 'Synaptics UWP WBDI'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem154.inf -> board:chipset: Intel(R) Dynamic Tuning Memory Participant, Intel(R) Dynamic Tuning Manager (+1) | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Dynamic Tuning Memory Participant, Intel(R) Dynamic Tuning Manager, Intel(R) Dynamic Tuning Generic Participant. Hely: Windows-osztály: System.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem155.inf -> board:network: Intel(R) PROSet/Wireless WiFi szoftver | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) PROSet/Wireless WiFi szoftver. Hely: a szülő eszközéhez tartozó komponens.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem156.inf -> software: WireGuard Tunnel | A Windows eszközfája szerint ezt a most NEM csatlakoztatott eszközt hajtja: WireGuard Tunnel. Hely: szoftveres / virtuális eszköz (nem fizikai buszon ül).
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem157.inf -> nodev:biometric: Synaptics WBDI | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Biometric, INF: 'Synaptics WBDI'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem158.inf -> board:input: HID PCI Minidriver for ISS | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: HID PCI Minidriver for ISS. Hely: eszköznév: 'HID PCI Minidriver for ISS'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem159.inf -> nodev:input: Synaptics HID-Compliant Touch pad Device | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Synaptics HID-Compliant Touch pad Device'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem16.inf -> gpu:pci\ven_8086&dev_5917&subsys_225917aa&rev_07\3&11583659&0&10: Intel(R) Graphics Command Center | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Graphics Command Center. Hely: a grafikus vezérlőhöz tartozik (eszközfa).
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem160.inf -> nodev:chipset: Wacom Extension | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: alaplapi (PCI/ACPI) eszköz driverje, INF: 'Wacom Extension'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem161.inf -> nodev:network: Intel(R) PROSet/Wireless WiFi Software Extension | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) PROSet/Wireless WiFi Software Extension'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem162.inf -> nodev:chipset: Synaptics RAW PDO Device | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Synaptics RAW PDO Device'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem163.inf -> board:chipset: Mobile 6th/7th Generation Intel(R) Processor Family I/O PCI Express Root Port #3 - 9D12, Mobile 6th/7th Generation Intel(R) Processor Family I/O PMC - 9D21 (+4) | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Mobile 6th/7th Generation Intel(R) Processor Family I/O PCI Express Root Port #3 - 9D12, Mobile 6th/7th Generation Intel(R) Processor Family I/O PMC - 9D21, Mobile 6th/7th Generation Intel(R) Processor Family I/O PCI Express Root Port #5 - 9D14 (+3). Hely: a hardver PCI-osztálykódja: 0604.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem164.inf -> nodev:audio: Realtek Audio Effects Component | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Realtek Audio Effects Component'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem165.inf -> nodev:chipset: Lenovo Intelligent Thermal Solution | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Lenovo Intelligent Thermal Solution'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem166.inf -> board:chipset: Lenovo Smart Standby | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Lenovo Smart Standby. Hely: a szülő eszközéhez tartozó komponens.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem167.inf -> board:chipset: Detection Verification | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Detection Verification. Hely: Windows-osztály: System.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem168.inf -> nodev:printer: Microsoft Print To PDF | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: 'Microsoft Print To PDF'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem169.inf -> nodev:printer: Microsoft XPS Document Writer v4 | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: 'Microsoft XPS Document Writer v4'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem17.inf -> nodev:chipset: Detection Verification | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Detection Verification'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem170.inf -> software: USB Mobile Monitor Virtual Display | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: USB Mobile Monitor Virtual Display. Hely: szoftveres / virtuális eszköz (nem fizikai buszon ül).
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem171.inf -> software: Nefarius Virtual Gamepad Emulation Bus | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Nefarius Virtual Gamepad Emulation Bus. Hely: szoftveres / virtuális eszköz (nem fizikai buszon ül).
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem18.inf -> nodev:chipset: Intel(R) ME Extension INF | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: alaplapi (PCI/ACPI) eszköz driverje, INF: 'Intel(R) ME Extension INF'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem19.inf -> nodev:input: Synaptics HID-Compliant Touch pad Device | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Synaptics HID-Compliant Touch pad Device'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem2.inf -> gpu:pci\ven_8086&dev_5917&subsys_225917aa&rev_07\3&11583659&0&10: Wide viewing angle & High density FlexView Display 1920x1080 | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Wide viewing angle & High density FlexView Display 1920x1080. Hely: a grafikus vezérlőhöz tartozik (eszközfa).
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem20.inf -> nodev:printer: Send to Microsoft OneNote 16 Driver | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: 'Send to Microsoft OneNote 16 Driver'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem21.inf -> board:storage: Realtek USB 3.0 Card Reader | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Realtek USB 3.0 Card Reader. Hely: a hardver USB-osztálykódja: 08.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem22.inf -> nodev:gpu: Intel(R) Graphics Control Panel | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Graphics Control Panel'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem23.inf -> board:chipset: Intel(R) Watchdog Timer Driver (Intel(R) WDT) | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Watchdog Timer Driver (Intel(R) WDT). Hely: eszköznév: 'Intel(R) Watchdog Timer Driver (Intel(R) WDT)'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem24.inf -> nodev:gpu: Intel(R) Graphics Command Center | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Graphics Command Center'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem25.inf -> nodev:phone: SAMSUNG Mobile USB Connectivity Device V2 | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: USB-gyártókód VID_04E8 (Samsung, telefon-gyártó), INF: 'SAMSUNG Mobile USB Connectivity Device V2'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem26.inf -> nodev:battery: Lenovo Power and Battery | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Lenovo Power and Battery'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem27.inf -> nodev:usb: Thunderbolt(TM) Controller - 1575 (+7 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Thunderbolt(TM) Controller - 1575'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem28.inf -> nodev:chipset: Intel(R) Management Engine Interface #1 (+1 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Management Engine Interface #1'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem29.inf -> nodev:gpu: Intel(R) Graphics Command Center | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Graphics Command Center'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem3.inf -> nodev:chipset: Fibocom L850-GL | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Fibocom L850-GL'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem30.inf -> nodev:bluetooth: Intel(R) Wireless Bluetooth(R) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Bluetooth, INF: 'Intel(R) Wireless Bluetooth(R)'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem31.inf -> nodev:audio: Intel(R) Smart Sound Technology (Intel(R) SST) OED | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Smart Sound Technology (Intel(R) SST) OED'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem32.inf -> nodev:chipset: Detection Verification | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Detection Verification'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem33.inf -> board:chipset: Synaptics SMBus Driver | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Synaptics SMBus Driver. Hely: a hardver PCI-osztálykódja: 0C05.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem34.inf -> nodev:chipset: Fortemedia SAMSoft Device Extension | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Fortemedia SAMSoft Device Extension'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem35.inf -> nodev:chipset: DolbyAPO Software Device (HSA) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'DolbyAPO Software Device (HSA)'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem36.inf -> nodev:gpu: Intel(R) Graphics Control Panel | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Graphics Control Panel'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem37.inf -> board:chipset: Intel(R) Active Management Technology - SOL (COM7) | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Active Management Technology - SOL (COM7). Hely: a hardver PCI-osztálykódja: 0700.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem38.inf -> nodev:gpu: Intel(R) Graphics Control Panel | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Graphics Control Panel'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem39.inf -> nodev:printer: {D20EA372-DD35-4950-9ED8-A6335AFE79F0} (+5 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: '{D20EA372-DD35-4950-9ED8-A6335AFE79F0}'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem4.inf -> nodev:network: Thunderbolt(TM) Networking | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Net, INF: 'Thunderbolt(TM) Networking'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem40.inf -> nodev:firmware: ThinkPad T490s/X390 System Firmware 1.70 | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Firmware, INF: 'ThinkPad T490s/X390 System Firmware 1.70'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem41.inf -> nodev:gpu: Intel(R) Display Audio | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a grafika HDMI/DP-hangja (HD Audio gyártókód 8086), INF: 'Intel(R) Display Audio'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem42.inf -> nodev:camera: Integrated Camera | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Camera, INF: 'Integrated Camera'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem43.inf -> nodev:network: Intel® Wireless Manageability Driver extension | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel® Wireless Manageability Driver extension'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem44.inf -> board:audio: Intel(R) Smart Sound technológia OED | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Smart Sound technológia OED. Hely: eszköznév: 'Intel(R) Smart Sound technológia OED'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem45.inf -> nodev:audio: Voice Clarity | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: AudioProcessingObject, INF: 'Voice Clarity'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem46.inf -> nodev:firmware: ThinkPad T490/T590/P53s System Firmware 1.71 | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Firmware, INF: 'ThinkPad T490/T590/P53s System Firmware 1.71'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem47.inf -> nodev:chipset: Intel(R) Management Engine Interface #1 (+1 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Management Engine Interface #1'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem48.inf -> nodev:network: Intel(R) Ethernet Connection I217-LM (+7 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Net, INF: 'Intel(R) Ethernet Connection I217-LM'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem49.inf -> nodev:cardreader: Realtek PCIE CardReader | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Realtek PCIE CardReader'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem5.inf -> nodev:chipset: Intel(R) Dynamic Application Loader Host Interface | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Intel(R) Dynamic Application Loader Host Interface'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem50.inf -> nodev:phone: SAMSUNG Mobile USB Modem (+1 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: USB-gyártókód VID_04E8 (Samsung, telefon-gyártó), INF: 'SAMSUNG Mobile USB Modem'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem51.inf -> nodev:firmware: ThinkPad T490s/X390 Embedded controller Firmware 1.16 | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Firmware, INF: 'ThinkPad T490s/X390 Embedded controller Firmware 1.16'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem52.inf -> nodev:chipset: Synaptics UWP WBDI Extension | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Synaptics UWP WBDI Extension'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem53.inf -> nodev:gpu: Intel(R) UHD Graphics 630 (+4 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) UHD Graphics 630'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem54.inf -> nodev:usb: Intel(R) Serial IO GPIO Host Controller - INT34BB (+1 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Serial IO GPIO Host Controller - INT34BB'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem55.inf -> nodev:chipset: Synaptics SMBus Driver | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Synaptics SMBus Driver'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem56.inf -> board:input: Synaptics Pointing Device | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Synaptics Pointing Device. Hely: Windows-osztály: Mouse.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem57.inf -> nodev:gpu: Intel(R) HD Graphics SGPC | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) HD Graphics SGPC'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem58.inf -> nodev:camera: Integrated Camera (+1 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Camera, INF: 'Integrated Camera'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem59.inf -> board:chipset: Lenovo Intelligent Thermal Solution | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Lenovo Intelligent Thermal Solution. Hely: eszköznév: 'Lenovo Intelligent Thermal Solution'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem6.inf -> board:network: Fibocom GNSS Sensor | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Fibocom GNSS Sensor. Hely: a hardver USB-osztálykódja: 02.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem60.inf -> nodev:chipset: Synaptics UMDF Util App Component | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Synaptics UMDF Util App Component'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem61.inf -> nodev:phone: SAMSUNG Mobile USB CDC Composite Device (+2 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: USB-gyártókód VID_04E8 (Samsung, telefon-gyártó), INF: 'SAMSUNG Mobile USB CDC Composite Device'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem62.inf -> nodev:chipset: Intel(R) iCLS Client | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Intel(R) iCLS Client'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem63.inf -> board:input: Lenovo Pen Device | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Lenovo Pen Device. Hely: Windows-osztály: HIDClass.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem64.inf -> nodev:printer: {D20EA372-DD35-4950-9ED8-A6335AFE79F0} (+5 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: '{D20EA372-DD35-4950-9ED8-A6335AFE79F0}'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem65.inf -> nodev:printer: hp LaserJet 1320 PCL 6 | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: 'hp LaserJet 1320 PCL 6'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem66.inf -> nodev:firmware: ThinkPad T470s System Firmware 1.38 | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Firmware, INF: 'ThinkPad T470s System Firmware 1.38'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem67.inf -> nodev:gpu: Intel® Smart Sound Technology (Intel® SST) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Intel kijelző-hang, INF: 'Intel® Smart Sound Technology (Intel® SST)'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem68.inf -> board:network: Intel(R) Ethernet Connection (4) I219-LM | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Ethernet Connection (4) I219-LM. Hely: a hardver PCI-osztálykódja: 0200.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem69.inf -> board:chipset: Lenovo PM Device | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Lenovo PM Device. Hely: Windows-osztály: System.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem7.inf -> nodev:monitor: LCD 640x480 (+7 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Monitor, INF: 'LCD 640x480'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem70.inf -> nodev:chipset: Intel(R) Host Bridge/DRAM Registers - 3E0F (+7 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Host Bridge/DRAM Registers - 3E0F'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem71.inf -> nodev:chipset: I/O LPC Controller - 9D80 for Intel(R) 300 Series Chipset Family On-Package Platform Controller Hub (+7 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'I/O LPC Controller - 9D80 for Intel(R) 300 Series Chipset Family On-Package Platform Controller Hub'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem72.inf -> board:chipset: Intel(R) Management Engine Interface | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Management Engine Interface. Hely: a hardver PCI-osztálykódja: 0780.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem73.inf -> board:network: Intel(R) XMM7360-P WWAN | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) XMM7360-P WWAN. Hely: a hardver PCI-osztálykódja: 0D40.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem74.inf -> nodev:chipset: Dolby Device Extension | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Dolby Device Extension'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem75.inf -> ext:e3c81021-c410-11f1-8634-806e6f6e6963: Thunderbolt(TM) Controller - 15D2 | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Thunderbolt(TM) Controller - 15D2. Hely: külső eszköz (saját Windows-container).
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem76.inf -> nodev:audio: Realtek High Definition Audio(SST) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: MEDIA, INF: 'Realtek High Definition Audio(SST)'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem77.inf -> nodev:chipset: Lenovo Power Manager | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: alaplapi (PCI/ACPI) eszköz driverje, INF: 'Lenovo Power Manager'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem78.inf -> board:chipset: Mobile 6th/7th Generation Intel(R) Processor Family I/O Thermal subsystem - 9D31 | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Mobile 6th/7th Generation Intel(R) Processor Family I/O Thermal subsystem - 9D31. Hely: a hardver PCI-osztálykódja: 1180.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem79.inf -> nodev:input: ROG STRIX EVOLVE (+7 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Mouse, INF: 'ROG STRIX EVOLVE'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem8.inf -> nodev:network: Intel(R) Wireless-AC 9560 160MHz (+7 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: net, INF: 'Intel(R) Wireless-AC 9560 160MHz'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem80.inf -> software: Fn and function keys | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Fn and function keys. Hely: szoftveres / virtuális eszköz (nem fizikai buszon ül).
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem81.inf -> nodev:firmware: FWUpdateDriver(7262) Device | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: Firmware, INF: 'FWUpdateDriver(7262) Device'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem82.inf -> board:firmware: ThinkPad X1 Yoga 3rd System Firmware 1.40 | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: ThinkPad X1 Yoga 3rd System Firmware 1.40. Hely: Windows-osztály: Firmware.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem83.inf -> nodev:chipset: Intel(R) Software Guard Extensions Platform Software Component | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Intel(R) Software Guard Extensions Platform Software Component'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem84.inf -> board:chipset: ISS Dynamic Bus Enumerator | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: ISS Dynamic Bus Enumerator. Hely: Windows-osztály: System.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem85.inf -> nodev:chipset: Synaptics SMBus Driver | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Synaptics SMBus Driver'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem86.inf -> nodev:gpu: Intel(R) Display Audio | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a grafika HDMI/DP-hangja (HD Audio gyártókód 8086), INF: 'Intel(R) Display Audio'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem87.inf -> nodev:network: Intel(R) Wi-Fi 6 AX201 160MHz (+7 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: net, INF: 'Intel(R) Wi-Fi 6 AX201 160MHz'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem88.inf -> nodev:printer: {D20EA372-DD35-4950-9ED8-A6335AFE79F0} (+5 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: '{D20EA372-DD35-4950-9ED8-A6335AFE79F0}'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem89.inf -> board:bluetooth: Intel(R) Wireless Bluetooth(R) | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Wireless Bluetooth(R). Hely: a hardver USB-osztálykódja: E0.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem9.inf -> nodev:audio: Intel(R) Smart Sound Technology (Intel(R) SST) Audio Controller | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: a modell-leírás alapján: 'Intel(R) Smart Sound Technology (Intel(R) SST) Audio Controller'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem90.inf -> board:chipset: Intel(R) Extreme Tuning Utility Device Driver | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Extreme Tuning Utility Device Driver. Hely: Windows-osztály: System.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem91.inf -> nodev:printer: {D20EA372-DD35-4950-9ED8-A6335AFE79F0} (+5 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: '{D20EA372-DD35-4950-9ED8-A6335AFE79F0}'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem92.inf -> nodev:chipset: Realtek Hardware Support Application | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'Realtek Hardware Support Application'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem93.inf -> board:network: Intel(R) Dual Band Wireless-AC 8265 | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Dual Band Wireless-AC 8265. Hely: a hardver PCI-osztálykódja: 0280.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem94.inf -> board:chipset: Intel(R) Dynamic Tuning Processor Participant | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) Dynamic Tuning Processor Participant. Hely: a hardver PCI-osztálykódja: 1180.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem95.inf -> gpu:pci\ven_8086&dev_5917&subsys_225917aa&rev_07\3&11583659&0&10: Intel(R) UHD Graphics 620 | A Windows eszközfája szerint ezt a JELENLÉVŐ eszközt hajtja: Intel(R) UHD Graphics 620. Hely: maga a grafikus vezérlő - közvetlenül a rendszerbuszon ül (a processzorba/chipsetbe épített grafika).
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem96.inf -> nodev:printer: {D20EA372-DD35-4950-9ED8-A6335AFE79F0} (+5 típus) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: nyomtató-driver (a közös nyomtató-felismerés szerint), INF: '{D20EA372-DD35-4950-9ED8-A6335AFE79F0}'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem97.inf -> nodev:chipset: Lenovo Smart Standby | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: alaplapi (PCI/ACPI) eszköz driverje, INF: 'Lenovo Smart Standby'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem98.inf -> nodev:chipset: DolbyAPO SWC Device | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: rendszer-komponens, INF: 'DolbyAPO SWC Device'.
+2026-10-15 16:25:31 [DEBUG] [Thread-24 (_call)] [MACHINEMAP] oem99.inf -> nodev:audio: Realtek High Definition Audio(SST) | A gépben nincs hozzá tartozó eszköz (sem csatlakoztatva, sem nyilvántartva). Rendeltetés az INF alapján: Windows-osztály: MEDIA, INF: 'Realtek High Definition Audio(SST)'.
+2026-10-15 16:25:31 [INFO] [Thread-24 (_call)] [CALL] DriverToolApi.get_driver_usage -> {'usage': {'oem0.inf': {'state': 'standby', 'devices': [], 'absent_devices': [], 'services': [{'name': 'iaLPSS2_I2C_CNL', 'state': 'Stopped'}], 'running_services': [], 'filter_services': [], 'printers': [], 'in_spooler': False, 'reasons': ['Telepített, de épp nem futó szolgáltatás: iaLPSS2_I2C_CNL']...[+143100 kar.] (157.31s)
+2026-10-15 16:30:11 [DEBUG] [Thread-29 (_call)] [JS_UI] [UI-AKCIO] Kattintás: div#data-dir-label "📁 C:\DriverVarazslo"
+2026-10-15 16:30:11 [INFO] [Thread-30 (_call)] [CALL] DriverToolApi.open_file('C:\\DriverVarazslo')
+2026-10-15 16:30:11 [INFO] [Thread-30 (_call)] [API] open_file: C:\DriverVarazslo
+2026-10-15 16:30:11 [INFO] [Thread-30 (_call)] [CALL] DriverToolApi.open_file -> True (0.02s)
+2026-10-15 16:30:11 [DEBUG] [Thread-31 (_call)] [JS_UI] [UI-AKCIO] Kattintás: div#data-dir-label "📁 C:\DriverVarazslo"
+2026-10-15 16:30:11 [INFO] [Thread-32 (_call)] [CALL] DriverToolApi.open_file('C:\\DriverVarazslo')
+2026-10-15 16:30:11 [INFO] [Thread-32 (_call)] [API] open_file: C:\DriverVarazslo
+2026-10-15 16:30:12 [INFO] [Thread-32 (_call)] [CALL] DriverToolApi.open_file -> True (0.19s)

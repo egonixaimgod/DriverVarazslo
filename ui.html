@@ -574,16 +574,58 @@ tr.drv-row.selected td{background:rgba(180,100,255,0.24)!important}
    TERMÉSZETES magasságát, és ha a karbantartás magasabb: (1) tömörebb térközök
    (`data-fit="c"`), (2) a leírások soronként rövidülnek, mindig a leghosszabbon kezdve (a
    teljes szöveg a kártya buborékjában), (3) ha még így sem fér el (pl. egy hosszú
-   duplikátum-lista), a jobb doboz belül görgethető - a rajzot sosem húzza szét. */
-.drv-tools[data-fit]{gap:10px}
-.drv-tools[data-fit] > .panel{padding:14px 16px}
-.drv-tools[data-fit] .panel-title{font-size:15px;margin-bottom:8px}
-.drv-tools[data-fit] .panel-header-row{margin-bottom:8px}
-.drv-tools[data-fit] .panel-header-row .panel-title{margin-bottom:0}
-.drv-tools[data-fit] .panel > p{margin-bottom:10px!important;font-size:12.5px}
-.drv-tools[data-fit] .toolbar .btn{padding:7px 12px;font-size:12.5px}
-.drv-tools[data-fit] .mm-sec-head{margin-bottom:6px}
-.mm-wrap.mm-nomap .drv-tools{grid-column:1 / -1;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+   duplikátum-lista), a jobb doboz belül görgethető - a rajzot sosem húzza szét.
+   [2026-10-15 ÓTA MÁS - a (1)-(2) visszavonva, explicit user decision, képernyőképpel: *"a
+   jobb oldali kártyák olyan üresek … 1 sorban oda van vmi baszva"*. A mohó soronkénti
+   vágás full HD-n is EGY sorra vágta a leírásokat, alattuk kártyánként ~40 px üres sávval
+   (mérve headless 1920×1040-en). MOST: a jobb doboz `contain:size`-zal NEM ad magasságot a
+   sornak (a sort a rajz adja), egy flex-oszlop, a kártyák EGYFORMA magasak (`flex:1 1 0`),
+   és a leírás a kártya maradék helyét tölti ki; a JS (`fitDrvTools`) csak egész sorra
+   kerekíti a vágást (…-tal, a teljes szöveg a buborékban). A (3) változatlan.] */
+.mm-wrap.mm-nomap .drv-tools{grid-column:1 / -1;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;align-items:stretch}
+/* A KARBANTARTÓ KÁRTYA (2026-10-15): ikon-csempe + cím + gomb egy sorban, alatta a leírás
+   a cím vonalában. Minden elrendezésben ugyanez a forma (rajz mellett, térkép nélkül 4
+   hasábban, keskeny ablakban egy hasábban); a kitöltés csak a rajz melletti módban él. */
+.drv-tools > .panel{padding:14px 18px;display:flex;flex-direction:column;
+  background:linear-gradient(150deg,rgba(60,32,104,0.55),rgba(30,16,58,0.45));
+  border-color:rgba(190,120,255,0.24);transition:border-color var(--t),box-shadow var(--t)}
+.drv-tools > .panel:hover{border-color:rgba(212,136,255,0.5);box-shadow:0 6px 22px rgba(120,50,200,0.22)}
+.dt-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex:0 0 auto}
+.dt-ico{flex:0 0 auto;width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:21px;
+  background:linear-gradient(135deg,rgba(184,85,255,0.38),rgba(212,136,255,0.10));
+  border:1px solid rgba(212,136,255,0.38);box-shadow:inset 0 1px 0 rgba(255,255,255,0.08)}
+.dt-title{flex:1 1 180px;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  font-size:15.5px;font-weight:800;color:var(--text);line-height:1.25;letter-spacing:.1px}
+.dt-title .count-badge{padding:3px 10px;font-size:11.5px}
+.dt-head .toolbar{margin:0 0 0 auto;gap:8px}
+.dt-head .toolbar .btn{padding:8px 14px;font-size:12.5px}
+.dt-desc{margin:8px 0 0;font-size:13.5px;line-height:1.55;color:var(--text2);flex:0 0 auto}
+.dt-desc b{color:#fff;font-weight:700}
+.drv-tools > .panel > #dup-loading,.drv-tools > .panel > #dup-results{flex:0 0 auto}
+@media (max-width:1700px){
+  .dt-desc{margin-left:0;font-size:13px}
+  .dt-ico{width:34px;height:34px;border-radius:10px;font-size:17px}
+  .dt-title{font-size:14px}
+  .dt-head{gap:10px}
+  .dt-head .toolbar .btn{padding:6px 11px;font-size:12px}
+}
+/* KITÖLTÉS a rajz melletti módban: a doboz magasságát a rajz adja (`contain:size`), a
+   kártyák egyenlően osztoznak rajta, a leírás nyúlik/zsugorodik. A fejléc és a duplikátum-
+   lista nem zsugorodik; ha nem fér el, a doboz belül görget. */
+@media (min-width:1151px){
+  .mm-wrap:not(.mm-nomap):not(.collapsed) .drv-tools{display:flex;flex-direction:column;gap:10px;
+    contain:size;overflow-y:auto}
+  .mm-wrap:not(.mm-nomap):not(.collapsed) .drv-tools > .mm-sec-head{flex:0 0 auto;margin-bottom:2px}
+  .mm-wrap:not(.mm-nomap):not(.collapsed) .drv-tools > .panel{flex:1 1 0;padding:12px 16px}
+  /* a gomb a cím MELLETT marad (alá törve egy keskeny ablakban a leírás helyét vinné el) */
+  .mm-wrap:not(.mm-nomap):not(.collapsed) .dt-head{flex-wrap:nowrap}
+  .mm-wrap:not(.mm-nomap):not(.collapsed) .dt-title{flex:1 1 auto}
+  .mm-wrap:not(.mm-nomap):not(.collapsed) .dt-head .toolbar{flex:0 1 auto;justify-content:flex-end}
+  .mm-wrap:not(.mm-nomap):not(.collapsed) .dt-head .toolbar .btn{white-space:nowrap}
+  .mm-wrap:not(.mm-nomap):not(.collapsed) .dt-desc{margin-top:6px}
+  @media (min-width:1701px){ .mm-wrap:not(.mm-nomap):not(.collapsed) .dt-desc{margin-left:54px} }
+  .mm-wrap:not(.mm-nomap):not(.collapsed) .drv-tools > .panel > .dt-desc{flex:1 1 0;min-height:0;overflow:hidden}
+}
 @media (max-width:1150px){.mm-wrap.mm-nomap .drv-tools{grid-template-columns:minmax(0,1fr)}}
 
 /* A HÁROM NAGY RÉSZ LÁTHATÓAN KÜLÖN DOBOZBAN ÜL (2026-09-18, explicit user decision,
@@ -1810,11 +1852,9 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
              élt, de ez is lemez-takarítás, ide illik. Az id-k változatlanok, a JS
              (scanDupDrivers/onDupDriversLoaded/deleteDupDrivers) ugyanaz maradt. -->
         <div class="panel glass">
-          <div class="panel-header-row">
-            <div class="panel-title"><span class="emoji">🧹</span> Elavult driver-duplikátumok (DriverStore takarítás)</div>
-            <span class="count-badge" id="dup-count-badge" style="display:none">0</span>
-          </div>
-          <p style="margin-bottom:12px;color:var(--text3)">Ugyanabból a driverből minden frissítés után ottmarad a régi verzió is a DriverStore-ban - ezek csak a helyet foglalják. A keresés a legújabb verziót mindig megtartja, és az épp használatban lévő drivereket SOHA nem törli. <b style="color:var(--text2)">A driver-telepítések végén (manuális telepítés és 1 Kattintásos Fix) ez a takarítás automatikusan is lefut</b> - ez a panel a kézi, ellenőrzött futtatáshoz van.</p>
+          <div class="dt-head">
+            <div class="dt-ico">🧹</div>
+            <div class="dt-title">Elavult driver-duplikátumok <span class="count-badge" id="dup-count-badge" style="display:none">0</span></div>
           <div class="toolbar">
             <button class="btn btn-primary" onclick="scanDupDrivers()" id="btn-dup-scan">🔍 Duplikátumok keresése</button>
             <!-- MIND-KAPCSOLÓ (2026-09-21, explicit user decision: "inkabb legyen egy olyan
@@ -1826,6 +1866,8 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             <button class="btn btn-secondary" onclick="toggleAllDupChecks()" id="btn-dup-all" style="display:none">☑ Mind kijelölése</button>
             <button class="btn btn-danger" onclick="deleteDupDrivers()" id="btn-dup-delete" disabled style="display:none">🗑 Kijelölt régi verziók törlése</button>
           </div>
+          </div>
+          <p class="dt-desc">Minden driver-frissítés után a régi verzió is a DriverStore-ban marad, és csak a helyet foglalja. A keresés csomagonként a legújabbat megtartja, a használatban lévő drivert <b>soha nem törli</b>. A telepítések és az 1 kattintásos fix végén magától is lefut — itt kézzel, átnézve futtathatod.</p>
           <div id="dup-loading" style="display:none"><div class="progress progress-indeterminate" style="margin-top:10px"><div class="progress-fill"></div></div></div>
           <div id="dup-results"></div>
         </div>
@@ -1851,31 +1893,40 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
              ami ezeknél hosszú - és a nézet így három különböző kártya-szélességet
              mutatott egymás alatt. -->
         <div class="panel glass">
-          <div class="panel-title"><span class="emoji">👻</span> Szellem- és Fantomeszközök Törlése</div>
-          <p style="margin-bottom:12px;color:var(--text3)">Eltávolítja a Registry-ből és az Eszközkezelőből mindazokat a hardvereket, amelyek korábban csatlakoztatva voltak, de fizikailag már nincsenek a gépben — klónozott vagy sokat szerelt rendszereknél akár több száz ilyen bejegyzés is felgyűlhet. <b style="color:var(--text2)">Csak a NEM jelenlévő eszközöket bántja</b>, tehát amit most használ a gép, az érintetlen marad.</p>
-          <div class="toolbar">
-            <button class="btn btn-primary" onclick="deleteGhostDevices()" id="btn-ghost">👻 Szellemeszközök Törlése</button>
+          <div class="dt-head">
+            <div class="dt-ico">👻</div>
+            <div class="dt-title">Szellem- és fantomeszközök</div>
+            <div class="toolbar">
+              <button class="btn btn-primary" onclick="deleteGhostDevices()" id="btn-ghost">👻 Szellemeszközök Törlése</button>
+            </div>
           </div>
+          <p class="dt-desc">Eltávolítja az Eszközkezelőből és a registryből azokat a hardvereket, amelyek valaha csatlakoztatva voltak, de már nincsenek a gépben — klónozott vagy sokat szerelt rendszeren akár több százat. <b>Csak a NEM jelenlévő eszközökhöz nyúl</b>, ami most működik, az érintetlen marad.</p>
         </div>
 
         <div class="panel glass">
-          <div class="panel-title"><span class="emoji">🔄</span> Eszközök újrakötése a gyári driverre</div>
-          <p style="margin-bottom:12px;color:var(--text3)">Nem keres és nem tölt le semmit: azokat az eszközöket kötteti újra, amik a Windows alapdriverén ragadtak, pedig van hozzájuk gyári csomag a gépen. Akkor kell, ha egy driver felment, de az eszköz nem indult el rajta — ilyenkor a Windows némán visszaesik a sajátjára, hibakód nélkül (tipikus tünet: szaggató tapipad, nem működő extra gombok). A tárolót, a firmware-t és a rendszerlemez eszközláncát nem érinti. <b style="color:var(--text2)">A végén a gép automatikusan újraindul.</b></p>
-          <div class="toolbar">
+          <div class="dt-head">
+            <div class="dt-ico">🔄</div>
+            <div class="dt-title">Újrakötés a gyári driverre</div>
+            <div class="toolbar">
             <button class="btn btn-primary" onclick="rebindDrivers()" id="btn-rebind"
                     title="Nem tölt le semmit. MINDEN Windows-alapdriveren futó eszközt újra felderíttet a Windowszal (újratelepítés, majd ha kell, az eszköz újraenumerálása) - kivéve a tárolóvezérlőket, a lemezt, a firmware-t és a rendszerlemez eszközláncát. Ha van a gépen hozzá gyári csomag, azt kapja meg; ha nincs, ugyanazt kapja vissza, rosszabb nem lesz. A kör az USB-vezérlőt is érintheti, ezért a végén a gép automatikusan újraindul.">🔄 Újrakötés indítása</button>
+            </div>
           </div>
+          <p class="dt-desc">Nem tölt le semmit: újraköti azokat az eszközöket, amik a Windows alapdriverén ragadtak, pedig van hozzájuk gyári csomag a gépen (tipikus tünet: szaggató tapipad, halott extra gombok). A tárolót, a firmware-t és a rendszerlemez eszközláncát nem érinti. <b>A végén a gép automatikusan újraindul.</b></p>
         </div>
 
         <!-- BLUETOOTH TISZTA LAP (2026-10-14, explicit user decision: a szellemeszköz-törlés
              a beragadt BT-párosításokat nem viszi el - a Beállítások listája a párosítás-
              adatbázisból jön). Backend: app/bluetooth_core.py, app/gui/bluetooth.py. -->
         <div class="panel glass">
-          <div class="panel-title"><span class="emoji">📶</span> Bluetooth tiszta lap</div>
-          <p style="margin-bottom:12px;color:var(--text3)">Kitöröl MINDEN Bluetooth-párosítást és a hozzájuk tartozó eszköz-bejegyzéseket — a duplán látszó fülhallgatót, a hol megjelenő, hol eltűnő kontrollert, és amit a Beállításokban eltávolítani sem lehet, mert örökké pörög. A törlés idejére az adaptert letiltja, így semmi nem akad be, a végén visszakapcsolja. <b style="color:var(--text2)">Utána minden BT-eszközt újra kell párosítani (a BT-egeret és -billentyűzetet is).</b></p>
-          <div class="toolbar">
-            <button class="btn btn-primary" onclick="clearBluetoothDevices()" id="btn-bt-clear">📶 Bluetooth törlése</button>
+          <div class="dt-head">
+            <div class="dt-ico">📶</div>
+            <div class="dt-title">Bluetooth tiszta lap</div>
+            <div class="toolbar">
+              <button class="btn btn-primary" onclick="clearBluetoothDevices()" id="btn-bt-clear">📶 Bluetooth törlése</button>
+            </div>
           </div>
+          <p class="dt-desc">Kitöröl MINDEN Bluetooth-párosítást és eszköz-bejegyzést: a duplán látszó fülhallgatót, az eltűnő-előbukkanó kontrollert, és amit a Beállításokban eltávolítani sem lehet. A törlés idejére az adaptert letiltja, a végén visszakapcsolja. <b>Utána minden BT-eszközt újra kell párosítani (az egeret és a billentyűzetet is).</b></p>
         </div>
         </div>
             </div>
@@ -5324,25 +5375,16 @@ function positionMmPop() {
 }
 window.addEventListener('resize', () => { try { positionMmPop(); } catch (e) { console.warn('[GEP-TERKEP] Az alkatresz-ablak helye nem szamolhato: ' + e); } });
 
-/* A KARBANTARTÁS (jobb alul) A RAJZHOZ (bal alul) IGAZODIK - a CSS-oldali indoklás és a
-   mérés a `.drv-tools[data-fit]` szabályoknál. A rajz-doboz a MÉRCE: a természetes
-   magassága (fejléc + a hasáb szélességéhez méretezett rajz) a cél, a jobb doboz addig
-   tömörödik, amíg bele nem fér. A mérés idejére mindkét doboz `align-self:start`-ot kap,
-   különben a rács a magasabbikra nyújtaná mindkettőt, és a mérés önmagát mérné. */
-function _drvToolsReset(tools) {
-  tools.removeAttribute('data-fit');
-  tools.style.maxHeight = ''; tools.style.overflowY = '';
-  tools.querySelectorAll(':scope > .panel').forEach(pn => {
-    pn.removeAttribute('title');
-    const p = pn.querySelector(':scope > p');
-    if (p) _drvClampP(p, null);
-  });
-}
-function _drvClampP(p, n) {
-  if (n === null) { p.style.display = ''; p.style.webkitBoxOrient = ''; p.style.webkitLineClamp = ''; p.style.overflow = ''; return; }
-  if (n <= 0) { p.style.display = 'none'; return; }
-  p.style.display = '-webkit-box'; p.style.webkitBoxOrient = 'vertical';
-  p.style.overflow = 'hidden'; p.style.webkitLineClamp = String(n);
+/* A KARBANTARTÁS (jobb alul) A RAJZHOZ (bal alul) IGAZODIK - a CSS-oldali indoklás a
+   `.dt-desc` / `contain:size` szabályoknál (2026-10-15 óta a CSS tölt ki, a JS csak a
+   leírások vágását kerekíti egész sorra). */
+function _drvClampP(p, n, lh) {
+  p.style.display = p.style.webkitBoxOrient = p.style.webkitLineClamp = p.style.maxHeight = p.style.visibility = '';
+  if (n === null) return;
+  if (n <= 0) { p.style.visibility = 'hidden'; return; }
+  p.style.display = '-webkit-box'; p.style.webkitBoxOrient = 'vertical'; p.style.webkitLineClamp = String(n);
+  // A plafon kell: a Chromium a "…" utáni sorokat is kirajzolja, ha a doboz magasabb n sornál.
+  p.style.maxHeight = (n * lh) + 'px';
 }
 /* ALÁÍRÁS: a `renderDriverTable` minden pipa-kattintásnál újrarajzolja a térképet, az
    igazítás viszont egy tucatnyi kényszerített elrendezés-számítás. Ezért csak akkor fut
@@ -5355,6 +5397,7 @@ function _drvFitSignature(wrap, col, tools) {
   const disp = id => { const el = document.getElementById(id); return el ? el.style.display + ':' + el.textContent.length : '-'; };
   const head = wrap.querySelector('.mm-head');
   return [Math.round(col.getBoundingClientRect().width), Math.round(tools.getBoundingClientRect().width),
+          Math.round(tools.getBoundingClientRect().height),
           window.innerHeight, wrap.className, head ? Math.round(head.getBoundingClientRect().height) : 0,
           (driverMachine && driverMachine.form) || '',   // a laptop- és az asztali rajz aránya más
           (document.getElementById('dup-results') || {innerHTML: ''}).innerHTML.length,
@@ -5368,48 +5411,22 @@ function fitDrvTools(force) {
   const sig = _drvFitSignature(wrap, col, tools);
   if (!force && sig === _drvFitSig) return;
   _drvFitSig = sig;
-  _drvToolsReset(tools);
-  // Nincs rajz / össze van csukva / egy hasábban állnak / a nézet rejtett (0 széles):
-  // nincs mihez igazodni - a karbantartás a teljes szövegével marad.
-  if (wrap.classList.contains('mm-nomap') || wrap.classList.contains('collapsed')) return;
-  const cr = col.getBoundingClientRect(), tr = tools.getBoundingClientRect();
-  if (!cr.width || !tr.width || tr.left < cr.right - 1) return;
-  col.style.alignSelf = 'start'; tools.style.alignSelf = 'start';
+  // 2026-10-15: a kitöltést a CSS végzi (flex + `contain:size`, lásd a `.dt-desc` szabályoknál);
+  // itt csak a vágás kerül EGÉSZ sorra, "…"-tal. Ha a doboz nem flex (egy hasáb / összecsukva /
+  // nincs rajz), a leírás a teljes szövegével marad.
+  const fill = getComputedStyle(tools).display === 'flex';
   try {
-    const mapH = col.getBoundingClientRect().height;
-    const toolsH = () => tools.getBoundingClientRect().height;
-    const TOL = 8;   // ennyi px-szel lehet magasabb a jobb doboz (a sor-lépcsők miatt)
-    const fits = () => toolsH() <= mapH + TOL;
-    if (fits()) return;
-    tools.setAttribute('data-fit', 'c');                  // 1) tömörebb térközök, teljes szöveg
-    if (fits()) return;
-    // 2) A leírások sorai: mindig a leghosszabbikat rövidítjük egy sorral, amíg el nem fér.
-    const items = [];
     tools.querySelectorAll(':scope > .panel').forEach(pn => {
-      const p = pn.querySelector(':scope > p');
+      pn.removeAttribute('title');
+      const p = pn.querySelector(':scope > .dt-desc');
       if (!p) return;
-      const h = p.getBoundingClientRect().height;
-      _drvClampP(p, 1);
-      const lh = p.getBoundingClientRect().height || 1;
       _drvClampP(p, null);
-      const full = Math.max(1, Math.round(h / lh));
-      items.push({pn, p, full, n: full});
+      if (!fill || p.scrollHeight <= p.clientHeight + 1) return;
+      const lh = parseFloat(getComputedStyle(p).lineHeight) || 20;
+      _drvClampP(p, Math.floor((p.clientHeight + 1) / lh), lh);
+      pn.title = p.textContent.replace(/\s+/g, ' ').trim();
     });
-    while (!fits()) {
-      let it = null;
-      items.forEach(x => { if (x.n > 0 && (!it || x.n > it.n)) it = x; });
-      if (!it) break;
-      it.n -= 1;
-      _drvClampP(it.p, it.n);
-    }
-    items.forEach(x => {
-      if (x.n < x.full) x.pn.title = x.p.textContent.replace(/\s+/g, ' ').trim();
-    });
-    // 3) Végső védőháló (pl. hosszú duplikátum-lista): a jobb doboz a rajz magasságáig ér,
-    //    és belül görgethető - a rajzot nem nyújtja meg.
-    if (!fits()) { tools.style.maxHeight = Math.round(mapH) + 'px'; tools.style.overflowY = 'auto'; }
   } finally {
-    col.style.alignSelf = ''; tools.style.alignSelf = '';
     try { positionMmPop(); } catch (e) { console.warn('[GEP-TERKEP] Az alkatresz-ablak helye nem szamolhato: ' + e); }
   }
 }
@@ -5433,6 +5450,14 @@ try {
       const w = Math.round(ents[0].contentRect.width);
       if (w !== _drvFitWidth) { _drvFitWidth = w; scheduleDrvFit(); }
     }).observe(body);
+    // A kitöltő módban a jobb doboz magasságát CSAK a rajz adja (`contain:size`), tehát a
+    // vágás nem hat vissza rá - a magasság figyelése nem hívhatja önmagát újra.
+    const tools = document.querySelector('#drv-machine .drv-tools');
+    let h0 = -1;
+    if (tools) new ResizeObserver(ents => {
+      const h = Math.round(ents[0].contentRect.height);
+      if (h !== h0) { h0 = h; scheduleDrvFit(); }
+    }).observe(tools);
   }
 } catch (e) { console.warn('[KARBANTARTAS] ResizeObserver nem indithato: ' + e); }
 // A betűkészlet később töltődhet be, és akkor a szövegek magassága változik - az aláírás
