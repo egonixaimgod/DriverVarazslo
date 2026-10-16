@@ -951,8 +951,8 @@ class GuiStressAutomationMixin:
         ablakú tételeket egyszerűen kihagyja, nem buktatja el a többit.
 
         UNIVERZÁLIS RÉSZLETEK (2026-10-16):
-        - minden ablaknál a valódi felső szintű ablakot mozgatjuk (_top_level_window - Windows
-          Terminalban futó Linpack), és a visszaolvasott hely a verdikt (_place_window): ami nem
+        - a konzolos Linpacknál a valódi felső szintű ablakot mozgatjuk (_top_level_window - Windows
+          Terminal), a GUI-programoknál a megtalált ablakot; a visszaolvasott hely a verdikt (_place_window): ami nem
           került a helyére, arra nem írjuk ki, hogy "elrendezve";
         - per-monitor DPI-tudatos szálkontextusban fut: a GUI csak rendszer-DPI-tudatos, a CLI
           egyáltalán nem, egy nagyított (125/150%) kijelzőn a koordináták különben
@@ -1002,6 +1002,7 @@ class GuiStressAutomationMixin:
         ]
 
         placed = []  # (név, hwnd, x, y, w, h, hátra, az első körben a helyére került-e)
+        found_hwnds = []  # a megtalált ablakok is: a tálcára tevés ezeket sem érintheti
         for key, x, y, ww, hh, send_back in layout:
             pid = pid_map.get(key)
             display_name = STRESS_TOOLS[key][0]
@@ -1019,7 +1020,12 @@ class GuiStressAutomationMixin:
                 self._debug_dump_pid_windows(pid, f"_position_stress_windows: {display_name} ablaka nem található")
                 continue
             found = hwnd
-            hwnd = self._top_level_window(user32, hwnd)
+            found_hwnds.append(found)
+            # Csak a konzolnál: a GetConsoleWindow egy terminál PseudoConsoleWindow-ját adhatja. Egy
+            # GUI-ablak tulajdonosa NEM a látható ablak: a HWiNFO szenzor-ablakáé a REJTETT főablak
+            # (Build 389, 2026-10-16: azt mozgattuk, a szenzor-ablakot pedig tálcára tettük).
+            if key == 'linpack':
+                hwnd = self._top_level_window(user32, hwnd)
             cls_buf = ctypes.create_unicode_buffer(256)
             user32.GetClassNameW(hwnd, cls_buf, 256)
             try:
@@ -1038,7 +1044,7 @@ class GuiStressAutomationMixin:
             except Exception as e:
                 logging.warning(f"[STRESSTOOLS] Pozicionálási hiba ({display_name}): {e}", exc_info=True)
 
-        self._minimize_other_windows([p[1] for p in placed], task_id=task_id)
+        self._minimize_other_windows([p[1] for p in placed] + found_hwnds, task_id=task_id)
 
         # Ellenőrző kör: egy program a mozgatás után pár mp-cel is visszaugorhat a saját mentett
         # helyére (vagy a minimalizálás rendezi át a z-sorrendet) - ami nincs a helyén, újra oda.

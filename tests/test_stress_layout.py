@@ -118,6 +118,29 @@ class StressLayoutTest(unittest.TestCase):
         self.assertEqual(u.shown, [])
 
 
+class ArrangeOwnedWindowTest(unittest.TestCase):
+    def test_gui_window_is_moved_itself_console_goes_to_terminal(self):
+        # Build 389 (2026-10-16, HWiNFO): a szenzor-ablak (41) tulajdonosa a REJTETT főablak (40).
+        # A régi kód a 40-et mozgatta, a 41-et pedig tálcára tette. A konzolnál (31 = PseudoConsoleWindow)
+        # a terminál-ablak (30) a helyes.
+        u = mock.Mock()
+        u.GetAncestor.side_effect = lambda h, flag: {41: 40, 31: 30}.get(h, h)
+        f = GuiStressAutomationMixin()
+        f.emit = lambda *a: None
+        f._check_cancel = lambda: False
+        f._primary_work_area = lambda user32: (0, 0, 1920, 1040)
+        f._find_main_window_for_pid = lambda pid: 41
+        f._find_console_window_for_pid = lambda pid: 31
+        moved, kept = [], []
+        f._place_window = lambda user32, h, *a: (moved.append(h), (True, 1, (0, 0, 1, 1)))[1]
+        f._window_in_place = lambda user32, h, x, y: (True, None)
+        f._minimize_other_windows = lambda keep, task_id=None: kept.extend(keep)
+        with mock.patch('app.gui.stress_automation.time.sleep', lambda s: None):
+            f._arrange_stress_windows(u, {'linpack': 5, 'hwinfo': 6}, 'stress')
+        self.assertEqual(moved, [30, 41])
+        self.assertTrue({30, 31, 41} <= set(kept))
+
+
 class MinimizeOthersTest(unittest.TestCase):
     def test_minimize_without_activation_skipping_kept_tool_and_cloaked(self):
         # hwnd: 1 = megtartott, 2 = normál, 3 = TOOLWINDOW, 4 = cloaked
