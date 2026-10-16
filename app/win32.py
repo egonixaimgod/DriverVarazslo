@@ -126,9 +126,16 @@ class _SHQUERYRBINFO(ctypes.Structure):
 # FIGYELEM: ez NEM azt jelenti, hogy a Windows a munkaterülethez vágja az ablakot - a
 # ténylegesen renderelt méretről kizárólag a FurMark score-fájljának [Resolution=..] mezője
 # dönt, sosem a képernyőmérettel való összevetés.
-# (A stressz-teszt ablakelrendezése nem ezt hívja: annak saját, helyi SPI_GETWORKAREA
-# definíciója van az app/gui/stress_automation.py-ban.)
+# (A stressz-teszt ablakelrendezése nem ezt hívja: az a _MONITORINFO-val kérdez, lásd lent.)
 SPI_GETWORKAREA = 0x0030
+
+
+# GetMonitorInfoW - a stressz-teszt ablakelrendezése (app/gui/stress_automation.py) ezzel kéri
+# le a fő monitor munkaterületét per-monitor DPI-tudatos szálból: így fizikai pixelben kapja,
+# ugyanabban a térben, amiben az ablakokat mozgatja (az SPI_GETWORKAREA nem DPI-tudatos).
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", ctypes.wintypes.DWORD), ("rcMonitor", ctypes.wintypes.RECT),
+                ("rcWork", ctypes.wintypes.RECT), ("dwFlags", ctypes.wintypes.DWORD)]
 
 
 def get_work_area():
