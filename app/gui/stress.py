@@ -17,6 +17,8 @@ from app.common import download_with_cert_fallback
 from app.powerplan_core import parse_setting_indexes
 from app.stress_defs import LINPACK_PROMPT_SCRIPT
 from app.stress_defs import LINPACK_RAM_OPTIONS
+from app.stress_defs import LINPACK_WMIC_SHIM
+from app.stress_defs import LINPACK_WMIC_SHIM_NAME
 from app.stress_defs import STRESS_CLICK_SEQUENCES
 from app.stress_defs import STRESS_KILL_IMAGES
 from app.stress_defs import STRESS_POWER_LOCK_KEYS
@@ -215,6 +217,26 @@ class GuiStressMixin:
         return [(prompt, str(ram_option) if answer is None else answer, needs_enter)
                 for prompt, answer, needs_enter in LINPACK_PROMPT_SCRIPT]
 
+    def _prepare_linpack_wmic(self, exe):
+        """A Linpack mappájába írja a WMIC-pótlékot (LINPACK_WMIC_SHIM, lásd ott, miért), és
+        visszaadja a Linpack folyamat környezetét: a mappája a PATH ELEJÉN. Csak a munkamappára
+        nem építhetünk: ha a NoDefaultCurrentDirectoryInExePath be van állítva, a cmd nem keres
+        ott (mérve). Minden indításkor újraírja, hogy egy régebbi változat ne maradjon ott.
+        None = a pótlék nem írható ki, az örökölt környezet marad."""
+        folder = os.path.dirname(exe)
+        path = os.path.join(folder, LINPACK_WMIC_SHIM_NAME)
+        real = os.path.exists(os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32', 'wbem', 'WMIC.exe'))
+        try:
+            with open(path, 'w', encoding='ascii', newline='\r\n') as f:
+                f.write(LINPACK_WMIC_SHIM)
+        except Exception as e:
+            logging.warning(f"[STRESSTOOLS] A Linpack WMIC-pótléka nem írható ki ({path}): {e} - "
+                            f"a rendszer WMIC-je {'megvan' if real else 'HIÁNYZIK, a Linpack a saját DISM-telepítésébe kezd'}.")
+            return None
+        logging.info(f"[STRESSTOOLS] Linpack WMIC-pótlék kiírva: {path}, a mappa a Linpack PATH-jának elején "
+                     f"(a rendszer saját WMIC-je {'megvan' if real else 'HIÁNYZIK'}; a Linpack mindkét esetben a pótlékot használja).")
+        return dict(os.environ, PATH=folder + os.pathsep + os.environ.get('PATH', ''))
+
     def _launch_stress_exe(self, exe, display_name, console_script=None, click_sequence=None, thread_sink=None,
                            result_sink=None, result_key=None, args=None):
         """Egy stressz-teszt/monitor .exe elindítása, UAC-elutasítás (WinError 740, pl.
@@ -266,9 +288,11 @@ class GuiStressMixin:
                 if result_sink is not None and result_key is not None:
                     result_sink[result_key] = ok
 
+        # A lenti 'runas'-ág (740) ezt az env-et nem kapja meg; a program emelt jogon fut, így a Linpack a Popen-ágon indul.
+        env = self._prepare_linpack_wmic(exe) if os.path.basename(exe).lower() in STRESS_TOOLS['linpack'][1] else None
         cmd = [exe] + list(args or [])
         try:
-            proc = subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe))
+            proc = subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=os.path.dirname(exe), env=env)
             logging.info(f"[STRESSTOOLS] Elindítva: {display_name} ({subprocess.list2cmdline(cmd)}), pid={proc.pid}")
             auto_thread = None
             if console_script:

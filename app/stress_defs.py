@@ -191,6 +191,32 @@ STRESS_CLICK_SEQUENCES = {
     ],
 }
 
+# A Linpack Xtreme v1.1.8 indító-batch-e (a Linpack.exe futás közben a %TEMP%-be bontja ki)
+# az elején `wmic os get version`-nel ellenőrzi a WMIC-et, és ha nincs (Win11 24H2+: opcionális
+# szolgáltatás lett), "Required Windows component WMIC not found" + pause, utána
+# `DISM /Online /Add-Capability /CapabilityName:WMIC~~~~` a WU-ról, bukásnál újra és újra.
+# Ez a terepen percekig tartott, vagy el sem készült. A batch a `wmic`-et név szerint hívja,
+# és a Linpack mappája a Linpack folyamat PATH-jának ELEJÉN áll (_prepare_linpack_wmic) -> a
+# mellé írt wmic.cmd MINDIG ezt a pótlékot futtatja (akkor is, ha a gépen van valódi WMIC:
+# így minden gépen ugyanaz az út), telepítés, internet és várakozás nélkül. A szálszámot a batch THREADS*CPUS-ként számolja, ezért a pótlék a valódi
+# WMIC-hez hasonlóan foglalatonként ad értéket (CIM); csak a CIM-lekérdezés bukásakor esik
+# vissza a %NUMBER_OF_PROCESSORS% (összes szál) + 1 foglalat párra.
+LINPACK_WMIC_SHIM = r'''@echo off
+rem DriverVarazslo: WMIC-potlek a Linpack Xtreme inditojahoz (app/stress_defs.py, LINPACK_WMIC_SHIM).
+rem A Linpack batch-e csak ezt a 4 lekerdezest hasznalja: os get version, cpu get NumberOfCores,
+rem computersystem get NumberOfProcessors, cpu get NumberOfLogicalProcessors.
+setlocal
+if /i "%~1"=="os" (echo Version& ver& exit /b 0)
+set "WCLASS="
+if /i "%~1"=="cpu" set "WCLASS=Win32_Processor"
+if /i "%~1"=="computersystem" set "WCLASS=Win32_ComputerSystem"
+if not defined WCLASS exit /b 1
+echo %~3
+powershell -NoProfile -NonInteractive -Command "Get-CimInstance %WCLASS% -ErrorAction Stop | ForEach-Object { $_.%~3 }" 2>nul && exit /b 0
+if /i "%~3"=="NumberOfProcessors" (echo 1) else (echo %NUMBER_OF_PROCESSORS%)
+'''
+LINPACK_WMIC_SHIM_NAME = 'wmic.cmd'
+
 # A Linpack Xtreme v1.1.8 konzolos stressz-teszt menüjének (valódi gépen, a konzol
 # képernyőpufferét kiolvasva ÉS a Linpack.exe-be csomagolt .bat forrását elemezve
 # ellenőrzött) prompt-sorrendje: (prompt-részlet, válasz, kell-e Enter) hármasok.
