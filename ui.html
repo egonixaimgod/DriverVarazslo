@@ -6673,7 +6673,8 @@ async function downloadBlockScript() {
 
 /* ========== CLI MÓDRA VÁLTÁS ========== */
 async function switchToCliMode() {
-  if (!confirm('Átváltasz szöveges (CLI) módra?\n\n'
+  if (!await showConfirm('🖥️ Váltás CLI módra',
+    'Átváltasz szöveges (CLI) módra?\n\n'
     + 'A program egy új konzolablakban indul újra — ugyanazokkal a funkciókkal, '
     + 'de a nehéz grafikus réteg nélkül. Régi, lassú gépeken ez a használható mód.\n\n'
     + 'Ez az ablak bezárul.')) return;
