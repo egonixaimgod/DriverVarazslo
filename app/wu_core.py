@@ -2330,18 +2330,50 @@ try {
     try { $SM = New-Object -ComObject Microsoft.Update.ServiceManager; $SM.AddService2("7971f918-a847-4430-9279-4a52d1efe18d", 7, "") | Out-Null } catch {}
     $Searcher.ServerSelection = 3
     $Searcher.ServiceID = "7971f918-a847-4430-9279-4a52d1efe18d"
-    Write-Output "SEARCH: Driver frissítések keresése..."
-    $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
+    $WantUIDs = @($TargetUIDs | Select-Object -Unique)
+    $UidOnly = ($WantUIDs.Count -gt 0 -and $TargetHWIDs.Count -eq 0 -and -not $MatchSystemDevices)
     # OPCIONÁLIS (BrowseOnly=1) driverek KIFEJEZETT keresése is (2026-09-27): így a
     # kijelölt opcionális driver akkor is megvan, ha az alap-feltétel kihagyná - az
     # UpdateID-szerinti összevonás miatt kétszer semmi nem kerül be. Lásd _search_wu_api.
-    $AllUpdates = New-Object System.Collections.ArrayList
-    $seenUid = @{}
-    foreach ($U in $Result.Updates) { $seenUid[$U.Identity.UpdateID] = $true; [void]$AllUpdates.Add($U) }
-    try {
-        $Opt = $Searcher.Search("IsInstalled=0 and Type='Driver' and BrowseOnly=1")
-        foreach ($U in $Opt.Updates) { if (-not $seenUid.ContainsKey($U.Identity.UpdateID)) { $seenUid[$U.Identity.UpdateID] = $true; [void]$AllUpdates.Add($U) } }
-    } catch {}
+    # Csak UpdateID-szűrésnél: ha az alap-keresés már MINDEN kért azonosítót hozott, a
+    # második keresés semmit nem adhatna hozzá - kimarad (2026-10-21).
+    function Find-Drivers([bool]$online) {
+        $Searcher.Online = $online
+        $all = New-Object System.Collections.ArrayList
+        $seen = @{}
+        foreach ($U in $Searcher.Search("IsInstalled=0 and Type='Driver'").Updates) { $seen[$U.Identity.UpdateID] = $true; [void]$all.Add($U) }
+        $missing = @($WantUIDs | Where-Object { -not $seen.ContainsKey($_) })
+        if (-not $UidOnly -or $missing.Count -gt 0) {
+            try {
+                foreach ($U in $Searcher.Search("IsInstalled=0 and Type='Driver' and BrowseOnly=1").Updates) { if (-not $seen.ContainsKey($U.Identity.UpdateID)) { $seen[$U.Identity.UpdateID] = $true; [void]$all.Add($U) } }
+            } catch {}
+        }
+        return ,$all
+    }
+    # ELŐBB A HELYI GYORSÍTÓTÁR (2026-10-21, explicit user decision: a kézi telepítés ne
+    # keressen újra mindent). A szken épp most töltötte le a WU-adatokat; a kért UpdateID-k
+    # ugyanazok. Mérve: online 12,8 mp / a T440s-en 68 mp, gyorsítótárból 1,1 mp, azonos
+    # találatokkal. Ha bármelyik kért azonosító nincs meg, vagy a letöltés bukik, az eddigi
+    # online keresés jön - tehát legfeljebb ugyanott tartunk, ahol eddig.
+    $AllUpdates = $null
+    $FromCache = $false
+    if ($UidOnly) {
+        try {
+            $c = Find-Drivers $false
+            $hit = @($c | Where-Object { $WantUIDs -contains $_.Identity.UpdateID })
+            if ($hit.Count -ge $WantUIDs.Count) {
+                $AllUpdates = $c; $FromCache = $true
+                Write-Output "SEARCH: A kért driverek a Windows Update helyi gyorsítótárában megvannak - nincs új keresés."
+            } else {
+                Write-Output "SEARCH: A gyorsítótárban $($hit.Count)/$($WantUIDs.Count) kért driver van - online keresés..."
+            }
+        } catch { Write-Output "SEARCH: A gyorsítótár nem olvasható ($($_.Exception.Message)) - online keresés..." }
+    }
+    if ($null -eq $AllUpdates) {
+        Write-Output "SEARCH: Driver frissítések keresése..."
+        $AllUpdates = Find-Drivers $true
+    }
+    $OnlineByUid = $null
     if ($AllUpdates.Count -eq 0) { Write-Output "EMPTY: Nem található elérhető driver frissítés."; return }
 
     $systemHWIDs = @()
@@ -2396,7 +2428,22 @@ try {
         Write-Output "DLONE: $idx/$total $t"
         $SC = New-Object -ComObject Microsoft.Update.UpdateColl; $SC.Add($U) | Out-Null
         $DL = $Session.CreateUpdateDownloader(); $DL.Updates = $SC
-        try { $DR = $DL.Download() } catch { Write-Output "FAIL: [LETÖLTÉS HIBA] $t - $($_.Exception.Message)"; $f++; continue }
+        $DR = $null; $dlErr = ''
+        try { $DR = $DL.Download() } catch { $dlErr = $_.Exception.Message }
+        if ($FromCache -and (-not $DR -or ($DR.ResultCode -ne 2 -and $DR.ResultCode -ne 3))) {
+            # A gyorsítótárból vett objektummal nem jött le: ugyanaz a csomag friss, online
+            # keresésből (egyszer, az összes hátralévőhöz).
+            Write-Output "SEARCH: A gyorsítótárból vett csomag nem töltődött le ($t) - online újrakeresés..."
+            if ($null -eq $OnlineByUid) { $OnlineByUid = @{}; foreach ($X in (Find-Drivers $true)) { $OnlineByUid[$X.Identity.UpdateID] = $X } }
+            $X = $OnlineByUid[$U.Identity.UpdateID]
+            if ($X) {
+                if (-not $X.EulaAccepted) { $X.AcceptEula() }
+                $U = $X; $SC = New-Object -ComObject Microsoft.Update.UpdateColl; $SC.Add($U) | Out-Null
+                $DL.Updates = $SC; $DR = $null; $dlErr = ''
+                try { $DR = $DL.Download() } catch { $dlErr = $_.Exception.Message }
+            }
+        }
+        if ($dlErr) { Write-Output "FAIL: [LETÖLTÉS HIBA] $t - $dlErr"; $f++; continue }
         if (-not $DR -or ($DR.ResultCode -ne 2 -and $DR.ResultCode -ne 3)) { Write-Output "FAIL: [LETÖLTÉS HIBA kód=$($DR.ResultCode)] $t"; $f++; continue }
         Write-Output "INSTONE: $idx/$total $t"
         $Inst = $Session.CreateUpdateInstaller(); $Inst.Updates = $SC

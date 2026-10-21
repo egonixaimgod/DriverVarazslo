@@ -505,3 +505,26 @@ Kódolvasásból, a felhasználó kérésére; terepen NEM reprodukálva. Teszt:
 - **INF-válogatás eszközlistája** (`_present_hwids_cache`): egy GUI-munkamenetben soha nem ürült (egy chipset-telepítés utáni új eszközt a következő válogatás nem látott), és egy bukott lekérdezés `[]`-ja is bent maradt. Most minden `_install_catalog_sync` elején friss, bukást nem teszünk el.
 - **Újrakötés:** az `inst` kulcsai nagybetűsek, a `rebind` két helyen nagybetűsítés nélkül keresett (mindenhol máshol nagybetűsít). Bizonyított terepi kár nélkül, egységesítve.
 
+### 2026-10-21: a kézi telepítés nem keres újra mindent, és a lista frissül utána (terepi napló, Lenovo T440s `20ARS21Y0B`, Build 392)
+
+**Bejelentés** (explicit user decision): *„miért nem egyből a telepítés indul? miért keres mégegyszer újra mindenre mindent”*, és *„visszadob ugyan arra a képre ami telepítés előtt volt … vagy frissüljön le, vagy szedje ki a listából azt amit már feltelepítettem”*.
+
+**Mért idők a naplóból** (1 db WU-tétel, az Intel HD Graphics drivere, `install_selected_wu([6])`, 18:37:36 → 18:41:01):
+
+| lépés | idő |
+|---|---|
+| visszaállítási pont (`Checkpoint-Computer`) | 12 mp |
+| DISM-lista a hamis `[kód=4]` utóellenőrzéséhez | 11 mp |
+| **a telepítő szkript saját WU-keresése** (`SEARCH:` → az első `SKIP:`) | **68 mp** |
+| letöltés / telepítés | 14 mp / 50 mp |
+| duplikátum-takarítás (DISM + használat-besorolás + 4 törlés), Store-szinkron | ~45 mp |
+
+A felhasználó „~10 percet” érzett, a napló szerint a telepítés 3 perc 25 mp volt (+ a feltöltés). A szken maga 2,5 perc (18:18:13 → 18:20:46). **Nem mérve:** hogy a 10 perces benyomásba mi számított bele.
+
+**1) A WU-telepítő először a helyi gyorsítótárból keres** (`_build_wu_install_ps`, `Find-Drivers $false`). A WUA `Online=$false` keresése a legutóbbi online keresés helyi metaadatán fut. **Mérve a fejlesztői gépen** (HP EliteDesk 800 G2, 2026-10-21, ugyanaz a `ServiceID`/`ServerSelection` mint a programban): online 12,8 mp / 7 driver, gyorsítótárból **1,1 mp / ugyanaz a 7 UpdateID** (0 eltérés). Csak UpdateID-szűrésnél fut (a kézi telepítés és a GUI-lánc ilyen); HWID-/rendszer-párosításnál marad az online keresés. Ha bármelyik kért azonosító hiányzik, online keresés jön; ha egy gyorsítótárból vett csomag **nem töltődik le**, egyszer online újrakeres, és azzal próbálja újra. **Nem mérve:** a letöltés gyorsítótárból vett objektummal (ezért van a tartalék). A második (BrowseOnly=1) keresés UpdateID-szűrésnél kimarad, ha az alap-keresés már minden kért azonosítót hozott.
+
+**2) Hamis „⏭ … a Windows Update már telepítettként látja” sor egy SIKERES telepítés után.** A naplóban szó szerint: `✅ Intel Corporation driver update for Intel(R) HD Graphics Family`, utána `⏭ Általános Microsoft-videokártya - a Windows Update már telepítettként látja`. Az ok: a `requested_titles` a pool-elem `title or name` mezőjét vette, de a WU-tételnek nincs `title`-je, csak `name` (= az ESZKÖZ neve) és `wu_title` (= a csomag címe), így a `FOUND:` sorokkal soha nem egyezett. Javítva: `wu_title` elöl. Egy DONE/EMPTY nélkül leállt szkriptnél a hiányzó `FOUND` nem állítja, hogy a WU telepítettnek látja.
+
+**3) Tételes kimenet a listának** (`_report_hw_install_items` → `hw_install_result`, a pool-elemen `install_state`): `'ok'` = a WU `OK:`/`OKRB:`-t adott (vagy az utóellenőrzés igazolta), ill. a katalógusnál felment ÉS a kötés-ellenőrzés / generikus-csere-ellenőrzés után is áll; `'already'` = a WU telepítettnek látja / a pnputil szerint már fent volt. A kötés nélkül maradt, a visszaállított és a hibás tétel a listán marad. A felület a sort a ✅ Naprakész csoportba teszi, pipa nélkül, az „Összes” sem jelöli ki (`hwIsDone`); a sor a `hwPool`-ban marad, mert az indexek a Python poolját címzik. A CLI a táblázatban jelzi, és nem jelöli előre. **Miért nem új szken:** egy gyenge gépen percekig tart, és egy újraindításra váró drivernél az eszköz még a régit mutatja, tehát egy friss szken akár újra felajánlhatná. Ha a technikus a gépen valami mást is lát, a szken gomb ott van.
+
+Tesztek: `tests/test_manual_install_refresh.py` (a T440s sorai szó szerint; a generált PowerShell tokenizálása mindhárom szűrőmódban).

@@ -494,6 +494,60 @@ def read_hardware_identity():
     return out
 
 
+def parse_smbios_serials(raw):
+    """A nyers SMBIOS-táblából (`GetSystemFirmwareTable('RSMB')`) a gép sorozatszáma,
+    UUID-ja és az alaplap sorozatszáma: {'system_serial','system_uuid','board_serial'}.
+    Ami nincs benne, az ''. Tiszta függvény (a tesztek nyers bájtokkal hajtják)."""
+    out = {'system_serial': '', 'system_uuid': '', 'board_serial': ''}
+    data = bytes(raw or b'')[8:]   # RawSMBIOSData fejléc: 4 bájt verzió + DWORD hossz
+    i = 0
+    while i + 4 <= len(data):
+        stype, slen = data[i], data[i + 1]
+        if slen < 4:
+            break
+        end = data.find(b'\x00\x00', i + slen)
+        if end < 0:
+            break
+        strings = data[i + slen:end].split(b'\x00')
+
+        def _s(off):
+            if off >= slen:
+                return ''
+            n = data[i + off]
+            if not n or n > len(strings):
+                return ''
+            return strings[n - 1].decode('latin-1', 'replace').strip()
+
+        if stype == 1:
+            out['system_serial'] = _s(7)
+            if slen >= 0x18:
+                u = data[i + 8:i + 0x18]
+                if u not in (b'\x00' * 16, b'\xff' * 16):
+                    out['system_uuid'] = u.hex()
+        elif stype == 2:
+            out['board_serial'] = _s(7)
+        elif stype == 127:
+            break
+        i = end + 2
+    return out
+
+
+def read_smbios_serials():
+    """`parse_smbios_serials` a futó gép firmware-táblájából; hibánál üres mezők."""
+    try:
+        fn = ctypes.windll.kernel32.GetSystemFirmwareTable
+        fn.argtypes = [ctypes.wintypes.DWORD, ctypes.wintypes.DWORD, ctypes.c_void_p, ctypes.wintypes.DWORD]
+        fn.restype = ctypes.wintypes.UINT
+        size = fn(0x52534D42, 0, None, 0)   # 'RSMB'
+        if not size:
+            return parse_smbios_serials(b'')
+        buf = ctypes.create_string_buffer(size)
+        got = fn(0x52534D42, 0, buf, size)
+        return parse_smbios_serials(buf.raw[:got])
+    except Exception:
+        return parse_smbios_serials(b'')
+
+
 def platform_role():
     """A firmware által bejelentett géptípus (`PowerDeterminePlatformRoleEx`).
 

@@ -17,7 +17,7 @@ import threading
 import time
 import logging
 
-BUILD_NUMBER = 392
+BUILD_NUMBER = 393
 
 from app import common
 common.BUILD_NUMBER = BUILD_NUMBER
@@ -133,6 +133,16 @@ if __name__ == "__main__":
     # A beállítás SZÁNDÉKOSAN a --cli ág ELŐTT van (a szétbontás előtt utána volt): így a
     # CLI módú futások is ugyanabba a debug logba írnak, nem vesznek el nyomtalanul.
     log_filename = os.path.join(_app_data_dir(), "DriverVarázsló_debug.log")
+    # GÉPENKÉNT KÜLÖN NAPLÓ (2026-10-21): a vándorló teszt-SSD-n a másik gép naplója
+    # félrekerül, mielőtt a handler megnyitná a fájlt (lásd logupload_core).
+    gep_key, gep_label, gep_header, gep_moved = None, 'ismeretlen gép', '', (None, '', [])
+    try:
+        from app import logupload_core
+        gep_key, gep_label = logupload_core.machine_log_identity()
+        gep_header = logupload_core.log_header_line(gep_key, gep_label)
+        gep_moved = logupload_core.separate_other_machine_log(_app_data_dir(), gep_key)
+    except Exception as e:
+        gep_moved = (None, '', [f'a gépazonosítás/napló-szétválasztás elszállt: {e}'])
     try:
         from logging.handlers import RotatingFileHandler
 
@@ -142,15 +152,20 @@ if __name__ == "__main__":
             találgatják, és a magyar ékezetek "Ã¡"-szerű szemétként jelennek meg
             (terepen bizonyított). A BOM csak a fájl legelejére kerül (új fájl vagy
             rotáció utáni friss fájl), meglévő fájl folytatásakor nem szúrunk be
-            semmit a közepére."""
+            semmit a közepére. A BOM után a gép azonosító sora jön (2026-10-21): így
+            minden naplófájl - a rotált is - megmondja, melyik gépé."""
+            header = ''
+
             def _open(self):
                 stream = super()._open()
                 try:
                     if stream.tell() == 0:
-                        stream.write('﻿')
+                        stream.write('﻿' + (self.header + '\n' if self.header else ''))
                 except Exception:
                     pass
                 return stream
+
+        _BomRotatingFileHandler.header = gep_header
 
         log_handler = _BomRotatingFileHandler(log_filename, maxBytes=5 * 1024 * 1024, backupCount=2, encoding='utf-8')
         # %(threadName)s: párhuzamos szálak (pl. két egyszerre futó listázás) sorai a
@@ -163,7 +178,12 @@ if __name__ == "__main__":
         logging.basicConfig(level=logging.DEBUG)
 
     logging.info("=" * 50)
-    logging.info(f"DriverVarázsló ELINDITVA (Build {BUILD_NUMBER})")
+    logging.info(f"DriverVarázsló ELINDITVA (Build {BUILD_NUMBER}) - gép: {gep_label}")
+    logging.info(f"[GEP] Napló-azonosító: {gep_key or 'ismeretlen (a firmware nem ad azonosítót)'}")
+    if gep_moved[0]:
+        logging.info(f"[GEP] Az előző napló másik gépé volt ({gep_moved[1]}) - áthelyezve ide: {gep_moved[0]}")
+    for _e in gep_moved[2]:
+        logging.warning(f"[GEP] A másik gép naplójának áthelyezése nem sikerült: {_e}")
     logging.info(f"Parancssor: {sys.argv}")
     logging.info(f"Futtatasi konyvtar: {os.getcwd()}")
     logging.info(f"Admin jog: {bool(is_admin())}")

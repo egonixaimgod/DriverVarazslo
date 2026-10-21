@@ -581,6 +581,10 @@ def _hwscan_flow(api):
         ui.warn(f"{len(probs)} problémás eszköz — a menü 4. pontja alatt javíthatók.")
 
 
+# A kézi telepítés tételes kimenete (hwscan._report_hw_install_items).
+_INSTALL_STATE_TEXT = {'ok': '✅ most telepítve', 'already': '✅ már fent volt'}
+
+
 def _hwscan_table(api, pool=None):
     pool = pool if pool is not None else (getattr(api, 'hw_updates_pool', []) or [])
     if not pool:
@@ -597,11 +601,13 @@ def _hwscan_table(api, pool=None):
             flags.append(ui.GREEN + 'gyári csere' + ui.RESET)
         if p.get('prev_no_bind'):
             flags.append(ui.GREY + 'korábban nem kötött' + ui.RESET)
+        if p.get('install_state'):
+            flags.append(ui.GREEN + _INSTALL_STATE_TEXT[p['install_state']] + ui.RESET)
         rows.append([str(i), p.get('name') or '', p.get('wu_title') or '',
                      p.get('installed_version') or '-', ' '.join(flags)])
     ui.table(['#', 'Eszköz', 'Ajánlott csomag', 'Telepítve', 'Jelzés'],
              rows, widths=[4, 26, 34, 14, 22])
-    ui.dim('A "KOCKÁZATOS" és a "korábban nem kötött" tételek NINCSENEK előre kijelölve.')
+    ui.dim('A "KOCKÁZATOS", a "korábban nem kötött" és a már telepített tételek NINCSENEK előre kijelölve.')
 
 
 def _hwscan_install(api):
@@ -611,12 +617,16 @@ def _hwscan_install(api):
         return
     # Az AJÁNLOTT tételek (nem kockázatos, nem régebbi, nem "korábban nem kötött") előre
     # bepipálva - ugyanaz az alapállapot, mint a régi 'ajanlott' alapértelmezés.
+    # A most telepített tétel sem (install_state: _report_hw_install_items, 2026-10-21).
     rec = [i for i, p in enumerate(pool)
-           if not p.get('risky') and not p.get('downgrade') and not p.get('prev_no_bind')]
+           if not p.get('risky') and not p.get('downgrade') and not p.get('prev_no_bind')
+           and not p.get('install_state')]
     labels = []
     for p in pool:
         flags = [t for k, t in (('risky', 'KOCKÁZATOS'), ('downgrade', 'régebbi'),
                                 ('generic_ok', 'gyári csere'), ('prev_no_bind', 'korábban nem kötött')) if p.get(k)]
+        if p.get('install_state'):
+            flags.append(_INSTALL_STATE_TEXT[p['install_state']])
         labels.append(f"{p.get('name') or '?'}  →  {p.get('wu_title') or '?'}"
                       f"  (most: {p.get('installed_version') or '-'})" + (f"  [{', '.join(flags)}]" if flags else ''))
     ui.dim(f"{len(rec)} ajánlott tétel előre bepipálva.")
@@ -1265,7 +1275,8 @@ def _menu_maintenance(api):
             if ui.confirm('Beállítsam a teljesítmény módot? (laptopon rövidebb akkus üzemidő)', True):
                 _run_screen(api, 'Teljesítmény mód', lambda: api.apply_performance_mode())
         elif c == '10':
-            if ui.confirm('Törlöd a gép SAJÁT debug-naplóit? (a letöltött, más gépekről jött naplók maradnak)', False):
+            if ui.confirm('Törlöd a lemez debug-naplóit (a korábban erre a lemezre kötött gépekéit is)? '
+                          '(a Drive-ról letöltött naplók maradnak)', False):
                 r = api.clear_debug_logs() or {}
                 if r.get('success'):
                     ui.ok(f"Napló törölve ({r.get('removed', 0)} fájl, {r.get('mb', 0)} MB).")

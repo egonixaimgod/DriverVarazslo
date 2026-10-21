@@ -2827,7 +2827,8 @@ try {
     def install_selected_wu(self, selected_indices):
         logging.info(f"[API] install_selected_wu() - {len(selected_indices)} index kiválasztva")
         logging.debug(f"[WU_INSTALL] Indexek: {selected_indices}")
-        selected_pool = [self.hw_updates_pool[i] for i in selected_indices if 0 <= i < len(self.hw_updates_pool)]
+        valid_indices = [i for i in selected_indices if 0 <= i < len(self.hw_updates_pool)]
+        selected_pool = [self.hw_updates_pool[i] for i in valid_indices]
         if not selected_pool:
             logging.warning("[WU_INSTALL] Nincs érvényes driver kiválasztva!")
             self.emit('toast', {'message': '⚠️ Nincs érvényes driver kiválasztva!', 'type': 'warning'})
@@ -2858,6 +2859,8 @@ try {
             # csak WU-elem van, egy KORÁBBI telepítés listája maradna itt, és a végén egy
             # nem létező problémára ajánlanánk fel újrakötést + újraindítást (2026-09-26).
             self._catalog_staged_nobind = []
+            # Ugyanígy a tételes kimenet: egy előző telepítés értékei nem maradhatnak itt.
+            self._wu_ok_titles, self._wu_already_titles, self._catalog_item_states = set(), set(), {}
             success = fail = 0
             cancelled = False
             # Biztonsági háló a manuális telepítés elé is (az AutoFix eddig is csinálta):
@@ -2875,6 +2878,7 @@ try {
                 s, f, cancelled = self._install_catalog_sync(cat_items)
                 success += s
                 fail += f
+            self._report_hw_install_items(valid_indices, wu_items)
             if cancelled:
                 # A MEGSZAKÍTOTT FUTÁS NAPLÓJA IS FELMEGY: pont egy félbehagyott
                 # telepítésnél a legérdekesebb, meddig jutott a program.
@@ -2960,6 +2964,35 @@ try {
 
         self._safe_thread('wu_install', worker)
 
+    def _report_hw_install_items(self, indices, wu_items):
+        """Melyik kijelölt sor települt: a pool-elemre írva (`install_state`, a CLI ebből
+        olvas) és a felületnek (`hw_install_result`).
+
+        MIÉRT (2026-10-21, explicit user decision): a telepítés után a lista változatlanul
+        visszajött, a felrakott driver újra bepipálható volt, és egy második kattintás
+        újra letöltötte volna. Új szken helyett a telepítő saját, már ellenőrzött
+        kimenetét használjuk: azonnali, és nem téved egy újraindításra váró drivernél.
+        'ok' = felment és (katalógusnál) az eszköz átvette; 'already' = már fent volt.
+        Ami nem került ide (hiba, kötés nélkül maradt, visszaállított csere), marad a listán."""
+        wu_ids = {id(d) for d in wu_items}
+        states = getattr(self, '_catalog_item_states', None) or {}
+        ok_t = getattr(self, '_wu_ok_titles', None) or set()
+        al_t = getattr(self, '_wu_already_titles', None) or set()
+        out = {}
+        for i in indices:
+            d = self.hw_updates_pool[i]
+            if id(d) in wu_ids:
+                t = d.get('wu_title') or ''
+                st = 'ok' if t in ok_t else ('already' if t in al_t else None)
+            else:
+                st = states.get(id(d))
+            if st:
+                d['install_state'] = st
+                out[i] = st
+        logging.info(f"[WU_INSTALL] Tételes kimenet a listának: {len(out)}/{len(indices)} sor kész "
+                     f"({ {i: (self.hw_updates_pool[i].get('name'), st) for i, st in out.items()} }).")
+        self.emit('hw_install_result', {'items': {str(i): st for i, st in out.items()}})
+
     def _install_wu_api_sync(self, selected_pool):
         """A kézi WU-telepítés, ugyanazzal az ideiglenes keresési ablakkal, mint a keresés
         (a telepítő szkript maga is keres - szüneteltetve semmit nem találna)."""
@@ -3022,11 +3055,17 @@ try {
         had_error = False
         finished = False            # jött-e DONE/EMPTY sor (a szkript tényleg végigért)
         failed_titles = []          # telepítés-hibás (nem letöltési) címek az utóellenőrzéshez
-        # A kijelölt elemek nevei + a script FOUND: sorai: a végén ebből derül ki, ha egy
+        # A kijelölt elemek WU-címei + a script FOUND: sorai: a végén ebből derül ki, ha egy
         # kiválasztott driver nem került a telepítési listába (lásd unoffered_requested_titles).
-        requested_titles = [str(d.get('title') or d.get('name') or '') for d in selected_pool]
+        # A pool-elem csomagcíme a `wu_title`; a `name` az ESZKÖZ neve (2026-10-21, terepi
+        # napló, T440s: azzal vetettük össze, és egy sikeres telepítés után is kiírta, hogy
+        # "a Windows Update már telepítettként látja").
+        requested_titles = [str(d.get('wu_title') or d.get('title') or d.get('name') or '') for d in selected_pool]
         requested_titles = [t for t in requested_titles if t]
         found_titles = []
+        # Címenkénti kimenet a felületnek (install_selected_wu -> hw_install_result).
+        self._wu_ok_titles = set()
+        self._wu_already_titles = set()
 
         # A sorokat a KÖZÖS _iter_process_lines olvassa (wu_core): cancel-ellenőrzés
         # 0,5 mp-enként (nem csak új sor érkezésekor - régen a Mégse halott volt, ha a
@@ -3057,11 +3096,13 @@ try {
                     # Sikeres, de a WUA jelezte: a driver csak újraindítás után él.
                     success += 1
                     self._wu_reboot_required = True
+                    self._wu_ok_titles.add(line[5:].strip())
                     done = success + fail
                     self.emit('task_progress', {'task': 'wu_install', 'log': f'  ✅ {line[5:].strip()} (⚠️ újraindítás szükséges)',
                                                 'current': done, 'total': install_total, 'counter': f'{done}/{install_total}', 'ok': success, 'fail': fail})
                 elif line.startswith("OK:"):
                     success += 1
+                    self._wu_ok_titles.add(line[3:].strip())
                     done = success + fail
                     self.emit('task_progress', {'task': 'wu_install', 'log': f'  ✅ {line[3:].strip()}',
                                                 'current': done, 'total': install_total, 'counter': f'{done}/{install_total}', 'ok': success, 'fail': fail})
@@ -3096,7 +3137,10 @@ try {
 
         # Kijelölt, de a telepítési listába be sem került csomagok - e nélkül némán tűnnének
         # el (a felhasználó 3 drivert jelöl ki, és csak 2-ről lát visszajelzést).
-        for t in unoffered_requested_titles(requested_titles, found_titles):
+        # Egy megszakadt szkriptnél (nincs DONE/EMPTY) a hiányzó FOUND nem azt jelenti, hogy
+        # a WU telepítettnek látja - akkor nem állítjuk.
+        for t in (unoffered_requested_titles(requested_titles, found_titles) if finished else []):
+            self._wu_already_titles.add(t)
             self.emit('task_progress', {'task': 'wu_install',
                                         'log': f'  ⏭ {t} - a Windows Update már telepítettként látja, nincs mit telepíteni.'})
 
@@ -3108,6 +3152,7 @@ try {
             if verified:
                 success += len(verified)
                 fail -= len(verified)
+                self._wu_ok_titles.update(verified)
                 self.emit('task_progress', {'task': 'wu_install', 'log': f'\nℹ️ Utóellenőrzés: {len(verified)} "sikertelen" driver valójában FELKERÜLT (a Windows Update jelentése félrevezető volt):'})
                 for t in sorted(verified):
                     self.emit('task_progress', {'task': 'wu_install', 'log': f'   ✅ {t}'})
@@ -3593,6 +3638,10 @@ try {
         # kézi úton eddig a technikusnak kellett rájönnie, hogy ez a dolga.
         staged_nobind = []
         self._catalog_staged_nobind = staged_nobind
+        # Tételenkénti VÉGSŐ kimenet a felületnek: {id(pool-elem): 'ok'|'already'}. Az 'ok'-t
+        # a kötés-ellenőrzés és a generikus-csere visszaállítása még visszavonhatja (lent).
+        item_states = {}
+        self._catalog_item_states = item_states
         # Azok az elemek, amiknél a kötés-ellenőrzés IGAZOLTA, hogy az eszköz átvette a
         # drivert - ezek kulcsát a tartós no-bind emlékezetből törölni kell (ha egy
         # korábban nem-kötő csomag most mégis felment, a jelölése elavult).
@@ -4157,6 +4206,8 @@ try {
                     rc = res.returncode if res else '?'
                     # A tételes záró mérlegbe is (eddig kimaradt belőle: "mi lett a maradékkal?").
                     _mark('ok' if ok else 'fail', name, f'.msu, kód={rc}')
+                    if ok:
+                        item_states[id(drv)] = 'ok'
                     self.emit('task_progress', {'task': task_id, 'log': f'  {"✅" if ok else "❌"} {name} (.msu, kód={rc})'})
                     return
 
@@ -4267,6 +4318,7 @@ try {
                                 (drv, re.findall(r'Published Name\s*:\s*(oem\d+\.inf)', res.stdout or '', re.IGNORECASE)))
                     self.emit('task_progress', {'task': task_id, 'log': f'  ✅ {name} telepítve!'})
                     _mark('ok', name, drv.get('wu_title') or '')
+                    item_states[id(drv)] = 'ok'
                 elif no_op:
                     with counter_lock:
                         skipped += 1
@@ -4340,6 +4392,7 @@ try {
                     else:
                         reason = 'már a rendszerben van' if all_already else 'nincs új csomag'
                         _mark('uptodate', name, reason)
+                        item_states[id(drv)] = 'already'
                         self.emit('task_progress', {'task': task_id, 'log': f'  ↷ {name} már naprakész ({reason}) - kihagyva.'})
                 else:
                     with counter_lock:
@@ -4489,6 +4542,7 @@ try {
                             self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {drv.get("name")}: a csomag feltelepült, de az eszköz TOVÁBBRA IS driver nélkül áll - a Windows nem kötötte rá.'})
                         drv['no_bind_reason'] = 'felment, de az eszköz nem vette át'
                         no_bind.append(drv)
+                        item_states.pop(id(drv), None)
                         # A TÉTELES MÉRLEG IS KÖVESSE A KÖTÉS-ELLENŐRZÉST (2026-09-28, a Build
                         # 344-es javítások tesztje fogta meg): a sort a telepítés pillanatában
                         # 'ok'-nak jelöltük, és a "✅ Feltelepítve" alatt maradt akkor is, ha az
@@ -4506,6 +4560,8 @@ try {
                 # Generikus -> gyári cserék utóellenőrzése (és szükség esetén visszaállítás).
                 if generic_installs:
                     rolled_back = self._verify_generic_replacements(generic_installs, task_id)
+                    for d in getattr(self, '_generic_not_replaced', ()):
+                        item_states.pop(id(d), None)
                     if rolled_back:
                         success -= rolled_back
                         fail += rolled_back
@@ -4658,6 +4714,8 @@ try {
                                     kár lenne eldobni egy jó gyári drivert.
         Visszatérés: a visszaállított (tehát végül sikertelen) cserék száma."""
         logging.info(f"[GENERIC] {len(generic_installs)} generikus->gyári csere ellenőrzése...")
+        # Amelyik csere végül NEM valósult meg (a hívó ebből frissíti a tételes kimenetet).
+        self._generic_not_replaced = not_replaced = []
         self.emit('task_progress', {'task': task_id, 'log': '\n🔎 Gyári driverek ellenőrzése (visszaállítás, ha bármelyik hibás lett)...'})
         # A PnP-nek kell pár másodperc, amíg az új driverre átköti az eszközt.
         time.sleep(8)
@@ -4720,6 +4778,7 @@ try {
                     logging.warning(f"[GENERIC] {name}: a gyári csomag felment, de az eszköz "
                                     f"a Windows driverén maradt ({cur.get('inf')}) - nem valódi csere.")
                     self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {name}: a gyári csomag feltelepült, de az eszköz TOVÁBBRA IS a Windows driverén fut ({cur.get("inf")}) - valószínűleg más gépre szabott változat.'})
+                    not_replaced.append(drv)
                     continue
                 logging.info(f"[GENERIC] {name}: gyári driver OK (hibakód 0, INF: {cur.get('inf') or '?'}).")
                 self.emit('task_progress', {'task': task_id, 'log': f'  ✅ {name}: gyári driver működik (eddig Microsoft alapdriver volt).'})
@@ -4728,6 +4787,7 @@ try {
             desc = PNP_ERROR_CODE_DESCRIPTIONS.get(code, f'hibakód {code}')
             logging.warning(f"[GENERIC] {name}: a gyári driver után hibakód {code} - VISSZAÁLLÁS a Windows driverére.")
             self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {name}: a gyári driver nem működik ({desc}) - visszaállás a Windows driverére...'})
+            not_replaced.append(drv)
             if not published_infs:
                 # Nem tudjuk, mit publikált a pnputil - törölni sem tudunk pontosan.
                 self.emit('task_progress', {'task': task_id, 'log': f'  ❌ {name}: nem sikerült azonosítani a telepített csomagot, kézi visszaállítás kellhet (Eszközkezelő -> Driver visszaállítása).'})

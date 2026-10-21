@@ -52,6 +52,110 @@ UPLOAD_MAX_BYTES = 12 * 1024 * 1024
 SINGLE_LOG_TAIL_BYTES = 20 * 1024 * 1024
 
 
+# ===========================================================================
+# GÉPENKÉNT KÜLÖN NAPLÓ (2026-10-21, explicit user decision)
+# ===========================================================================
+# *"nagyon sok olyan van hogy 1 db ssd van, és sok gépre rákötöm ezért a logok
+# felgyülemlenek 1 log fileba"* - a terepi napló (T440s, 2026-10-21) négy gép két hónapját
+# hordta (20KGS4032P, 20ARS21Y0B, ...), és a Drive-ra is így ment fel, a mostani gép
+# nevével. Ezért: minden naplófájl első sora a gép azonosítója (`_BomRotatingFileHandler`
+# írja, új fájlnál és rotációnál is), és ha indításkor a meglévő napló MÁSIK gépé, az
+# átkerül a `naplok_korabbi_gepek\<dátum> - <gép>` mappába (nem törlődik), a mostani gép
+# pedig üres naplóval indul. Az azonosító a firmware sorozatszámaiból jön (két egyforma
+# típusú gépet is megkülönböztet), subprocess nélkül - a naplózás beállítása előtt fut.
+MACHINE_HEADER_PREFIX = '# GEP-AZONOSITO: '
+OTHER_MACHINES_SUBDIR = 'naplok_korabbi_gepek'
+_HEADER_RE = re.compile(r'^﻿?# GEP-AZONOSITO: (\w+)\s*\|\s*(.*)$')
+
+
+def machine_log_identity(hw=None, serials=None):
+    """(kulcs, címke) a futó gépre; kulcs = None, ha semmi nem azonosítja (3. elv).
+
+    `hw`: `win32.read_hardware_identity()`, `serials`: `win32.read_smbios_serials()`
+    (a tesztek adják be)."""
+    import hashlib
+    from app import machine_core
+    if hw is None or serials is None:
+        from app import win32
+        hw = win32.read_hardware_identity() if hw is None else hw
+        serials = win32.read_smbios_serials() if serials is None else serials
+    ph = machine_core.is_placeholder
+
+    def v(x):
+        x = str(x or '').strip()
+        return '' if ph(x) or x.lower() in ('system serial number', '0123456789') else x
+
+    vendor, product = v(hw.get('SystemManufacturer')), v(hw.get('SystemProductName'))
+    bvendor, bproduct = v(hw.get('BaseBoardManufacturer')), v(hw.get('BaseBoardProduct'))
+    serial, bserial = v(serials.get('system_serial')), v(serials.get('board_serial'))
+    uuid = v(serials.get('system_uuid'))
+    parts = [vendor, product, serial, uuid, bvendor, bproduct, bserial]
+    if not any(parts):
+        return None, 'ismeretlen gép'
+    key = hashlib.sha1('|'.join(p.lower() for p in parts).encode('utf-8')).hexdigest()[:12]
+    if vendor or product:
+        name = product if _name_covers_vendor(product, vendor) else f'{_trim_vendor_suffix(vendor)} {product}'
+        sn = serial or bserial
+    else:
+        name, sn = f'{_trim_vendor_suffix(bvendor)} {bproduct}', bserial or serial
+    label = ' '.join(name.split()) + (f' · SN {sn}' if sn else '')
+    return key, label
+
+
+def log_header_line(key, label):
+    return f"{MACHINE_HEADER_PREFIX}{key or 'ismeretlen'} | {label}"
+
+
+def _read_log_header(path):
+    """(kulcs, címke) a napló első sorából; (None, '') ha nincs fejléc (régi napló)."""
+    try:
+        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            m = _HEADER_RE.match(f.readline().rstrip('\r\n'))
+    except OSError:
+        return None, ''
+    return (m.group(1), m.group(2).strip()) if m else (None, '')
+
+
+def separate_other_machine_log(log_dir, key):
+    """Ha a meglévő napló MÁSIK gépé (vagy fejléc nélküli, több gépet keverő régi napló),
+    a fájlok (`.log`, `.log.1`, `.log.2`) átkerülnek a `naplok_korabbi_gepek` alá.
+
+    A naplózás beállítása ELŐTT fut, ezért nem naplóz: (célmappa, régi címke, hibák) a
+    visszatérés, a hívó írja ki. Semmi nem történik, ha a mostani gép nem azonosítható,
+    vagy ha a napló fejléce 'ismeretlen' (nem bizonyítható, hogy másik gépé)."""
+    import shutil
+    from datetime import datetime
+    base = os.path.join(log_dir, LOG_BASENAME)
+    if not key or not os.path.isfile(base) or os.path.getsize(base) == 0:
+        return None, '', []
+    old_key, old_label = _read_log_header(base)
+    if old_key == key or old_key == 'ismeretlen':
+        return None, '', []
+    stamp = datetime.fromtimestamp(os.path.getmtime(base)).strftime('%Y-%m-%d %H-%M')
+    label = old_label if old_key else 'régi napló gépazonosító nélkül (több gép vegyesen)'
+    dest = os.path.join(log_dir, OTHER_MACHINES_SUBDIR, _safe_name(f'{stamp} - {label}'))
+    errors = []
+    try:
+        os.makedirs(dest, exist_ok=True)
+    except OSError as e:
+        return None, label, [f'{dest}: {e}']
+    for p in [base] + [f'{base}.{n}' for n in (1, 2, 3)]:
+        if os.path.isfile(p):
+            try:
+                shutil.move(p, os.path.join(dest, os.path.basename(p)))
+            except OSError as e:
+                errors.append(f'{os.path.basename(p)}: {e}')
+                if p == base:
+                    # A fő fájl maradt (pl. egy kilépő példány még nyitva tartja): a rotáltakat
+                    # sem visszük, különben egy gép naplója két helyre szakadna. Következő indításkor újra.
+                    try:
+                        os.rmdir(dest)
+                    except OSError as e2:
+                        errors.append(f'az üres mappa maradt ({dest}): {e2}')
+                    return None, label, errors
+    return dest, label, errors
+
+
 def log_paths():
     """A feltöltendő naplófájlok, LEGFRISSEBB ELŐSZÖR. Csak a létezők."""
     base = os.path.join(_app_data_dir(), LOG_BASENAME)
@@ -667,7 +771,11 @@ def clear_logs():
     base = os.path.join(_app_data_dir(), LOG_BASENAME)
     # A rotált fájlok `.1`, `.2` végűek (backupCount=2), de gyűjtsük mintával, hogy egy
     # későbbi backupCount-változás se hagyjon itt fájlt.
-    targets = sorted(set([base] + _glob.glob(base + '.*')))
+    # A félrerakott, korábbi gépek naplói is (2026-10-21 előtt ugyanebben a fájlban voltak,
+    # tehát a gomb eddig is törölte őket).
+    other = os.path.join(_app_data_dir(), OTHER_MACHINES_SUBDIR)
+    targets = sorted(set([base] + _glob.glob(base + '.*')
+                         + _glob.glob(os.path.join(_glob.escape(other), '*', LOG_BASENAME + '*'))))
     targets = [p for p in targets if os.path.isfile(p)]
     if not targets:
         logging.info("[LOGCLEAR] Nincs törölhető naplófájl.")
@@ -723,6 +831,14 @@ def clear_logs():
                     h.release()
                 except Exception:
                     pass
+
+    # A kiürült gép-mappák (amiben más is van, az marad - azt nem mi tettük oda).
+    for d in _glob.glob(os.path.join(_glob.escape(other), '*')) + [other]:
+        if os.path.isdir(d) and not os.listdir(d):
+            try:
+                os.rmdir(d)
+            except OSError as e:
+                errors.append(f"{os.path.basename(d)}: {e}")
 
     # Az ÚJ naplóba (ezért van a handler-újranyitás után): mi tűnt el és mikor.
     logging.warning(f"[LOGCLEAR] Napló törölve: {removed} fájl, {freed / 1048576:.1f} MB "

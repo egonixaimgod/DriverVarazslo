@@ -3230,6 +3230,9 @@ window.handlePyEvent = function(payload) {
     case 'hw_scan_result':
       onHwScanResult(data);
       break;
+    case 'hw_install_result':
+      onHwInstallResult(data);
+      break;
     case 'store_apps_state':
       if (hwScanMeta) { hwScanMeta.store_apps_missing = data.missing || []; hwScanMeta.store_apps_unknown = false; renderHwSummary(); }
       break;
@@ -5967,12 +5970,13 @@ const HW_TABS = [
   {key:'all',  cls:'',         label:'📋 Mind'},
 ];
 function hwTabCounts() {
-  const dead = hwPool.filter(hwIsDeadOffer).length;
+  const dead = hwPool.filter(d => hwIsDeadOffer(d) && !hwIsDone(d)).length;
+  const done = hwPool.filter(hwIsDone).length;
   return {
-    todo: (hwPool.length - dead) + hwProblems.length,
+    todo: (hwPool.length - dead - done) + hwProblems.length,
     bad: hwProblems.length,
     dead: dead,
-    ok: hwInstalled.length,
+    ok: hwInstalled.length + done,
     all: hwPool.length + hwInstalled.length + hwProblems.length,
   };
 }
@@ -6055,7 +6059,7 @@ function renderHwTree() {
   if (showOffers && hwPool.length > 0) {
     const cats = {};
     hwPool.forEach((d, i) => {
-      if (hwIsDeadOffer(d)) return;   // saját, összecsukott csoportja van (renderDeadOffers)
+      if (hwIsDeadOffer(d) || hwIsDone(d)) return;   // saját csoportjuk van (renderDeadOffers / Naprakész)
       const c = d.cat || '🔧 Egyéb'; if(!cats[c]) cats[c]=[]; cats[c].push({idx:i, ...d});
     });
     const sortedCats = [...HW_CAT_ORDER.filter(c=>cats[c]), ...Object.keys(cats).filter(c=>!HW_CAT_ORDER.includes(c))];
@@ -6076,7 +6080,7 @@ function renderHwTree() {
     });
   }
 
-  if (showDead) renderDeadOffers(container, hwPool.map((d,i)=>({idx:i, ...d})).filter(hwIsDeadOffer));
+  if (showDead) renderDeadOffers(container, hwPool.map((d,i)=>({idx:i, ...d})).filter(d => hwIsDeadOffer(d) && !hwIsDone(d)));
   if (showOk) renderHwInstalled(container);
 
   // Üres fül: mondjuk ki, MIÉRT üres - egy néma üres doboz hibának néz ki.
@@ -6175,6 +6179,29 @@ function hwRowHtml(it) {
                     csomagnak vagy egy téves feljegyzésnek elérhetőnek kell maradnia. */
 function hwIsDeadOffer(d) { return !!(d && d.prev_no_bind); }
 
+/* A MOST TELEPÍTETT SOR (2026-10-21, explicit user decision: *"vagy frissüljön le, vagy
+   szedje ki a listából azt amit már feltelepítettem"*). A telepítés után a lista eddig
+   változatlanul jött vissza, a felrakott driver újra bepipálható volt. A `install_state`-et
+   a Python adja (`hw_install_result`, a telepítő ellenőrzött kimenetéből: 'ok' = felment
+   és az eszköz átvette, 'already' = már fent volt). A sor a hwPool-ban MARAD (az indexek a
+   Python poolját címzik), csak a Naprakész csoportba kerül, pipa nélkül. */
+function hwIsDone(d) { return !!(d && d.install_state); }
+
+function onHwInstallResult(data) {
+  const items = (data && data.items) || {};
+  let n = 0;
+  Object.keys(items).forEach(k => {
+    const i = parseInt(k, 10);
+    if (!hwPool[i]) return;
+    hwPool[i].install_state = items[k];
+    hwSelectedIndices.delete(i);
+    n++;
+  });
+  if (!n) return;
+  renderHwTabs(); renderHwTree(); updateHwButtons();
+  toast('✅ ' + n + ' driver lekerült a teendők közül — a ✅ Naprakész fülön látod.', 'success');
+}
+
 /* A BIZONYÍTOTTAN NEM ILLESZKEDŐ AJÁNLATOK KÜLÖN, ÖSSZECSUKOTT CSOPORTBAN.
 
    Terepi visszajelzés (2026-09-01): *"ha nem tudja telepíteni mi a fasznak van ott???"*.
@@ -6249,14 +6276,16 @@ function renderDeadOffers(container, dead) {
    törölve lett, és egy badge ugyanannak a visszacsempészése lenne más néven. A gyártónév
    maga kimondja annak, aki keresi. */
 function renderHwInstalled(container) {
-  if (hwInstalled.length > 0) {
+  // A most telepített sorok is ide tartoznak (hwIsDone), a saját soruk-formájukkal.
+  const all = hwInstalled.concat(hwPool.filter(hwIsDone));
+  if (all.length > 0) {
     const sep = document.createElement('div');
     sep.className = 'hw-separator';
-    sep.textContent = '✅ Naprakész — nincs újabb driver ezekhez (' + hwInstalled.length + ' eszköz)';
+    sep.textContent = '✅ Naprakész — nincs újabb driver ezekhez (' + all.length + ' eszköz)';
     container.appendChild(sep);
     const instOpen = hwGroupOpen('installed');   // ma: soha - lásd a függvény tábláját
     const instCats = {};
-    hwInstalled.forEach(d => { const c = d.cat||'🔧 Egyéb'; if(!instCats[c]) instCats[c]=[]; instCats[c].push(d); });
+    all.forEach(d => { const c = d.cat||'🔧 Egyéb'; if(!instCats[c]) instCats[c]=[]; instCats[c].push(d); });
     const sortedCats = [...HW_CAT_ORDER.filter(c=>instCats[c]), ...Object.keys(instCats).filter(c=>!HW_CAT_ORDER.includes(c))];
     sortedCats.forEach(cat => {
       const items = instCats[cat];
@@ -6273,6 +6302,17 @@ function renderHwInstalled(container) {
 
 /* Egy naprak\u00e9sz eszk\u00f6z sora: MI VAN RAJTA MOST (gy\u00e1rt\u00f3 \u2014 verzi\u00f3 [d\u00e1tum] / INF-n\u00e9v). */
 function hwInstalledRowHtml(it) {
+  // A most telep\u00edtett sor: a felrakott csomag (a r\u00e9gi `installed_version` m\u00e1r nem igaz).
+  if (hwIsDone(it)) {
+    return '<div class="hw-item">'
+      + '<span></span>'
+      + '<span class="name" title="'+esc(it.name)+'">'+esc(it.name)
+      +   ' <span style="color:var(--green);font-size:11px;font-weight:700">'
+      +   (it.install_state === 'ok' ? '\u2705 most telep\u00edtve' : '\u2705 m\u00e1r fent volt') + '</span></span>'
+      + '<span class="wu"><span class="hw-inst-drv">' + esc(it.wu_title || '')
+      +   (it.wu_date ? ' <span class="hw-inst-meta">[' + esc(it.wu_date) + ']</span>' : '') + '</span></span>'
+      + '<span class="hwid" title="'+esc(it.hwid||'')+'">'+esc(it.hwid||'')+'</span></div>';
+  }
   const drv = it.installed_version
     ? '<span class="hw-inst-drv">'
       + (it.installed_provider ? esc(it.installed_provider) + ' \u2014 ' : '')
@@ -6305,7 +6345,7 @@ function toggleHwCatById(catId) {
   const cat = catDiv.dataset.catname;
   const isChecked = checkbox.checked;
   hwPool.forEach((d, idx) => {
-    if ((d.cat || '🔧 Egyéb') === cat) {
+    if ((d.cat || '🔧 Egyéb') === cat && !hwIsDone(d)) {
       if (isChecked) hwSelectedIndices.add(idx); else hwSelectedIndices.delete(idx);
     }
   });
@@ -6324,7 +6364,7 @@ function toggleHwItem(idx) {
    Kézzel, a "Nem telepíthető" csoportot kinyitva továbbra is bejelölhetők - a döntést
    nem vesszük el, csak nem tesszük alapértelmezetté. */
 function selectAllHw() {
-  hwPool.forEach((d,i)=>{ if (!hwIsDeadOffer(d)) hwSelectedIndices.add(i); });
+  hwPool.forEach((d,i)=>{ if (!hwIsDeadOffer(d) && !hwIsDone(d)) hwSelectedIndices.add(i); });
   renderHwTree(); updateHwButtons();
 }
 function deselectAllHw() { hwSelectedIndices.clear(); renderHwTree(); updateHwButtons(); }
@@ -6485,11 +6525,13 @@ function updateHwButtons() {
   // egy 90 soros listában a pipák nem számolhatók szemmel.
   const info = document.getElementById('hw-sel-info');
   if (info) {
-    const dead = hwPool.filter(hwIsDeadOffer).length;
-    const real = hwPool.length - dead;
+    const dead = hwPool.filter(d => hwIsDeadOffer(d) && !hwIsDone(d)).length;
+    const done = hwPool.filter(hwIsDone).length;
+    const real = hwPool.length - dead - done;
     info.innerHTML = hasPool
       ? ('<b>' + hwSelectedIndices.size + ' / ' + real + '</b> driver kijelölve'
-         + (dead ? '  ·  ' + dead + ' nem telepíthető (külön fülön)' : ''))
+         + (dead ? '  ·  ' + dead + ' nem telepíthető (külön fülön)' : '')
+         + (done ? '  ·  ' + done + ' telepítve (a Naprakész fülön)' : ''))
       : '';
   }
 }
@@ -7573,7 +7615,7 @@ async function clearDebugLogs() {
   const el = document.getElementById('clear-log-label');
   const ok = await showConfirm('Napló törlése',
     'Töröljem a gép debug-naplóit?\n\n' +
-    'Ezzel a mostani és a korábbi futások naplói VÉGLEG eltűnnek - ha egy hibát még ' +
+    'Ezzel a mostani és a korábbi futások naplói (a korábban erre a lemezre kötött gépeké is) VÉGLEG eltűnnek - ha egy hibát még ' +
     'elemezni kellene, előbb töltsd fel vagy mentsd ki őket.\n\n' +
     'A Naplók nézetbe letöltött, más gépekről származó naplókat nem érinti.');
   if (!ok) return;

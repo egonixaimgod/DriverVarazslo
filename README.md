@@ -391,6 +391,7 @@ A DriverVarázsló hibajelentése maga a napló. Egy szervizben lefutott javít�
 - **Hely:** `%SystemDrive%\DriverVarazslo\DriverVarázsló_debug.log` (rotálva, legfeljebb 3 × 5 MB, UTF-8)
 - **Tartalom:** minden külső parancs a kimenetével és visszatérési kódjával, minden döntés *a bemenetével együtt* (melyik csomag, melyik eszköz, melyik telepített verzióhoz képest), minden szűrő azzal, amit kiszűrt, és minden felhasználói kattintás vagy CLI-bevitel.
 - **Szálbiztos:** a párhuzamos munkaszálak sorai a szál nevével azonosíthatók.
+- **Gépenként külön:** minden naplófájl első sora megnevezi a gépet (típus + sorozatszám). Ha ugyanazt a lemezt egy másik gépbe kötöd, az előző gép naplója a `naplok_korabbi_gepek` mappába kerül, és a mostani gép tiszta naplóval indul.
 - **Felhő-szinkron:** a futások naplói gépenként és futásonként, dátum szerint rendezve kerülnek a szerviz tárhelyére. A letöltéshez jelszó kell, és időszak szerint szűrhető (ma / 7 nap / 30 nap / 1 év / összes).
 
 ---
