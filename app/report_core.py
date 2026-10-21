@@ -390,6 +390,77 @@ def _collect_smart_data(run, smartctl_exe, system_disk=None, excluded=None):
     return smart_data
 
 
+def _int_or_none(v):
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_batteries(stdout):
+    """A riport akku-szkriptjének JSON-ja → [{'name','manufacturer','design','full'}],
+    MINDEN akkuval (a T440s-ben kettő van; 2026-10-21-ig csak az első került a riportba).
+    Az olvashatatlan kapacitás `None`, nem 0 (3. elv)."""
+    text = (stdout or '').strip()
+    if not text:
+        return []
+    try:
+        data = json.loads(text)
+    except ValueError as e:
+        logging.warning(f"[REPORT] Akkumulátor JSON értelmezési hiba (akku-szekció kimarad): {e}; "
+                        f"kimenet: {text[:300]!r}")
+        return []
+    if isinstance(data, dict):  # régi PowerShell egy elemnél kibonthatja a tömböt
+        data = [data]
+    out = [{'name': str(b.get('Name') or '').strip(),
+            'manufacturer': str(b.get('Manufacturer') or '').strip(),
+            'design': _int_or_none(b.get('Design')),
+            'full': _int_or_none(b.get('Full'))}
+           for b in data if isinstance(b, dict)]
+    logging.info(f"[REPORT] Akkumulátorok: {len(out)} db - " +
+                 ("; ".join(f"{b['manufacturer']} {b['name']}: gyári={b['design']} "
+                            f"jelenlegi={b['full']} mWh" for b in out) or "nincs"))
+    return out
+
+
+def battery_section_html(batteries):
+    """Az akku-szekció HTML-je: egy oszlop akkunként (egy akkunál nincs fejléc-sor)."""
+    if not batteries:
+        return ''
+
+    def health(b):
+        if not b['design'] or b['full'] is None:
+            return '<span class="badge health-Warning">nem olvasható</span>'
+        pct = round(b['full'] / b['design'] * 100)
+        cls = "health-Healthy" if pct > 80 else "health-Warning" if pct > 50 else "health-Unhealthy"
+        icon = "🔋" if pct >= 20 else "🪫"
+        return (f'<span style="font-size:18px; vertical-align:middle;">{icon}</span> '
+                f'<span class="badge {cls}" style="font-size:13px; padding:4px 8px;">{pct}%</span>')
+
+    def mwh(v):
+        return f"{v} mWh" if v is not None else "?"
+
+    def row(title, cells):
+        return f"<tr><th>{title}</th>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>"
+
+    head = ''
+    if len(batteries) > 1:
+        head = row('', [f"<b>{i}. akku</b><br><span style='color:#888;font-size:11px'>"
+                        f"{html_escape(' '.join(x for x in (b['manufacturer'], b['name']) if x))}</span>"
+                        for i, b in enumerate(batteries, 1)])
+    title = f"🔋 Akkumulátor Állapot ({len(batteries)} db)" if len(batteries) > 1 else "🔋 Akkumulátor Állapot"
+    return f"""
+        <div class="section">
+            <h2>{title}</h2>
+            <table>
+                {head}
+                {row('Gyári kapacitás', [mwh(b['design']) for b in batteries])}
+                {row('Jelenlegi max.', [mwh(b['full']) for b in batteries])}
+                {row('Egészség', [health(b) for b in batteries])}
+            </table>
+        </div>"""
+
+
 def pdf_page_count(pdf_path):
     """Egy PDF oldalszáma, külső csomag nélkül. Visszatérés: int, vagy None, ha nem
     állapítható meg (a nemtudás nem 1 oldal - 3. elv).
@@ -438,28 +509,25 @@ def generate_system_report(run, smartctl_exe=None, note=None, skip_system_disk=F
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $tempXML = "$env:TEMP\batt_$(Get-Random).xml"
 try {
-    powercfg /batteryreport /xml /output $tempXML | Out-Null
+    $pc = (powercfg /batteryreport /xml /output $tempXML 2>&1) -join ' '
+    # 0x10d2 = nincs akku a gépben (asztali gép) - ez eredmény, nem hiba
+    if (-not (Test-Path $tempXML) -and $pc -match '0x10d2') { '[]'; return }
     [xml]$batt = Get-Content $tempXML -ErrorAction Stop
-    if ($batt.BatteryReport.Batteries.Battery) {
-        $b = $batt.BatteryReport.Batteries.Battery
-        if ($b -is [array]) { $b = $b[0] }
-        $des = $b.DesignCapacity
-        $full = $b.FullChargeCapacity
-        $name = $b.Id
-        @{Name=$name; Design=$des; Full=$full} | ConvertTo-Json -Compress
-    }
-} catch {}
+    # MINDEN akku kell (a ThinkPad T440s-ben kettő van: belső + cserélhető)
+    $list = @(foreach ($b in @($batt.BatteryReport.Batteries.Battery)) {
+        if ($b) { @{Name=$b.Id; Manufacturer=$b.Manufacturer; Design=$b.DesignCapacity; Full=$b.FullChargeCapacity} }
+    })
+    ConvertTo-Json -InputObject $list -Compress
+} catch { [Console]::Error.WriteLine("BATTERR|$_") }
 finally {
     if (Test-Path $tempXML) { Remove-Item $tempXML -Force -ErrorAction SilentlyContinue }
 }
 """
     res_batt = run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", batt_script], encoding='utf-8')
-    batt_data = {}
-    if res_batt.stdout.strip():
-        try:
-            batt_data = json.loads(res_batt.stdout.strip())
-        except Exception as e:
-            logging.debug(f"[REPORT] Akkumulátor JSON értelmezési hiba (akku-szekció kimarad): {e}")
+    if 'BATTERR|' in (res_batt.stderr or ''):
+        logging.warning(f"[REPORT] Az akkumulátor-riport lekérdezése elbukott (akku-szekció kimarad): "
+                        f"{res_batt.stderr.strip()[:300]}")
+    batteries = parse_batteries(res_batt.stdout)
 
     # Alapvető WMI hardver adatok
     ps_script = r"""
@@ -679,26 +747,8 @@ különben a scrollHeight nem számolja, és az egyoldalas mérés ennyivel alul
 
     <div class="col">"""
 
-    # Akku szekció ha van
-    if batt_data.get('Design') and batt_data.get('Full'):
-        try:
-            des = int(batt_data['Design'])
-            full = int(batt_data['Full'])
-            health_pct = round((full / des) * 100)
-            h_class = "health-Healthy" if health_pct > 80 else "health-Warning" if health_pct > 50 else "health-Unhealthy"
-            batt_icon = "🔋" if health_pct >= 20 else "🪫"
-
-            html += f"""
-        <div class="section">
-            <h2>🔋 Akkumulátor Állapot</h2>
-            <table>
-                <tr><th>Gyári kapacitás</th><td>{des} mWh</td></tr>
-                <tr><th>Jelenlegi max.</th><td>{full} mWh</td></tr>
-                <tr><th>Egészség</th><td><span style="font-size:18px; vertical-align:middle;">{batt_icon}</span> <span class="badge {h_class}" style="font-size:13px; padding:4px 8px;">{health_pct}%</span></td></tr>
-            </table>
-        </div>"""
-        except Exception as ex:
-            logging.debug(f"[REPORT] Akkumulátor-szekció renderelési hiba (kimarad a riportból): {ex}")
+    # Akku szekció ha van (minden akku egy oszlop)
+    html += battery_section_html(batteries)
 
     html += """
         <div class="section">
