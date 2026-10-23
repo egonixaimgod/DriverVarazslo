@@ -10,6 +10,7 @@ import json
 import shutil
 import logging
 import time
+import fnmatch
 from app.common import _app_data_dir, _ps_quote
 from app.stress_defs import STRESS_TOOLS
 # === /AUTO-IMPORTS ===
@@ -48,25 +49,149 @@ class GuiToolsInstallMixin:
         except Exception as e:
             logging.warning(f"[TOOLSINSTALL] installed_tools.json írási hiba: {e}")
 
+    def _tools_scan_roots(self):
+        """A Program Files (x86) ÉS a sima Program Files: egy kézzel vagy a gyártó
+        telepítőjével feltett program bármelyikben lehet."""
+        roots = []
+        for r in (self._tools_install_root(), os.environ.get('ProgramFiles')):
+            if r and os.path.isdir(r) and os.path.normcase(r) not in [os.path.normcase(x) for x in roots]:
+                roots.append(r)
+        return roots
+
+    def _scan_installed_tools(self, keys):
+        """{kulcs: (exe, mappa)} a nyilvántartás ÉS a lemez alapján. A nyilvántartás
+        hiányozhat (törölt C:\\DriverVarazslo, kézi másolás), ezért a Program Files
+        gyökerek alatt a mappában lévő exe is számít: <gyökér>\\X\\exe vagy
+        <gyökér>\\X\\Y\\exe (mélyebbre nem megyünk, a teljes Program Files bejárása
+        lassú). A felismert mappa a nyilvántartásnál a telepítéskori célmappa, egyébként
+        az exe saját mappája (így pl. CPUID\\CPU-Z törlése nem viszi a CPUID többi
+        programját)."""
+        records = self._load_tool_install_records()
+        out = {}
+        for key in keys:
+            rec = records.get(key)
+            if rec and rec.get('exe') and os.path.exists(rec['exe']):
+                out[key] = (rec['exe'], rec.get('dir') or os.path.dirname(rec['exe']))
+        missing = [k for k in keys if k not in out]
+        if not missing:
+            return out
+        best = {}  # kulcs -> (minta-prioritás, exe)
+        for root in self._tools_scan_roots():
+            try:
+                level1 = [e.path for e in os.scandir(root) if e.is_dir(follow_symlinks=False)]
+            except OSError as e:
+                logging.warning(f"[TOOLSINSTALL] {root} nem olvasható: {e}")
+                continue
+            for d1 in level1:
+                try:
+                    entries = list(os.scandir(d1))
+                except OSError:
+                    continue  # pl. WindowsApps: hozzáférés megtagadva - nem a mi programunk
+                dirs = [d1] + [e.path for e in entries if e.is_dir(follow_symlinks=False)]
+                for d in dirs:
+                    try:
+                        files = entries if d == d1 else list(os.scandir(d))
+                    except OSError:
+                        continue
+                    for f in files:
+                        fl = f.name.lower()
+                        if not fl.endswith('.exe'):
+                            continue
+                        for key in missing:
+                            for idx, pattern in enumerate(STRESS_TOOLS[key][1]):
+                                if fnmatch.fnmatchcase(fl, pattern) and (key not in best or idx < best[key][0]):
+                                    best[key] = (idx, f.path)
+        for key, (_, exe) in best.items():
+            out[key] = (exe, os.path.dirname(exe))
+            logging.info(f"[TOOLSINSTALL] {STRESS_TOOLS[key][0]}: nyilvántartás nélkül, a lemezen felismerve: {exe}")
+        return out
+
     def _find_installed_tool_exe(self, key):
-        """A korábban telepített program exe-je, ha a nyilvántartás szerint telepítve van
-        ÉS az exe ténylegesen létezik is még (a felhasználó kézzel törölhette a mappát -
-        ilyenkor None, és a hívó visszaesik a portable útra)."""
-        rec = self._load_tool_install_records().get(key)
-        if rec and rec.get('exe') and os.path.exists(rec['exe']):
-            return rec['exe']
-        return None
+        """A telepített program exe-je (nyilvántartás vagy a Program Files alatti mappa),
+        különben None, és a hívó visszaesik a portable útra."""
+        hit = self._scan_installed_tools([key]).get(key)
+        return hit[0] if hit else None
 
     def get_service_tools_status(self):
         """Szinkron UI-hívás: {kulcs: {'installed': bool, 'path': mappa}} minden
         STRESS_TOOLS-beli programra - a program-kártyák "Telepítve" jelvényéhez."""
-        out = {}
-        records = self._load_tool_install_records()
-        for key in STRESS_TOOLS:
-            rec = records.get(key)
-            installed = bool(rec and rec.get('exe') and os.path.exists(rec['exe']))
-            out[key] = {'installed': installed, 'path': (rec or {}).get('dir')}
-        return out
+        found = self._scan_installed_tools(list(STRESS_TOOLS))
+        return {key: {'installed': key in found, 'path': found[key][1] if key in found else None}
+                for key in STRESS_TOOLS}
+
+    def uninstall_service_tools(self, keys):
+        """A kiválasztott programok eltávolítása: a mappájuk törlése a Program Files
+        alól, az asztali parancsikonjuk törlése, a nyilvántartás frissítése. A verdikt a
+        visszaolvasás (az exe eltűnt-e); egy futó program zárolt fájljai miatt a törlés
+        félbe is maradhat - azt kiírjuk."""
+        logging.info(f"[API] uninstall_service_tools({keys})")
+        keys = [k for k in (keys or []) if k in STRESS_TOOLS]
+        if not keys:
+            self.emit('toast', {'message': '⚠️ Nincs kiválasztott program a törléshez!', 'type': 'warning'})
+            return
+
+        def worker():
+            try:
+                self.emit('task_start', {'task': 'toolsinstall', 'title': 'Szervíz Programok Törlése'})
+                found = self._scan_installed_tools(keys)
+                records = self._load_tool_install_records()
+                ok_count, fail_count, skip_count = self._uninstall_tools_sync(keys, found, records)
+                if fail_count == 0:
+                    self.emit('task_complete', {'task': 'toolsinstall', 'status': f'✅ {ok_count} program törölve' + (f', {skip_count} nem volt telepítve.' if skip_count else '.')})
+                else:
+                    self.emit('task_complete', {'task': 'toolsinstall', 'status': f'⚠️ {ok_count} program törölve, {fail_count} törlése nem sikerült (fut még? részletek a fenti naplóban).'})
+            except Exception as e:
+                logging.error(f"[TOOLSINSTALL] uninstall_service_tools hiba: {e}", exc_info=True)
+                self.emit('task_error', {'task': 'toolsinstall', 'error': f'Hiba: {str(e)}'})
+
+        self._safe_thread('toolsinstall', worker)
+
+    def _uninstall_tools_sync(self, keys, found, records):
+        """A törlés magja (a worker és a teszt hívja). Visszaad: (ok, hiba, kihagyott)."""
+        roots = [os.path.normcase(os.path.abspath(r)) for r in self._tools_scan_roots()]
+        desktop = os.path.join(os.environ.get('PUBLIC', r'C:\Users\Public'), 'Desktop')
+        ok_count = fail_count = skip_count = 0
+        for key in keys:
+            display_name = STRESS_TOOLS[key][0]
+            hit = found.get(key)
+            if not hit:
+                skip_count += 1
+                self.emit('task_progress', {'task': 'toolsinstall', 'log': f'ℹ️ {display_name}: nincs telepítve, kihagyva.'})
+                continue
+            exe, folder = hit
+            folder_n = os.path.normcase(os.path.abspath(folder))
+            # Csak a Program Files gyökerek ALATTI mappát töröljük, magát a gyökeret soha.
+            if folder_n in roots or not any(folder_n.startswith(r + os.sep) for r in roots):
+                fail_count += 1
+                logging.error(f"[TOOLSINSTALL] {display_name}: a mappa nem a Program Files alatt van, nem töröljük: {folder}")
+                self.emit('task_progress', {'task': 'toolsinstall', 'log': f'❌ {display_name}: a mappa ({folder}) nem a Program Files alatt van, nem töröltem.'})
+                continue
+            logging.info(f"[TOOLSINSTALL] {display_name}: törlés: {folder}")
+            self.emit('task_progress', {'task': 'toolsinstall', 'log': f'🗑️ {display_name}: {folder} törlése...'})
+            errors = []
+            shutil.rmtree(folder, onerror=lambda fn, p, ei: errors.append(f"{p}: {ei[1]}"))
+            lnks = [(records.get(key) or {}).get('lnk'), os.path.join(desktop, f"{display_name}.lnk")]
+            for lnk in {l for l in lnks if l}:
+                if os.path.exists(lnk):
+                    logging.info(f"[TOOLSINSTALL] {display_name}: parancsikon törlése: {lnk}")
+                    try:
+                        os.remove(lnk)
+                    except OSError as e:
+                        errors.append(f"{lnk}: {e}")
+            if os.path.exists(exe):
+                fail_count += 1
+                logging.error(f"[TOOLSINSTALL] {display_name}: az exe a törlés után is megvan ({exe}); hibák: {errors[:5]}")
+                self.emit('task_progress', {'task': 'toolsinstall', 'log': f'❌ {display_name}: nem sikerült törölni (fut a program?) - {errors[0] if errors else exe}'})
+                continue
+            records.pop(key, None)
+            self._save_tool_install_records(records)
+            ok_count += 1
+            if errors:
+                logging.warning(f"[TOOLSINSTALL] {display_name}: törölve, de maradt fájl: {errors[:5]}")
+                self.emit('task_progress', {'task': 'toolsinstall', 'log': f'⚠️ {display_name}: törölve, de {len(errors)} fájl bent maradt ({errors[0]})'})
+            else:
+                self.emit('task_progress', {'task': 'toolsinstall', 'log': f'✅ {display_name} törölve (mappa + parancsikon).'})
+        return ok_count, fail_count, skip_count
 
     def _tool_source_root(self, stress_dir, exe_path):
         """A programhoz tartozó, TELJES egészében átmásolandó forrásmappa a kicsomagolt

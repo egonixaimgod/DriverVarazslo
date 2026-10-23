@@ -1155,8 +1155,10 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .tool-actions{display:flex;align-items:center;gap:8px;margin-top:2px}
 .tool-install-pick{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);cursor:pointer;user-select:none;margin-left:auto}
 .tool-install-pick input{accent-color:var(--accent);width:15px;height:15px;cursor:pointer}
-.tool-installed{position:absolute;top:10px;right:10px;font-size:10px;font-weight:800;letter-spacing:0.5px;padding:2px 9px;border-radius:999px;background:rgba(120,255,160,0.15);border:1px solid rgba(120,255,160,0.4);color:#8dffb0;display:none}
-.tool-card.installed .tool-installed{display:inline-block}
+.tool-state{display:none;margin:2px 0 0 4px;font-size:10px;font-weight:800;letter-spacing:0.5px;padding:1px 8px;border-radius:999px}
+.tool-card.installed{border-color:rgba(120,255,160,0.55)}
+.tool-card.installed .tool-state{display:inline-block;background:rgba(120,255,160,0.15);border:1px solid rgba(120,255,160,0.4);color:#8dffb0}
+.tool-card.notinstalled .tool-state{display:inline-block;background:rgba(255,200,80,0.14);border:1px solid rgba(255,200,80,0.4);color:#ffd166}
 
 /* 1 Kattintásos Driver Fix gyorsindító kártya a Driverek nézetben */
 .autofix-hero{position:relative;overflow:hidden;padding:24px 26px;margin:16px 0;display:flex;align-items:center;gap:22px;flex-wrap:wrap;background:linear-gradient(135deg,rgba(140,80,255,0.22),rgba(80,40,180,0.16) 55%,var(--glass));border:1px solid rgba(180,100,255,0.45);border-radius:var(--r);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
@@ -2423,7 +2425,8 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           <div class="tool-grid" id="tool-grid"></div>
           <div class="toolbar" style="margin-top:16px;margin-bottom:0">
             <button class="btn btn-primary" onclick="installServiceTools()" id="btn-tools-install">📥 Kijelöltek telepítése</button>
-            <span style="font-size:11.5px;color:var(--text3)">A bejelölt programok a <code>Program Files (x86)</code> alá kerülnek, asztali parancsikonnal — így a gép újraindítása után is kéznél lesznek.</span>
+            <button class="btn btn-danger" onclick="uninstallServiceTools()" id="btn-tools-uninstall">🗑️ Kijelöltek törlése</button>
+            <span style="font-size:11.5px;color:var(--text3)">Telepítés: a bejelölt programok a <code>Program Files (x86)</code> alá kerülnek, asztali parancsikonnal. Törlés: a mappájuk és a parancsikonjuk törlődik, portable módban továbbra is indíthatók.</span>
           </div>
         </div>
       </div>
@@ -7075,18 +7078,17 @@ function renderToolGrid() {
   if (!grid) return;
   grid.innerHTML = SERVICE_TOOLS.map(t => `
     <div class="tool-card" id="tool-card-${t.key}">
-      <span class="tool-installed">✓ TELEPÍTVE</span>
       <div class="tool-head">
         <div class="tool-icon">${t.icon}</div>
         <div class="tool-title">
           <div class="tool-name" title="${t.name}">${t.name}</div>
-          <span class="tool-cat ${t.cls}">${t.cat}</span>
+          <span class="tool-cat ${t.cls}">${t.cat}</span><span class="tool-state" id="tool-state-${t.key}"></span>
         </div>
       </div>
       <div class="tool-desc">${t.desc}</div>
       <div class="tool-actions">
-        <button class="btn btn-sm" onclick="startStressTool('${t.key}')" title="${t.name} indítása — portable módban (telepítés nélkül), automatizálás nélkül">▶ Indítás</button>
-        <label class="tool-install-pick" title="Jelöld be, majd nyomd meg lent a Telepítés gombot"><input type="checkbox" id="ti-${t.key}"> telepítés</label>
+        <button class="btn btn-sm" id="tool-start-${t.key}" onclick="startStressTool('${t.key}')" title="${t.name} indítása, automatizálás nélkül">▶ Indítás</button>
+        <label class="tool-install-pick" title="Jelöld be, majd nyomd meg lent a Telepítés vagy a Törlés gombot"><input type="checkbox" id="ti-${t.key}"> kijelöl</label>
       </div>
     </div>`).join('');
   const badge = document.getElementById('svc-badge');
@@ -7102,7 +7104,13 @@ async function refreshServiceTools() {
       const card = document.getElementById('tool-card-' + t.key);
       if (!card) continue;
       const info = st && st[t.key];
-      card.classList.toggle('installed', !!(info && info.installed));
+      const inst = !!(info && info.installed);
+      card.classList.toggle('installed', inst);
+      card.classList.toggle('notinstalled', !inst);
+      document.getElementById('tool-state-' + t.key).textContent = inst ? '✓ TELEPÍTVE' : 'NINCS TELEPÍTVE';
+      const sb = document.getElementById('tool-start-' + t.key);
+      sb.textContent = inst ? '▶ Indítás' : '▶ Indítás (portable)';
+      sb.title = inst ? (t.name + ' indítása a telepített mappából: ' + (info.path || '')) : (t.name + ' indítása portable módban (telepítés nélkül, a letöltött csomagból)');
     }
   } catch (e) {
     console.log('Szervíz program státusz hiba: ' + e);
@@ -7123,6 +7131,23 @@ async function installServiceTools() {
     await api().install_service_tools(picked.map(t => t.key));
   } catch (e) {
     toast('Telepítési hiba: ' + e, 'error');
+  }
+}
+
+async function uninstallServiceTools() {
+  const picked = SERVICE_TOOLS.filter(t => {
+    const cb = document.getElementById('ti-' + t.key);
+    return cb && cb.checked;
+  });
+  if (!picked.length) { toast('⚠️ Előbb jelöld be a kártyákon, mely programokat töröljem!', 'warning'); return; }
+  const ok = await showConfirm('Szervíz Programok Törlése',
+    'A következő programok mappája törlődik a Program Files alól, az asztali parancsikonjukkal együtt:\n\n' +
+    picked.map(t => '• ' + t.name).join('\n') + '\n\nUtána portable módban továbbra is indíthatók. Folytatod?');
+  if (!ok) return;
+  try {
+    await api().uninstall_service_tools(picked.map(t => t.key));
+  } catch (e) {
+    toast('Törlési hiba: ' + e, 'error');
   }
 }
 

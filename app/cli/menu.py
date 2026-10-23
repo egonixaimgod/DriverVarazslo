@@ -1147,6 +1147,7 @@ def _menu_stress(api):
             ('4', 'Szervíz programok telepítése', 'Program Files + asztali parancsikon'),
             ('5', 'Benchmark futtatása', 'Cinebench + FurMark, feltöltés a ranglistára'),
             ('6', 'Benchmark-ranglista', 'A bolt felhős ranglistája'),
+            ('7', 'Szervíz programok törlése', 'A Program Files mappa + asztali parancsikon'),
         ], back_label='Vissza a főmenübe')
         if c == '0':
             return
@@ -1162,6 +1163,8 @@ def _menu_stress(api):
             _run_screen(api, 'Benchmark', lambda: _benchmark_flow(api))
         elif c == '6':
             _run_screen(api, 'Ranglista', lambda: _leaderboard(api))
+        elif c == '7':
+            _run_screen(api, 'Törlés', lambda: _tools_uninstall(api))
 
 
 def _stress_single(api):
@@ -1182,6 +1185,18 @@ def _tools_install(api):
                           labels=[k + ('  (telepítve)' if status[k].get('installed') else '') for k in keys])
     if sel:
         api.install_service_tools([keys[i] for i in sel])
+
+
+def _tools_uninstall(api):
+    status = api.get_service_tools_status() or {}
+    keys = [k for k, v in status.items() if v.get('installed')]
+    if not keys:
+        ui.warn('Egyetlen szervíz program sincs telepítve.')
+        return
+    sel = ui.pick_indices('Melyeket töröljem?', len(keys),
+                          labels=[k + '  (' + (status[k].get('path') or '') + ')' for k in keys])
+    if sel and ui.confirm('A mappájuk és az asztali parancsikonjuk törlődik. Biztos?', False):
+        api.uninstall_service_tools([keys[i] for i in sel])
 
 
 def _benchmark_flow(api):
