@@ -13,6 +13,7 @@ from app.gui.base import GuiBaseMixin
 from app.gui.updater import GuiUpdaterMixin
 from app.gui.stress import GuiStressMixin
 from app.gui.stress_automation import GuiStressAutomationMixin
+from app.gui.ramtest import GuiRamTestMixin
 from app.gui.toolsinstall import GuiToolsInstallMixin
 from app.gui.drivers import GuiDriversMixin
 from app.gui.dupdrivers import GuiDupDriversMixin
@@ -40,7 +41,7 @@ from app.gui.powerplan import GuiPowerPlanMixin
 
 
 class DriverToolApi(GuiBaseMixin, GuiUpdaterMixin, GuiStressMixin,
-                    GuiStressAutomationMixin, GuiToolsInstallMixin,
+                    GuiStressAutomationMixin, GuiRamTestMixin, GuiToolsInstallMixin,
                     GuiDriversMixin, GuiDupDriversMixin,
                     GuiBcdMixin, GuiGhostMixin, GuiBluetoothMixin, GuiTempCleanMixin, GuiHwScanMixin,
                     GuiWuMixin, GuiAutofixMixin, GuiBackupMixin, GuiBitlockerMixin,

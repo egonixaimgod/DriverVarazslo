@@ -75,7 +75,7 @@ STRESS_MAIN_WINDOW_WAIT = 90
 STRESS_SPLASH_TITLE_MARKERS = ('elemzés', 'analy', 'betölt', 'loading', 'please wait',
                                'starting', 'indítás...')
 
-# A "Stress teszt indítása" gomb (start_stress_tests - az egyetlen AUTOMATIZÁLT út:
+# A "CPU + Memória + GPU teszt" (korábban "Stress teszt indítása") gomb (start_stress_tests - az egyetlen AUTOMATIZÁLT út:
 # dialógus-nyomkodás + 4 részre osztott ablak-elrendezés) csak ezeket a valódi
 # terhelés-generáló teszteket indítja - a többi program (HD Sentinel, CPU-Z, GPU-Z,
 # ZenTimings, NVIDIA Profile Inspector) csak egyenként (start_stress_tool) érhető el,
@@ -85,7 +85,7 @@ STRESS_TOOLS_BULK = ['furmark', 'prime95', 'linpack', 'hwinfo']
 # ---------------------------------------------------------------------------
 # PARANCSSORI KAPCSOLÓK A TÖMEGES INDÍTÁSHOZ (explicit felhasználói kérés, 2026-07-31)
 # ---------------------------------------------------------------------------
-# CSAK a "Stress teszt indítása" (start_stress_tests) útra vonatkozik. Az EGYENKÉNTI indítás
+# CSAK a "CPU + Memória + GPU teszt" (korábban "Stress teszt indítása") (start_stress_tests) útra vonatkozik. Az EGYENKÉNTI indítás
 # (start_stress_tool) szándékosan érintetlen marad: ott a felhasználó maga állít be mindent
 # (korábbi explicit döntés), tehát oda nem adunk kapcsolót.
 #
@@ -142,6 +142,8 @@ STRESS_KILL_IMAGES = [
     'hdsentinel.exe', 'hdsentinel_x64.exe', 'hdsentinel64.exe',
     # A taskkill /IM elfogadja a '*' jokert - a GPU-Z/CPU-Z exe-neve verziófüggő lehet.
     'cpuz*', 'gpu-z*', 'zentimings.exe', 'nvidiaprofileinspector.exe',
+    # RAM TEST (app/gui/ramtest.py) - a "Minden teszt bezárása" ezeket is lelövi.
+    'TM5.exe', 'y-cruncher.exe', 'memtest.exe',
 ]
 
 
@@ -175,8 +177,12 @@ STRESS_CLICK_SEQUENCES = {
     # időkorláttal, hogy a hiánya ne késleltesse az ablakrendezést.
     'furmark': [{'labels': ['GO'], 'optional': True, 'timeout': 20, 'exact': True}],
     'prime95': [
+        # A skip_if_found a torture-dialógust ismeri fel (a Small FFTs rádiógomb rajta van).
         {'labels': ['Just Stress Testing'], 'skip_if_found': ['small ffts (tests l1/l2/l3']},  # GIMPS üdvözlő (csak első indításkor)
-        'small ffts (tests l1/l2/l3',  # torture test típus rádiógomb
+        # Blend = CPU + memóriavezérlő + RAM (explicit user decision, 2026-10-26: a piros gomb
+        # "CPU + Memória + GPU" teszt lett; korábban Small FFTs = csak CPU). A valódi felirat a
+        # stresstools.zip prime95.exe-jéből: '&Blend (all of the above)'.
+        'blend (all of the above)',
         'OK',
     ],
     'hwinfo': [

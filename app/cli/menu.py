@@ -1141,13 +1141,14 @@ def _menu_stress(api):
     while True:
         _header(api, 'Stress teszt & szervíz programok')
         c = ui.menu([
-            ('1', 'Teljes stress teszt indítása', 'FurMark + Prime95 + Linpack + HWiNFO, automatikusan'),
+            ('1', 'CPU + Memória + GPU stress teszt', 'FurMark + Prime95 Blend + Linpack + HWiNFO, automatikusan'),
             ('2', 'Egy program indítása', 'Kézi beállítással, automatizálás nélkül'),
             ('3', 'Futó tesztek leállítása', None),
             ('4', 'Szervíz programok telepítése', 'Program Files + asztali parancsikon'),
             ('5', 'Benchmark futtatása', 'Cinebench + FurMark, feltöltés a ranglistára'),
             ('6', 'Benchmark-ranglista', 'A bolt felhős ranglistája'),
             ('7', 'Szervíz programok törlése', 'A Program Files mappa + asztali parancsikon'),
+            ('8', 'RAM TEST', 'TM5 → y-cruncher → HCI MemTest egymás után, WHEA-figyeléssel'),
         ], back_label='Vissza a főmenübe')
         if c == '0':
             return
@@ -1165,6 +1166,17 @@ def _menu_stress(api):
             _run_screen(api, 'Ranglista', lambda: _leaderboard(api))
         elif c == '7':
             _run_screen(api, 'Törlés', lambda: _tools_uninstall(api))
+        elif c == '8':
+            _run_screen(api, 'RAM TEST', lambda: _ram_test(api))
+
+
+def _ram_test(api):
+    modes = api.get_ramtest_modes()
+    keys = list(modes)
+    sel = ui.pick_indices('Melyik mód?', len(keys), labels=[f"{modes[k]['label']} - {modes[k]['desc']}" for k in keys],
+                          single=True)
+    if sel:
+        api.start_ram_test(keys[sel[0]])
 
 
 def _stress_single(api):

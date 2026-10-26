@@ -51,6 +51,7 @@ from app.gui.winact import GuiWinActMixin
 from app.gui.logs import GuiLogsMixin
 from app.gui.stress import GuiStressMixin
 from app.gui.stress_automation import GuiStressAutomationMixin
+from app.gui.ramtest import GuiRamTestMixin
 from app.gui.toolsinstall import GuiToolsInstallMixin
 from app.gui.benchmark import GuiBenchmarkMixin
 from app.gui.updater import GuiUpdaterMixin
@@ -78,7 +79,7 @@ class CliApi(CliBridgeMixin, GuiBaseMixin,
              GuiBitlockerMixin, GuiReportMixin, GuiStorePrintMixin,
              GuiBlockScriptMixin,
              GuiDisplayMixin, GuiWinActMixin, GuiLogsMixin,
-             GuiStressMixin, GuiStressAutomationMixin, GuiToolsInstallMixin,
+             GuiStressMixin, GuiStressAutomationMixin, GuiRamTestMixin, GuiToolsInstallMixin,
              GuiBenchmarkMixin, GuiUpdaterMixin, GuiShopLabelMixin,
              GuiStoreAppsMixin, GuiPowerPlanMixin,
              GuiCliModeMixin,   # vissza a grafikus módba (switch_to_gui_mode)

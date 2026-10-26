@@ -958,6 +958,8 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .btn-stress:hover{box-shadow:0 10px 40px rgba(255,90,60,0.55);transform:translateY(-1px)}
 .btn-stress:active{transform:scale(0.98)}
 .btn-stress:disabled{opacity:0.4;cursor:not-allowed;transform:none;box-shadow:none}
+.btn-stress.btn-ramtest{background:linear-gradient(135deg,#34c77b,#16935a);box-shadow:0 8px 30px rgba(40,190,110,0.35)}
+.btn-stress.btn-ramtest:hover{box-shadow:0 10px 40px rgba(40,190,110,0.55)}
 .stress-dl-box{padding:14px 18px;margin-bottom:16px;flex-direction:column;gap:8px}
 .stress-dl-label{font-size:12.5px;color:var(--text2);font-weight:600}
 .tool-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:12px}
@@ -2395,16 +2397,17 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
         <div class="stress-hero">
           <div class="stress-hero-text">
             <div class="stress-hero-title">🔥 Automata Stress Teszt</div>
-            <div class="stress-hero-sub">Egy kattintással letölti és elindítja a négy terhelő-/monitor programot, az indító beállításaikat magától végignyomkodja, majd a képernyőt négy részre osztva elrendezi az ablakokat. A teszt idejére a képernyő-kikapcsolás és az alvó mód automatikusan letiltásra kerül. A futó teszteket a folyamat-ablak piros gombjával egyszerre zárhatod be.</div>
+            <div class="stress-hero-sub">A piros gomb egy kattintással letölti és elindítja a négy terhelő-/monitor programot (CPU + memória + GPU egyszerre), az indító beállításaikat magától végignyomkodja, majd a képernyőt négy részre osztva elrendezi az ablakokat. A zöld <b>RAM TEST</b> a memóriát teszteli: TestMem5 → y-cruncher → HCI MemTest egymás után, felügyelet nélkül, közben a WHEA-hibanaplót is figyeli, a végén kiírja, mi a helyzet és mi a teendő. A teszt idejére a képernyő-kikapcsolás és az alvó mód letiltásra kerül. A futó teszteket a folyamat-ablak piros gombjával egyszerre zárhatod be.</div>
             <div class="stress-hero-chips">
               <span class="stress-chip">🌡️ FurMark · GPU</span>
-              <span class="stress-chip">🧮 Prime95 · CPU</span>
+              <span class="stress-chip">🧮 Prime95 Blend · CPU+RAM</span>
               <span class="stress-chip">📈 Linpack · CPU+RAM</span>
               <span class="stress-chip">📟 HWiNFO64 · szenzorok</span>
             </div>
           </div>
           <div class="stress-hero-actions">
-            <button class="btn-stress" onclick="startStressTests()" id="btn-stresstest">🔥 STRESS TESZT INDÍTÁSA</button>
+            <button class="btn-stress" onclick="startStressTests()" id="btn-stresstest">🔥 CPU + MEMÓRIA + GPU TESZT</button>
+            <button class="btn-stress btn-ramtest" onclick="startRamTest()" id="btn-ramtest">🧪 RAM TEST</button>
             <button class="btn btn-danger btn-sm" onclick="stopStressTests()" style="justify-content:center" title="Az összes futó teszt-/monitor program azonnali bezárása">🛑 Összes teszt bezárása</button>
           </div>
         </div>
@@ -3223,7 +3226,7 @@ window.handlePyEvent = function(payload) {
       document.getElementById('mp-cancel-btn').style.display = 'none';
       // Stressz-hibánál is felajánljuk az összes teszt bezárását - lehet, hogy a hiba
       // előtt már elindult néhány program.
-      if (currentTask === 'stress') document.getElementById('mp-stop-stress-btn').style.display = 'inline-flex';
+      if (currentTask === 'stress' || currentTask === 'ramtest') document.getElementById('mp-stop-stress-btn').style.display = 'inline-flex';
       refreshDriversIfStale(currentTask);
       currentTask = null;
       break;
@@ -7030,6 +7033,36 @@ async function extractWim() {
     await api().extract_wim();
   } catch (e) {
     toast('WIM kinyerési hiba: ' + e, 'error');
+  }
+}
+
+async function startRamTest() {
+  if(!window.pywebview) return;
+  let modes;
+  try {
+    modes = await api().get_ramtest_modes();
+  } catch (e) {
+    toast('RAM TEST hiba: ' + e, 'error');
+    return;
+  }
+  const choice = await showConfirm3('🧪 RAM TEST',
+    'TestMem5 → y-cruncher → HCI MemTest egymás után, felügyelet nélkül. Közben és a végén a WHEA-hibanaplót is figyeli, és a végén kiírja a verdiktet a teendőkkel.\n\n' +
+    '• ' + modes.gyors.label + ': ' + modes.gyors.desc + '\n' +
+    '• ' + modes.teljes.label + ': ' + modes.teljes.desc + '\n\n' +
+    'A teszt alatt a gép gyakorlatilag nem használható (a memória nagy részét lefoglalja).',
+    modes.gyors.label, modes.teljes.label, 'Mégse', 'btn-primary');
+  if (choice !== true && choice !== false) return;
+  const mode = choice === true ? 'gyors' : 'teljes';
+  showProgressModal('RAM TEST', '🚀 Indítás');
+  currentTask = 'ramtest';
+  try {
+    await api().start_ram_test(mode);
+  } catch (e) {
+    toast('RAM TEST indítási hiba: ' + e, 'error');
+    document.getElementById('mp-status').textContent = '❌ Hiba történt!';
+    document.getElementById('mp-close-btn').style.display = 'inline-flex';
+    document.getElementById('mp-cancel-btn').style.display = 'none';
+    currentTask = null;
   }
 }
 

@@ -14,6 +14,7 @@ import traceback
 import winreg
 import math
 from app.common import download_with_cert_fallback
+from app.ramtest_core import RAMTEST_TOOLS
 from app.powerplan_core import parse_setting_indexes
 from app.stress_defs import LINPACK_PROMPT_SCRIPT
 from app.stress_defs import LINPACK_RAM_OPTIONS
@@ -144,7 +145,7 @@ class GuiStressMixin:
         except Exception as e:
             logging.warning(f"[STRESS_POWER] Visszaállítási hiba: {e}")
 
-    def _find_stress_tool_exes(self, stress_dir, keys):
+    def _find_stress_tool_exes(self, stress_dir, keys, table=STRESS_TOOLS):
         """Megkeresi a kicsomagolt mappában a megadott STRESS_TOOLS kulcsokhoz tartozó
         exe-ket. Egy kulcson belül a STRESS_TOOLS[key][1] filenames-lista SORRENDJE
         prioritást jelent (pl. HWiNFO-nál előbb a 64, majd a 32 bites) - ezért nem az
@@ -152,13 +153,14 @@ class GuiStressMixin:
         bejárás után, kulcsonként, a legmagasabb prioritású (legkorábbi) filenames-
         bejegyzést választjuk ki az összes ténylegesen megtalált jelölt közül.
         Egy filenames-bejegyzés lehet pontos fájlnév vagy fnmatch-minta ('*'/'?') -
-        utóbbi a verziószámot a nevükben hordozó exe-khez kell (pl. GPU-Z.2.68.0.exe)."""
+        utóbbi a verziószámot a nevükben hordozó exe-khez kell (pl. GPU-Z.2.68.0.exe).
+        table: a kulcs -> (név, fájlnevek) tábla (a RAM TEST a saját RAMTEST_TOOLS-át adja át)."""
         candidates = {key: {} for key in keys}
         for root, dirs, files in os.walk(stress_dir):
             for file in files:
                 fl = file.lower()
                 for key in keys:
-                    for idx, pattern in enumerate(STRESS_TOOLS[key][1]):
+                    for idx, pattern in enumerate(table[key][1]):
                         if '*' in pattern or '?' in pattern:
                             matched = fnmatch.fnmatch(fl, pattern)
                         else:
@@ -366,12 +368,15 @@ class GuiStressMixin:
         származna, és a sima marker-ellenőrzés örökre a régi cache-t adná vissza - a friss
         ZIP-et sosem töltené le újra (terepen bizonyítottan előfordult a SumatraPDF/HP
         driver hozzáadásakor). A jelenlegi frissesség-őrszemek: SumatraPDF + HP driver
-        (2026-07 eleje), és a legutóbb hozzáadott NVIDIA Profile Inspector (2026-07 vége,
-        a CPU-Z/GPU-Z/ZenTimings bővítéssel egy körben)."""
+        (2026-07 eleje), a NVIDIA Profile Inspector (2026-07 vége, a CPU-Z/GPU-Z/ZenTimings
+        bővítéssel egy körben), és a RAM TEST TestMem5-je (2026-10-26, az y-cruncherrel és a
+        HCI MemTesttel egy körben)."""
         marker_path = os.path.join(stress_dir, ".extract_complete")
         if not os.path.exists(marker_path):
             return False
         if not (self._find_sumatra_exe(stress_dir) and self._find_hp_driver_inf(stress_dir)):
+            return False
+        if not self._find_stress_tool_exes(stress_dir, ['tm5'], table=RAMTEST_TOOLS)['tm5']:
             return False
         return bool(self._find_stress_tool_exes(stress_dir, ['nvinspector'])['nvinspector'])
 
@@ -396,7 +401,7 @@ class GuiStressMixin:
         if self._stresstools_cache_valid(stress_dir):
             return stress_dir
 
-        # A "Stress teszt indítása" és az egyenkénti gombok is idekerülhetnek egyszerre
+        # A "CPU + Memória + GPU teszt" (korábban "Stress teszt indítása") és az egyenkénti gombok is idekerülhetnek egyszerre
         # (utóbbiak nem mennek át a _task_busy-n, hogy egymás után gyorsan lehessen indítani
         # több eszközt is) - lock nélkül két egyidejű hívás ugyanabba a zip_path/stress_dir
         # mappába írna/csomagolna ki párhuzamosan, ami korrupciót okozhatna.
@@ -474,7 +479,7 @@ class GuiStressMixin:
 
         def worker():
             try:
-                self.emit('task_start', {'task': 'stress', 'title': 'Stress Teszt Indítása'})
+                self.emit('task_start', {'task': 'stress', 'title': 'CPU + Memória + GPU teszt'})
                 self._lock_power_for_stress()
                 self.emit('task_progress', {'task': 'stress', 'log': '🌐 Tesztprogramok (ZIP) letöltése a háttérben...', 'indeterminate': True})
 
@@ -633,7 +638,7 @@ class GuiStressMixin:
         felhasználói kérés, 2026-07): se dialógus-nyomkodás, se Linpack menü-kitöltés,
         se HWiNFO INI-írás, se ablak-pozicionálás - a program a saját beállító
         képernyőjével indul, mindent a felhasználó állít be. Az automatizált út KIZÁRÓLAG
-        a start_stress_tests ("Stress teszt indítása" gomb). Ha a program korábban
+        a start_stress_tests ("CPU + Memória + GPU teszt" (korábban "Stress teszt indítása") gomb). Ha a program korábban
         telepítésre került (install_service_tools), a telepített példány indul - így nem
         kell hozzá a temp-beli csomag (se letöltés); egyébként portable módban, a
         letöltött csomagból fut."""
