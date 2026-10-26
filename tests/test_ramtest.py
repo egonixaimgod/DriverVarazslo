@@ -154,5 +154,29 @@ class VerdictTest(unittest.TestCase):
         self.assertFalse(rc.ramtest_verdict(r, [])['ok'])
 
 
+class AsciiToolCopyTest(unittest.TestCase):
+    """Build 395, terepen: a TM5 a "...\\DriverVarázsló_Stress\\..." útvonalról nem találta a
+    konfigját. Az ékezetes útvonalú programot ASCII mappába másoljuk, az ASCII-t nem."""
+
+    def test_copy_only_non_ascii(self):
+        import os
+        import tempfile
+        from unittest import mock
+        import app.gui.stress as stress_mod
+        with tempfile.TemporaryDirectory() as tmp:
+            src = os.path.join(tmp, 'DriverVarázsló_Stress', 'TestMem5')
+            os.makedirs(os.path.join(src, 'bin'))
+            for rel in ('TM5.exe', os.path.join('bin', 'x.cfg')):
+                open(os.path.join(src, rel), 'w').close()
+            appdata = os.path.join(tmp, 'DriverVarazslo')
+            api = stress_mod.GuiStressMixin()
+            with mock.patch.object(stress_mod, '_app_data_dir', return_value=appdata):
+                new = api._ascii_tool_copy(os.path.join(src, 'TM5.exe'))
+                self.assertEqual(new, os.path.join(appdata, 'TestMem5', 'TM5.exe'))
+                self.assertTrue(new.isascii())
+                self.assertTrue(os.path.exists(os.path.join(appdata, 'TestMem5', 'bin', 'x.cfg')))
+                self.assertEqual(api._ascii_tool_copy(new), new)  # ASCII: nincs másolás
+
+
 if __name__ == '__main__':
     unittest.main()

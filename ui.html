@@ -958,8 +958,8 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .btn-stress:hover{box-shadow:0 10px 40px rgba(255,90,60,0.55);transform:translateY(-1px)}
 .btn-stress:active{transform:scale(0.98)}
 .btn-stress:disabled{opacity:0.4;cursor:not-allowed;transform:none;box-shadow:none}
-.btn-stress.btn-ramtest{background:linear-gradient(135deg,#34c77b,#16935a);box-shadow:0 8px 30px rgba(40,190,110,0.35)}
-.btn-stress.btn-ramtest:hover{box-shadow:0 10px 40px rgba(40,190,110,0.55)}
+.btn-stress.btn-ramtest{background:linear-gradient(135deg,#3ee85f,#0fa83a);box-shadow:0 8px 30px rgba(30,220,70,0.38)}
+.btn-stress.btn-ramtest:hover{box-shadow:0 10px 40px rgba(30,220,70,0.6)}
 .stress-dl-box{padding:14px 18px;margin-bottom:16px;flex-direction:column;gap:8px}
 .stress-dl-label{font-size:12.5px;color:var(--text2);font-weight:600}
 .tool-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:12px}
@@ -1153,6 +1153,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .tool-cat.cpu{background:rgba(255,100,90,0.15);border:1px solid rgba(255,100,90,0.35);color:#ff8d80}
 .tool-cat.mon{background:rgba(100,180,255,0.15);border:1px solid rgba(100,180,255,0.35);color:#7cc4ff}
 .tool-cat.info{background:rgba(180,100,255,0.15);border:1px solid rgba(180,100,255,0.35);color:var(--accent)}
+.tool-cat.ram{background:rgba(40,220,90,0.15);border:1px solid rgba(40,220,90,0.35);color:#4dee7a}
 .tool-desc{font-size:11.5px;color:var(--text3);line-height:1.55;flex:1}
 .tool-actions{display:flex;align-items:center;gap:8px;margin-top:2px}
 .tool-install-pick{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);cursor:pointer;user-select:none;margin-left:auto}
@@ -3209,6 +3210,8 @@ window.handlePyEvent = function(payload) {
     case 'task_start':
       currentTask = data.task;
       showProgressModal(data.title || data.task, data.phase || '');
+      // RAM TEST: a futó tesztprogramok bezárása végig elérhető (a lánc is leáll tőle).
+      if (data.task === 'ramtest') document.getElementById('mp-stop-stress-btn').style.display = 'inline-flex';
       break;
     case 'task_progress':
       updateProgressModal(data);
@@ -7104,6 +7107,10 @@ const SERVICE_TOOLS = [
   {key:'gpuz',        icon:'🎮', name:'GPU-Z',                    cat:'Infó',      cls:'info', desc:'Videokártya részletes adatai — BIOS, szenzorok, órajelek.'},
   {key:'zentimings',  icon:'⏱️', name:'ZenTimings',               cat:'Infó',      cls:'info', desc:'AMD Ryzen memória-időzítések áttekintése.'},
   {key:'nvinspector', icon:'🛠️', name:'NVIDIA Profile Inspector', cat:'Beállító',  cls:'info', desc:'NVIDIA driver-profilok megtekintése és finomhangolása.'},
+  {key:'tm5',         icon:'🧪', name:'TestMem5',                 cat:'RAM teszt', cls:'ram',  desc:'Memória stabilitás-teszt (benne az anta777 Extreme konfig) — RAM-tuning ellenőrzése.'},
+  {key:'ycruncher',   icon:'🔢', name:'y-cruncher',               cat:'RAM teszt', cls:'ram',  desc:'CPU + memóriavezérlő stressz (Stress Tester: VT3, FFTv4) — SOC/FCLK-instabilitás kiszűrése.'},
+  {key:'hcimemtest',  icon:'🧠', name:'HCI MemTest',              cat:'RAM teszt', cls:'ram',  desc:'Hosszú memóriateszt — több példányban indítsd, a szabad RAM-ot elosztva közöttük.'},
+  {key:'thaiphoon',   icon:'🏷️', name:'Thaiphoon Burner',         cat:'Infó',      cls:'info', desc:'A RAM-modulok SPD-adatai — gyártó, chip (pl. Hynix AFR, Samsung B-die), gyári timingek.'},
 ];
 
 function renderToolGrid() {
@@ -7960,8 +7967,8 @@ function onTaskComplete(data) {
   document.getElementById('mp-cancel-btn').style.display = 'none';
   // Stressz teszt után: piros "összes teszt bezárása" gomb is (a felhasználó innen
   // tudja egy kattintással leállítani a most elindított 4 programot).
-  if (data.task === 'stress') document.getElementById('mp-stop-stress-btn').style.display = 'inline-flex';
-  
+  if (data.task === 'stress' || data.task === 'ramtest') document.getElementById('mp-stop-stress-btn').style.display = 'inline-flex';
+
   if (data.task !== 'autofix') {
     if (data.log) appendLog(data.log);
     if (data.status) document.getElementById('mp-status').textContent = data.status;

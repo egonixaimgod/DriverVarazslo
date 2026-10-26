@@ -2,6 +2,7 @@
 Linpack prompt-script, RAM-opciók, energiagazdálkodási beállítás-lista."""
 
 # === AUTO-IMPORTS ===
+from app.ramtest_core import RAMTEST_TOOLS
 # === /AUTO-IMPORTS ===
 
 
@@ -25,13 +26,16 @@ STRESS_TOOLS = {
     'gpuz': ('GPU-Z', ['gpu-z*.exe', 'gpuz*.exe']),
     'zentimings': ('ZenTimings', ['zentimings.exe']),
     'nvinspector': ('NVIDIA Profile Inspector', ['nvidiaprofileinspector.exe']),
+    # 2026-10-26: a RAM TEST programjai egyenként is indíthatók (kártya), és a Thaiphoon Burner.
+    **RAMTEST_TOOLS,
+    'thaiphoon': ('Thaiphoon Burner', ['thaiphoon.exe']),
 }
 
 # Amelyik eszköz indításakor érdemes a képernyő-kikapcsolást/alvó módot letiltani
 # (_lock_power_for_stress): a hosszan futó terhelők és monitorok. A gyors infó-eszközöknél
 # (CPU-Z, GPU-Z, ZenTimings, Profile Inspector) NEM nyúlunk az energiagazdálkodáshoz -
 # feleslegesen tiltaná le az alvó módot a program következő indításáig.
-STRESS_POWER_LOCK_KEYS = ['furmark', 'prime95', 'linpack', 'hwinfo', 'hdsentinel']
+STRESS_POWER_LOCK_KEYS = ['furmark', 'prime95', 'linpack', 'hwinfo', 'hdsentinel', 'tm5', 'ycruncher', 'hcimemtest']
 
 # Egy automatizálási lépés időkorlátja másodpercben: ennyit várunk egy dialógus/gomb
 # megjelenésére (_find_pid_window_with_child_text), a Linpack konzolablakára és minden
@@ -143,7 +147,7 @@ STRESS_KILL_IMAGES = [
     # A taskkill /IM elfogadja a '*' jokert - a GPU-Z/CPU-Z exe-neve verziófüggő lehet.
     'cpuz*', 'gpu-z*', 'zentimings.exe', 'nvidiaprofileinspector.exe',
     # RAM TEST (app/gui/ramtest.py) - a "Minden teszt bezárása" ezeket is lelövi.
-    'TM5.exe', 'y-cruncher.exe', 'memtest.exe',
+    'TM5.exe', 'y-cruncher.exe', 'memtest.exe', 'Thaiphoon.exe',
 ]
 
 

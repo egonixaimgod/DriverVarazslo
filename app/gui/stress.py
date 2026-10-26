@@ -13,8 +13,8 @@ import logging
 import traceback
 import winreg
 import math
+from app.common import _app_data_dir
 from app.common import download_with_cert_fallback
-from app.ramtest_core import RAMTEST_TOOLS
 from app.powerplan_core import parse_setting_indexes
 from app.stress_defs import LINPACK_PROMPT_SCRIPT
 from app.stress_defs import LINPACK_RAM_OPTIONS
@@ -145,7 +145,7 @@ class GuiStressMixin:
         except Exception as e:
             logging.warning(f"[STRESS_POWER] Visszaállítási hiba: {e}")
 
-    def _find_stress_tool_exes(self, stress_dir, keys, table=STRESS_TOOLS):
+    def _find_stress_tool_exes(self, stress_dir, keys):
         """Megkeresi a kicsomagolt mappában a megadott STRESS_TOOLS kulcsokhoz tartozó
         exe-ket. Egy kulcson belül a STRESS_TOOLS[key][1] filenames-lista SORRENDJE
         prioritást jelent (pl. HWiNFO-nál előbb a 64, majd a 32 bites) - ezért nem az
@@ -153,14 +153,13 @@ class GuiStressMixin:
         bejárás után, kulcsonként, a legmagasabb prioritású (legkorábbi) filenames-
         bejegyzést választjuk ki az összes ténylegesen megtalált jelölt közül.
         Egy filenames-bejegyzés lehet pontos fájlnév vagy fnmatch-minta ('*'/'?') -
-        utóbbi a verziószámot a nevükben hordozó exe-khez kell (pl. GPU-Z.2.68.0.exe).
-        table: a kulcs -> (név, fájlnevek) tábla (a RAM TEST a saját RAMTEST_TOOLS-át adja át)."""
+        utóbbi a verziószámot a nevükben hordozó exe-khez kell (pl. GPU-Z.2.68.0.exe)."""
         candidates = {key: {} for key in keys}
         for root, dirs, files in os.walk(stress_dir):
             for file in files:
                 fl = file.lower()
                 for key in keys:
-                    for idx, pattern in enumerate(table[key][1]):
+                    for idx, pattern in enumerate(STRESS_TOOLS[key][1]):
                         if '*' in pattern or '?' in pattern:
                             matched = fnmatch.fnmatch(fl, pattern)
                         else:
@@ -369,14 +368,14 @@ class GuiStressMixin:
         ZIP-et sosem töltené le újra (terepen bizonyítottan előfordult a SumatraPDF/HP
         driver hozzáadásakor). A jelenlegi frissesség-őrszemek: SumatraPDF + HP driver
         (2026-07 eleje), a NVIDIA Profile Inspector (2026-07 vége, a CPU-Z/GPU-Z/ZenTimings
-        bővítéssel egy körben), és a RAM TEST TestMem5-je (2026-10-26, az y-cruncherrel és a
-        HCI MemTesttel egy körben)."""
+        bővítéssel egy körben), és a Thaiphoon Burner (2026-10-26, a RAM TEST TestMem5 /
+        y-cruncher / HCI MemTest bővítése utáni második körben)."""
         marker_path = os.path.join(stress_dir, ".extract_complete")
         if not os.path.exists(marker_path):
             return False
         if not (self._find_sumatra_exe(stress_dir) and self._find_hp_driver_inf(stress_dir)):
             return False
-        if not self._find_stress_tool_exes(stress_dir, ['tm5'], table=RAMTEST_TOOLS)['tm5']:
+        if not self._find_stress_tool_exes(stress_dir, ['thaiphoon'])['thaiphoon']:
             return False
         return bool(self._find_stress_tool_exes(stress_dir, ['nvinspector'])['nvinspector'])
 
@@ -474,6 +473,44 @@ class GuiStressMixin:
                     'label': f'📦 {label}: kicsomagolás — {done}/{total} fájl'})
         return cb
 
+    def _task_dl_progress(self, task):
+        """A stresstools.zip letöltésének/kicsomagolásának folyamata a FOLYAMAT-ABLAK sávjába
+        (task_progress), throttlingolva - a letöltés 256 KB-onként hív, emitenként [EMIT] log is
+        születik. (A _stress_dl_progress_emitter a nézetbe ágyazott sávé, amit a modal eltakar.)"""
+        dl_state = {'last': 0.0}
+
+        def dl_progress(phase, done, total):
+            now = time.monotonic()
+            if now - dl_state['last'] < 0.4 and not (total and done >= total):
+                return
+            dl_state['last'] = now
+            if phase == 'download':
+                if total:
+                    self.emit('task_progress', {'task': task, 'current': done, 'total': total,
+                                                'status': f'🌐 Letöltés: {done / 1048576:.0f} / {total / 1048576:.0f} MB'})
+                else:
+                    self.emit('task_progress', {'task': task, 'indeterminate': True,
+                                                'status': f'🌐 Letöltés: {done / 1048576:.0f} MB'})
+            else:
+                self.emit('task_progress', {'task': task, 'current': done, 'total': total,
+                                            'status': f'📦 Kicsomagolás: {done}/{total} fájl'})
+        return dl_progress
+
+    def _ascii_tool_copy(self, exe):
+        """A TestMem5 ANSI fájl-API-kkal dolgozik (CreateFileA, GetPrivateProfileStringA):
+        ékezetes útvonalról ("...\\Temp\\DriverVarázsló_Stress\\...") nem találja a saját
+        konfigját ("The configuration file specified on the command line was not found",
+        terepen, Build 395). Ezért a mappáját a csupa ASCII <SystemDrive>\\DriverVarazslo alá
+        másoljuk, és onnan indítjuk. ASCII útvonalnál (pl. telepített példány) nincs másolás."""
+        if exe.isascii():
+            return exe
+        import shutil
+        src = os.path.dirname(exe)
+        dst = os.path.join(_app_data_dir(), os.path.basename(src))
+        logging.info(f"[STRESSTOOLS] Nem ASCII útvonal, a program átmásolva: {src} -> {dst}")
+        shutil.copytree(src, dst, dirs_exist_ok=True)
+        return os.path.join(dst, os.path.basename(exe))
+
     def start_stress_tests(self):
         logging.info("[API] start_stress_tests()")
 
@@ -483,27 +520,7 @@ class GuiStressMixin:
                 self._lock_power_for_stress()
                 self.emit('task_progress', {'task': 'stress', 'log': '🌐 Tesztprogramok (ZIP) letöltése a háttérben...', 'indeterminate': True})
 
-                # Letöltési/kicsomagolási progress a modal sávjába (throttlingolva - a
-                # letöltés 256 KB-onként hív, emitenként [EMIT] log is születik).
-                dl_state = {'last': 0.0}
-
-                def dl_progress(phase, done, total):
-                    now = time.monotonic()
-                    if now - dl_state['last'] < 0.4 and not (total and done >= total):
-                        return
-                    dl_state['last'] = now
-                    if phase == 'download':
-                        if total:
-                            self.emit('task_progress', {'task': 'stress', 'current': done, 'total': total,
-                                                        'status': f'🌐 Letöltés: {done / 1048576:.0f} / {total / 1048576:.0f} MB'})
-                        else:
-                            self.emit('task_progress', {'task': 'stress', 'indeterminate': True,
-                                                        'status': f'🌐 Letöltés: {done / 1048576:.0f} MB'})
-                    else:
-                        self.emit('task_progress', {'task': 'stress', 'current': done, 'total': total,
-                                                    'status': f'📦 Kicsomagolás: {done}/{total} fájl'})
-
-                stress_dir = self._download_stresstools(progress=dl_progress)
+                stress_dir = self._download_stresstools(progress=self._task_dl_progress('stress'))
                 if not stress_dir:
                     raise Exception("Hiba a ZIP letöltésekor vagy kicsomagolásakor (Helytelen ZIP / Nincs net).")
 
@@ -680,6 +697,8 @@ class GuiStressMixin:
                     if not exe_path or not os.path.exists(exe_path):
                         self.emit('toast', {'message': f'⚠️ {display_name} nem található a letöltött csomagban!', 'type': 'warning'})
                         return
+                    if name == 'tm5':
+                        exe_path = self._ascii_tool_copy(exe_path)
 
                     if name == 'hwinfo':
                         # Ha egy korábbi automatizált futás (start_stress_tests) beírta a
@@ -722,6 +741,10 @@ class GuiStressMixin:
         vége. Szándékosan nem megy át a _task_busy kapun: egy még futó (pl. ablakrendezésre
         váró) stressz-task mellett is azonnal működnie kell."""
         logging.info("[API] stop_stress_tests()")
+        if self._task_busy == 'ramtest':
+            # A RAM TEST láncnak is meg kell állnia, különben a következő lépést indítaná.
+            logging.info("[STRESSTOOLS] Futó RAM TEST: megszakítás kérve a bezárással együtt.")
+            self._cancel_flag = True
 
         def worker():
             try:

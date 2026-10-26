@@ -501,7 +501,7 @@ python -m PyInstaller --clean --noconfirm DriverVarazslo.spec   # -> dist/Driver
 
 **Felelősség:** a programot a szerző a legjobb tudása szerint készítette, de a használata saját felelősségre történik. Driverek és rendszerbeállítások módosítása minden esetben kockázattal jár.
 
-**Harmadik fél programjai:** a stressztesztelő, benchmark- és diagnosztikai programok (FurMark, Prime95, Linpack Xtreme, HWiNFO, TestMem5, y-cruncher, HCI MemTest, HD Sentinel, CPU-Z, GPU-Z, ZenTimings, NVIDIA Profile Inspector, Cinebench, smartctl, SumatraPDF) nem részei ennek a repónak; a saját licencük vonatkozik rájuk. A Windows, a Windows Update és a Microsoft Update Catalog a Microsoft Corporation védjegyei és szolgáltatásai.
+**Harmadik fél programjai:** a stressztesztelő, benchmark- és diagnosztikai programok (FurMark, Prime95, Linpack Xtreme, HWiNFO, TestMem5, y-cruncher, HCI MemTest, Thaiphoon Burner, HD Sentinel, CPU-Z, GPU-Z, ZenTimings, NVIDIA Profile Inspector, Cinebench, smartctl, SumatraPDF) nem részei ennek a repónak; a saját licencük vonatkozik rájuk. A Windows, a Windows Update és a Microsoft Update Catalog a Microsoft Corporation védjegyei és szolgáltatásai.
 
 **Licenc:** a projekthez jelenleg nem tartozik nyílt forráskódú licenc, minden jog fenntartva.
 

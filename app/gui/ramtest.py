@@ -137,6 +137,7 @@ class GuiRamTestMixin:
     # 1. TestMem5
     # ------------------------------------------------------------------
     def _ramtest_tm5(self, exe, mode, since, whea_seen):
+        exe = self._ascii_tool_copy(exe)
         folder = os.path.dirname(exe)
         src = os.path.join(folder, 'bin', TM5_CONFIG_SOURCE)
         if not os.path.exists(src):
@@ -203,34 +204,32 @@ class GuiRamTestMixin:
     def _ramtest_ycruncher(self, exe, mode, since, whea_seen):
         folder = os.path.dirname(exe)
         _, avail_gb = self._get_ram_gb()
-        args = ycruncher_args(mode['yc_seconds'], avail_gb)
-        out_path = os.path.join(folder, 'dv_ramtest_ycruncher.txt')
-        logging.info(f"[RAMTEST] y-cruncher indul: {exe} {' '.join(args)} (kimenet: {out_path})")
-        out = open(out_path, 'w', encoding='utf-8', errors='replace')
-        try:
-            proc = subprocess.Popen([exe] + args, cwd=folder, stdout=out, stderr=subprocess.STDOUT,
-                                    stdin=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
-        except Exception:
-            out.close()
-            raise
+        # Látható konzolban fut (a szervizes lássa, explicit user decision, 2026-10-26: "most is fut
+        # vmi ram teszt de nem latom sehol"), az eredményt a konzol KÉPERNYŐJÉRŐL olvassuk, mint a
+        # Linpacknél. A pause:1 nyitva tartja az ablakot a végén, hogy a záró sorok olvashatók
+        # legyenek; utána mi zárjuk be. (Átirányított kimenetnél a szöveg csak kilépéskor jött meg.)
+        args = ['pause:1' if a == 'pause:-2' else a for a in ycruncher_args(mode['yc_seconds'], avail_gb)]
+        logging.info(f"[RAMTEST] y-cruncher indul (látható konzol): {exe} {' '.join(args)}")
+        proc = subprocess.Popen([exe] + args, cwd=folder, creationflags=subprocess.CREATE_NEW_CONSOLE)
         self._stress_pids['ycruncher'] = proc.pid
         t0 = time.monotonic()
-
-        def read_out():
-            with open(out_path, 'r', encoding='utf-8', errors='replace') as f:
-                return f.read()
+        seen = {'screen': '', 'errors': []}
 
         def check():
-            parsed = parse_ycruncher_output(read_out())
-            if parsed['errors']:
-                return {'state': 'errors', 'detail': parsed['errors'][-1]}
+            screen = self._read_console_screen(proc.pid, max_rows=60)
+            if screen:
+                seen['screen'] = screen
+                parsed = parse_ycruncher_output(screen)
+                # A hibasorok kigördülhetnek a képernyőről: amit egyszer láttunk, megtartjuk.
+                seen['errors'] += [e for e in parsed['errors'] if e not in seen['errors']]
+                if seen['errors']:
+                    return {'state': 'errors', 'detail': seen['errors'][-1]}
+                if parsed['finished']:
+                    return {'state': 'ok', 'detail': 'a teszt végigfutott, hiba nélkül'}
             rc = proc.poll()
             if rc is None:
                 return None
-            logging.info(f"[RAMTEST] y-cruncher kilépett rc={rc}, {parsed['passed']} sikeres kör, finished={parsed['finished']}")
-            if parsed['finished'] and parsed['passed'] > 0:
-                return {'state': 'ok', 'detail': f"{parsed['passed']} kör, mind Passed"}
-            return {'state': 'tool_error', 'detail': f"kilépett (rc={rc}) befejezés nélkül: {read_out()[-200:].strip()}"}
+            return {'state': 'tool_error', 'detail': f"kilépett (rc={rc}) befejezés nélkül: {seen['screen'][-200:].strip()}"}
 
         def progress():
             el = int(time.monotonic() - t0)
@@ -241,10 +240,9 @@ class GuiRamTestMixin:
             result = self._ramtest_wait(check, t0 + mode['yc_seconds'] + YC_GRACE_SECONDS,
                                         since, whea_seen, progress)
         finally:
+            logging.info(f"[RAMTEST] y-cruncher képernyő a végén:\n{seen['screen'][-1500:]}")
             self._ramtest_kill([proc.pid])
             self._stress_pids.pop('ycruncher', None)
-            out.close()
-        logging.info(f"[RAMTEST] y-cruncher kimenet vége:\n{read_out()[-1500:]}")
         return result
 
     # ------------------------------------------------------------------
@@ -379,13 +377,10 @@ class GuiRamTestMixin:
                     self._ramtest_log(f'✅ Az elmúlt {RAMTEST_WHEA_HISTORY_DAYS} napban nincs WHEA-bejegyzés.')
 
                 self.emit('task_progress', {'task': 'ramtest', 'indeterminate': True, 'status': '🌐 Tesztprogramok (csomag) letöltése...'})
-                try:
-                    stress_dir = self._download_stresstools(progress=self._stress_dl_progress_emitter('RAM TEST'))
-                finally:
-                    self.emit('stress_dl_progress', {'active': False})
+                stress_dir = self._download_stresstools(progress=self._task_dl_progress('ramtest'))
                 if not stress_dir:
                     raise Exception('Hiba a programcsomag letöltésekor vagy kicsomagolásakor (nincs net / hibás ZIP).')
-                found = self._find_stress_tool_exes(stress_dir, list(RAMTEST_TOOLS), table=RAMTEST_TOOLS)
+                found = self._find_stress_tool_exes(stress_dir, list(RAMTEST_TOOLS))
 
                 whea_seen = {'n': 0}
                 results = {}
