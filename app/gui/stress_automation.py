@@ -960,6 +960,16 @@ class GuiStressAutomationMixin:
         - a negyedekbe a LÁTHATÓ keret kerül (a ~7 px láthatatlan keretet ráhagyjuk), rés nélkül;
         - pár mp múlva egy ellenőrző kör a később visszaugró ablakokat újra a helyére teszi."""
         user32 = self._stress_user32()
+        prev_ctx = self._enter_per_monitor_dpi(user32)
+        try:
+            self._arrange_stress_windows(user32, pid_map, task_id)
+        finally:
+            if prev_ctx:
+                user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(prev_ctx))
+
+    def _enter_per_monitor_dpi(self, user32):
+        """A hívó szálat per-monitor DPI-tudatossá teszi (fizikai pixelek az elrendezéshez).
+        Visszaadja az előző kontextust (a hívó állítja vissza), vagy None-t."""
         prev_ctx = None
         try:
             user32.SetThreadDpiAwarenessContext.argtypes = [ctypes.c_void_p]
@@ -971,11 +981,7 @@ class GuiStressAutomationMixin:
             logging.debug(f"[STRESSTOOLS] SetThreadDpiAwarenessContext nem elérhető: {e}")
         if not prev_ctx:
             logging.info("[STRESSTOOLS] Az ablak-elrendezés a folyamat saját DPI-módjában fut (per-monitor szálkontextus nem állítható be).")
-        try:
-            self._arrange_stress_windows(user32, pid_map, task_id)
-        finally:
-            if prev_ctx:
-                user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(prev_ctx))
+        return prev_ctx
 
     def _arrange_stress_windows(self, user32, pid_map, task_id):
         """A _position_stress_windows törzse, már a per-monitor DPI-kontextusban."""

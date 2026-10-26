@@ -18,6 +18,9 @@ from app.ramtest_core import TM5_CONFIG_NAME
 from app.ramtest_core import TM5_CONFIG_SOURCE
 from app.ramtest_core import TM5_MAX_HOURS_PER_CYCLE
 from app.ramtest_core import YC_GRACE_SECONDS
+from app.ramtest_core import describe_exit_code
+from app.ramtest_core import hci_alloc_failed
+from app.ramtest_core import hci_grid
 from app.ramtest_core import hci_plan
 from app.ramtest_core import parse_hci_status
 from app.ramtest_core import parse_hci_title_errors
@@ -142,7 +145,9 @@ class GuiRamTestMixin:
         src = os.path.join(folder, 'bin', TM5_CONFIG_SOURCE)
         if not os.path.exists(src):
             return {'state': 'tool_error', 'detail': f'hiányzik a konfig: bin\\{TM5_CONFIG_SOURCE}'}
-        with open(src, 'r', encoding='latin-1') as f:
+        # newline='': a CRLF sorvégeknek meg kell maradniuk - LF-es konfigra a TM5 azt mondja,
+        # hogy "The configuration file specified on the command line was not found" (Build 396, terepen).
+        with open(src, 'r', encoding='latin-1', newline='') as f:
             cfg = tm5_config_text(f.read(), mode['tm5_cycles'])
         cfg_path = os.path.join(folder, 'bin', TM5_CONFIG_NAME)
         logging.info(f"[RAMTEST] TM5 konfig írása: {cfg_path} (Cycles={mode['tm5_cycles']})")
@@ -183,7 +188,10 @@ class GuiRamTestMixin:
             # Nem emelt indításnál a TM5 magát emelt jogon újraindítja (élőben mérve), ezért a
             # kilépett PID önmagában nem jelent semmit - a képnév dönt.
             if proc.poll() is not None and not self._ramtest_image_running('TM5.exe'):
-                return {'state': 'tool_error', 'detail': f'a TM5 eredmény nélkül kilépett ({parsed["detail"] or "üres napló"})'}
+                logging.warning(f"[RAMTEST] TM5 kilépett eredmény nélkül, kód: {describe_exit_code(proc.returncode)}, "
+                                f"napló: {text[-500:]!r}")
+                return {'state': 'tool_error', 'detail': f'a TM5 eredmény nélkül kilépett ({parsed["detail"] or "üres napló"}, '
+                                                         f'kód: {describe_exit_code(proc.returncode)})'}
             return None
 
         def progress():
@@ -229,10 +237,13 @@ class GuiRamTestMixin:
             rc = proc.poll()
             if rc is None:
                 return None
-            return {'state': 'tool_error', 'detail': f"kilépett (rc={rc}) befejezés nélkül: {seen['screen'][-200:].strip()}"}
+            logging.warning(f"[RAMTEST] y-cruncher kilépett befejezés nélkül, kód: {describe_exit_code(rc)}")
+            return {'state': 'tool_error', 'detail': f"kilépett befejezés nélkül, kód: {describe_exit_code(rc)}"}
 
         def progress():
             el = int(time.monotonic() - t0)
+            tail = '\n'.join(seen['screen'].splitlines()[-6:])
+            logging.info(f"[RAMTEST] y-cruncher {el} mp, képernyő vége:\n{tail}")
             self.emit('task_progress', {'task': 'ramtest', 'current': min(el, mode['yc_seconds']), 'total': mode['yc_seconds'],
                                         'status': f"🧪 y-cruncher fut - {el // 60} / {mode['yc_seconds'] // 60} perc"})
 
@@ -273,6 +284,7 @@ class GuiRamTestMixin:
             logging.warning(f"[RAMTEST] HCI pid={proc.pid}: a MB-mező visszaolvasva '{typed}', nem '{mb}'")
             return proc.pid, None
         user32.PostMessageW(start_btn, BM_CLICK, 0, 0)
+        logging.info(f"[RAMTEST] HCI pid={proc.pid}: {mb} MB beírva (visszaolvasva), Start Testing megnyomva")
         return proc.pid, main
 
     def _ramtest_hci_dismiss_popups(self, pid, main):
@@ -293,9 +305,52 @@ class GuiRamTestMixin:
             return True
 
         user32.EnumWindows(ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)(_cb), 0)
+        titles = []
         for hwnd, btn in found:
-            logging.info(f"[RAMTEST] HCI pid={pid}: felugró ablak bezárva: '{self._window_title(hwnd)}'")
+            title = self._window_title(hwnd)
+            logging.info(f"[RAMTEST] HCI pid={pid}: felugró ablak bezárva: '{title}'")
             user32.PostMessageW(btn, BM_CLICK, 0, 0)
+            titles.append(title)
+        return titles
+
+    def _ramtest_hci_layout(self, mains):
+        """A HCI-ablakok rácsba rendezése a fő monitoron, eredeti méretben (hci_grid). Ha a sorok
+        egymásra csúsznak, a FELSŐ sor kerül felülre: így minden ablak alja - az állapotsor a
+        "% Coverage, N Errors" szöveggel - látszik. A verdikt a visszaolvasott hely."""
+        HWND_TOP, SWP_NOSIZE, SWP_NOACTIVATE = 0, 0x0001, 0x0010
+        user32 = self._stress_user32()
+        prev_ctx = self._enter_per_monitor_dpi(user32)
+        try:
+            area = self._primary_work_area(user32)
+            win, vis = self._frame_rects(user32, mains[0]) if mains else (None, None)
+            if not area or not vis:
+                logging.warning(f"[RAMTEST] HCI-ablakok elrendezése kihagyva (munkaterület={area}, ablak={vis})")
+                return
+            w, h = vis[2] - vis[0], vis[3] - vis[1]
+            grid = hci_grid(len(mains), w, h, area)
+            logging.info(f"[RAMTEST] HCI-ablakok elrendezése: {len(mains)} ablak {w}x{h}, munkaterület {area}, "
+                         f"{max(g[2] for g in grid) + 1} sor x {max(g[3] for g in grid) + 1} oszlop")
+            # Alulról felfelé, balról jobbra helyezünk el, mindig HWND_TOP-pal: a végén a 0. sor van legfelül.
+            order = sorted(range(len(mains)), key=lambda i: (-grid[i][2], grid[i][3]))
+            missed = []
+            for i in order:
+                hwnd, (x, y) = mains[i], grid[i][:2]
+                win, vis = self._frame_rects(user32, hwnd)
+                if not win:
+                    missed.append(i)
+                    continue
+                user32.SetWindowPos(hwnd, HWND_TOP, x - (vis[0] - win[0]), y - (vis[1] - win[1]), 0, 0,
+                                    SWP_NOSIZE | SWP_NOACTIVATE)
+            time.sleep(0.5)
+            missed += [i for i in range(len(mains)) if i not in missed
+                       and not self._window_in_place(user32, mains[i], grid[i][0], grid[i][1])[0]]
+            if missed:
+                logging.warning(f"[RAMTEST] {len(missed)} HCI-ablak nem került a helyére: {sorted(missed)}")
+            else:
+                logging.info("[RAMTEST] Mind a HCI-ablakok a helyükön (visszaolvasva).")
+        finally:
+            if prev_ctx:
+                user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(prev_ctx))
 
     def _ramtest_hci(self, exe, mode, since, whea_seen):
         total_gb, avail_gb = self._get_ram_gb()
@@ -317,28 +372,55 @@ class GuiRamTestMixin:
                 if not main:
                     return {'state': 'tool_error', 'detail': f'a(z) {i + 1}. HCI-példány tesztje nem indult el'}
             t0 = time.monotonic()
-            last = {'cov': 0.0}
+            last = {'cov': 0.0, 'rows': [], 'laid_out': False}
 
             def check():
                 covs = []
+                rows = []
+                verdict = None
                 for pid, main in instances:
-                    self._ramtest_hci_dismiss_popups(pid, main)
-                    title_err = parse_hci_title_errors(self._ramtest_ctrl_text(main) or '')
-                    status = parse_hci_status(self._ramtest_ctrl_text(self._ramtest_dlg_item(main, HCI_STATUS_ID)) or '')
-                    errs = max(title_err or 0, status[1] if status else 0)
+                    popups = self._ramtest_hci_dismiss_popups(pid, main)
+                    title = self._ramtest_ctrl_text(main) or ''
+                    raw = self._ramtest_ctrl_text(self._ramtest_dlg_item(main, HCI_STATUS_ID)) or ''
+                    rows.append(f'pid={pid}: {raw.strip() or "-"}')
+                    if verdict:
+                        continue
+                    # Foglalási hiba: a teszt el sem indul, a példány örökre "üres" maradna (Build 396).
+                    if hci_alloc_failed(raw) or any(hci_alloc_failed(t) for t in popups):
+                        verdict = {'state': 'tool_error', 'detail': f'a pid={pid} HCI-példány nem kapott memóriát '
+                                                                    f'({raw.strip() or popups[0]}) - nem a RAM hibája'}
+                        continue
+                    status = parse_hci_status(raw)
+                    errs = max(parse_hci_title_errors(title) or 0, status[1] if status else 0)
                     if errs:
-                        return {'state': 'errors', 'detail': f'{errs} hiba a(z) pid={pid} példányban '
-                                                              f'({status[0] if status else "?"}% lefedettségnél)'}
-                    if status is None:
+                        verdict = {'state': 'errors', 'detail': f'{errs} hiba a(z) pid={pid} példányban '
+                                                                f'({status[0] if status else "?"}% lefedettségnél)'}
+                    elif status is None:
                         if not self._stress_user32().IsWindow(main):
-                            return {'state': 'tool_error', 'detail': f'a pid={pid} HCI-példány bezárult'}
-                        return None  # még nem írt állapotot
-                    covs.append(status[0])
+                            verdict = {'state': 'tool_error', 'detail': f'a pid={pid} HCI-példány bezárult'}
+                        else:
+                            covs.append(0.0)  # még nem írt állapotot
+                    else:
+                        covs.append(status[0])
+                last['rows'] = rows
+                if verdict:
+                    logging.info(f"[RAMTEST] HCI állapot a döntéskor: {' | '.join(rows)}")
+                    return verdict
+                # Az elrendezés csak akkor, ha MINDEN példány már írja a lefedettséget: addig a
+                # "Message for first-time users" bezárása a főablakát előre hozza, és felborítja
+                # a z-sorrendet (élőben: az alsó sorok takarták a felsők állapotsorát).
+                if not last['laid_out'] and all('coverage' in r.lower() for r in rows):
+                    last['laid_out'] = True
+                    try:
+                        self._ramtest_hci_layout([main for _, main in instances])
+                    except Exception:
+                        logging.exception('[RAMTEST] HCI-ablakok elrendezése elszállt (a teszt fut tovább)')
                 last['cov'] = min(covs)
                 return {'state': 'ok', 'detail': f'{n} példány, mind ≥ {target}%, 0 hiba'} if last['cov'] >= target else None
 
             def progress():
                 mins = int((time.monotonic() - t0) / 60)
+                logging.info(f"[RAMTEST] HCI állapot ({mins} perc): {' | '.join(last['rows'])}")
                 self.emit('task_progress', {'task': 'ramtest', 'current': min(last['cov'], target), 'total': target,
                                             'status': f"🧪 HCI MemTest - {last['cov']:.1f}% / {target}% ({mins} perc)"})
 

@@ -86,6 +86,36 @@ class HciTest(unittest.TestCase):
         self.assertEqual(rc.parse_hci_title_errors(' [3 errors] MemTest '), 3)
         self.assertIsNone(rc.parse_hci_title_errors('Welcome, New MemTest  User'))
 
+    def test_alloc_failure_and_exit_codes(self):
+        # Terepen (Build 396): a 1999-es Static és a felugró ablak címe is ez volt.
+        self.assertTrue(rc.hci_alloc_failed('Could not allocate 3397 MB'))
+        self.assertFalse(rc.hci_alloc_failed(' [/]   5.1% Coverage, 0 Errors'))
+        self.assertFalse(rc.hci_alloc_failed(None))
+        # Terepen az y-cruncher: rc=3221225786
+        self.assertIn('0xC000013A', rc.describe_exit_code(3221225786))
+        self.assertIn('STATUS_CONTROL_C_EXIT', rc.describe_exit_code(-1073741510))
+        self.assertIn('ismeretlen', rc.describe_exit_code(42))
+
+    def test_plan_never_exceeds_field_limit(self):
+        # Terepen 54.6 GB szabad, 12 szál -> 14 x 3397 MB lett, és a 3397 nem fért bele.
+        n, per = rc.hci_plan(54.6 * 1024, 12)
+        self.assertLessEqual(per, 2048)
+
+    def test_grid_all_on_screen_no_resize(self):
+        area = (0, 0, 2560, 1368)  # a felhasználó munkaterülete, élőben
+        w, h = 326, 377            # a HCI-ablak látható kerete, élőben
+        for n in (1, 6, 12, 21, 23, 40):
+            g = rc.hci_grid(n, w, h, area)
+            self.assertEqual(len(g), n)
+            for x, y, _r, _c in g:
+                self.assertTrue(0 <= x and x + w <= 2560, (n, x))
+                self.assertTrue(0 <= y and y + h <= 1368, (n, y))
+            if n <= 21:  # 7 x 3 átfedés nélkül elfér
+                self.assertEqual(len({(x // w, y // h) for x, y, _r, _c in g}), n)
+        g = rc.hci_grid(23, w, h, area)
+        self.assertEqual(max(r for *_, r, _c in g) + 1, 4)
+        self.assertEqual(max(c for *_, c in g) + 1, 7)
+
     def test_plan(self):
         n, per = rc.hci_plan(55 * 1024, 12)
         self.assertGreaterEqual(n, 12)
@@ -109,6 +139,30 @@ class Tm5ConfigTest(unittest.TestCase):
         self.assertIn('[Test0]\nTime (%)=100', t)
         with self.assertRaises(ValueError):
             rc.tm5_config_text('[Main Section]\n', 1)
+
+    def test_crlf_kept(self):
+        """Build 396, terepen: az LF-re alakított konfigot a TM5 "nem találta"."""
+        src = self.SRC.replace('\n', '\r\n')
+        t = rc.tm5_config_text(src, 1)
+        self.assertEqual(t.count('\r\n'), src.count('\r\n'))
+        self.assertEqual(t.count('\n'), t.count('\r\n'))
+        self.assertIn('Config Name=DriverVarazslo\r\n', t)
+
+    def test_real_file_roundtrip(self):
+        """A valódi írás/olvasás útja (ramtest._ramtest_tm5): newline=''-vel bájtra megmarad a CRLF."""
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            src, dst = os.path.join(tmp, 'a.cfg'), os.path.join(tmp, 'b.cfg')
+            with open(src, 'wb') as f:
+                f.write(self.SRC.replace('\n', '\r\n').encode('latin-1'))
+            with open(src, 'r', encoding='latin-1', newline='') as f:
+                cfg = rc.tm5_config_text(f.read(), 1)
+            with open(dst, 'w', encoding='latin-1', newline='') as f:
+                f.write(cfg)
+            data = open(dst, 'rb').read()
+            self.assertEqual(data.count(b'\r\n'), data.count(b'\n'))
+            self.assertTrue(data.startswith(b'Memory Test config file v0.02\r\n'))
 
 
 class WheaTest(unittest.TestCase):

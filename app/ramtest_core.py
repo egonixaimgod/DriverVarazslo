@@ -63,7 +63,9 @@ YC_MEM_FRACTION = 0.7
 
 # HCI: a szabad RAM ennyiedét osztjuk szét; egy 32 bites (LAA) példány legfeljebb ennyit kap.
 HCI_MEM_FRACTION = 0.85
-HCI_MAX_MB_PER_INSTANCE = 3500
+# Terepen (Build 396, 64 GB): 3397 MB-nál "Could not allocate 3397 MB" - a HCI szerint a Windows
+# 2-3,5 GB közé korlátozza az összefüggő foglalást. A MemTestHelper is 2048-at használ.
+HCI_MAX_MB_PER_INSTANCE = 2048
 HCI_MIN_MB_PER_INSTANCE = 256
 
 _NO_ERROR_RE = re.compile(r'\b(no|0)\s+errors?\b|errors?\s+is\s+not\s+detected|no\s+error', re.I)
@@ -114,6 +116,30 @@ def parse_hci_status(text):
     return (float(m.group(1)), int(m.group(2))) if m else None
 
 
+def hci_alloc_failed(text):
+    """A HCI állapotsora / felugró ablaka: 'Could not allocate 3397 MB' (terepen, Build 396)."""
+    return 'could not allocate' in (text or '').lower()
+
+
+# Windows kilépési kódok (előjel nélküli alakban), hogy a napló ne csak egy számot mutasson.
+EXIT_CODE_NAMES = {
+    0xC000013A: 'STATUS_CONTROL_C_EXIT - Ctrl+C, vagy a konzolablakát bezárták',
+    0xC0000005: 'STATUS_ACCESS_VIOLATION - összeomlás (instabil CPU/RAM mellett gyakori)',
+    0xC0000017: 'STATUS_NO_MEMORY - elfogyott a memória',
+    0xC000001D: 'STATUS_ILLEGAL_INSTRUCTION - a CPU nem ismeri az utasítást',
+    0xC0000409: 'STATUS_STACK_BUFFER_OVERRUN - összeomlás',
+    1: 'taskkill /F (kilőve) vagy általános hiba',
+}
+
+
+def describe_exit_code(rc):
+    """'3221225786 (0xC000013A: STATUS_CONTROL_C_EXIT - …)' alakú leírás a naplóba."""
+    if rc is None:
+        return 'nincs (még fut)'
+    u = rc & 0xFFFFFFFF
+    return f"{rc} (0x{u:08X}: {EXIT_CODE_NAMES.get(u, 'ismeretlen kód')})"
+
+
 def parse_hci_title_errors(title):
     """A HCI címsorából ('[0 Errors] MemTest') a hibaszám, vagy None."""
     m = re.search(r'\[\s*(\d+)\s*errors?\s*\]', title or '', re.I)
@@ -133,6 +159,26 @@ def hci_plan(avail_mb, threads):
     return n, total // n
 
 
+def hci_grid(n, w, h, area):
+    """A HCI-ablakok bal-felső sarkai rácsban, ÁTMÉRETEZÉS NÉLKÜL (explicit user decision,
+    2026-10-26: "nem átméretezni kell csak berakni egymás mellé … az összes példány rajta
+    legyen a screenen"; az ablak amúgy sem méretezhető, mérve 326×377, nincs WS_THICKFRAME).
+    Annyi oszlop, amennyi átfedés nélkül elfér; ha a sorok nem férnek ki, egyenletesen
+    egymásra csúsznak, de mindegyik a munkaterületen belül marad. area = (bal, felső, jobb, alsó).
+    Visszaad: [(x, y, sor, oszlop)] az i. példányra."""
+    left, top, right, bottom = area
+    W, H = right - left, bottom - top
+    cols = max(1, min(n, W // max(1, w)))
+    rows = math.ceil(n / cols)
+    step_x = w
+    step_y = h if rows * h <= H or rows == 1 else max(0, (H - h)) / (rows - 1)
+    # Ami elfér, középre kerül; ami nem, a munkaterület széléig ér.
+    off_x = max(0, (W - (cols - 1) * step_x - w) // 2)
+    off_y = max(0, int(H - (rows - 1) * step_y - h) // 2)
+    return [(left + off_x + (i % cols) * step_x, top + off_y + int((i // cols) * step_y), i // cols, i % cols)
+            for i in range(n)]
+
+
 def ycruncher_args(seconds, avail_gb):
     """Az y-cruncher parancssora (az exe nélkül)."""
     mem_gb = max(1, int((avail_gb or 2) * YC_MEM_FRACTION))
@@ -141,11 +187,12 @@ def ycruncher_args(seconds, avail_gb):
 
 
 def tm5_config_text(source_text, cycles):
-    """A gyári anta777 konfig másolata a kért ciklusszámmal."""
+    """A gyári anta777 konfig másolata a kért ciklusszámmal. A sorvégekhez (CRLF) nem nyúl:
+    LF-es konfigot a TM5 "nem talál" (Build 396, terepen)."""
     if not re.search(r'^Cycles=\d+', source_text, flags=re.M):
         raise ValueError('A TM5 konfigban nincs Cycles= sor')
     text = re.sub(r'^Cycles=\d+', f'Cycles={int(cycles)}', source_text, count=1, flags=re.M)
-    return re.sub(r'^Config Name=.*$', 'Config Name=DriverVarazslo', text, count=1, flags=re.M)
+    return re.sub(r'^Config Name=[^\r\n]*', 'Config Name=DriverVarazslo', text, count=1, flags=re.M)
 
 
 # ---------------------------------------------------------------------------
