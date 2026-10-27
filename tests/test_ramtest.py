@@ -232,5 +232,58 @@ class AsciiToolCopyTest(unittest.TestCase):
                 self.assertEqual(api._ascii_tool_copy(new), new)  # ASCII: nincs másolás
 
 
+class RamTestLogUploadTest(unittest.TestCase):
+    """A RAM TEST végén MINDIG felmegy a napló: rendes vég és hiba esetén is (2026-10-27)."""
+
+    def _api(self, download_ok):
+        from app.gui.ramtest import GuiRamTestMixin
+
+        class F(GuiRamTestMixin):
+            def __init__(self):
+                self.events, self.uploads = [], []
+            def emit(self, ev, data=None): self.events.append(ev)
+            def _safe_thread(self, name, fn): fn()
+            def _lock_power_for_stress(self): pass
+            def _restore_power_after_stress(self): pass
+            def _ramtest_whea(self, since): return []
+            def _ramtest_kill(self, pids=None, images=None): pass
+            def _check_cancel(self): return False
+            def _task_dl_progress(self, task): return None
+            def _download_stresstools(self, progress=None): return 'X:\\st' if download_ok else None
+            def _find_stress_tool_exes(self, d, names): return {}
+            def upload_run_log(self, task, outcome): self.uploads.append((task, outcome, list(self.events)))
+        return F()
+
+    def test_upload_on_finish_before_complete(self):
+        api = self._api(True)
+        api.start_ram_test('gyors')
+        self.assertEqual(len(api.uploads), 1)
+        task, outcome, before = api.uploads[0]
+        self.assertEqual(task, 'ramtest')
+        self.assertIn('Gyors', outcome)
+        self.assertNotIn('task_complete', before)  # a feltöltés sora még a nyitott ablakba megy
+        self.assertIn('task_complete', api.events)
+
+    def test_time_box(self):
+        """Gyors mód: a keret végén hiba nélkül 'ok', de egy addig talált hiba nyer."""
+        import time
+        api = self._api(True)
+        boxed = lambda: {'state': 'ok', 'detail': 'keret'}
+        past = time.monotonic() - 1
+        far = time.monotonic() + 3600
+        self.assertEqual(api._ramtest_wait(lambda: None, far, None, {'n': 0}, lambda: None,
+                                           box_end=past, box_result=boxed)['detail'], 'keret')
+        self.assertEqual(api._ramtest_wait(lambda: {'state': 'errors'}, far, None, {'n': 0}, lambda: None,
+                                           box_end=past, box_result=boxed)['state'], 'errors')
+        self.assertEqual(rc.RAMTEST_MODES['gyors']['box_seconds'] * 3, 27 * 60)  # 3 lépés, kb. 30 perc
+
+    def test_upload_on_error(self):
+        api = self._api(False)
+        api.start_ram_test('ejszakas')
+        self.assertEqual(len(api.uploads), 1)
+        self.assertIn('HIBA', api.uploads[0][1])
+        self.assertIn('task_error', api.events)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -109,10 +109,11 @@ class GuiRamTestMixin:
         user32.GetDlgItem.restype = ctypes.wintypes.HWND
         return user32.GetDlgItem(hwnd, ctrl_id)
 
-    def _ramtest_wait(self, check, deadline, since, whea_seen, progress):
+    def _ramtest_wait(self, check, deadline, since, whea_seen, progress, box_end=None, box_result=None):
         """Közös várakozó ciklus: 2 mp-enként check() -> None (még fut) vagy eredmény-dict;
         közben megszakítás, határidő és WHEA-figyelés (az új bejegyzéseket azonnal kiírja,
-        de a tesztet nem állítja le - a verdikt a végén dönt)."""
+        de a tesztet nem állítja le - a verdikt a végén dönt). box_end: a Gyors mód időkerete -
+        ha addig a check() nem talált hibát, a box_result() az eredmény (nem időtúllépés)."""
         last_whea = time.monotonic()
         last_progress = 0.0
         while True:
@@ -122,6 +123,8 @@ class GuiRamTestMixin:
             if result is not None:
                 return result
             now = time.monotonic()
+            if box_end is not None and now > box_end:
+                return box_result()
             if now > deadline:
                 return {'state': 'tool_error', 'detail': 'időtúllépés - a program nem fejezte be a tesztet a felső korláton belül'}
             if now - last_progress >= 30:
@@ -200,7 +203,12 @@ class GuiRamTestMixin:
                                         'status': f"🧪 TM5 fut - {mins} perc ({state['last'].get('detail') or 'indul…'})"})
 
         deadline = t0 + mode['tm5_cycles'] * TM5_MAX_HOURS_PER_CYCLE * 3600
-        result = self._ramtest_wait(check, deadline, since, whea_seen, progress)
+        box = mode.get('box_seconds')
+        result = self._ramtest_wait(
+            check, deadline, since, whea_seen, progress,
+            box_end=t0 + box if box else None,
+            box_result=lambda: {'state': 'ok', 'detail': f"{box // 60} perc hibamentesen (időkeretes gyorsteszt, "
+                                                          f"nem teljes kör; {state['last'].get('detail') or '-'})"})
         self._ramtest_kill([proc.pid], ['TM5.exe'])
         self._stress_pids.pop('tm5', None)
         result['minutes'] = int((time.monotonic() - t0) / 60)
@@ -425,7 +433,12 @@ class GuiRamTestMixin:
                                             'status': f"🧪 HCI MemTest - {last['cov']:.1f}% / {target}% ({mins} perc)"})
 
             deadline = t0 + HCI_MAX_HOURS_PER_100 * 3600 * target / 100
-            return self._ramtest_wait(check, deadline, since, whea_seen, progress)
+            box = mode.get('box_seconds')
+            return self._ramtest_wait(
+                check, deadline, since, whea_seen, progress,
+                box_end=t0 + box if box else None,
+                box_result=lambda: {'state': 'ok', 'detail': f"{box // 60} perc hibamentesen, {n} példány, "
+                                                              f"{last['cov']:.1f}% lefedettség (időkeretes gyorsteszt)"})
         finally:
             self._ramtest_kill([pid for pid, _ in instances])
             for i in range(len(instances)):
@@ -495,6 +508,10 @@ class GuiRamTestMixin:
 
                 whea = self._ramtest_whea(started)
                 verdict = ramtest_verdict(results, whea)
+                if verdict['ok'] and cfg.get('box_seconds'):
+                    # Egy időkeretes teszt nem mondhatja ugyanazt, mint egy teljes kör (4. elv).
+                    verdict['headline'] = ('✅ A gyorsteszt hibátlan, a WHEA-napló tiszta - ritkán jelentkező '
+                                           'hibákra a Normál vagy az Egész éjszakás mód')
                 mins = int((time.monotonic() - t0) / 60)
                 self._ramtest_log('\n━━━━━━━━ ÖSSZEGZÉS A SZERVIZESNEK ━━━━━━━━')
                 for key in STEP_NAMES:
@@ -511,9 +528,13 @@ class GuiRamTestMixin:
                     self._ramtest_log(f'  👉 {a}')
                 self._ramtest_log(f"\n{verdict['headline']} (futásidő: {mins // 60} óra {mins % 60} perc)")
                 logging.info(f"[RAMTEST] VERDIKT: {verdict['headline']} | {results} | whea={whea}")
+                # Minden RAM TEST végén felmegy a napló (explicit user decision, 2026-10-27).
+                self.upload_run_log('ramtest', f"RAM TEST ({cfg['label']}) - {verdict['headline']}, "
+                                               f"{mins // 60} óra {mins % 60} perc")
                 self.emit('task_complete', {'task': 'ramtest', 'status': verdict['headline']})
             except Exception as e:
                 logging.exception('[RAMTEST] hiba')
+                self.upload_run_log('ramtest', f"RAM TEST ({cfg['label']}) - HIBA: {e}")
                 self.emit('task_error', {'task': 'ramtest', 'error': f'Hiba: {e}'})
             finally:
                 self._ramtest_kill(images=[t[1][0] for t in RAMTEST_TOOLS.values()])

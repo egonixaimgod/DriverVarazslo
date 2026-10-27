@@ -37,15 +37,25 @@ TM5_CONFIG_NAME = 'DriverVarazslo @ anta777.cfg'
 
 # A két mód (explicit user decision, 2026-10-26: "Választható a gombnál"). A felület és a
 # CLI is innen olvassa a feliratot és a leírást.
+# 2026-10-27: három mód (explicit user decision). A Gyors IDŐKERETES ('box_seconds'): a TM5 és a
+# HCI a keret végén hibamentesen leáll (a lefoglalt RAM ettől NEM kevesebb - az is explicit
+# döntés). Az időbecslések nincsenek terepen mérve (egy 8 GB-os gépen 1 TM5-kör > 1:19 volt).
 RAMTEST_MODES = {
     'gyors': {
-        'label': 'Gyors',
-        'desc': 'TM5 1 kör + y-cruncher 15 perc + HCI 100%. A durva hibákat megfogja (kb. 1-3 óra, a RAM méretétől függ).',
+        'label': 'Gyors (30 perc)',
+        'desc': 'TM5 9 perc + y-cruncher 9 perc + HCI 9 perc, a teljes szabad RAM-on. A durva hibákat megfogja, '
+                'a ritkákat nem. Kb. 30 perc.',
+        'tm5_cycles': 1, 'yc_seconds': 9 * 60, 'hci_coverage': 100, 'box_seconds': 9 * 60,
+    },
+    'normal': {
+        'label': 'Normál',
+        'desc': 'TM5 1 teljes kör + y-cruncher 15 perc + HCI 100%. Kb. 2-4 óra (a RAM méretétől függ, becslés).',
         'tm5_cycles': 1, 'yc_seconds': 15 * 60, 'hci_coverage': 100,
     },
-    'teljes': {
-        'label': 'Teljes',
-        'desc': 'TM5 3 kör + y-cruncher 30 perc + HCI 400%. A ritkán jelentkező hibákra is (több óra, egy éjszakás futás).',
+    'ejszakas': {
+        'label': 'Egész éjszakás',
+        'desc': 'TM5 3 kör + y-cruncher 30 perc + HCI 400%. A ritkán jelentkező hibákra is. '
+                'Kb. 8-12 óra (a RAM méretétől függ, becslés).',
         'tm5_cycles': 3, 'yc_seconds': 30 * 60, 'hci_coverage': 400,
     },
 }

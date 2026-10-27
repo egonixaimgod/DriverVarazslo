@@ -2902,6 +2902,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
     <div class="modal-footer">
       <button class="btn" id="mc-cancel" onclick="resolveConfirm(null)">Mégse</button>
       <button class="btn btn-danger" id="mc-no" onclick="resolveConfirm(false)" style="display:none">Nem</button>
+      <button class="btn btn-primary" id="mc-alt" onclick="resolveConfirm('alt')" style="display:none"></button>
       <button class="btn btn-primary" id="mc-yes" onclick="resolveConfirm(true)">Igen</button>
     </div>
   </div>
@@ -7048,14 +7049,20 @@ async function startRamTest() {
     toast('RAM TEST hiba: ' + e, 'error');
     return;
   }
-  const choice = await showConfirm3('🧪 RAM TEST',
-    'TestMem5 → y-cruncher → HCI MemTest egymás után, felügyelet nélkül. Közben és a végén a WHEA-hibanaplót is figyeli, és a végén kiírja a verdiktet a teendőkkel.\n\n' +
+  const pending = showConfirm3('🧪 RAM TEST',
+    'TestMem5 → y-cruncher → HCI MemTest egymás után, felügyelet nélkül, mindegyik a teljes szabad RAM-on. Közben és a végén a WHEA-hibanaplót is figyeli, a végén kiírja a verdiktet a teendőkkel, és feltölti a naplót.\n\n' +
     '• ' + modes.gyors.label + ': ' + modes.gyors.desc + '\n' +
-    '• ' + modes.teljes.label + ': ' + modes.teljes.desc + '\n\n' +
+    '• ' + modes.normal.label + ': ' + modes.normal.desc + '\n' +
+    '• ' + modes.ejszakas.label + ': ' + modes.ejszakas.desc + '\n\n' +
     'A teszt alatt a gép gyakorlatilag nem használható (a memória nagy részét lefoglalja).',
-    modes.gyors.label, modes.teljes.label, 'Mégse', 'btn-primary');
-  if (choice !== true && choice !== false) return;
-  const mode = choice === true ? 'gyors' : 'teljes';
+    modes.gyors.label, modes.normal.label, 'Mégse', 'btn-primary');
+  // A harmadik mód gombja: a showConfirm3 (mcResetLayout) elrejti, ezért utána kapcsoljuk be.
+  const alt = document.getElementById('mc-alt');
+  alt.textContent = modes.ejszakas.label;
+  alt.style.display = '';
+  const choice = await pending;
+  const mode = {true: 'gyors', false: 'normal', alt: 'ejszakas'}[choice];
+  if (!mode) return;
   showProgressModal('RAM TEST', '🚀 Indítás');
   currentTask = 'ramtest';
   try {
@@ -8029,6 +8036,7 @@ function mcResetLayout() {
   // A fix-dialógus a bal hasábot fix szélességűre állítja - egy sima kérdésnél ismét
   // a teljes szélességet kapja.
   document.getElementById('mc-left').style.flex = '1 1 420px';
+  document.getElementById('mc-alt').style.display = 'none';
   document.getElementById('mc-box').style.maxHeight = '';
   // Az "Igen" gombot a fix-dialógus letilthatja az elemzés idejére; ha ott Mégse-vel
   // léptek ki, a KÖVETKEZŐ (bármelyik) megerősítő ablak gombja is tiltva maradna.
