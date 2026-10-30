@@ -1190,7 +1190,17 @@ def _toollib_password(api, keys, launch=False):
     if not need:
         return ''
     ui.dim('Ezek a bolt Google Drive-járól jönnek, jelszó kell (egyszer, a gép megjegyzi): ' + ', '.join(need))
-    return ui.ask('Jelszó (ugyanaz, mint a naplók letöltésénél)')
+    while True:
+        pw = (ui.ask('Jelszó (ugyanaz, mint a naplók letöltésénél; üresen = mégse)') or '').strip()
+        if not pw:
+            return ''
+        res = api.toollib_verify_password(pw, keys, launch) or {}
+        if res.get('ok'):
+            return ''          # megjegyezve - a letöltés azt használja
+        if 'jelsz' not in (res.get('error') or '').lower():
+            ui.warn('A Drive nem érhető el: ' + (res.get('error') or '?'))
+            return ''
+        ui.warn('Hibás jelszó, próbáld újra.')
 
 
 def _tool_label(key):

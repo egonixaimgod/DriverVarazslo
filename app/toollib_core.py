@@ -60,6 +60,9 @@ PACKAGES = {
     'cpuz': (SOURCE_GITHUB, 'CPU-Z'),
     'dismpp': (SOURCE_GITHUB, 'Dism++'),
     'ismylcdok': (SOURCE_GITHUB, 'IsMyLcdOK'),
+    # A régi stresstools.zip-ből visszavéve (2026-10-30, explicit user decision), ingyenesek:
+    'gpuz': (SOURCE_GITHUB, 'GPU-Z'),
+    'zentimings': (SOURCE_GITHUB, 'ZenTimings'),
     # A Sergei-csomagokból, licenccel vagy nem bizonyítottan ingyenes kiadásban:
     'aida64': (SOURCE_DRIVE, 'AIDA64'),
     'hdsentinel': (SOURCE_DRIVE, 'HD Sentinel'),

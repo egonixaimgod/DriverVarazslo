@@ -24,9 +24,12 @@ STRESS_TOOLS = {
     **RAMTEST_TOOLS,
     # 2026-10-30, Szervízprogramok könyvtára (explicit user decision): a többi program a
     # Sergei Strelec WinPE csomagjaiból jön, egyenként (app/toollib_core.py: forrás és
-    # csomag). Kikerült: GPU-Z, ZenTimings, NVIDIA Profile Inspector, Thaiphoon Burner.
+    # csomag). Kikerült: NVIDIA Profile Inspector, Thaiphoon Burner (a GPU-Z és a ZenTimings
+    # a felhasználó kérésére visszakerült, a régi zipből).
     'hdsentinel': ('HD Sentinel', ['hdsentinel.exe']),
     'cpuz': ('CPU-Z', ['cpuz_x64.exe', 'cpuz.exe']),
+    'gpuz': ('GPU-Z', ['gpu-z*.exe', 'gpuz*.exe']),
+    'zentimings': ('ZenTimings', ['zentimings.exe']),
     'aida64': ('AIDA64', ['aida64.exe']),
     'occt': ('OCCT', ['occt.exe']),
     'ismylcdok': ('IsMyLcdOK', ['ismylcdok_x64.exe', 'ismylcdok.exe']),
@@ -154,7 +157,7 @@ STRESS_KILL_IMAGES = [
     'hwinfo64.exe', 'hwinfo32.exe',
     'hdsentinel.exe', 'hdsentinel_x64.exe', 'hdsentinel64.exe',
     # A taskkill /IM elfogadja a '*' jokert - a CPU-Z exe-neve verziófüggő lehet.
-    'cpuz*', 'occt.exe',
+    'cpuz*', 'gpu-z*', 'zentimings.exe', 'occt.exe',
     # RAM TEST (app/gui/ramtest.py) - a "Minden teszt bezárása" ezeket is lelövi.
     'TM5.exe', 'y-cruncher.exe', 'memtest.exe',
 ]

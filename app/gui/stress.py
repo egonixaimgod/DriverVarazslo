@@ -404,6 +404,10 @@ class GuiStressMixin:
                             lambda payload: logupload_core._post(self._run, url, payload),
                             password or toollib_core.load_password(), pkg)
                         if err:
+                            if not password and 'jelsz' in err.lower():
+                                # A megjegyzett jelszó már nem jó: ne ragadjon be, a következő
+                                # próbánál a felület újra kérdez.
+                                toollib_core.forget_password()
                             raise Exception(f"Drive: {err}")
                         url = toollib_core.drive_url(fid)
                     else:

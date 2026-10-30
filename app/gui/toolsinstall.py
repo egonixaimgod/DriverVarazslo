@@ -13,7 +13,7 @@ import time
 import fnmatch
 from app.common import _app_data_dir, _ps_quote
 from app.stress_defs import STRESS_TOOLS
-from app import toollib_core
+from app import benchmark_core, logupload_core, toollib_core
 # === /AUTO-IMPORTS ===
 
 
@@ -120,25 +120,64 @@ class GuiToolsInstallMixin:
         return {key: {'installed': key in found, 'path': found[key][1] if key in found else None}
                 for key in STRESS_TOOLS}
 
-    def toollib_password_needed(self, keys, launch=False):
-        """Szinkron UI-hívás: a kijelölt programok közül melyekhez kell MOST jelszó (a
-        megjelenített nevük). Csak akkor kérjük (explicit user decision, 2026-10-30), ha
-        van köztük Drive-os (licences) program, ami még nincs letöltve, és nincs
-        megjegyzett jelszó. `launch=True` (egyenkénti indítás): a telepített program nem
-        töltődik le, ahhoz sem kell."""
-        if toollib_core.load_password():
-            return []
+    def _toollib_drive_keys(self, keys, launch):
+        """A kijelöltek közül a még le nem töltött Drive-os (licences) programok kulcsai.
+        `launch=True` (egyenkénti indítás): a telepített program nem töltődik le."""
         root = toollib_core.cache_root()
         keys = [k for k in (keys or []) if k in STRESS_TOOLS]
         installed = self._scan_installed_tools(keys) if launch else {}
-        out = []
-        for k in keys:
-            pkg = toollib_core.package_for(k)
-            if (pkg and toollib_core.package_source(pkg) == toollib_core.SOURCE_DRIVE
-                    and not toollib_core.package_ready(root, pkg) and k not in installed):
-                out.append(STRESS_TOOLS[k][0])
+        return [k for k in keys
+                if (toollib_core.package_for(k)
+                    and toollib_core.package_source(toollib_core.package_for(k)) == toollib_core.SOURCE_DRIVE
+                    and not toollib_core.package_ready(root, toollib_core.package_for(k))
+                    and k not in installed)]
+
+    def _toollib_check_password(self, password, key):
+        """A jelszó próbája a Drive-nál egy kért csomagon. Visszatérés: (jó-e, hiba)."""
+        url = benchmark_core.resolve_endpoint()
+        fid, err = toollib_core.drive_file_id(
+            lambda payload: logupload_core._post(self._run, url, payload), password, toollib_core.package_for(key))
+        return bool(fid), err
+
+    def toollib_password_needed(self, keys, launch=False):
+        """Szinkron UI-hívás: a kijelölt programok közül melyekhez kell MOST jelszó (a
+        megjelenített nevük). Csak akkor kérjük (explicit user decision, 2026-10-30), ha
+        van köztük még le nem töltött Drive-os (licences) program, és nincs JÓ megjegyzett
+        jelszó. A megjegyzett jelszót a Drive-nál ellenőrizzük: ha azóta megváltozott
+        (Build 400, a felhasználó gépén: "hibás jelszó", és sehol nem lehetett újat
+        beírni), elfelejtjük, és újra kérdezünk."""
+        need = self._toollib_drive_keys(keys, launch)
+        if need:
+            saved = toollib_core.load_password()
+            if saved:
+                ok, err = self._toollib_check_password(saved, need[0])
+                if ok:
+                    need = []
+                elif 'jelsz' in (err or '').lower():
+                    logging.warning("[TOOLLIB] A megjegyzett Drive-jelszót a szerver elutasította "
+                                    "(megváltozott?) - elfelejtjük, újra kérdezünk.")
+                    toollib_core.forget_password()
+                else:
+                    # Nem a jelszóval van baj (nincs net, szerver-hiba): a letöltés majd
+                    # kiírja az okát; egy új jelszó bekérése itt semmit nem oldana meg.
+                    logging.warning(f"[TOOLLIB] A megjegyzett jelszó nem ellenőrizhető: {err}")
+                    need = []
+        out = [STRESS_TOOLS[k][0] for k in need]
         logging.info(f"[TOOLLIB] Jelszó kell ezekhez: {out or 'egyikhez sem'}")
         return out
+
+    def toollib_verify_password(self, password, keys, launch=False):
+        """Szinkron UI-hívás: a beírt jelszó ellenőrzése a Drive-nál, MIELŐTT bármi
+        elindul. Jó jelszót azonnal megjegyzünk. Visszatérés: {'ok': bool, 'error': str}."""
+        need = self._toollib_drive_keys(keys, launch)
+        if not need:
+            return {'ok': True, 'error': ''}
+        ok, err = self._toollib_check_password(password, need[0])
+        if ok:
+            toollib_core.save_password(password)
+        else:
+            logging.warning(f"[TOOLLIB] A beírt jelszót a szerver nem fogadta el: {err}")
+        return {'ok': ok, 'error': err or ''}
 
     def get_toollib_password_saved(self):
         """Szinkron UI-hívás: van-e megjegyzett Drive-jelszó ezen a gépen (a Windows

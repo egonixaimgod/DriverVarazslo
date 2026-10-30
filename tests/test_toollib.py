@@ -158,12 +158,25 @@ class Downloader(unittest.TestCase):
         os.makedirs(tl.package_dir(self.root, 'treesize'))
         tl.mark_package_ready(self.root, 'treesize')            # már letöltve: nem kell
         api = T()
+        api._toollib_check_password = lambda pw, key: ((True, '') if pw == 'jo' else (False, 'hibás jelszó'))
         keys = ['cpuz', 'aida64', 'treesize', 'totalcmd']
         self.assertEqual(api.toollib_password_needed(keys), ['AIDA64', 'Total Commander'])
         self.assertEqual(api.toollib_password_needed(keys, launch=True), ['AIDA64'])   # telepített indul
         self.assertEqual(api.toollib_password_needed(['cpuz']), [])                    # ingyenes
         store['pw'] = 'jo'
-        self.assertEqual(api.toollib_password_needed(keys), [])                        # megjegyezve
+        self.assertEqual(api.toollib_password_needed(keys), [])                        # jó, megjegyezve
+        # Build 400: a megjegyzett jelszó azóta megváltozott -> elfelejti és kérdez
+        store['pw'] = 'regi'
+        self.assertEqual(api.toollib_password_needed(keys), ['AIDA64', 'Total Commander'])
+        self.assertEqual(store, {})
+        # a beírt jelszó: rossz -> nem menti; jó -> menti
+        self.assertFalse(api.toollib_verify_password('rossz', keys)['ok'])
+        self.assertEqual(store, {})
+        self.assertTrue(api.toollib_verify_password('jo', keys)['ok'])
+        self.assertEqual(store, {'pw': 'jo'})
+        # hálózati hibánál nem kérünk új jelszót (az nem segítene)
+        api._toollib_check_password = lambda pw, key: (False, 'a szerver válasza nem JSON')
+        self.assertEqual(api.toollib_password_needed(keys), [])
 
     def test_regi_cache_torlodik(self):
         legacy = os.path.join(self.tmp, tl.LEGACY_CACHE_DIRNAME, 'stresstools', 'FurMark')
