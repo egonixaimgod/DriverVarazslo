@@ -429,7 +429,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
    hozzá eszköz, de épp nem aktív - ez tényleg egy "figyelj rá" állapot), a "nem használt"
    pedig semleges/fehér: az a mazsolázható rész, nem hiba. */
 .usage-active{background:rgba(110,230,160,0.14);border:1px solid rgba(46,224,138,0.42);color:#a7f0cb}
-.usage-standby{background:rgba(255,180,80,0.14);border:1px solid rgba(255,180,80,0.38);color:#ffd08a}
+.usage-standby,.usage-idle{background:rgba(255,180,80,0.14);border:1px solid rgba(255,180,80,0.38);color:#ffd08a}
 .usage-unused{background:rgba(255,255,255,0.05);border:1px solid var(--glass-border);color:var(--text3)}
 .usage-unknown{background:rgba(255,255,255,0.04);border:1px dashed var(--glass-border);color:var(--text3)}
 /* ===== A DRIVER-TÁBLÁZATOK KATEGÓRIA-DIZÁJNJA (2026-10-01, explicit user decision) =========
@@ -459,7 +459,7 @@ tr.g-software{--gc:45,212,191}
 tr.g-absent{--gc:255,180,80}
 tr.g-nodev,tr.g-none,tr.g-unused,tr.g-unknown{--gc:160,160,190}
 tr.g-active{--gc:46,224,138}
-tr.g-standby{--gc:255,180,80}
+tr.g-standby,tr.g-idle{--gc:255,180,80}
 /* 5) RAGADÓS KATEGÓRIA-SÁV: görgetéskor a sáv az oszlopfejléc ALÁ tapad (`--thh` = a
    fejléc mért magassága, a render állítja be), amíg a következő kategória át nem veszi a
    helyét - egy 24 soros nyomtató-kategória közepén is látszik, hol tartasz (a headless
@@ -1532,7 +1532,8 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
     <button class="nav-btn" onclick="switchView('display')" data-view="display"><span class="icon">🎨</span>Kijelző &amp; Színkezelés</button>
     <button class="nav-btn" onclick="switchView('tempclean')" data-view="tempclean"><span class="icon">🧹</span>Rendszer karbantartás</button>
     <button class="nav-btn" onclick="switchView('shoplabel')" data-view="shoplabel"><span class="icon">🏷️</span>Bolti tábla nyomtatás</button>
-    <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stress Teszt &amp; Szervíz Programok</button>
+    <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stress Teszt</button>
+    <button class="nav-btn" onclick="switchView('toollib')" data-view="toollib"><span class="icon">🧰</span>Szervízprogramok könyvtára</button>
     <button class="nav-btn" onclick="switchView('benchmark')" data-view="benchmark"><span class="icon">🏆</span>Benchmark</button>
     <!-- A NET BLOKKOLO SCRIPT MENUPONTJA KIKERULT (2026-09-18, explicit user decision:
          *"a net blokkoló script is átmehetne az operációs rendszerbe, felesleges külön
@@ -1808,7 +1809,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                   <button class="btn btn-sm" id="btn-select-all" onclick="selectAllDrivers()"
                           title="A MOST LÁTHATÓ sorokat jelöli ki (a szűrők és a kiválasztott fül után). Újra rákattintva visszavonja a kijelölést.">☑ Mind kijelölése</button>
                   <button class="btn btn-sm" id="btn-select-unused" onclick="selectUnusedDrivers()" style="display:none"
-                          title="Csak azokat pipálja ki, amikre semmi nem hivatkozik: nincs hozzájuk eszköz a gépben, és nem fut hozzájuk kernel-szolgáltatás. A használatban lévőket és a készenléti (kihúzott eszközhöz tartozó) csomagokat kihagyja - de bármikor kipipálhatod őket kézzel is.">⚪ Csak a nem használtak kijelölése</button>
+                          title="Csak azokat pipálja ki, amikre semmi nem hivatkozik: nincs hozzájuk eszköz a gépben, és nem fut hozzájuk kernel-szolgáltatás. A használatban lévőket, a kihúzott eszközhöz tartozókat és a nem futó szoftveres drivereket kihagyja - de bármikor kipipálhatod őket kézzel is.">⚪ Csak a nem használtak kijelölése</button>
                 </div>
                 <div class="table-wrap" id="driver-table-wrap">
                   <table>
@@ -2413,6 +2414,28 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           </div>
         </div>
 
+      </div>
+
+      <!-- VIEW: Szervízprogramok könyvtára (2026-10-30, explicit user decision: a programok külön
+           menüpontba, a régi 621 MB-os stresstools.zip helyett programonkénti csomagokkal; a
+           licences programok a bolt Drive-járól, jelszóval - app/toollib_core.py). Az azonosítók
+           (tool-grid, svc-badge, stress-dl*, btn-tools-*) változatlanok, csak ide költöztek. -->
+      <div class="view" id="view-toollib">
+        <div class="view-hero vh-teal" data-emoji="🧰">
+          <div class="vh-text">
+            <div class="vh-title">🧰 Szervízprogramok könyvtára</div>
+            <div class="vh-sub">A szerviz programjai egy helyen. Minden program <b>külön töltődik le</b>, csak az, amelyiket elindítod vagy telepíted. A <b>▶ Indítás</b> portable módban, telepítés nélkül futtat; a <b>📥 Telepítés</b> a <code>Program Files (x86)</code> alá másolja, asztali parancsikonnal. A <b>☁️ Drive</b> jelű (licences) programok a bolt Google Drive-járól jönnek: az első letöltésükkor a program elkéri a jelszót (ugyanaz, mint a naplók letöltésénél), és ezen a gépen megjegyzi.</div>
+            <div class="vh-chips">
+              <span class="hero-chip">📦 Programonkénti letöltés</span>
+              <span class="hero-chip">▶ Portable vagy telepítve</span>
+              <span class="hero-chip">☁️ Licences programok: jelszó egyszer</span>
+            </div>
+          </div>
+          <div class="vh-actions">
+            <button class="btn btn-sm" id="toollib-forget" style="display:none" onclick="forgetToollibPassword()" title="A megjegyzett Drive-jelszó törlése erről a gépről">🔓 Jelszó elfelejtése</button>
+          </div>
+        </div>
+
         <!-- Letöltési folyamat-sáv (egyenkénti indítás első letöltésekor) -->
         <div class="glass stress-dl-box" id="stress-dl" style="display:none">
           <div class="stress-dl-label" id="stress-dl-label">Letöltés...</div>
@@ -2422,10 +2445,10 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
         <!-- Szervíz programok -->
         <div class="panel glass">
           <div class="panel-header-row">
-            <div class="panel-title" style="margin-bottom:0"><span class="emoji">🧰</span> Szervíz Programok — egyenkénti indítás</div>
+            <div class="panel-title" style="margin-bottom:0"><span class="emoji">🧰</span> Programok</div>
             <span class="count-badge" id="svc-badge"></span>
           </div>
-          <p style="margin-bottom:14px;color:var(--text3)">Egyenkénti indításnál <b style="color:var(--text2)">nincs automatizálás</b>: a program a saját beállító képernyőjével nyílik meg, minden opciót te állítasz be. A <b style="color:var(--text2)">▶ Indítás</b> portable módban, a letöltött csomagból futtat (telepítés nélkül); ha egy program telepítve van, a telepített példány indul. Első használatkor a teljes csomag letöltődik — a folyamatot a fenti sáv mutatja.</p>
+          <p style="margin-bottom:14px;color:var(--text3)">Egyenkénti indításnál <b style="color:var(--text2)">nincs automatizálás</b>: a program a saját beállító képernyőjével nyílik meg, minden opciót te állítasz be. A <b style="color:var(--text2)">▶ Indítás</b> portable módban, a letöltött csomagból futtat (telepítés nélkül); ha egy program telepítve van, a telepített példány indul. Első használatkor csak az adott program töltődik le — a folyamatot a fenti sáv mutatja.</p>
           <div class="tool-grid" id="tool-grid"></div>
           <div class="toolbar" style="margin-top:16px;margin-bottom:0">
             <button class="btn btn-primary" onclick="installServiceTools()" id="btn-tools-install">📥 Kijelöltek telepítése</button>
@@ -2846,6 +2869,10 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
       <div id="mc-note-row" style="display:none;margin-top:14px">
         <textarea id="mc-note-input" rows="3" placeholder="Pl.: időszakos fagyás játék közben, gyanús kattogó hang a gépből..." style="width:100%;padding:10px 12px;border-radius:var(--r-sm);border:1px solid var(--glass-border);background:rgba(20,12,38,0.6);color:var(--text);font:13px var(--font);resize:vertical"></textarea>
       </div>
+      <!-- Jelszó bekérése (showPasswordPrompt): a Szervízprogramok könyvtárának licences programjaihoz. -->
+      <div id="mc-pw-row" style="display:none;margin-top:14px">
+        <input type="password" id="mc-pw-input" class="pw-input" style="width:100%" placeholder="Jelszó" onkeydown="if(event.key==='Enter')resolveConfirm(true)">
+      </div>
       </div><!-- /mc-left -->
 
       <!-- TÖRLÉSI ELŐNÉZET: mi fog törlődni, és mi mihez tartozik. A sorok alapból mind
@@ -2954,14 +2981,18 @@ let mmFigureFor = null;
 const USAGE_META = {
   active:   {icon: '🟢', label: 'Használatban', cls: 'usage-active',
              hint: 'a gép MOST használja — ha törlöd, elromlik valami'},
-  standby:  {icon: '🟡', label: 'Készenlétben', cls: 'usage-standby',
-             hint: 'tartozik hozzá eszköz vagy szolgáltatás, de épp nem aktív (pl. kihúzott nyomtató)'},
+  // 2026-10-30, explicit user decision: a "Készenlétben" helyett a valódi ok. A hardver
+  // nélküli, leállított szolgáltatású driver külön ('idle'), mert arra a "nincs bedugva" hamis.
+  standby:  {icon: '🟡', label: 'Nincs bedugva', cls: 'usage-standby',
+             hint: 'van hozzá eszköz vagy nyomtató, de most nincs csatlakoztatva — a törlés csak a következő bedugáskor derülne ki'},
+  idle:     {icon: '🟡', label: 'Nem fut', cls: 'usage-idle',
+             hint: 'szoftveres driver (nincs hozzá hardver), a szolgáltatása most le van állítva — pl. kikapcsolt VPN vagy vírusirtó'},
   unused:   {icon: '⚪', label: 'Nem használt', cls: 'usage-unused',
              hint: 'semmi nem hivatkozik rá — ez a mazsolázható rész'},
   unknown:  {icon: '❔', label: 'Ismeretlen', cls: 'usage-unknown',
              hint: 'a felderítés nem futott le — ebből NE vonj le következtetést'}
 };
-const USAGE_ORDER = {active: 0, standby: 1, unknown: 2, unused: 3};
+const USAGE_ORDER = {active: 0, standby: 1, idle: 2, unknown: 3, unused: 4};
 /* Egy csomag használat-állapota. Felderítés nélkül MINDIG 'unknown' - sosem 'unused',
    mert az azt állítaná, hogy bizonyítottan nem használja semmi. */
 function drvUsageOf(d) {
@@ -3720,7 +3751,7 @@ function switchView(name) {
   const logo = document.querySelector('.sidebar-title');
   if (logo) logo.classList.toggle('on-home', name === 'home');
   currentView = name;
-  if (name === 'stress') refreshServiceTools();
+  if (name === 'toollib') refreshServiceTools();
   // A DRIVEREK NÉZETBE LÉPVE MINDIG TELJES FRISSÍTÉS (2026-10-15, explicit user decision:
   // *"amikor rámegyek a driverek kezelése menüpontra a sidebarban minden esetben
   // FRISSÍTSEN LE MINDENT alapbol"*; előzmény: egy fix után a régi, 106-os lista maradt a
@@ -4850,7 +4881,7 @@ function renderDriverUsageBar() {
   //    getDriverIndicesBeforeTab: a fülek és a csoport-fejlécek különben más-más
   //    listáról beszélnének ugyanazon a képernyőn.
   const visible = getDriverIndicesBeforeTab();
-  const counts = {active: 0, standby: 0, unused: 0, unknown: 0};
+  const counts = {active: 0, standby: 0, idle: 0, unused: 0, unknown: 0};
   visible.forEach(i => { counts[drvUsageOf(drivers[i])]++; });
   if (btn) btn.style.display = counts.unused ? '' : 'none';
   /* NORMÁL ÁLLAPOTBAN AZ ÖSSZEGZŐ SOR REJTVE (2026-10-01, explicit user decision: *"ez a 21
@@ -4872,6 +4903,7 @@ function renderDriverUsageBar() {
   const defs = [
     {key: 'active', cls: 'tab-ok', always: true},
     {key: 'standby', cls: 'tab-todo'},
+    {key: 'idle', cls: 'tab-todo'},
     {key: 'unused', cls: ''},
     {key: 'unknown', cls: ''}
   ];
@@ -5556,6 +5588,7 @@ async function deleteSelected() {
   const sel = [...selectedDrivers].map(i => drivers[i]).filter(Boolean);
   const act = sel.filter(d => drvUsageOf(d) === 'active');
   const sby = sel.filter(d => drvUsageOf(d) === 'standby');
+  const idl = sel.filter(d => drvUsageOf(d) === 'idle');
   if (act.length) {
     msg += '\n\n🔴 EBBŐL ' + act.length + ' OLYAN, AMIT A GÉP MOST IS HASZNÁL:';
     act.slice(0, 8).forEach(d => {
@@ -5566,8 +5599,12 @@ async function deleteSelected() {
     msg += '\n\nEzek törlésével a hozzájuk tartozó eszköz vagy program működése megszűnhet.';
   }
   if (sby.length) {
-    msg += '\n\n🟡 ' + sby.length + ' olyan, amihez tartozik eszköz vagy szolgáltatás, de most nem aktív '
+    msg += '\n\n🟡 ' + sby.length + ' olyan, amihez tartozik eszköz vagy nyomtató, de most nincs bedugva '
         + '(pl. kihúzott nyomtató/telefon) — a hiány csak a következő csatlakoztatáskor derülne ki.';
+  }
+  if (idl.length) {
+    msg += '\n\n🟡 ' + idl.length + ' olyan szoftveres driver, aminek a szolgáltatása most nem fut '
+        + '(pl. kikapcsolt VPN vagy vírusirtó) — a hiány a program következő indításakor derülne ki.';
   }
   /* Itt NINCS újraindítás-sor: az "Újraindítás törlés után" kapcsoló 2026-09-18-án
      kikerült a felületről. A hozzá tartozó `if (reboot) ...` sor viszont bent maradt egy
@@ -7091,33 +7128,84 @@ async function startStressTests() {
   }
 }
 
+// A ☁️ Drive-os (licences) programok jelszava (2026-10-30, explicit user decision): CSAK
+// akkor kérjük, ha a kijelöltek közt van még le nem töltött licences program, és a gép még
+// nem jegyezte meg - egyszer, a programok felsorolásával. Visszatér: '' (nem kell), a beírt
+// jelszó, vagy null (Mégse).
+async function askToollibPassword(keys, launch) {
+  const need = await api().toollib_password_needed(keys, !!launch);
+  if (!need || !need.length) return '';
+  const pw = await showPasswordPrompt('🔑 Jelszó kell',
+    (need.length === 1 ? 'Ez a program a bolt Google Drive-járól töltődik le' : 'Ezek a programok a bolt Google Drive-járól töltődnek le')
+    + ', ehhez jelszó kell:\n\n'
+    + need.map(n => '• ' + n).join('\n')
+    + '\n\nUgyanaz a jelszó, mint a naplók letöltésénél. Elég egyszer beírni: ezen a gépen a Windows megjegyzi.');
+  if (pw === null) return null;
+  if (!pw.trim()) { toast('⚠️ Nem adtál meg jelszót.', 'warning'); return null; }
+  return pw.trim();
+}
+
+function showPasswordPrompt(title, message) {
+  return new Promise(resolve => {
+    confirmResolver = (val) => {
+      const v = document.getElementById('mc-pw-input').value;
+      document.getElementById('mc-pw-row').style.display = 'none';
+      document.getElementById('mc-pw-input').value = '';
+      resolve(val ? v : null);
+    };
+    mcResetLayout();
+    document.getElementById('mc-title').textContent = title;
+    document.getElementById('mc-message').textContent = message;
+    document.getElementById('mc-no').style.display = 'none';
+    document.getElementById('mc-cancel').textContent = 'Mégse';
+    document.getElementById('mc-yes').textContent = 'Tovább';
+    document.getElementById('mc-pw-input').value = '';
+    document.getElementById('mc-pw-row').style.display = 'block';
+    document.getElementById('modal-confirm').classList.add('active');
+    setTimeout(() => document.getElementById('mc-pw-input').focus(), 50);
+  });
+}
+
 async function startStressTool(name) {
   // Szándékosan nincs progress-modal / megerősítő ablak: egy kattintásra csendben
   // elindul, automatizálás NÉLKÜL (a program saját beállító képernyőjével). Az első
   // letöltés folyamatát a nézetbe ágyazott sáv (stress_dl_progress esemény) mutatja,
   // az eredményről egy rövid toast tájékoztat.
   try {
-    await api().start_stress_tool(name);
+    const pw = await askToollibPassword([name], true);
+    if (pw === null) return;
+    await api().start_stress_tool(name, pw);
+    // A letöltés háttérszálon fut; ha közben megjegyezte a jelszót, az elfelejtés-gomb kövesse.
+    if (pw) setTimeout(refreshToollibPassword, 15000);
   } catch (e) {
     toast('Indítási hiba: ' + e, 'error');
   }
 }
 
 /* ========== SZERVÍZ PROGRAMOK (kártya-grid + telepítés) ========== */
+// 2026-10-30: Szervízprogramok könyvtára. `drive: true` = licences program, a bolt Drive-járól
+// jön jelszóval (a forrás a backendben: app/toollib_core.py PACKAGES - a kettőnek egyeznie kell).
 const SERVICE_TOOLS = [
-  {key:'furmark',     icon:'🌡️', name:'FurMark',                  cat:'GPU teszt', cls:'gpu',  desc:'GPU stressz teszt — videokártya-terhelés és stabilitás-ellenőrzés.'},
-  {key:'prime95',     icon:'🧮', name:'Prime95',                  cat:'CPU teszt', cls:'cpu',  desc:'CPU stressz teszt — processzor-terhelés (torture test).'},
-  {key:'linpack',     icon:'📈', name:'Linpack Xtreme',           cat:'CPU+RAM',   cls:'cpu',  desc:'CPU + memória stressz teszt — instabil RAM/tuning kiszűrése.'},
-  {key:'hwinfo',      icon:'📟', name:'HWiNFO64',                 cat:'Monitor',   cls:'mon',  desc:'Hőmérséklet- és szenzor-monitor — hőfokok, feszültségek, órajelek.'},
-  {key:'hdsentinel',  icon:'💾', name:'HD Sentinel',              cat:'Monitor',   cls:'mon',  desc:'Háttértár egészség-monitor — HDD/SSD állapot és S.M.A.R.T.'},
-  {key:'cpuz',        icon:'🧩', name:'CPU-Z',                    cat:'Infó',      cls:'info', desc:'Processzor, alaplap és memória részletes adatai.'},
-  {key:'gpuz',        icon:'🎮', name:'GPU-Z',                    cat:'Infó',      cls:'info', desc:'Videokártya részletes adatai — BIOS, szenzorok, órajelek.'},
-  {key:'zentimings',  icon:'⏱️', name:'ZenTimings',               cat:'Infó',      cls:'info', desc:'AMD Ryzen memória-időzítések áttekintése.'},
-  {key:'nvinspector', icon:'🛠️', name:'NVIDIA Profile Inspector', cat:'Beállító',  cls:'info', desc:'NVIDIA driver-profilok megtekintése és finomhangolása.'},
-  {key:'tm5',         icon:'🧪', name:'TestMem5',                 cat:'RAM teszt', cls:'ram',  desc:'Memória stabilitás-teszt (benne az anta777 Extreme konfig) — RAM-tuning ellenőrzése.'},
-  {key:'ycruncher',   icon:'🔢', name:'y-cruncher',               cat:'RAM teszt', cls:'ram',  desc:'CPU + memóriavezérlő stressz (Stress Tester: VT3, FFTv4) — SOC/FCLK-instabilitás kiszűrése.'},
-  {key:'hcimemtest',  icon:'🧠', name:'HCI MemTest',              cat:'RAM teszt', cls:'ram',  desc:'Hosszú memóriateszt — több példányban indítsd, a szabad RAM-ot elosztva közöttük.'},
-  {key:'thaiphoon',   icon:'🏷️', name:'Thaiphoon Burner',         cat:'Infó',      cls:'info', desc:'A RAM-modulok SPD-adatai — gyártó, chip (pl. Hynix AFR, Samsung B-die), gyári timingek.'},
+  {key:'furmark',     icon:'🌡️', name:'FurMark',                   cat:'GPU teszt', cls:'gpu',  desc:'GPU stressz teszt — videokártya-terhelés és stabilitás-ellenőrzés.'},
+  {key:'prime95',     icon:'🧮', name:'Prime95',                   cat:'CPU teszt', cls:'cpu',  desc:'CPU stressz teszt — processzor-terhelés (torture test).'},
+  {key:'linpack',     icon:'📈', name:'Linpack Xtreme',            cat:'CPU+RAM',   cls:'cpu',  desc:'CPU + memória stressz teszt — instabil RAM/tuning kiszűrése.'},
+  {key:'occt',        icon:'⚡', name:'OCCT',                      cat:'Stressz',   cls:'cpu',  drive:true, desc:'CPU-, GPU- és tápegység-stresszteszt egy programban, hibafigyeléssel.'},
+  {key:'hwinfo',      icon:'📟', name:'HWiNFO64',                  cat:'Monitor',   cls:'mon',  desc:'Hőmérséklet- és szenzor-monitor — hőfokok, feszültségek, órajelek.'},
+  {key:'hdsentinel',  icon:'💾', name:'HD Sentinel',               cat:'Monitor',   cls:'mon',  drive:true, desc:'Háttértár egészség-monitor — HDD/SSD állapot és S.M.A.R.T.'},
+  {key:'aida64',      icon:'🔬', name:'AIDA64',                    cat:'Infó',      cls:'info', drive:true, desc:'Teljes hardverleltár, szenzorok és stabilitásteszt.'},
+  {key:'cpuz',        icon:'🧩', name:'CPU-Z',                     cat:'Infó',      cls:'info', desc:'Processzor, alaplap és memória részletes adatai.'},
+  {key:'ismylcdok',   icon:'🖥️', name:'IsMyLcdOK',                 cat:'Kijelző',   cls:'info', desc:'Halott/beragadt pixelek keresése színes teljes képernyőkkel.'},
+  {key:'tm5',         icon:'🧪', name:'TestMem5',                  cat:'RAM teszt', cls:'ram',  desc:'Memória stabilitás-teszt (benne az anta777 Extreme konfig) — RAM-tuning ellenőrzése.'},
+  {key:'ycruncher',   icon:'🔢', name:'y-cruncher',                cat:'RAM teszt', cls:'ram',  desc:'CPU + memóriavezérlő stressz (Stress Tester: VT3, FFTv4) — SOC/FCLK-instabilitás kiszűrése.'},
+  {key:'hcimemtest',  icon:'🧠', name:'HCI MemTest',               cat:'RAM teszt', cls:'ram',  desc:'Hosszú memóriateszt — több példányban indítsd, a szabad RAM-ot elosztva közöttük.'},
+  {key:'macrium',     icon:'💿', name:'Macrium Reflect 8',         cat:'Klónozás',  cls:'info', drive:true, desc:'Lemez klónozása és lemezkép-mentés (a WinPE-s változat; futó Windowson nem biztos, hogy klónoz).'},
+  {key:'partitionwizard', icon:'🧱', name:'MiniTool Partition Wizard', cat:'Lemez', cls:'info', drive:true, desc:'Partíciók átméretezése, mozgatása, konvertálása (MBR/GPT).'},
+  {key:'dismpp',      icon:'🧹', name:'Dism++',                    cat:'Windows',   cls:'info', desc:'Windows-takarítás, frissítések, driverek és rendszerkép kezelése.'},
+  {key:'treesize',    icon:'🌳', name:'TreeSize',                  cat:'Lemez',     cls:'info', drive:true, desc:'Mi foglalja a helyet a lemezen — mappák méret szerint.'},
+  {key:'teracopy',    icon:'📁', name:'TeraCopy',                  cat:'Fájlok',    cls:'info', drive:true, desc:'Gyors, ellenőrzött fájlmásolás; egy hibás fájl miatt nem áll le.'},
+  {key:'totalcmd',    icon:'🗂️', name:'Total Commander',           cat:'Fájlok',    cls:'info', drive:true, desc:'Kéthasábos fájlkezelő.'},
+  {key:'teamviewer',  icon:'🌐', name:'TeamViewer',                cat:'Távsegítség', cls:'info', drive:true, desc:'Távoli asztal / távsegítség.'},
+  {key:'wlu',         icon:'🔓', name:'Windows Login Unlocker',    cat:'Jelszó',    cls:'info', drive:true, desc:'Windows-fiók jelszavának törlése egy MÁSIK (nem futó) Windowson — a Sergei pendrive-ról bootolva.'},
 ];
 
 function renderToolGrid() {
@@ -7129,7 +7217,7 @@ function renderToolGrid() {
         <div class="tool-icon">${t.icon}</div>
         <div class="tool-title">
           <div class="tool-name" title="${t.name}">${t.name}</div>
-          <span class="tool-cat ${t.cls}">${t.cat}</span><span class="tool-state" id="tool-state-${t.key}"></span>
+          <span class="tool-cat ${t.cls}">${t.cat}</span>${t.drive ? '<span class="tool-cat" title="Licences program: a bolt Google Drive-járól jön, a fenti jelszóval">☁️ Drive</span>' : ''}<span class="tool-state" id="tool-state-${t.key}"></span>
         </div>
       </div>
       <div class="tool-desc">${t.desc}</div>
@@ -7142,9 +7230,32 @@ function renderToolGrid() {
   if (badge) badge.textContent = SERVICE_TOOLS.length + ' program';
 }
 
+// A megjegyzett Drive-jelszó állapota (a jelszót magát a felület sosem kapja meg).
+async function refreshToollibPassword() {
+  if (!window.pywebview) return;
+  try {
+    const saved = await api().get_toollib_password_saved();
+    const fb = document.getElementById('toollib-forget');
+    if (fb) fb.style.display = saved ? '' : 'none';
+  } catch (e) {
+    console.log('Jelszó-állapot hiba: ' + e);
+  }
+}
+
+async function forgetToollibPassword() {
+  try {
+    const ok = await api().forget_toollib_password();
+    toast(ok ? '🔓 A Drive-jelszó törölve erről a gépről.' : '⚠️ A jelszót nem sikerült törölni.', ok ? 'success' : 'warning');
+  } catch (e) {
+    toast('Hiba: ' + e, 'error');
+  }
+  refreshToollibPassword();
+}
+
 async function refreshServiceTools() {
   // "Telepítve" jelvények frissítése a kártyákon (a backend nyilvántartása alapján).
   if (!window.pywebview) return;
+  refreshToollibPassword();
   try {
     const st = await api().get_service_tools_status();
     for (const t of SERVICE_TOOLS) {
@@ -7175,7 +7286,9 @@ async function installServiceTools() {
     picked.map(t => '• ' + t.name).join('\n') + '\n\nFolytatod?');
   if (!ok) return;
   try {
-    await api().install_service_tools(picked.map(t => t.key));
+    const pw = await askToollibPassword(picked.map(t => t.key), false);
+    if (pw === null) return;
+    await api().install_service_tools(picked.map(t => t.key), pw);
   } catch (e) {
     toast('Telepítési hiba: ' + e, 'error');
   }
@@ -8196,9 +8309,9 @@ function delVisibleIndices(base) {
 function renderDeleteTabs(base) {
   const el = document.getElementById('mc-del-tabs');
   if (!el) return;
-  const counts = {active: 0, standby: 0, unused: 0, unknown: 0};
+  const counts = {active: 0, standby: 0, idle: 0, unused: 0, unknown: 0};
   base.forEach(i => { const s = delPreview[i].usage || 'unknown'; counts[s] = (counts[s] || 0) + 1; });
-  if (!(counts.active + counts.standby + counts.unused)) {
+  if (!(counts.active + counts.standby + counts.idle + counts.unused)) {
     el.style.display = 'none';
     delTab = 'all';
     return;
@@ -8208,6 +8321,7 @@ function renderDeleteTabs(base) {
   const defs = [
     {key: 'active', cls: 'tab-ok', always: true},
     {key: 'standby', cls: 'tab-todo'},
+    {key: 'idle', cls: 'tab-todo'},
     {key: 'unused', cls: ''},
     {key: 'unknown', cls: ''}
   ];

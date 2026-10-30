@@ -15,6 +15,7 @@ import winreg
 import math
 from app.common import _app_data_dir
 from app.common import download_with_cert_fallback
+from app import benchmark_core, logupload_core, toollib_core
 from app.powerplan_core import parse_setting_indexes
 from app.stress_defs import LINPACK_PROMPT_SCRIPT
 from app.stress_defs import LINPACK_RAM_OPTIONS
@@ -359,91 +360,103 @@ class GuiStressMixin:
             logging.error(f"[STRESSTOOLS] Indítási hiba - {display_name}: {e}")
             return None
 
-    def _stresstools_cache_valid(self, stress_dir):
-        """Csak akkor fogadjuk el a korábban kicsomagolt cache-t, ha a kicsomagolás
-        teljesen lefutott (marker fájl) ÉS az UTÓLAG a ZIP-hez adott komponensek is
-        megvannak benne. Ez utóbbi feltétel nélkül egy olyan gépen, ahol a stressz-teszt
-        funkciót MÁR HASZNÁLTÁK egy frissítés előtt, a marker egy régebbi, hiányos ZIP-ből
-        származna, és a sima marker-ellenőrzés örökre a régi cache-t adná vissza - a friss
-        ZIP-et sosem töltené le újra (terepen bizonyítottan előfordult a SumatraPDF/HP
-        driver hozzáadásakor). A jelenlegi frissesség-őrszemek: SumatraPDF + HP driver
-        (2026-07 eleje), a NVIDIA Profile Inspector (2026-07 vége, a CPU-Z/GPU-Z/ZenTimings
-        bővítéssel egy körben), és a Thaiphoon Burner (2026-10-26, a RAM TEST TestMem5 /
-        y-cruncher / HCI MemTest bővítése utáni második körben)."""
-        marker_path = os.path.join(stress_dir, ".extract_complete")
-        if not os.path.exists(marker_path):
-            return False
-        if not (self._find_sumatra_exe(stress_dir) and self._find_hp_driver_inf(stress_dir)):
-            return False
-        if not self._find_stress_tool_exes(stress_dir, ['thaiphoon'])['thaiphoon']:
-            return False
-        return bool(self._find_stress_tool_exes(stress_dir, ['nvinspector'])['nvinspector'])
+    def _download_stresstools(self, progress=None, keys=(), password=''):
+        """A kért programok csomagjainak letöltése + kicsomagolása a közös gyökér alá
+        (`toollib_core.cache_root`), csomagonként cache-elve. Visszatér a gyökérrel (a
+        fájlkeresők - `_find_stress_tool_exes`, `find_bench_tool_exes`, `find_smartctl`,
+        `_find_sumatra_exe` - ezt járják be), vagy None-nal, ha egy kért csomag nem jött le.
 
-    def _download_stresstools(self, progress=None):
-        """A stresstools.zip letöltése + kicsomagolása a temp alá (cache-elve). progress:
-        opcionális callback(fázis, kész, összes) - fázis 'download' (bájtok, az összes
-        lehet None, ha a szerver nem küld Content-Length-et) vagy 'extract' (fájldarab).
-        A hívó dolga a throttling/megjelenítés."""
-        import tempfile, zipfile, shutil
-        # WinPE-ben a %TEMP% az X: RAM-diskre mutat - a stressztesztek zip-jét a valódi C: meghajtóra tesszük.
-        is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
-        if is_pe:
-            temp_dir = r'C:\DV_Temp'
-            os.makedirs(temp_dir, exist_ok=True)
-        else:
-            temp_dir = tempfile.gettempdir()
-        stress_dir = os.path.join(temp_dir, "DriverVarázsló_Stress")
-        marker_path = os.path.join(stress_dir, ".extract_complete")
-        zip_path = os.path.join(temp_dir, "stresstools.zip")
-        download_url = "https://github.com/egonixaimgod/DriverVarazslo/releases/download/stresstools.zip/stresstools.zip"
+        2026-10-30 óta CSOMAGONKÉNT (explicit user decision): a régi 621 MB-os
+        stresstools.zip helyett minden program saját zipje; `keys` a program-kulcsok
+        (lásd `toollib_core.packages_for`). `password`: a Drive-on lévő (licences)
+        csomagokhoz kell, a naplók letöltésével azonos jelszó; üresen a gépen megjegyzett
+        jelszó megy, és egy beírt jelszót a sikeres Drive-letöltés után megjegyzünk.
 
-        if self._stresstools_cache_valid(stress_dir):
-            return stress_dir
-
-        # A "CPU + Memória + GPU teszt" (korábban "Stress teszt indítása") és az egyenkénti gombok is idekerülhetnek egyszerre
-        # (utóbbiak nem mennek át a _task_busy-n, hogy egymás után gyorsan lehessen indítani
-        # több eszközt is) - lock nélkül két egyidejű hívás ugyanabba a zip_path/stress_dir
-        # mappába írna/csomagolna ki párhuzamosan, ami korrupciót okozhatna.
+        progress: opcionális callback(fázis, kész, összes) - fázis 'download' (bájtok, az
+        összes lehet None) vagy 'extract' (fájldarab). A hívó dolga a megjelenítés. Az
+        utolsó hiba oka a `self._toollib_last_error`-ban (a hívó ebből ír üzenetet)."""
+        import zipfile, shutil
+        root = toollib_core.cache_root()
+        pkgs = toollib_core.packages_for(keys)
+        self._toollib_last_error = ''
+        if not pkgs:
+            self._toollib_last_error = 'nincs megadva letöltendő program'
+            logging.error(f"[TOOLLIB] _download_stresstools: nincs csomag a kulcsokhoz ({keys!r})")
+            return None
+        missing = [p for p in pkgs if not toollib_core.package_ready(root, p)]
+        if not missing:
+            return root
+        # Egyszerre több út is idekerülhet (egyenkénti indítás, telepítés): a lock nélkül
+        # két szál ugyanabba a mappába csomagolna ki párhuzamosan.
         with self._stresstools_download_lock:
-            # Amíg a lock-ra vártunk, egy másik szál esetleg már befejezte a letöltést.
-            if self._stresstools_cache_valid(stress_dir):
-                return stress_dir
-            try:
-                # A friss-Windows tanúsítvány-fallback a közös
-                # common.download_with_cert_fallback-ben él (hibánál kivétel -> lenti except -> None).
-                dl_cb = (lambda done, total: progress('download', done, total)) if progress else None
-                download_with_cert_fallback(self._run, download_url, zip_path,
-                                            timeout=60, ps_timeout=600, log_tag='STRESSTOOLS',
-                                            progress_cb=dl_cb)
-
-                if not zipfile.is_zipfile(zip_path):
-                    return None
-                if os.path.exists(stress_dir):
-                    shutil.rmtree(stress_dir, ignore_errors=True)
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    members = zip_ref.infolist()
-                    for i, member in enumerate(members):
-                        zip_ref.extract(member, stress_dir)
-                        if progress:
-                            try:
-                                progress('extract', i + 1, len(members))
-                            except Exception as cb_err:
-                                logging.debug(f"[STRESSTOOLS] extract progress hiba (figyelmen kívül hagyva): {cb_err}")
-                try: os.remove(zip_path)
-                except Exception as e: logging.debug(f"[STRESSTOOLS] Letöltött ZIP törlése sikertelen: {e}")
-                with open(marker_path, 'w') as f:
-                    f.write('ok')
-                return stress_dir
-            except Exception as e:
-                logging.error(f"[STRESSTOOLS] Download hiba: {e}")
-                # A fél-kész zip törlése - tele lemeznél (terepen látott [Errno 28])
-                # pont a maradvány foglalná tovább a helyet a következő próbától.
+            self._remove_legacy_stresstools()
+            os.makedirs(root, exist_ok=True)
+            for pkg in missing:
+                if toollib_core.package_ready(root, pkg):
+                    continue   # amíg a lockra vártunk, egy másik szál letöltötte
+                zip_path = os.path.join(os.path.dirname(root), 'DV_' + toollib_core.zip_name(pkg))
+                dest = toollib_core.package_dir(root, pkg)
                 try:
-                    if os.path.exists(zip_path):
-                        os.remove(zip_path)
-                except Exception as rm_err:
-                    logging.debug(f"[STRESSTOOLS] Fél-kész ZIP törlése sikertelen: {rm_err}")
-                return None
+                    if toollib_core.package_source(pkg) == toollib_core.SOURCE_DRIVE:
+                        url = benchmark_core.resolve_endpoint()
+                        # Ha most nem írtak be jelszót, a gépen megjegyzett jelszó megy.
+                        fid, err = toollib_core.drive_file_id(
+                            lambda payload: logupload_core._post(self._run, url, payload),
+                            password or toollib_core.load_password(), pkg)
+                        if err:
+                            raise Exception(f"Drive: {err}")
+                        url = toollib_core.drive_url(fid)
+                    else:
+                        url = toollib_core.github_url(pkg)
+                    logging.info(f"[TOOLLIB] Csomag letöltése: {pkg} ({toollib_core.package_source(pkg)}) -> {dest}")
+                    dl_cb = (lambda done, total: progress('download', done, total)) if progress else None
+                    download_with_cert_fallback(self._run, url, zip_path, timeout=60, ps_timeout=600,
+                                                log_tag='TOOLLIB', progress_cb=dl_cb)
+                    if not zipfile.is_zipfile(zip_path):
+                        # A Drive megosztás nélkül egy HTML bejelentkező-oldalt ad 200-zal.
+                        raise Exception("a letöltött fájl nem zip (Drive-on: a fájl nincs megosztva?)")
+                    if os.path.exists(dest):
+                        logging.info(f"[TOOLLIB] Régi/félbemaradt csomag-mappa törlése: {dest}")
+                        shutil.rmtree(dest, ignore_errors=True)
+                    with zipfile.ZipFile(zip_path, 'r') as zf:
+                        members = zf.infolist()
+                        for i, member in enumerate(members):
+                            zf.extract(member, dest)
+                            if progress:
+                                try:
+                                    progress('extract', i + 1, len(members))
+                                except Exception as cb_err:
+                                    logging.debug(f"[TOOLLIB] extract progress hiba (figyelmen kívül hagyva): {cb_err}")
+                    toollib_core.mark_package_ready(root, pkg)
+                    logging.info(f"[TOOLLIB] {pkg}: kész ({len(members)} fájl).")
+                    if password and toollib_core.package_source(pkg) == toollib_core.SOURCE_DRIVE:
+                        # A jelszó bizonyítottan jó (a Drive kiadta a fájlt): megjegyezzük.
+                        toollib_core.save_password(password)
+                except Exception as e:
+                    self._toollib_last_error = f"{toollib_core.PACKAGES[pkg][1]}: {e}"
+                    logging.error(f"[TOOLLIB] {pkg} letöltése/kicsomagolása nem sikerült: {e}")
+                    return None
+                finally:
+                    # A zipet mindig töröljük - tele lemeznél (terepen látott [Errno 28]) a
+                    # maradvány foglalná a helyet a következő próba elől.
+                    try:
+                        if os.path.exists(zip_path):
+                            os.remove(zip_path)
+                    except OSError as rm_err:
+                        logging.warning(f"[TOOLLIB] A letöltött zip nem törölhető ({zip_path}): {rm_err}")
+        return root
+
+    def _remove_legacy_stresstools(self):
+        """A régi, egy-zipes cache (`DriverVarázsló_Stress`, kicsomagolva ~1,3 GB) törlése:
+        az új buildek már nem használják. Csak a saját régi mappánkat töröljük."""
+        legacy = os.path.join(os.path.dirname(toollib_core.cache_root()), toollib_core.LEGACY_CACHE_DIRNAME)
+        if os.path.isdir(legacy):
+            logging.info(f"[TOOLLIB] A régi stresstools-cache törlése: {legacy}")
+            shutil_errors = []
+            import shutil
+            shutil.rmtree(legacy, onerror=lambda fn, p, ei: shutil_errors.append(f"{p}: {ei[1]}"))
+            if shutil_errors:
+                logging.warning(f"[TOOLLIB] A régi cache egy része bent maradt ({len(shutil_errors)} fájl): {shutil_errors[:3]}")
 
     def _stress_dl_progress_emitter(self, label):
         """Throttlingolt progress-callback gyár a stresstools.zip letöltéséhez: a
@@ -520,7 +533,7 @@ class GuiStressMixin:
                 self._lock_power_for_stress()
                 self.emit('task_progress', {'task': 'stress', 'log': '🌐 Tesztprogramok (ZIP) letöltése a háttérben...', 'indeterminate': True})
 
-                stress_dir = self._download_stresstools(progress=self._task_dl_progress('stress'))
+                stress_dir = self._download_stresstools(progress=self._task_dl_progress('stress'), keys=STRESS_TOOLS_BULK)
                 if not stress_dir:
                     raise Exception("Hiba a ZIP letöltésekor vagy kicsomagolásakor (Helytelen ZIP / Nincs net).")
 
@@ -645,7 +658,7 @@ class GuiStressMixin:
 
         self._safe_thread('stress', worker)
 
-    def start_stress_tool(self, name):
+    def start_stress_tool(self, name, password=''):
         """Egyetlen szervíz-/teszt program elindítása (a Stress Teszt nézet program-
         kártyái hívják). Tudatosan NEM megy át a task_start/progress-modal rendszeren -
         egy gombnyomásra csendben induljon el, csak toast + (első letöltésnél) a nézetbe
@@ -667,7 +680,6 @@ class GuiStressMixin:
         display_name, _ = info
 
         def worker():
-            import tempfile
             try:
                 # Infó-eszközöknél (CPU-Z, GPU-Z...) nem nyúlunk az energiagazdálkodáshoz.
                 if name in STRESS_POWER_LOCK_KEYS:
@@ -678,18 +690,17 @@ class GuiStressMixin:
                 if exe_path:
                     logging.info(f"[STRESSTOOLS] {display_name}: telepített példány indul: {exe_path}")
                 else:
-                    is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
-                    temp_dir = r'C:\DV_Temp' if is_pe else tempfile.gettempdir()
-                    marker_path = os.path.join(temp_dir, "DriverVarázsló_Stress", ".extract_complete")
-                    if not os.path.exists(marker_path):
-                        self.emit('toast', {'message': f'⏳ {display_name}: első indítás, a programcsomag letöltése következik...', 'type': 'info'})
+                    pkg = toollib_core.package_for(name)
+                    if pkg and not toollib_core.package_ready(toollib_core.cache_root(), pkg):
+                        self.emit('toast', {'message': f'⏳ {display_name}: első indítás, a program letöltése következik...', 'type': 'info'})
 
                     try:
-                        stress_dir = self._download_stresstools(progress=self._stress_dl_progress_emitter(display_name))
+                        stress_dir = self._download_stresstools(progress=self._stress_dl_progress_emitter(display_name),
+                                                                keys=[name], password=password)
                     finally:
                         self.emit('stress_dl_progress', {'active': False})
                     if not stress_dir:
-                        self.emit('toast', {'message': f'❌ Hiba a programcsomag letöltésekor/kicsomagolásakor ({display_name})!', 'type': 'error'})
+                        self.emit('toast', {'message': f'❌ {display_name} letöltése nem sikerült: {self._toollib_last_error}', 'type': 'error'})
                         return
 
                     exe_path = self._find_stress_tool_exes(stress_dir, [name])[name]

@@ -182,7 +182,8 @@ def _drivers_usage_info(api, drivers):
     c = info.get('counts') or {}
     if usage:
         ui.ok(f"{c.get('active', 0)} csomagot használ MOST a gép · "
-              f"{c.get('standby', 0)} készenlétben · {c.get('unused', 0)} nem használt")
+              f"{c.get('standby', 0)} nincs bedugva · {c.get('idle', 0)} nem fut · "
+              f"{c.get('unused', 0)} nem használt")
     if info.get('machine_error'):
         ui.dim(f"A gép felépítése nem rajzolható ki: {info['machine_error']}")
     return info
@@ -198,7 +199,8 @@ def _machine_what(machine, d):
 # tartalékkal, mert a magyar OEM kódlapon a szín-emojik nincsenek meg.
 _USAGE_MARK = {
     'active':  (ui.RED, '🔴 HASZNÁLJA', '[!] HASZNALJA'),
-    'standby': (ui.YELLOW, '🟡 készenlét', '[~] keszenlet'),
+    'standby': (ui.YELLOW, '🟡 nincs bedugva', '[~] nincs bedugva'),
+    'idle':    (ui.YELLOW, '🟡 nem fut', '[~] nem fut'),
     'unused':  (ui.DIM, '⚪ nem használt', '[ ] nem hasznalt'),
     'unknown': (ui.DIM, '❔ ismeretlen', '[?] ismeretlen'),
 }
@@ -252,7 +254,8 @@ def _drivers_usage_screen(api):
         _machine_screen(machine, drivers, usage)
         return
     groups = [('active', 'HASZNÁLATBAN — a gép MOST használja', ui.RED),
-              ('standby', 'KÉSZENLÉTBEN — tartozik hozzá eszköz/szolgáltatás, de nem aktív', ui.YELLOW),
+              ('standby', 'NINCS BEDUGVA — van hozzá eszköz/nyomtató, de most nincs csatlakoztatva', ui.YELLOW),
+              ('idle', 'NEM FUT — szoftveres driver, a szolgáltatása le van állítva', ui.YELLOW),
               ('unused', 'NEM HASZNÁLT — semmi nem hivatkozik rá', ui.DIM)]
     for state, title, color in groups:
         items = [d for d in drivers
@@ -313,7 +316,7 @@ def _machine_screen(machine, drivers, usage):
             if devs:
                 lines.append('Windows beépített driverrel működik: ' + ', '.join(
                     f"{dv['name']} ({dv.get('inf') or '?'})" for dv in devs[:3]))
-        order = {'active': 0, 'standby': 1, 'unknown': 2, 'unused': 3}
+        order = {'active': 0, 'standby': 1, 'idle': 2, 'unknown': 3, 'unused': 4}
         items.sort(key=lambda d: (order.get(((usage.get((d.get('published') or '').lower()) or {}).get('state')), 9),
                                   (d.get('published') or '').lower()))
         for d in items:
@@ -404,7 +407,7 @@ def _delete_drivers_flow(api):
     usage = info.get('usage') or {}
     machine = info.get('machine')
     if usage:
-        order = {'active': 0, 'standby': 1, 'unknown': 2, 'unused': 3}
+        order = {'active': 0, 'standby': 1, 'idle': 2, 'unknown': 3, 'unused': 4}
         # Ha megvan a gép-térkép, elöl az alkatrész-sorrend (ugyanaz, mint a GUI
         # alapértelmezett csoportosítása), azon belül a használat.
         mpk = (machine or {}).get('packages') or {}
@@ -1142,7 +1145,7 @@ def _menu_stress(api):
         _header(api, 'Stress teszt & szervíz programok')
         c = ui.menu([
             ('1', 'CPU + Memória + GPU stress teszt', 'FurMark + Prime95 Blend + Linpack + HWiNFO, automatikusan'),
-            ('2', 'Egy program indítása', 'Kézi beállítással, automatizálás nélkül'),
+            ('2', 'Egy program indítása', 'Szervízprogramok könyvtára: portable, automatizálás nélkül'),
             ('3', 'Futó tesztek leállítása', None),
             ('4', 'Szervíz programok telepítése', 'Program Files + asztali parancsikon'),
             ('5', 'Benchmark futtatása', 'Cinebench + FurMark, feltöltés a ranglistára'),
@@ -1179,12 +1182,31 @@ def _ram_test(api):
         api.start_ram_test(keys[sel[0]])
 
 
+def _toollib_password(api, keys, launch=False):
+    """A ☁️ Drive-os (licences) programok jelszava - csak akkor kérdezzük, ha a kijelöltek
+    között van még le nem töltött licences program, és a gép még nem jegyezte meg
+    (ugyanaz a döntés, mint a GUI-ban: toollib_password_needed)."""
+    need = api.toollib_password_needed(keys, launch) or []
+    if not need:
+        return ''
+    ui.dim('Ezek a bolt Google Drive-járól jönnek, jelszó kell (egyszer, a gép megjegyzi): ' + ', '.join(need))
+    return ui.ask('Jelszó (ugyanaz, mint a naplók letöltésénél)')
+
+
+def _tool_label(key):
+    from app.stress_defs import STRESS_TOOLS
+    from app import toollib_core as tl
+    pkg = tl.package_for(key)
+    return STRESS_TOOLS[key][0] + ('  (☁️ Drive)' if pkg and tl.package_source(pkg) == tl.SOURCE_DRIVE else '')
+
+
 def _stress_single(api):
     from app.stress_defs import STRESS_TOOLS
     keys = list(STRESS_TOOLS.keys())
-    sel = ui.pick_indices('Melyiket indítsam?', len(keys), labels=keys, single=True)
+    sel = ui.pick_indices('Melyiket indítsam?', len(keys), labels=[_tool_label(k) for k in keys], single=True)
     if sel:
-        api.start_stress_tool(keys[sel[0]])
+        key = keys[sel[0]]
+        api.start_stress_tool(key, _toollib_password(api, [key], launch=True))
 
 
 def _tools_install(api):
@@ -1194,9 +1216,10 @@ def _tools_install(api):
         return
     keys = list(status.keys())
     sel = ui.pick_indices('Melyeket telepítsem?', len(keys),
-                          labels=[k + ('  (telepítve)' if status[k].get('installed') else '') for k in keys])
+                          labels=[_tool_label(k) + ('  (telepítve)' if status[k].get('installed') else '') for k in keys])
     if sel:
-        api.install_service_tools([keys[i] for i in sel])
+        picked = [keys[i] for i in sel]
+        api.install_service_tools(picked, _toollib_password(api, picked))
 
 
 def _tools_uninstall(api):
@@ -1206,7 +1229,7 @@ def _tools_uninstall(api):
         ui.warn('Egyetlen szervíz program sincs telepítve.')
         return
     sel = ui.pick_indices('Melyeket töröljem?', len(keys),
-                          labels=[k + '  (' + (status[k].get('path') or '') + ')' for k in keys])
+                          labels=[_tool_label(k) + '  (' + (status[k].get('path') or '') + ')' for k in keys])
     if sel and ui.confirm('A mappájuk és az asztali parancsikonjuk törlődik. Biztos?', False):
         api.uninstall_service_tools([keys[i] for i in sel])
 

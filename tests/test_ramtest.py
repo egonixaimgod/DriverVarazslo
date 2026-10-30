@@ -249,7 +249,7 @@ class RamTestLogUploadTest(unittest.TestCase):
             def _ramtest_kill(self, pids=None, images=None): pass
             def _check_cancel(self): return False
             def _task_dl_progress(self, task): return None
-            def _download_stresstools(self, progress=None): return 'X:\\st' if download_ok else None
+            def _download_stresstools(self, progress=None, keys=(), password=''): return 'X:\\st' if download_ok else None
             def _find_stress_tool_exes(self, d, names): return {}
             def upload_run_log(self, task, outcome): self.uploads.append((task, outcome, list(self.events)))
         return F()

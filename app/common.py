@@ -951,14 +951,26 @@ def _trunc_repr(value, limit):
     return r
 
 
+# Ezek a paraméterek SOHA nem kerülnek a naplóba (2026-10-30): a napló felmegy a Drive-ra,
+# és a `download_uploaded_logs` / programkönyvtár jelszava eddig olvasható volt benne.
+_CALL_LOG_SECRET_PARAMS = {'password', 'pw'}
+
+
 def _make_logged(cls_name, fn):
     import functools
+    import inspect
+    try:
+        params = list(inspect.signature(fn).parameters)[1:]   # self nélkül
+    except (TypeError, ValueError):
+        params = []
+    secret_pos = {i for i, p in enumerate(params) if p in _CALL_LOG_SECRET_PARAMS}
 
     @functools.wraps(fn)
     def wrapper(self, *args, **kwargs):
         level = logging.DEBUG if fn.__name__.startswith('_') else logging.INFO
-        arg_s = ', '.join([_trunc_repr(a, 200) for a in args] +
-                          [f'{k}={_trunc_repr(v, 200)}' for k, v in kwargs.items()])
+        arg_s = ', '.join(['***' if i in secret_pos and a else _trunc_repr(a, 200) for i, a in enumerate(args)] +
+                          [f'{k}=***' if k in _CALL_LOG_SECRET_PARAMS and v else f'{k}={_trunc_repr(v, 200)}'
+                           for k, v in kwargs.items()])
         logging.log(level, f"[CALL] {cls_name}.{fn.__name__}({arg_s})")
         t0 = time.monotonic()
         try:

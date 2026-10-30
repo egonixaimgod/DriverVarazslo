@@ -1,5 +1,5 @@
-"""DriverVarázsló GUI - Szervíz Programok telepítése: a stresstools.zip-ből kiválasztott
-programok mappájának bemásolása a Program Files (x86) alá + asztali parancsikon készítése.
+"""DriverVarázsló GUI - Szervíz Programok telepítése: a programonkénti csomagokból
+(app/toollib_core.py: GitHub vagy a bolt Drive-ja) kiválasztott programok mappájának bemásolása a Program Files (x86) alá + asztali parancsikon készítése.
 A telepítések nyilvántartása a <app_data>/installed_tools.json fájlban él - erről tudja a
 UI a "Telepítve" jelvényt, és erről tudja a start_stress_tool, hogy a telepített példányt
 indítsa a temp-beli portable helyett."""
@@ -13,6 +13,7 @@ import time
 import fnmatch
 from app.common import _app_data_dir, _ps_quote
 from app.stress_defs import STRESS_TOOLS
+from app import toollib_core
 # === /AUTO-IMPORTS ===
 
 
@@ -118,6 +119,35 @@ class GuiToolsInstallMixin:
         found = self._scan_installed_tools(list(STRESS_TOOLS))
         return {key: {'installed': key in found, 'path': found[key][1] if key in found else None}
                 for key in STRESS_TOOLS}
+
+    def toollib_password_needed(self, keys, launch=False):
+        """Szinkron UI-hívás: a kijelölt programok közül melyekhez kell MOST jelszó (a
+        megjelenített nevük). Csak akkor kérjük (explicit user decision, 2026-10-30), ha
+        van köztük Drive-os (licences) program, ami még nincs letöltve, és nincs
+        megjegyzett jelszó. `launch=True` (egyenkénti indítás): a telepített program nem
+        töltődik le, ahhoz sem kell."""
+        if toollib_core.load_password():
+            return []
+        root = toollib_core.cache_root()
+        keys = [k for k in (keys or []) if k in STRESS_TOOLS]
+        installed = self._scan_installed_tools(keys) if launch else {}
+        out = []
+        for k in keys:
+            pkg = toollib_core.package_for(k)
+            if (pkg and toollib_core.package_source(pkg) == toollib_core.SOURCE_DRIVE
+                    and not toollib_core.package_ready(root, pkg) and k not in installed):
+                out.append(STRESS_TOOLS[k][0])
+        logging.info(f"[TOOLLIB] Jelszó kell ezekhez: {out or 'egyikhez sem'}")
+        return out
+
+    def get_toollib_password_saved(self):
+        """Szinkron UI-hívás: van-e megjegyzett Drive-jelszó ezen a gépen (a Windows
+        Hitelesítőadat-kezelőjében; app/toollib_core.py)."""
+        return bool(toollib_core.load_password())
+
+    def forget_toollib_password(self):
+        """A megjegyzett Drive-jelszó törlése. True, ha már nincs elmentve."""
+        return toollib_core.forget_password()
 
     def uninstall_service_tools(self, keys):
         """A kiválasztott programok eltávolítása: a mappájuk törlése a Program Files
@@ -230,9 +260,9 @@ class GuiToolsInstallMixin:
             raise Exception("a parancsikon létrehozása nem sikerült")
         return lnk_path
 
-    def install_service_tools(self, keys):
-        """A kiválasztott programok telepítése: stresstools.zip letöltése (ha még nincs
-        cache-elve), a program mappájának másolása a Program Files (x86) alá, asztali
+    def install_service_tools(self, keys, password=''):
+        """A kiválasztott programok telepítése: a programok csomagjának letöltése (ha még
+        nincs cache-elve; a Drive-on lévőkhöz `password` kell), a program mappájának másolása a Program Files (x86) alá, asztali
         parancsikon, nyilvántartás-frissítés. Újratelepítésnél (már létező célmappa) a
         fájlokat felülírjuk, de idegen fájlt nem törlünk (copytree dirs_exist_ok)."""
         logging.info(f"[API] install_service_tools({keys})")
@@ -244,7 +274,7 @@ class GuiToolsInstallMixin:
         def worker():
             try:
                 self.emit('task_start', {'task': 'toolsinstall', 'title': 'Szervíz Programok Telepítése'})
-                self.emit('task_progress', {'task': 'toolsinstall', 'log': '🌐 Programcsomag előkészítése (első alkalommal letöltés)...', 'indeterminate': True})
+                self.emit('task_progress', {'task': 'toolsinstall', 'log': '🌐 Programok előkészítése (első alkalommal letöltés)...', 'indeterminate': True})
 
                 dl_state = {'last': 0.0}
 
@@ -264,11 +294,6 @@ class GuiToolsInstallMixin:
                         self.emit('task_progress', {'task': 'toolsinstall', 'current': done, 'total': total,
                                                     'status': f'📦 Kicsomagolás: {done}/{total} fájl'})
 
-                stress_dir = self._download_stresstools(progress=dl_progress)
-                if not stress_dir:
-                    raise Exception("Hiba a programcsomag letöltésekor vagy kicsomagolásakor (Helytelen ZIP / Nincs net).")
-
-                found = self._find_stress_tool_exes(stress_dir, keys)
                 install_root = self._tools_install_root()
                 records = self._load_tool_install_records()
                 ok_count = 0
@@ -277,7 +302,13 @@ class GuiToolsInstallMixin:
                 for key in keys:
                     display_name, _ = STRESS_TOOLS[key]
                     try:
-                        src_exe = found.get(key)
+                        # Programonként: egy elbukott (pl. jelszó nélküli Drive-os) letöltés
+                        # nem viheti el a többi program telepítését.
+                        self.emit('task_progress', {'task': 'toolsinstall', 'log': f'🌐 {display_name}: csomag előkészítése...'})
+                        stress_dir = self._download_stresstools(progress=dl_progress, keys=[key], password=password)
+                        if not stress_dir:
+                            raise Exception(f"a letöltés nem sikerült - {self._toollib_last_error}")
+                        src_exe = self._find_stress_tool_exes(stress_dir, [key]).get(key)
                         if not src_exe or not os.path.exists(src_exe):
                             self.emit('task_progress', {'task': 'toolsinstall', 'log': f'⚠️ {display_name}: nem található a csomagban, kihagyva.'})
                             fail_count += 1

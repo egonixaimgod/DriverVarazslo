@@ -147,7 +147,8 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 | 🎨 **Kijelző és színkezelés** | HDR, automatikus színkezelés (ACM), ICC-profilok SDR/HDR módra, gamma, panel-adatok, gyári visszaállítás |
 | 🧹 **Rendszer karbantartás** | Ideiglenes fájlok, gyorsítótárak és komponenstár takarítása, előre megmutatott méretekkel |
 | 🏷️ **Bolti tábla** | A5-ös árlapok a szerviz Word-sablonjából, akciós árral és Windows-telepítés opcióval |
-| 🔥 **Stresszteszt és szervizprogramok** | CPU + memória + GPU teszt (FurMark, Prime95 Blend, Linpack, HWiNFO) egy gombbal, automatizált indítással és ablak-elrendezéssel; **RAM TEST** (TestMem5 → y-cruncher → HCI MemTest felügyelet nélkül, WHEA-figyeléssel és verdikttel) |
+| 🔥 **Stresszteszt** | CPU + memória + GPU teszt (FurMark, Prime95 Blend, Linpack, HWiNFO) egy gombbal, automatizált indítással és ablak-elrendezéssel; **RAM TEST** (TestMem5 → y-cruncher → HCI MemTest felügyelet nélkül, WHEA-figyeléssel és verdikttel) |
+| 🧰 **Szervízprogramok könyvtára** | 20 szervizprogram (pl. AIDA64, HD Sentinel, CPU-Z, OCCT, Dism++, MiniTool Partition Wizard, Macrium Reflect, TreeSize, TeraCopy, Total Commander) programonként letöltve, portable indítással vagy telepítve; a licences programok a bolt Drive-járól, jelszóval |
 | 🏆 **Benchmark** | Automatikus Cinebench R20 + FurMark mérés, összehasonlítható eredményekkel és felhős ranglistával |
 | 📊 **Rendszer riport** | Egyoldalas, nyomtatható hardverriport S.M.A.R.T.-adatokkal |
 
@@ -169,7 +170,7 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 <summary><b>💿 Driverek kezelése</b></summary>
 <br/>
 
-- **Használat szerinti besorolás, bizonyítékkal:** *Használatban / Készenlétben / Nem használt / Ismeretlen*. A program több független jelből dönt (jelen lévő eszköz, futó kernel-szolgáltatás, bejegyzett nyomtató, szűrő-regisztráció, Extension INF), így a vírusirtók és a távelérés-programok eszköz nélküli driverei sem tűnnek „feleslegesnek”. Ahol nincs elég adat, ott „Ismeretlen” a válasz, nem találgatás.
+- **Használat szerinti besorolás, bizonyítékkal:** *Használatban / Nincs bedugva / Nem fut / Nem használt / Ismeretlen*. A program több független jelből dönt (jelen lévő eszköz, futó kernel-szolgáltatás, bejegyzett nyomtató, szűrő-regisztráció, Extension INF), így a vírusirtók és a távelérés-programok eszköz nélküli driverei sem tűnnek „feleslegesnek”. Ahol nincs elég adat, ott „Ismeretlen” a válasz, nem találgatás.
 - **A gép felépítése:** interaktív ábra (laptop vagy asztali gép) arról, melyik driver melyik alkatrészé: videokártya, alaplapi hang, hálózat, chipset, külső eszközök. A döntés a Windows eszközfájából és a PCI-topológiából jön, nem a driver nevéből.
 - **Nyomtató-szűrő:** a nyomtató-drivereket az INF tartalmából ismeri fel, akkor is, ha a nyomtató épp nincs a géphez csatlakoztatva.
 - **Minden third-party driver törölhető**, offline módban is. Ha egy rossz driver miatt nem indul a gép, egy másik Windowsból indítva pont azt a csomagot lehet eltávolítani. A Windows saját (inbox) drivereihez a program szándékosan nem nyúl.
@@ -221,11 +222,11 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 
 - **Stresszteszt egy gombbal:** FurMark, Prime95, Linpack Xtreme és HWiNFO64 indul, a program automatikusan megválaszolja az indítóablakokat, majd a négy ablakot a képernyő négy negyedébe rendezi. A Prime95 Blend módban fut, így a CPU mellett a memóriát is terheli.
 - **RAM TEST (zöld gomb):** TestMem5 (anta777 Extreme), y-cruncher (FFTv4 + VT3) és HCI MemTest (szálanként egy példány) egymás után, felügyelet nélkül, Gyors vagy Teljes módban. Közben és a végén a WHEA-hibanaplót is figyeli, a végén kiírja a verdiktet és a teendőt. Stabilnak csak akkor mondja a gépet, ha mindhárom teszt hibátlan és a WHEA-napló tiszta. A képernyő-elalvás a teszt idejére kikapcsol, utána visszaáll. A Linpack a WMIC nélküli Windows 11-en (24H2+) is elindul, a hiányzó összetevő letöltése nélkül.
-- **Szervizprogramok külön is:** HD Sentinel, CPU-Z, GPU-Z, ZenTimings, NVIDIA Profile Inspector.
+- **Szervízprogramok könyvtára (külön menüpont):** minden program külön töltődik le, csak az, amelyiket elindítod vagy telepíted. Portable indítás vagy telepítés a Program Files (x86) alá, asztali parancsikonnal; törlés egy kattintással. A licences programok a bolt Google Drive-járól jönnek, jelszóval.
 - **Benchmark:** Cinebench R20 többmagos teszt és FurMark mérés rögzített beállításokkal. A FurMark háromszor fut, a legjobb számít, a kép pontosan 1024×768-ban renderelődik minden gépen, így az eredmények valóban összehasonlíthatók.
 - **Felhős ranglista** gépenkénti bejegyzésekkel.
 
-> A harmadik féltől származó programok külön csomagban, első használatkor töltődnek le, és a saját licencük vonatkozik rájuk.
+> A harmadik féltől származó programok programonként külön csomagban, első használatkor töltődnek le, és a saját licencük vonatkozik rájuk.
 
 </details>
 

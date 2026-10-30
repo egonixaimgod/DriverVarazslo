@@ -143,7 +143,7 @@ class GuiStorePrintMixin:
         t0 = time.monotonic()
         stress_dir = self._download_stresstools(
             progress=self._report_progress_cb('store_print')
-            if hasattr(self, '_report_progress_cb') else None)
+            if hasattr(self, '_report_progress_cb') else None, keys=['hpdriver'])
         logging.info(f"[STOREPRINT] 4/6 kész: mappa={stress_dir!r} ({time.monotonic() - t0:.1f}s)")
         inf_path = self._find_hp_driver_inf(stress_dir) if stress_dir else None
         logging.info(f"[STOREPRINT] Becsomagolt HP driver INF: {inf_path or 'NEM TALÁLHATÓ'}")
@@ -525,7 +525,7 @@ class GuiStorePrintMixin:
                 t0 = time.monotonic()
                 stress_dir = self._download_stresstools(
                     progress=self._report_progress_cb('store_print')
-                    if hasattr(self, '_report_progress_cb') else None)
+                    if hasattr(self, '_report_progress_cb') else None, keys=['sumatrapdf'])
                 logging.info(f"[STOREPRINT] 5/6 kész: mappa={stress_dir!r} ({time.monotonic() - t0:.1f}s)")
                 sumatra = self._find_sumatra_exe(stress_dir) if stress_dir else None
                 logging.info(f"[STOREPRINT] SumatraPDF: {sumatra or 'NEM TALÁLHATÓ'}")

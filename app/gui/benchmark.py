@@ -22,6 +22,7 @@ import logging
 import tempfile
 from datetime import datetime
 from app import common
+from app import toollib_core
 from app.common import _app_data_dir
 from app.win32 import get_work_area
 from app.benchmark_defs import BENCH_TOOLS
@@ -114,36 +115,21 @@ class GuiBenchmarkMixin:
         benchmark nélküli cache maradt a gépen), a markert törölve EGYSZER kényszerít friss
         letöltést. Visszaad: az exe teljes útvonala, vagy None (a hibát toastként jelzi)."""
         display_name = BENCH_TOOLS[name][0]
-        is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
-        temp_dir = r'C:\DV_Temp' if is_pe else tempfile.gettempdir()
-        marker_path = os.path.join(temp_dir, "DriverVarázsló_Stress", ".extract_complete")
-        if not os.path.exists(marker_path):
-            self.emit('toast', {'message': f'⏳ {display_name}: első indítás, a programcsomag letöltése következik...', 'type': 'info'})
+        pkg = toollib_core.package_for(name)
+        if pkg and not toollib_core.package_ready(toollib_core.cache_root(), pkg):
+            self.emit('toast', {'message': f'⏳ {display_name}: első indítás, a program letöltése következik...', 'type': 'info'})
 
         try:
-            stress_dir = self._download_stresstools(progress=self._stress_dl_progress_emitter(display_name))
+            stress_dir = self._download_stresstools(progress=self._stress_dl_progress_emitter(display_name), keys=[name])
         finally:
             self.emit('stress_dl_progress', {'active': False})
         if not stress_dir:
-            self.emit('toast', {'message': f'❌ Hiba a programcsomag letöltésekor/kicsomagolásakor ({display_name})!', 'type': 'error'})
+            self.emit('toast', {'message': f'❌ {display_name} letöltése nem sikerült: {self._toollib_last_error}', 'type': 'error'})
             return None
 
         exe_path = find_bench_tool_exes(stress_dir, [name])[name]
         if not exe_path or not os.path.exists(exe_path):
-            logging.warning(f"[BENCHMARK] {display_name} nincs a kicsomagolt csomagban - friss letöltés kényszerítése...")
-            try:
-                if os.path.exists(marker_path):
-                    os.remove(marker_path)
-            except Exception as e:
-                logging.debug(f"[BENCHMARK] marker törlése sikertelen: {e}")
-            try:
-                stress_dir = self._download_stresstools(progress=self._stress_dl_progress_emitter(display_name))
-            finally:
-                self.emit('stress_dl_progress', {'active': False})
-            exe_path = find_bench_tool_exes(stress_dir, [name])[name] if stress_dir else None
-
-        if not exe_path or not os.path.exists(exe_path):
-            self.emit('toast', {'message': f'⚠️ {display_name} nem található a programcsomagban (stresstools.zip)! Ellenőrizd, hogy a ZIP tartalmazza-e.', 'type': 'warning'})
+            self.emit('toast', {'message': f'⚠️ {display_name} nem található a letöltött csomagban ({toollib_core.zip_name(pkg)})!', 'type': 'warning'})
             return None
         return exe_path
 

@@ -87,7 +87,7 @@ class GuiReportMixin:
             self.emit('task_progress', {'task': task, 'log': '🔧 Diagnosztikai eszközök ellenőrzése (S.M.A.R.T. olvasáshoz)...', 'indeterminate': True})
             logging.info("[REPORT] 1/4 - stresstools csomag ellenőrzése/letöltése (smartctl miatt)...")
             t0 = time.monotonic()
-            stress_dir = self._download_stresstools(progress=self._report_progress_cb(task))
+            stress_dir = self._download_stresstools(progress=self._report_progress_cb(task), keys=['smartctl'])
             logging.info(f"[REPORT] 1/4 kész: stresstools mappa={stress_dir!r} ({time.monotonic() - t0:.1f}s)")
 
             t0 = time.monotonic()

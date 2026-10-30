@@ -20,22 +20,31 @@ STRESS_TOOLS = {
     # A lista SORRENDJE itt prioritás: a 64 bites verziót preferáljuk, a 32 bites csak
     # akkor indul, ha nincs 64 bites az extracted mappában (lásd _find_stress_tool_exes).
     'hwinfo': ('HWiNFO64', ['hwinfo64.exe', 'hwinfo32.exe']),
-    'hdsentinel': ('HD Sentinel', ['hdsentinel.exe', 'hdsentinel_x64.exe', 'hdsentinel64.exe']),
-    # 2026-07-ben a ZIP-hez adott szervíz-/infó programok:
-    'cpuz': ('CPU-Z', ['cpuz_x64.exe', 'cpuz.exe', 'cpuz*.exe']),
-    'gpuz': ('GPU-Z', ['gpu-z*.exe', 'gpuz*.exe']),
-    'zentimings': ('ZenTimings', ['zentimings.exe']),
-    'nvinspector': ('NVIDIA Profile Inspector', ['nvidiaprofileinspector.exe']),
-    # 2026-10-26: a RAM TEST programjai egyenként is indíthatók (kártya), és a Thaiphoon Burner.
+    # 2026-10-26: a RAM TEST programjai egyenként is indíthatók (kártya).
     **RAMTEST_TOOLS,
-    'thaiphoon': ('Thaiphoon Burner', ['thaiphoon.exe']),
+    # 2026-10-30, Szervízprogramok könyvtára (explicit user decision): a többi program a
+    # Sergei Strelec WinPE csomagjaiból jön, egyenként (app/toollib_core.py: forrás és
+    # csomag). Kikerült: GPU-Z, ZenTimings, NVIDIA Profile Inspector, Thaiphoon Burner.
+    'hdsentinel': ('HD Sentinel', ['hdsentinel.exe']),
+    'cpuz': ('CPU-Z', ['cpuz_x64.exe', 'cpuz.exe']),
+    'aida64': ('AIDA64', ['aida64.exe']),
+    'occt': ('OCCT', ['occt.exe']),
+    'ismylcdok': ('IsMyLcdOK', ['ismylcdok_x64.exe', 'ismylcdok.exe']),
+    'dismpp': ('Dism++', ['dism++x64.exe']),
+    'partitionwizard': ('MiniTool Partition Wizard', ['partitionwizard.exe']),
+    'macrium': ('Macrium Reflect 8', ['peagent.exe']),
+    'treesize': ('TreeSize', ['treesize.exe']),
+    'teracopy': ('TeraCopy', ['teracopy*.exe']),
+    'totalcmd': ('Total Commander', ['totalcmd64.exe']),
+    'teamviewer': ('TeamViewer', ['teamviewer.exe']),
+    'wlu': ('Windows Login Unlocker', ['wlu_x64.exe', 'wlu_x86.exe']),
 }
 
 # Amelyik eszköz indításakor érdemes a képernyő-kikapcsolást/alvó módot letiltani
 # (_lock_power_for_stress): a hosszan futó terhelők és monitorok. A gyors infó-eszközöknél
 # (CPU-Z, GPU-Z, ZenTimings, Profile Inspector) NEM nyúlunk az energiagazdálkodáshoz -
 # feleslegesen tiltaná le az alvó módot a program következő indításáig.
-STRESS_POWER_LOCK_KEYS = ['furmark', 'prime95', 'linpack', 'hwinfo', 'hdsentinel', 'tm5', 'ycruncher', 'hcimemtest']
+STRESS_POWER_LOCK_KEYS = ['furmark', 'prime95', 'linpack', 'hwinfo', 'hdsentinel', 'tm5', 'ycruncher', 'hcimemtest', 'occt']
 
 # Egy automatizálási lépés időkorlátja másodpercben: ennyit várunk egy dialógus/gomb
 # megjelenésére (_find_pid_window_with_child_text), a Linpack konzolablakára és minden
@@ -144,10 +153,10 @@ STRESS_KILL_IMAGES = [
     'linpack_amd32.exe', 'linpack_intel32.exe', 'HWMonitor_x64.exe',
     'hwinfo64.exe', 'hwinfo32.exe',
     'hdsentinel.exe', 'hdsentinel_x64.exe', 'hdsentinel64.exe',
-    # A taskkill /IM elfogadja a '*' jokert - a GPU-Z/CPU-Z exe-neve verziófüggő lehet.
-    'cpuz*', 'gpu-z*', 'zentimings.exe', 'nvidiaprofileinspector.exe',
+    # A taskkill /IM elfogadja a '*' jokert - a CPU-Z exe-neve verziófüggő lehet.
+    'cpuz*', 'occt.exe',
     # RAM TEST (app/gui/ramtest.py) - a "Minden teszt bezárása" ezeket is lelövi.
-    'TM5.exe', 'y-cruncher.exe', 'memtest.exe', 'Thaiphoon.exe',
+    'TM5.exe', 'y-cruncher.exe', 'memtest.exe',
 ]
 
 

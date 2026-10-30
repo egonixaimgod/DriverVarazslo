@@ -472,7 +472,7 @@ class GuiRamTestMixin:
                     self._ramtest_log(f'✅ Az elmúlt {RAMTEST_WHEA_HISTORY_DAYS} napban nincs WHEA-bejegyzés.')
 
                 self.emit('task_progress', {'task': 'ramtest', 'indeterminate': True, 'status': '🌐 Tesztprogramok (csomag) letöltése...'})
-                stress_dir = self._download_stresstools(progress=self._task_dl_progress('ramtest'))
+                stress_dir = self._download_stresstools(progress=self._task_dl_progress('ramtest'), keys=list(RAMTEST_TOOLS))
                 if not stress_dir:
                     raise Exception('Hiba a programcsomag letöltésekor vagy kicsomagolásakor (nincs net / hibás ZIP).')
                 found = self._find_stress_tool_exes(stress_dir, list(RAMTEST_TOOLS))

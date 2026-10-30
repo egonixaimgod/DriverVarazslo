@@ -55,7 +55,7 @@ révén a bizonyítékot is meg tudja nevezni ("a WEBSHOP HP LaserJet 700 ... ha
 
 KÉT ÁLLAPOT, MERT A KETTŐ NEM UGYANAZ:
   - van hozzá TELEPÍTETT NYOMTATÓ  -> `active`  (a gép most is használja)
-  - csak be van jegyezve, nyomtató nélkül -> `standby` (a Windows tartaléka; ez a legtöbb
+  - csak be van jegyezve, nyomtató nélkül -> `standby` ("Nincs bedugva"; a Windows tartaléka; ez a legtöbb
     `prnms*.inf` / gyári osztály-driver esete)
 
 A PÁROSÍTÁS KULCSA AZ **EREDETI** INF-NÉV, nem a published `oemNN.inf`: a `Get-PrinterDriver`
@@ -112,16 +112,22 @@ import logging
 # --- ÁLLAPOTOK -------------------------------------------------------------
 # A felület ezt a három értéket csoportosítja; a sorrendjük a fontossági sorrend is.
 USAGE_ACTIVE = 'active'      # 🔴 most is használja a gép
-USAGE_STANDBY = 'standby'    # 🟡 tartozik hozzá valami, de épp nem aktív
+USAGE_STANDBY = 'standby'    # 🟡 eszközhöz/nyomtatóhoz tartozik, ami most nincs bedugva
+USAGE_IDLE = 'idle'          # 🟡 hardver nélküli (szoftveres) driver, a szolgáltatása nem fut
 USAGE_UNUSED = 'unused'      # ⚪ semmilyen jel - szabadon törölhető
 USAGE_UNKNOWN = 'unknown'    # a felderítés nem futott le (offline mód, hiba)
 
 # A rendezéshez: az "aktív" kerül felülre. A felület is ezt használja.
-USAGE_ORDER = {USAGE_ACTIVE: 0, USAGE_STANDBY: 1, USAGE_UNUSED: 2, USAGE_UNKNOWN: 3}
+USAGE_ORDER = {USAGE_ACTIVE: 0, USAGE_STANDBY: 1, USAGE_IDLE: 2, USAGE_UNUSED: 3, USAGE_UNKNOWN: 4}
 
+# A 'standby' belső kulcs maradt (a felület és a CLI erre csoportosít), a felirata
+# 2026-10-30 óta "Nincs bedugva" (explicit user decision: a "Készenlétben" nem mondta
+# meg, miért nem aktív). A hardver nélküli eset külön állapot lett, mert arra a
+# "nincs bedugva" hamis lenne.
 USAGE_LABELS = {
     USAGE_ACTIVE: 'Használatban',
-    USAGE_STANDBY: 'Készenlétben',
+    USAGE_STANDBY: 'Nincs bedugva',
+    USAGE_IDLE: 'Nem fut',
     USAGE_UNUSED: 'Nem használt',
     USAGE_UNKNOWN: 'Ismeretlen',
 }
@@ -743,8 +749,12 @@ def build_usage(raw, inf_facts, published_names=None, originals=None, folders=No
 
         if present or running or printer_use or ext_on:
             state = USAGE_ACTIVE
-        elif absent or stopped or filt or in_spooler or ext_off:
+        elif absent or in_spooler or ext_off or ((stopped or filt) and facts.get('hwid_count')):
+            # Hardvert megnevező INF leállított szolgáltatással = az eszköze nincs bedugva
+            # (a szolgáltatás csak a csatlakozáskor indul el; mérve: a Sony-kontroller WINUSB-je).
             state = USAGE_STANDBY
+        elif stopped or filt:
+            state = USAGE_IDLE
         elif facts.get('unreadable'):
             # NEMTUDÁS, NEM "NEM HASZNÁLT" (3. elv, 2026-10-12): az INF nélkül nem tudjuk,
             # milyen szolgáltatást telepít - egy csak szolgáltatással dolgozó driver
@@ -794,13 +804,17 @@ def _summary(state, present, running, absent, stopped, filt,
     if state == USAGE_STANDBY:
         if absent:
             return f'kihúzva: {absent[0]}' + (f' (+{len(absent) - 1})' if len(absent) > 1 else '')
-        if filt:
-            return 'szűrő-driver: ' + filt[0]
-        if stopped:
-            return 'leállítva: ' + stopped[0]['name']
         if in_spooler:
             return 'nyomtató-driver (nincs hozzá telepített nyomtató)'
-        return 'készenlétben'
+        if filt:
+            return 'nincs bedugva (szűrő-driver: ' + filt[0] + ')'
+        if stopped:
+            return 'nincs bedugva (szolgáltatás: ' + stopped[0]['name'] + ')'
+        return 'nincs bedugva'
+    if state == USAGE_IDLE:
+        if filt:
+            return 'szűrő-driver: ' + filt[0]
+        return 'leállítva: ' + stopped[0]['name']
     if state == USAGE_UNKNOWN:
         return 'nem vizsgálva'
     return 'semmi nem használja'
@@ -808,7 +822,7 @@ def _summary(state, present, running, absent, stopped, filt,
 
 def summarize_counts(usage):
     """Állapotonkénti darabszám - a felület fejlécéhez és a naplóhoz. Tiszta függvény."""
-    counts = {USAGE_ACTIVE: 0, USAGE_STANDBY: 0, USAGE_UNUSED: 0, USAGE_UNKNOWN: 0}
+    counts = {USAGE_ACTIVE: 0, USAGE_STANDBY: 0, USAGE_IDLE: 0, USAGE_UNUSED: 0, USAGE_UNKNOWN: 0}
     for entry in (usage or {}).values():
         st = (entry or {}).get('state', USAGE_UNKNOWN)
         counts[st] = counts.get(st, 0) + 1
@@ -985,8 +999,8 @@ def collect_usage_context(run_fn, packages=None, inf_dir=None, node_fn=None, cla
     counts = summarize_counts(usage)
     logging.info(
         f"[USAGE] {len(usage)} csomag besorolva: "
-        f"{counts[USAGE_ACTIVE]} használatban, {counts[USAGE_STANDBY]} készenlétben, "
-        f"{counts[USAGE_UNUSED]} nem használt "
+        f"{counts[USAGE_ACTIVE]} használatban, {counts[USAGE_STANDBY]} nincs bedugva, "
+        f"{counts[USAGE_IDLE]} nem fut, {counts[USAGE_UNUSED]} nem használt "
         f"(forrás: {'eszközfa' if raw.get('nodes') is not None else 'PowerShell-tartalék'}, "
         f"{len(raw.get('devices') or [])} kötött eszköz-példány, "
         f"{len(raw.get('services') or [])} kernel-szolgáltatás, "
@@ -1011,7 +1025,7 @@ def collect_usage_context(run_fn, packages=None, inf_dir=None, node_fn=None, cla
     # nem használja a gép?" kérdés pontosan ezen múlik. Állapotonként EGY sor (nem
     # csomagonként), az eredeti INF-névvel, mert az `oemNN.inf` szám önmagában semmit
     # nem mond.
-    for st in (USAGE_STANDBY, USAGE_UNUSED):
+    for st in (USAGE_STANDBY, USAGE_IDLE, USAGE_UNUSED):
         names = [f"{pub} ({originals.get(pub) or '?'})" for pub, e in sorted(usage.items())
                  if e['state'] == st]
         if names:

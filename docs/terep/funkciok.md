@@ -472,3 +472,54 @@ A felhasználó kérése: *„a stress teszt & szerviz programok részbe rakd be
 **2026-10-26, negyedik kör (Build 396, terepi napló):**
 - HCI: `HCI terv: 14 példány x 3397 MB (szabad 54.6 GB, 12 szál)`. Minden példány „Could not allocate 3397 MB”-ot írt (felugró ablak + 1999-es Static). A HCI szövege szerint a Windows 2 és 3,5 GB közé korlátozza az összefüggő foglalást. A régi `check()` erre `None`-t adott (nem volt `Coverage` a szövegben, az ablak élt), vagyis a lánc 6 órás határidőig várt volna. Most a felső korlát 2048 MB (a MemTestHelper is ennyit használ), és a `Could not allocate` azonnal `tool_error`. **Élőben mérve** a valódi `_ramtest_hci`-vel: 1×3397 MB → `tool_error` („nem kapott memóriát … nem a RAM hibája”), 1×2048 MB → 1%-ig hibátlan. A 64 GB-os gépen egyszerre 23×2048 MB nincs mérve.
 - y-cruncher: `rc=3221225786` = 0xC000013A (STATUS_CONTROL_C_EXIT, Ctrl+C vagy bezárt konzolablak) 53 mp-cel az indulás után, „Running FFTv4:” közben. A gépen a Windows Terminal az alapértelmezett konzol (`HKCU\Console\%%Startup` `DelegationTerminal`), tehát a program egy WT-ablakban/-lapon fut. Az ok NINCS kiderítve (a szervizes bezárta-e, vagy más). A kilépési kód mostantól névvel kerül a naplóba.
+
+### Szervízprogramok könyvtára — programonkénti csomagok, GitHub + Drive (2026-10-30)
+
+**A felhasználó kérése (szó szerint, rövidítve):** *„legyen olyan hogy programok könyvtára … a régi programos modot hogy letölt egy nagy zipet … azt lehet el kéne engedni … linpack a prime95 es a furmark … hwinfo … y cruncher, a hci memtest és a testmem5 … azt is a zipbol hozd át, de minden mást … a sergei programok hasznosak mappából … cserélj ki”*, *„max 500 megas zipekbe … ha nekem csak … egy random ez meg az a program kell akkor ne szedje le az egész program library-t”*, *„ne legyen semmi pendriverol, minden felhobol toltodjon le”*.
+
+**A licenc-döntés (a felhasználó választotta, „Mehet így”):** a repó NYILVÁNOS (`gh repo view` → `PUBLIC`). A Sergei-csomagokban licenckulcs van (mérve: `aida64_x64_Eng\pkey.txt`, `HardDiskSentinel_All_Eng\HDSData\reg.dat`, `TreeSize_x64_Eng\LicenseManager.exe`, a TeraCopy exe neve `TeraCopy.Pro.v3.6.0.4.exe`). Ezek a bolt Drive-jára kerülnek, a többi a GitHub `programok` kiadásába. A TeamViewer (üzleti használat licencköteles), az OCCT és a MiniTool PW óvatosságból Drive-os. A régi `stresstools.zip`-ben is volt fizetős program (HD Sentinel, Thaiphoon Burner): azt a kiadást a régi buildek miatt nem töröltük.
+
+**Mért méretek (zip, deflate 9):** cinebench 220,5 MB, heaven 251,5 MB, ycruncher 46,0, hwinfo 20,0, furmark 16,5, hpdriver 14,4, sumatrapdf 10,0, prime95 8,7, linpack 8,5, cpuz 2,8, dismpp 2,1, smartctl 1,8, ismylcdok 0,3, testmem5 és hcimemtest <0,1; Drive: occt 82,0, macrium 52,8, partitionwizard 46,7, teamviewer 36,3, aida64 35,0, treesize 32,2, hdsentinel 30,8, totalcmd 16,0, teracopy 7,2, wlu 0,9. A régi zip 621 MB volt. A forrás: a régi zip kicsomagolt példánya (`%TEMP%\DriverVarázsló_Stress\stresstools`, 2026-10-26-i) és a `Desktop\sergei programok hasznosak` mappa (a TeamViewer a `setgei programok`-ból, mert a futó példány egy fájlt zárolt).
+
+**Élőben mérve (a valódi `_download_stresstools`-szal, a letöltést a helyi zipekből csonkolva):** mind a 20 könyvtár-program, a 3 benchmark és a 3 belső segéd exéje megtalálható a saját csomagjában (pl. `HD Sentinel\HDSentinel.exe`, `smartctl\bin\smartctl.exe`, `HPDriver\hpc1320u.inf`). A felület headless Chrome-ban: 20 kártya, 10 ☁️ Drive-jelölés, a hívások `start_stress_tool('aida64','titok')` / `install_service_tools(['aida64','cpuz'],'titok')`. **NINCS mérve:** a valódi GitHub- és Drive-letöltés (feltöltés előtt), és hogy a Sergei-s programok sima Windowson elindulnak-e (a Macrium `PeAgent.exe` a WinPE-s változat; az Acronis Sergei-s példánya sima Windowson „Failed to load the snapshot manager library”-vel nem indult, ezért nem került be).
+
+**Az Apps Script kiegészítése (a szkript nincs a repóban, a felhasználó rakja be; a 2026-10-30-i állapotához igazítva: `data`, `jsonOut_`, `checkLogPassword_`, `LOG_READ_PASSWORD`).** (1) A `doPost`-ban, közvetlenül a `loglist`/`logget` ág záró `}`-je UTÁN:
+
+```js
+  // 1/b) SZERVÍZPROGRAMOK KÖNYVTÁRA (2026-10-30): a licences programcsomagok.
+  // A program a zip nevét küldi (pl. "aida64.zip"), a válasz a Drive-fájl azonosítója.
+  if (data && data.action === 'toolfile') {
+    if (!checkLogPassword_(data.pw)) {
+      Utilities.sleep(2000);
+      return jsonOut_({ ok: false, error: 'Hibás jelszó.' });
+    }
+    return getToolFile_(data);
+  }
+```
+
+(2) A fájl végére:
+
+```js
+/* Szervízprogramok könyvtára: a "DriverVarazslo_programok" mappa (a Drive GYÖKERÉBEN)
+   egy zipjének azonosítója. A fájlt "link birtokában bárki" olvashatóra állítja, mert a
+   nagy fájlt az Apps Script nem tudja átadni (~50 MB válaszkorlát); a program a
+   drive.usercontent.google.com címről tölti le. Csak ebből az egy mappából szolgál ki. */
+function getToolFile_(data) {
+  try {
+    const name = String(data.name || '');
+    const folders = DriveApp.getRootFolder().getFoldersByName('DriverVarazslo_programok');
+    if (!folders.hasNext()) return jsonOut_({ ok: false, error: 'Nincs DriverVarazslo_programok mappa a Drive gyökerében.' });
+    const files = folders.next().getFilesByName(name);
+    if (!files.hasNext()) return jsonOut_({ ok: false, error: 'Nincs ilyen fájl a DriverVarazslo_programok mappában: ' + name });
+    const f = files.next();
+    f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return jsonOut_({ ok: true, id: f.getId(), size: f.getSize() });
+  } catch (err) {
+    return jsonOut_({ ok: false, error: String(err) });
+  }
+}
+```
+
+**Élőben mérve (2026-10-30, az új verzió telepítése után):** rossz jelszó → „hibás jelszó (a szkript LOG_READ_PASSWORD értéke)”; jó jelszóval a `wlu.zip` 4,4 mp, az `occt.zip` (82 MB) 4,6 mp alatt jött le a valódi letöltővel, kicsomagolva, az exe megtalálva. A jelszó-tár (Windows Hitelesítőadat-kezelő, ctypes `CredWriteW`/`CredReadW`/`CredDeleteW`) írás-olvasás-törlés élőben ékezetes jelszóval is jó. A felhasználó kérte, hogy ne kelljen jelszó; jelszó nélkül a nyilvános exéből bárki letölthetné a licences programokat, ezért a „csak amikor kell, egyszer, a gép megjegyzi” változat lett. Mellékesen kiderült: a `[CALL]`-napló a `download_uploaded_logs` jelszavát is kiírta (a napló felmegy a Drive-ra) — `_make_logged` most elfedi.
+
+A „link birtokában bárki” megosztás azért kell, mert a nagy fájlt az Apps Script nem tudja átadni (a válasz-méret korlátja ~50 MB); a link csak jelszóval kerül ki. A hibás jelszó szövege tartalmazza a „jelsz” szót, így a `friendly_upload_error` lefordítja.

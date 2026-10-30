@@ -222,7 +222,8 @@ _NAME_KEYWORDS = [
     (re.compile(r'camera|webcam|\buvc\b|scanner', re.I), F_CAMERA),
     (re.compile(r'sata|ahci|nvme|raid|rapid storage|storage|optane|\bdisk\b', re.I), F_STORAGE),
     (re.compile(r'xhci|usb 3|host controller|thunderbolt|usb4', re.I), F_USB),
-    (re.compile(r'touchpad|touch pad|pointing|trackpad|keyboard|mouse|\bhid\b|precision touch|ultranav', re.I), F_INPUT),
+    (re.compile(r'touchpad|touch pad|pointing|trackpad|keyboard|mouse|\bhid\b|precision touch|ultranav|'
+                r'gamepad|joystick|game ?controller', re.I), F_INPUT),
     (re.compile(r'firmware|\bbios\b|uefi', re.I), F_FIRMWARE),
     (re.compile(r'\btpm\b|trusted platform|smart ?card', re.I), F_SECURITY),
     (re.compile(r'management engine|chipset|smbus|serial io|thermal|dynamic platform|lpc|'
@@ -236,7 +237,10 @@ _SOFTWARE_ID_PREFIXES = ('ROOT\\', 'SWD\\', 'SW\\', 'HTREE\\', 'UMB\\')
 # Az "örökölt" (szülőjükhöz tartozó) szoftveres csomópontok buszai: egy videókártya
 # vezérlőpult-komponense (SWD\DRIVERENUM) a videókártyáé, egy hangszóró-végpont
 # (SWD\MMDEVAPI) a hangkártyáé.
-_INHERIT_ID_PREFIXES = ('SWD\\DRIVERENUM\\', 'SWD\\MMDEVAPI\\', 'SWC\\')
+# A `SWD\WPDBUSENUM\` egy cserélhető kötet (pendrive) WPD-nézete: a Windows-osztálya `WPD`,
+# ami telefonnak látszott (2026-10-30, mérve: a SERGEI pendrive "Telefon" kártyát kapott).
+# Egy MTP-s telefon WPD-csomópontja `USB\VID_…`, azt ez nem érinti.
+_INHERIT_ID_PREFIXES = ('SWD\\DRIVERENUM\\', 'SWD\\MMDEVAPI\\', 'SWC\\', 'SWD\\WPDBUSENUM\\')
 _GENERIC_NAME_RE = re.compile(
     r'^(usb (kompozit|composite|beviteli|input)|hid[- ]|általános|generic|usb (eszköz|device)$|'
     r'usb-hub|usb hub|szoftveres eszköz|software device)', re.IGNORECASE)
@@ -297,6 +301,11 @@ def node_function(node):
         return F_PRINTER, 'nyomtató-busz'
     if dev_id.startswith(_INHERIT_ID_PREFIXES):
         return F_INHERIT, 'a szülő eszközéhez tartozó szoftver-komponens'
+    if dev_id.startswith('BTH\\'):
+        # A Bluetooth-rádió saját protokoll-csomópontjai (BTHPAN, RFCOMM, LE-enumerátor). A
+        # PAN `Net` osztályú, és a hálózati elsőbbség miatt egy USB-s BT-adapter "Hálózati
+        # adapter" lett (2026-10-30, mérve: ASUS USB-BT500).
+        return F_BT, 'a Bluetooth-rádió protokoll-csomópontja'
     if dev_id.startswith('ACPI_HAL\\'):
         # A Windows ACPI/UEFI-gyökere ("Microsoft UEFI-kompatibilis rendszer"): a neve
         # miatt a firmware-kártyára került volna a valódi BIOS-csomópont helyett.
@@ -614,7 +623,11 @@ def package_purpose(facts, pkg=None, printer=False):
     phone_vids = [v for v in usb_vids if v in PHONE_USB_VIDS]
     if SETUP_CLASS_FUNC.get(cls) == F_PHONE:
         return F_PHONE, f"Windows-osztály: {facts.get('inf_class') or pkg.get('class')}, INF: {shown}"
-    if phone_vids and cls not in ('display', 'monitor', 'printer', 'image', 'hdc', 'scsiadapter'):
+    # CSAK HA A GYÁRTÓK TÖBBSÉGE TELEFON-GYÁRTÓ (2026-10-30): az Xbox kontroller-kiegészítője
+    # ~20 gyártó kontrollerét sorolja fel, köztük egy Google Stadiát - ettől "telefon" lett.
+    # Egy telefon-driver (Samsung, Google, Qualcomm) csak telefon-gyártókat nevez meg.
+    if (phone_vids and len(phone_vids) * 2 > len(usb_vids)
+            and cls not in ('display', 'monitor', 'printer', 'image', 'hdc', 'scsiadapter')):
         return F_PHONE, (f"USB-gyártókód VID_{phone_vids[0]} ({PHONE_USB_VIDS[phone_vids[0]]}, "
                          f"telefon-gyártó), INF: {shown}")
     if re.search(r'\bapple\b', provider, re.I) and 'PCI' not in buses:

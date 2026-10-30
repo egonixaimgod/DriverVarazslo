@@ -251,7 +251,7 @@ BENCH_PRE_KILL_IMAGES = [
     # a stressz-teszt nézet programjai (load generátorok + szenzor-monitorok: a HWiNFO/GPU-Z
     # folyamatos szenzor-lekérdezése is beleszól a mérésbe)
     'furmark', 'prime95', 'linpack', 'linpack*', 'hwinfo64', 'hwinfo32', 'hwmonitor*',
-    'hdsentinel*', 'cpuz*', 'gpu-z*', 'zentimings', 'nvidiaprofileinspector',
+    'hdsentinel*', 'cpuz*', 'gpu-z*', 'zentimings', 'nvidiaprofileinspector', 'occt',
     # a benchmark programok korábbi, kézzel indított példányai (egyenkénti indító kártyák)
     'cinebench*', 'heaven*',
 ]
