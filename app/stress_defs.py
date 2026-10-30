@@ -96,16 +96,7 @@ STRESS_SPLASH_TITLE_MARKERS = ('elemzés', 'analy', 'betölt', 'loading', 'pleas
 # terhelés-generáló teszteket indítja - a többi program (HD Sentinel, CPU-Z, GPU-Z,
 # ZenTimings, NVIDIA Profile Inspector) csak egyenként (start_stress_tool) érhető el,
 # ott viszont SEMMILYEN automatizálás nincs (kifejezett felhasználói kérés).
-# SORREND (2026-10-30, explicit user decision): a Linpack a Prime95 ELŐTT indul. A Prime95
-# Blend (2026-10-26 óta) alapból a RAM ~87%-át kéri (`TortureMem`, mérve 64 GB-on 56 934 MB),
-# és a 30 GB-os Linpack "not enough memory"-val leállt. A memóriát ezért indítás előtt el is
-# osztjuk (GuiStressMixin._plan_stress_memory).
-STRESS_TOOLS_BULK = ['furmark', 'linpack', 'prime95', 'hwinfo']
-
-# A Linpack legfeljebb a szabad memória ennyied részét kapja, a többi a Prime95 Blendé.
-LINPACK_RAM_SHARE_WITH_BLEND = 0.5
-# A Prime95 Blend mellett szabadon hagyott memória (GB): Windows, FurMark, HWiNFO.
-PRIME95_BLEND_RESERVE_GB = 3.0
+STRESS_TOOLS_BULK = ['furmark', 'prime95', 'linpack', 'hwinfo']
 
 # ---------------------------------------------------------------------------
 # PARANCSSORI KAPCSOLÓK A TÖMEGES INDÍTÁSHOZ (explicit felhasználói kérés, 2026-07-31)
@@ -204,10 +195,12 @@ STRESS_CLICK_SEQUENCES = {
     'prime95': [
         # A skip_if_found a torture-dialógust ismeri fel (a Small FFTs rádiógomb rajta van).
         {'labels': ['Just Stress Testing'], 'skip_if_found': ['small ffts (tests l1/l2/l3']},  # GIMPS üdvözlő (csak első indításkor)
-        # Blend = CPU + memóriavezérlő + RAM (explicit user decision, 2026-10-26: a piros gomb
-        # "CPU + Memória + GPU" teszt lett; korábban Small FFTs = csak CPU). A valódi felirat a
-        # stresstools.zip prime95.exe-jéből: '&Blend (all of the above)'.
-        'blend (all of the above)',
+        # SMALL FFTs (2026-10-30, explicit user decision; a 2026-10-26-i Blend visszavonva): a
+        # Blend a RAM ~87%-át kérte (`TortureMem`), és a Linpack kétszer "not enough memory"-val
+        # állt le, egy 14 GB / 40 GB-os elosztással is (a Linpack a menüje UTÁN foglal, a Prime95
+        # addigra elvitte). A Small FFTs a gyorsítótárban dolgozik: maximális CPU-hő, a memóriát
+        # a Linpack és a RAM TEST teszteli.
+        'small ffts (tests l1/l2/l3',  # torture test típus rádiógomb
         'OK',
     ],
     'hwinfo': [

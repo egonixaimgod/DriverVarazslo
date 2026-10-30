@@ -147,7 +147,7 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 | 🎨 **Kijelző és színkezelés** | HDR, automatikus színkezelés (ACM), ICC-profilok SDR/HDR módra, gamma, panel-adatok, gyári visszaállítás |
 | 🧹 **Rendszer karbantartás** | Ideiglenes fájlok, gyorsítótárak és komponenstár takarítása, előre megmutatott méretekkel |
 | 🏷️ **Bolti tábla** | A5-ös árlapok a szerviz Word-sablonjából, akciós árral és Windows-telepítés opcióval |
-| 🔥 **Stresszteszt** | CPU + memória + GPU teszt (FurMark, Prime95 Blend, Linpack, HWiNFO) egy gombbal, automatizált indítással és ablak-elrendezéssel; **RAM TEST** (TestMem5 → y-cruncher → HCI MemTest felügyelet nélkül, WHEA-figyeléssel és verdikttel) |
+| 🔥 **Stresszteszt** | CPU + memória + GPU teszt (FurMark, Prime95 Small FFTs, Linpack, HWiNFO) egy gombbal, automatizált indítással és ablak-elrendezéssel; **RAM TEST** (TestMem5 → y-cruncher → HCI MemTest felügyelet nélkül, WHEA-figyeléssel és verdikttel) |
 | 🧰 **Szervízprogramok könyvtára** | 20 szervizprogram (pl. AIDA64, HD Sentinel, CPU-Z, OCCT, Dism++, MiniTool Partition Wizard, Macrium Reflect, TreeSize, TeraCopy, Total Commander) programonként letöltve, portable indítással vagy telepítve; a licences programok a bolt Drive-járól, jelszóval |
 | 🏆 **Benchmark** | Automatikus Cinebench R20 + FurMark mérés, összehasonlítható eredményekkel és felhős ranglistával |
 | 📊 **Rendszer riport** | Egyoldalas, nyomtatható hardverriport S.M.A.R.T.-adatokkal |
@@ -220,7 +220,7 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 <summary><b>🔥 Stresszteszt, szervizprogramok és benchmark</b></summary>
 <br/>
 
-- **Stresszteszt egy gombbal:** FurMark, Prime95, Linpack Xtreme és HWiNFO64 indul, a program automatikusan megválaszolja az indítóablakokat, majd a négy ablakot a képernyő négy negyedébe rendezi. A Prime95 Blend módban fut, így a CPU mellett a memóriát is terheli.
+- **Stresszteszt egy gombbal:** FurMark, Prime95, Linpack Xtreme és HWiNFO64 indul, a program automatikusan megválaszolja az indítóablakokat, majd a négy ablakot a képernyő négy negyedébe rendezi. A Prime95 Small FFTs módban fut (maximális CPU-hő), a memóriát a Linpack terheli; alapos memóriateszthez a RAM TEST való.
 - **RAM TEST (zöld gomb):** TestMem5 (anta777 Extreme), y-cruncher (FFTv4 + VT3) és HCI MemTest (szálanként egy példány) egymás után, felügyelet nélkül, Gyors vagy Teljes módban. Közben és a végén a WHEA-hibanaplót is figyeli, a végén kiírja a verdiktet és a teendőt. Stabilnak csak akkor mondja a gépet, ha mindhárom teszt hibátlan és a WHEA-napló tiszta. A képernyő-elalvás a teszt idejére kikapcsol, utána visszaáll. A Linpack a WMIC nélküli Windows 11-en (24H2+) is elindul, a hiányzó összetevő letöltése nélkül.
 - **Szervízprogramok könyvtára (külön menüpont):** minden program külön töltődik le, csak az, amelyiket elindítod vagy telepíted. Portable indítás vagy telepítés a Program Files (x86) alá, asztali parancsikonnal; törlés egy kattintással. A licences programok a bolt Google Drive-járól jönnek, jelszóval.
 - **Benchmark:** Cinebench R20 többmagos teszt és FurMark mérés rögzített beállításokkal. A FurMark háromszor fut, a legjobb számít, a kép pontosan 1024×768-ban renderelődik minden gépen, így az eredmények valóban összehasonlíthatók.

@@ -1144,7 +1144,7 @@ def _menu_stress(api):
     while True:
         _header(api, 'Stress teszt & szervíz programok')
         c = ui.menu([
-            ('1', 'CPU + Memória + GPU stress teszt', 'FurMark + Prime95 Blend + Linpack + HWiNFO, automatikusan'),
+            ('1', 'CPU + Memória + GPU stress teszt', 'FurMark + Prime95 Small FFTs + Linpack + HWiNFO, automatikusan'),
             ('2', 'Egy program indítása', 'Szervízprogramok könyvtára: portable, automatizálás nélkül'),
             ('3', 'Futó tesztek leállítása', None),
             ('4', 'Szervíz programok telepítése', 'Program Files + asztali parancsikon'),
