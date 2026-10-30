@@ -28,6 +28,8 @@ from app.stress_defs import STRESS_POWER_REG_KEY
 from app.stress_defs import STRESS_POWER_SETTINGS
 from app.stress_defs import STRESS_TOOLS
 from app.stress_defs import STRESS_TOOLS_BULK
+from app.stress_defs import LINPACK_RAM_SHARE_WITH_BLEND
+from app.stress_defs import PRIME95_BLEND_RESERVE_GB
 from app.stress_defs import STRESS_TOOL_ARGS
 from app.stress_defs import STRESS_FURMARK_LABEL
 from app.win32 import SEE_MASK_NOCLOSEPROCESS
@@ -190,7 +192,7 @@ class GuiStressMixin:
             logging.warning(f"[STRESSTOOLS] RAM lekérdezési hiba: {e}")
         return None, None
 
-    def _pick_linpack_ram_option(self, total_gb, avail_gb=None):
+    def _pick_linpack_ram_option(self, total_gb, avail_gb=None, share=1.0):
         """A LINPACK_RAM_OPTIONS közül a legnagyobb olyan opciót választja, ami a rendszer
         TELJES RAM-jába ("total_gb") belefér, ÉS - ha ismert - az éppen SZABAD memóriába
         ("avail_gb") is, ~1.5GB tartalékot hagyva. Az utóbbi korlát fontos: egy 12GB-os
@@ -201,21 +203,57 @@ class GuiStressMixin:
             return 4  # ismeretlen RAM esetén biztonságos alapértelmezés (8GB opció)
         cap = total_gb
         if avail_gb:
-            cap = min(cap, avail_gb - 1.5)
+            # `share`: a szabad memória mekkora része jut a Linpacknek (a Prime95 Blend mellett 0.5).
+            cap = min(cap, (avail_gb - 1.5) * share)
         best = LINPACK_RAM_OPTIONS[0][0]
         for opt_num, gb in LINPACK_RAM_OPTIONS:
             if gb <= cap:
                 best = opt_num
         return best
 
-    def _build_linpack_console_script(self):
+    def _plan_stress_memory(self):
+        """A tömeges stressz-teszt memória-terve, INDÍTÁS ELŐTT: (Linpack-opció, Prime95 Blend
+        MB vagy None). A kettő együtt fut, és a Blend magától a RAM ~87%-át kérné, ami mellett a
+        Linpack nem kap memóriát (2026-10-30, a fejlesztői gépen: "Cannot run linpack_amd64.exe
+        - not enough memory"). A Linpack a szabad memória legfeljebb felét kapja, a Prime95 a
+        maradékot, PRIME95_BLEND_RESERVE_GB tartalékkal."""
+        total_gb, avail_gb = self._get_ram_gb()
+        lin_opt = self._pick_linpack_ram_option(total_gb, avail_gb, share=LINPACK_RAM_SHARE_WITH_BLEND)
+        lin_gb = dict(LINPACK_RAM_OPTIONS).get(lin_opt, 0)
+        prime_mb = None
+        if avail_gb:
+            prime_mb = max(512, int((avail_gb - PRIME95_BLEND_RESERVE_GB - lin_gb) * 1024))
+        logging.info(f"[STRESSTOOLS] Memória-terv: teljes RAM={total_gb} GB, szabad="
+                     f"{f'{avail_gb:.1f}' if avail_gb else '?'} GB -> Linpack {lin_opt}. opció ({lin_gb} GB), "
+                     f"Prime95 Blend {prime_mb if prime_mb else 'a saját alapértéke'} MB")
+        return lin_opt, prime_mb
+
+    def _set_prime95_torture_mem(self, exe, mb):
+        """A Prime95 `prime.txt`-jébe írja a Blend memóriáját (`TortureMem`, MB). A Prime95
+        maga is ide menti; a fájl nem része a csomagnak, az első futáskor jön létre."""
+        path = os.path.join(os.path.dirname(exe), 'prime.txt')
+        try:
+            lines = []
+            if os.path.exists(path):
+                with open(path, encoding='ascii', errors='replace', newline='') as f:
+                    lines = [l for l in f.read().splitlines() if not l.startswith('TortureMem=')]
+            lines.append(f'TortureMem={mb}')
+            with open(path, 'w', encoding='ascii', errors='replace', newline='') as f:
+                f.write('\r\n'.join(lines) + '\r\n')
+            logging.info(f"[STRESSTOOLS] Prime95 Blend memória beállítva: TortureMem={mb} MB ({path})")
+        except Exception as e:
+            logging.warning(f"[STRESSTOOLS] A Prime95 memóriája nem írható be ({path}): {e} - a saját alapértéke marad.")
+
+    def _build_linpack_console_script(self, ram_option=None):
         """Összeállítja a Linpack Xtreme konzolos indító menüjéhez tartozó (prompt-részlet,
         válasz) párokat a LINPACK_PROMPT_SCRIPT alapján, a RAM-menü válaszát a gép teljes
-        ÉS szabad memóriájához illő opcióra cserélve (lásd _pick_linpack_ram_option)."""
-        total_gb, avail_gb = self._get_ram_gb()
-        ram_option = self._pick_linpack_ram_option(total_gb, avail_gb)
-        avail_txt = f"{avail_gb:.1f}" if avail_gb else "?"
-        logging.info(f"[STRESSTOOLS] Linpack RAM-automatizálás: teljes RAM={total_gb} GB, szabad={avail_txt} GB -> {ram_option}. opció")
+        ÉS szabad memóriájához illő opcióra cserélve (lásd _pick_linpack_ram_option).
+        `ram_option`: a tömeges teszt memória-tervéből (_plan_stress_memory)."""
+        if ram_option is None:
+            total_gb, avail_gb = self._get_ram_gb()
+            ram_option = self._pick_linpack_ram_option(total_gb, avail_gb)
+            avail_txt = f"{avail_gb:.1f}" if avail_gb else "?"
+            logging.info(f"[STRESSTOOLS] Linpack RAM-automatizálás: teljes RAM={total_gb} GB, szabad={avail_txt} GB -> {ram_option}. opció")
         return [(prompt, str(ram_option) if answer is None else answer, needs_enter)
                 for prompt, answer, needs_enter in LINPACK_PROMPT_SCRIPT]
 
@@ -546,6 +584,7 @@ class GuiStressMixin:
                 # Csak a STRESS_TOOLS_BULK-ban felsorolt (valódi terhelés-generáló) programok -
                 # a HD Sentinel monitor kifejezett kérésre nincs benne a tömeges indításban.
                 found = self._find_stress_tool_exes(stress_dir, STRESS_TOOLS_BULK)
+                lin_opt, prime_mb = self._plan_stress_memory()
 
                 launched = 0
                 pid_map = {}
@@ -565,7 +604,9 @@ class GuiStressMixin:
                                     f.write("[Settings]\nSensorsOnly=1\nCheckForUpdate=0\n")
                             except Exception as e:
                                 logging.debug(f"[STRESSTOOLS] HWiNFO64.INI írása sikertelen (az update-értesítőt a kattintás-szekvencia kezeli): {e}")
-                        console_script = self._build_linpack_console_script() if key == 'linpack' else None
+                        if key == 'prime95' and prime_mb:
+                            self._set_prime95_torture_mem(exe, prime_mb)
+                        console_script = self._build_linpack_console_script(lin_opt) if key == 'linpack' else None
                         click_sequence = STRESS_CLICK_SEQUENCES.get(key)
                         # Parancssori kapcsolók CSAK a tömeges úton (STRESS_TOOL_ARGS) - jelenleg
                         # a FurMark indul velük 4K / 8x MSAA / Xtreme burn-in, időkorlát nélkül.

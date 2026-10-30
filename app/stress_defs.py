@@ -96,7 +96,16 @@ STRESS_SPLASH_TITLE_MARKERS = ('elemzés', 'analy', 'betölt', 'loading', 'pleas
 # terhelés-generáló teszteket indítja - a többi program (HD Sentinel, CPU-Z, GPU-Z,
 # ZenTimings, NVIDIA Profile Inspector) csak egyenként (start_stress_tool) érhető el,
 # ott viszont SEMMILYEN automatizálás nincs (kifejezett felhasználói kérés).
-STRESS_TOOLS_BULK = ['furmark', 'prime95', 'linpack', 'hwinfo']
+# SORREND (2026-10-30, explicit user decision): a Linpack a Prime95 ELŐTT indul. A Prime95
+# Blend (2026-10-26 óta) alapból a RAM ~87%-át kéri (`TortureMem`, mérve 64 GB-on 56 934 MB),
+# és a 30 GB-os Linpack "not enough memory"-val leállt. A memóriát ezért indítás előtt el is
+# osztjuk (GuiStressMixin._plan_stress_memory).
+STRESS_TOOLS_BULK = ['furmark', 'linpack', 'prime95', 'hwinfo']
+
+# A Linpack legfeljebb a szabad memória ennyied részét kapja, a többi a Prime95 Blendé.
+LINPACK_RAM_SHARE_WITH_BLEND = 0.5
+# A Prime95 Blend mellett szabadon hagyott memória (GB): Windows, FurMark, HWiNFO.
+PRIME95_BLEND_RESERVE_GB = 3.0
 
 # ---------------------------------------------------------------------------
 # PARANCSSORI KAPCSOLÓK A TÖMEGES INDÍTÁSHOZ (explicit felhasználói kérés, 2026-07-31)
