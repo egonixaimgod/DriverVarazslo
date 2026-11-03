@@ -28,6 +28,7 @@ from app.stress_defs import STRESS_POWER_REG_KEY
 from app.stress_defs import STRESS_POWER_SETTINGS
 from app.stress_defs import STRESS_TOOLS
 from app.stress_defs import STRESS_TOOLS_BULK
+from app.stress_defs import STRESS_SINGLE_AS_BULK
 from app.stress_defs import STRESS_TOOL_ARGS
 from app.stress_defs import STRESS_FURMARK_LABEL
 from app.win32 import SEE_MASK_NOCLOSEPROCESS
@@ -668,7 +669,11 @@ class GuiStressMixin:
         egy gombnyomásra csendben induljon el, csak toast + (első letöltésnél) a nézetbe
         ágyazott 'stress_dl_progress' folyamat-sáv tájékoztat.
 
-        Egyenkénti indításnál SZÁNDÉKOSAN NINCS SEMMILYEN AUTOMATIZÁLÁS (kifejezett
+        KIVÉTEL (explicit user decision, 2026-11-03): a STRESS_SINGLE_AS_BULK programjai
+        (FurMark, Prime95, Linpack) 1:1 a tömeges indítás beállításaival indulnak (kapcsolók,
+        kattintás-sorozat, Linpack menü), mindig a portable csomagból; ablak-elrendezés nincs.
+
+        A többi programnál SZÁNDÉKOSAN NINCS SEMMILYEN AUTOMATIZÁLÁS (kifejezett
         felhasználói kérés, 2026-07): se dialógus-nyomkodás, se Linpack menü-kitöltés,
         se HWiNFO INI-írás, se ablak-pozicionálás - a program a saját beállító
         képernyőjével indul, mindent a felhasználó állít be. Az automatizált út KIZÁRÓLAG
@@ -690,7 +695,9 @@ class GuiStressMixin:
                     self._lock_power_for_stress()
 
                 # Telepített példány előnyben: nincs letöltés, a Program Files alól indul.
-                exe_path = self._find_installed_tool_exe(name)
+                # Kivétel a STRESS_SINGLE_AS_BULK: ugyanaz a portable példány kell, mint a
+                # tömeges úton, különben egy más verzió/prime.txt más beállítással futna.
+                exe_path = None if name in STRESS_SINGLE_AS_BULK else self._find_installed_tool_exe(name)
                 if exe_path:
                     logging.info(f"[STRESSTOOLS] {display_name}: telepített példány indul: {exe_path}")
                 else:
@@ -732,11 +739,29 @@ class GuiStressMixin:
                         except Exception as e:
                             logging.debug(f"[STRESSTOOLS] HWiNFO64.INI ellenőrzése/törlése sikertelen: {e}")
 
-                pid = self._launch_stress_exe(exe_path, display_name)
+                if name in STRESS_SINGLE_AS_BULK:
+                    # 1:1 a tömeges indítás beállításai (explicit user decision, 2026-11-03):
+                    # ugyanaz a kapcsoló, kattintás-sorozat és Linpack menü-kitöltés.
+                    auto_threads, auto_results = [], {}
+                    logging.info(f"[STRESSTOOLS] {display_name}: egyenkénti indítás a tömeges teszt beállításaival.")
+                    pid = self._launch_stress_exe(
+                        exe_path, display_name,
+                        console_script=self._build_linpack_console_script() if name == 'linpack' else None,
+                        click_sequence=STRESS_CLICK_SEQUENCES.get(name), thread_sink=auto_threads,
+                        result_sink=auto_results, result_key=name, args=STRESS_TOOL_ARGS.get(name))
+                else:
+                    auto_threads, auto_results = [], {}
+                    pid = self._launch_stress_exe(exe_path, display_name)
                 if pid:
                     if pid > 0:
                         self._stress_pids[name] = pid  # stop_stress_tests innen tudja, mit kell kilőni
-                    self.emit('toast', {'message': f'✅ {display_name} elindítva!', 'type': 'success'})
+                    beall = f' ({STRESS_FURMARK_LABEL})' if name == 'furmark' else ''
+                    self.emit('toast', {'message': f'✅ {display_name} elindítva{beall}!', 'type': 'success'})
+                    for t in auto_threads:
+                        t.join(600)  # ugyanaz a végszükség-plafon, mint a tömeges úton
+                    if auto_threads and not auto_results.get(name):
+                        logging.warning(f"[STRESSTOOLS] {display_name}: az automatikus beállítás nem futott végig (egyenkénti indítás).")
+                        self.emit('toast', {'message': f'⚠️ {display_name}: az automatikus beállítás nem futott végig, kézi beállítás kellhet (részletek a naplóban).', 'type': 'warning'})
                 else:
                     self.emit('toast', {'message': f'❌ Hiba a(z) {display_name} indításakor!', 'type': 'error'})
             except Exception as e:

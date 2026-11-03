@@ -98,6 +98,12 @@ STRESS_SPLASH_TITLE_MARKERS = ('elemzés', 'analy', 'betölt', 'loading', 'pleas
 # ott viszont SEMMILYEN automatizálás nincs (kifejezett felhasználói kérés).
 STRESS_TOOLS_BULK = ['furmark', 'prime95', 'linpack', 'hwinfo']
 
+# Ezek EGYENKÉNT is 1:1 a tömeges indítás beállításaival indulnak (STRESS_TOOL_ARGS,
+# STRESS_CLICK_SEQUENCES, Linpack menü), a portable csomagból; ablak-elrendezés nélkül
+# (explicit user decision, 2026-11-03: "100%ig UGYAN AZOKKAL a beallitasokkal"). A fenti
+# "egyenként nincs automatizálás" csak a többi programra igaz.
+STRESS_SINGLE_AS_BULK = ['furmark', 'prime95', 'linpack']
+
 # ---------------------------------------------------------------------------
 # PARANCSSORI KAPCSOLÓK A TÖMEGES INDÍTÁSHOZ (explicit felhasználói kérés, 2026-07-31)
 # ---------------------------------------------------------------------------
