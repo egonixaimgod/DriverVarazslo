@@ -553,3 +553,13 @@ A „link birtokában bárki” megosztás azért kell, mert a nagy fájlt az Ap
 - Az „Engedélyezés + Teljes Reset” is takarít (catroot2, DLL-ek, winsock), és a winsock reset miatt mindig újraindít; `UsoClient StartScan`-t ez sem futtat már.
 - A szünet a Pythonból (winreg) íródik, visszaolvasva; a `+1 hét` egy érvényes szünethez adódik, az N nap és a 10 év mostantól számít.
 - A befejezés indításkor csak akkor fut, ha a mentés óta tényleg volt újraindítás (`rebooted_since`: bootidő = most − uptime > mentés ideje). Egy elhalasztott (Mégse) újraindítás után a feladat bent marad, a következő bejelentkezéskor befejeződik.
+
+### Terepi hiba ugyanaznap: a gomb 28+ percig állt (ASUS Vivobook Go E1504FA, Win10 19045, Build 405)
+
+A felhasználó fotója: „WU driver-engedélyezés + teljes reset”, 28:29 perce a „Beragadt letöltések és WU-gyorsítótár (SoftwareDistribution) törlése...” soron. A napló (`D:\DriverVarázsló_debug.log`, a gép-azonosító `22c80a25ed52`) szó szerint:
+- 16:08 (Build 404, régi pause-gomb): `WinError 32 … DataStore\DataStore.edb` négyszer, `Remove-Item` kód 1 (1,8 s), majd `A SoftwareDistribution törlése után 425929 fájl MARADT`. A leltár maga 45 mp volt.
+- 16:14: a régi „Szolgáltatások újraindítása” (`detectnow` + `StartScan`) - ezután nőtt a szemét.
+- 16:57 (Build 405, az új kód): `STOP|UsoSvc|KILLED|8136|Stopped` (37,2 s), `wuauserv OK`, `cryptsvc OK`; a `shutil.rmtree` kétszer `WinError 3 … Package_for_RollupFix~~amd64~~26100.9711.1.30\…\f\windows.internal.adaptivecards.xamlcardrenderer.dll` (az útvonal > 260 karakter), `Remove-Item` kód 1 (0,6 s), `735729 fájl MARADT`, majd 16:58-tól 1370 db `Újraindításkori törlés nem ütemezhető: … (WinError 3)` sor ~5/mp ütemben, 17:28-ig. 735 729 fájl ennyivel ~40 óra.
+- **A gép Windows 10, a csomag Windows 11 24H2-é** (`26100`): a WU egy funkciófrissítést töltött le és bontott ki.
+
+Mérve a fejlesztői gépen (scratchpad, 618 karakteres útvonal, 200 fájl): `os.rename` a felső mappán 0,015 s; `cmd /c rd /s /q "\\?\<mappa>"` rc=0, 0,08 s, semmi nem maradt. (A fejlesztői gépen `LongPathsEnabled=1`, ezért ott a Python `os.remove` is ment; az ASUS-on láthatóan nem.) Ebből lett a félretevős megoldás. Hogy az `rd` a 735 ezer fájlt az ASUS-on mennyi idő alatt törli, NINCS mérve - a háttérben fut, a WU-t nem akadályozza.

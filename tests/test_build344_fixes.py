@@ -147,11 +147,11 @@ class SoftwareDistribution(unittest.TestCase):
         self.assertTrue(wusettings_core.software_distribution_message(res).startswith('⚠️'))
         logs = []
         # 2026-11-03: a WU-gombok közös javítása (repair_wu) - a zárolt maradék nem hamis
-        # siker, hanem újraindításkori törlés + újraindítási ok.
-        with mock.patch.object(wusettings_core, '_schedule_tree_delete_on_reboot', return_value=(2, 0)):
+        # siker, hanem újraindítási ok (a befejező lépés törli).
+        with mock.patch.object(wusettings_core.os, 'rename', side_effect=PermissionError(5, 'Access is denied')):
             rep = wusettings_core.repair_wu(lambda *a, **k: None, logs.append)
-        self.assertNotIn('  ✅ Gyorsítótár törölve.', logs)
-        self.assertTrue(any('újraindításkor' in r for r in rep['reboot_reasons']))
+        self.assertFalse(any('✅ Gyorsítótár törölve' in m for m in logs))
+        self.assertTrue(any('újraindítás után' in r for r in rep['reboot_reasons']))
 
     def test_sikeres_torles(self):
         os.makedirs(os.path.join(self.tmp, 'SoftwareDistribution', 'DataStore'))

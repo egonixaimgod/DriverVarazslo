@@ -497,25 +497,72 @@ def parse_service_lines(out):
     return res
 
 
-def _schedule_tree_delete_on_reboot(root):
-    """A még zárolt fájlok törlése a KÖVETKEZŐ INDULÁSKOR (MoveFileEx +
-    MOVEFILE_DELAY_UNTIL_REBOOT, a Windows saját mechanizmusa). Alulról felfelé: előbb a
-    fájlok, utána a (addigra üres) mappák. Visszatérés: (ütemezett, sikertelen)."""
-    import ctypes
-    k32 = ctypes.WinDLL('kernel32', use_last_error=True)
-    k32.MoveFileExW.argtypes = (ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint)
-    k32.MoveFileExW.restype = ctypes.c_int
-    ok = fail = 0
-    for dirpath, _dirs, files in os.walk(root, topdown=False):
-        for p in [os.path.join(dirpath, f) for f in files] + [dirpath]:
-            if k32.MoveFileExW(p, None, 4):
-                ok += 1
-            else:
-                fail += 1
-                logging.warning(f"[WU_REPAIR] Újraindításkori törlés nem ütemezhető: {p} "
-                                f"(WinError {ctypes.get_last_error()})")
-    logging.info(f"[WU_REPAIR] Újraindításkori törlésre ütemezve: {ok} elem, sikertelen: {fail} ({root})")
-    return ok, fail
+# A SoftwareDistribution kiürítése. TEREPI HIBA (2026-11-03, ASUS Vivobook Go E1504FA,
+# Win10 19045, Build 405, a felhasználó fotója + napló): a gomb 28+ percig állt a
+# „gyorsítótár törlése” soron. A naplóból:
+#   - a gyorsítótárban 735 729 fájl volt (egy Win11 24H2 csomag, `RollupFix 26100.9711`,
+#     kibontva; egy órával korábban 425 929 - a régi gomb keresése közben nőtt),
+#   - az útvonalak hosszabbak 260 karakternél: a `shutil.rmtree` és a `Remove-Item` is
+#     azonnal `WinError 3`-mal (útvonal nem található) bukott,
+#   - utána MINDEN maradék fájlt egyenként `MoveFileEx(DELAY_UNTIL_REBOOT)`-tal próbáltunk
+#     ütemezni (mind WinError 3, ~5 fájl/mp) -> ~40 óra. EZ VOLT A HIBA (saját, 2026-11-03).
+# Most: a SoftwareDistribution ELEMEIT egy mellette lévő mappába NEVEZZÜK ÁT (azonnali,
+# mérve 0,015 mp, a fa mélysége nem számít), a WU így azonnal üres gyorsítótárat lát; a
+# félretett fát a Windows `rd /s /q "\\?\..."` parancsa törli a HÁTTÉRBEN (a `\\?\` előtaggal
+# a 260 karakteres korlát nem érvényes; mérve 618 karakteres útvonalon is). Fájlonkénti
+# Python-törlés és registry-ütemezés nincs.
+WU_TRASH_SUFFIX = '.dv-torlendo'
+
+
+def start_background_delete(run, path):
+    """A félretett fa törlése egy LEVÁLASZTOTT, rejtett `rd` folyamattal (túléli a program
+    kilépését: a Start-Process gyereke nem a mi folyamatfánk része). Igaz, ha elindult."""
+    arg = f'/c rd /s /q "\\\\?\\{path}"'
+    ps = (f"Start-Process -FilePath $env:ComSpec -ArgumentList '{arg.replace(chr(39), chr(39) * 2)}' "
+          f"-WindowStyle Hidden -ErrorAction Stop; 'OK'")
+    logging.info(f"[WU_REPAIR] Háttér-törlés indítása: cmd {arg}")
+    res = run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+              timeout=60, encoding='utf-8')
+    ok = 'OK' in (getattr(res, 'stdout', '') or '')
+    if not ok:
+        logging.error(f"[WU_REPAIR] A háttér-törlés nem indult el (kód={getattr(res, 'returncode', None)}): "
+                      f"{(getattr(res, 'stderr', '') or '')[:300]}")
+    return ok
+
+
+def purge_software_distribution(run, root=None):
+    """A SoftwareDistribution minden elemének félretétele (átnevezés) + a félretett fa
+    háttér-törlése. Ami nem nevezhető át (zárolt), az bent marad, és újraindítási ok.
+    Visszatérés: {'ok', 'moved', 'locked' [nevek], 'bg_delete'}."""
+    root = root or os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), 'SoftwareDistribution')
+    trash_root = root + WU_TRASH_SUFFIX
+    moved, locked = [], []
+    try:
+        entries = os.listdir(root)
+    except FileNotFoundError:
+        entries = []
+    except OSError as e:
+        logging.error(f"[WU_REPAIR] A SoftwareDistribution nem olvasható: {e}")
+        return {'ok': False, 'moved': 0, 'locked': ['(a mappa nem olvasható)'], 'bg_delete': False}
+    if entries:
+        batch = os.path.join(trash_root, time.strftime('%Y%m%d-%H%M%S'))
+        try:
+            os.makedirs(batch, exist_ok=True)
+        except OSError as e:
+            logging.error(f"[WU_REPAIR] A félretevő mappa nem hozható létre ({batch}): {e}")
+            return {'ok': False, 'moved': 0, 'locked': entries, 'bg_delete': False}
+        for name in entries:
+            try:
+                os.rename(os.path.join(root, name), os.path.join(batch, name))
+                moved.append(name)
+            except OSError as e:
+                locked.append(name)
+                logging.warning(f"[WU_REPAIR] Nem tehető félre (zárolva?): {name}: {e}")
+    logging.info(f"[WU_REPAIR] Gyorsítótár: félretéve {moved}, bent maradt {locked}")
+    bg = False
+    if os.path.isdir(trash_root):          # a korábbi, félbemaradt háttér-törlést is folytatja
+        bg = start_background_delete(run, trash_root)
+    return {'ok': not locked, 'moved': len(moved), 'locked': locked, 'bg_delete': bg}
 
 
 def wu_reboot_flags():
@@ -540,11 +587,12 @@ def repair_wu(run, log, full_reset=False):
     """A KÖZÖS WU-javítás, minden WU-gomb ezt futtatja (keresést SOHA nem indít, a szünet-
     és driver-beállításhoz NEM nyúl):
       1. UsoSvc, wuauserv, bits, cryptsvc leállítása (beragadásnál a saját folyamatuk lelövése),
-      2. a SoftwareDistribution (beragadt letöltések, WU-adatbázis) törlése; ami zárolt,
-         az újraindításkor törlődik,
+      2. a SoftwareDistribution (beragadt letöltések, WU-adatbázis) kiürítése: az elemek
+         félretétele átnevezéssel + háttér-törlés; a zárolt maradék újraindítási ok
+         (a befejező lépés üríti),
       3. full_reset: catroot2 átnevezése, WU DLL-ek újraregisztrálása, winsock reset,
-      4. a szolgáltatások (és a leállított függőik) visszaindítása, visszaolvasva.
-    Visszatérés: {'services_ok', 'problems', 'cache', 'scheduled', 'reboot_reasons'}."""
+      4. a szolgáltatások (és a leállított függőik) visszaindítása MINDIG (`finally`), visszaolvasva.
+    Visszatérés: {'services_ok', 'problems', 'cache', 'reboot_reasons'}."""
     problems, reboot_reasons = [], []
     log('🧹 Windows Update szolgáltatások leállítása (UsoSvc, wuauserv, BITS, cryptsvc)...')
     ps = WU_REPAIR_STOP_PS.replace('__SERVICES__', _ps_list(WU_REPAIR_SERVICES)).replace(
@@ -563,19 +611,36 @@ def repair_wu(run, log, full_reset=False):
         logging.error(f"[WU_REPAIR] A leállító szkript nem adott választ (kód={getattr(res, 'returncode', None)}).")
         problems.append('a szolgáltatások leállítása nem ellenőrizhető')
 
-    log('🧹 Beragadt letöltések és WU-gyorsítótár (SoftwareDistribution) törlése...')
-    cache = clear_software_distribution(run, retries=2)
-    scheduled = 0
+    cache = {'ok': False, 'moved': 0, 'locked': [], 'bg_delete': False}
+    try:
+        cache = _repair_cleanup(run, log, full_reset, problems, reboot_reasons)
+    finally:
+        # A szolgáltatásokat MINDIG visszaindítjuk (hiba / megszakítás után is) - leállítva
+        # hagyni őket volt a régi „megölte a WU-t” hiba.
+        start_problems = _repair_start_services(run, log, stop['deps'])
+        problems.extend(start_problems)
+    services_ok = not problems
+    if services_ok:
+        log('  ✅ A szolgáltatások futnak.')
+    return {'services_ok': services_ok, 'problems': problems, 'cache': cache,
+            'reboot_reasons': reboot_reasons}
+
+
+def _repair_cleanup(run, log, full_reset, problems, reboot_reasons):
+    """A repair_wu takarító része (a leállított szolgáltatások mellett)."""
+    log('🧹 Beragadt letöltések és WU-gyorsítótár (SoftwareDistribution) kiürítése...')
+    cache = purge_software_distribution(run)
+    bg = ('a régi gyorsítótár törlése a háttérben fut' if cache['bg_delete']
+          else 'a régi gyorsítótár törlése NEM indult el - lásd a naplót')
     if cache['ok']:
-        log('  ✅ Gyorsítótár törölve.')
+        log(f"  ✅ Gyorsítótár kiürítve ({cache['moved']} elem félretéve; {bg}).")
     else:
-        sw_dist = os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), 'SoftwareDistribution')
-        scheduled, failed = _schedule_tree_delete_on_reboot(sw_dist)
-        log(f"  ⏳ {cache['remaining']} fájl zárolva - újraindításkor törlődik ({scheduled} elem ütemezve"
-            + (f', {failed} NEM ütemezhető' if failed else '') + ').')
-        reboot_reasons.append(f"{cache['remaining']} zárolt WU-gyorsítótár fájl csak újraindításkor törölhető")
-        if failed:
-            problems.append(f'{failed} WU-gyorsítótár elem újraindításkor sem törlődik (nem ütemezhető)')
+        log(f"  ⏳ Zárolva, bent maradt: {', '.join(cache['locked'][:5])} - újraindítás után a program "
+            f"kiüríti. ({cache['moved']} elem félretéve; {bg}.)")
+        reboot_reasons.append(f"a WU-gyorsítótár egy része zárolva ({', '.join(cache['locked'][:3])}) - "
+                              f"újraindítás után üríthető")
+    if not cache['bg_delete'] and cache['moved']:
+        problems.append('a félretett régi WU-gyorsítótár háttér-törlése nem indult el (a WU-t nem akadályozza)')
 
     if full_reset:
         sysroot = os.environ.get('SYSTEMROOT', r'C:\Windows')
@@ -596,21 +661,27 @@ def repair_wu(run, log, full_reset=False):
         for dll in ('wuaueng.dll', 'wuapi.dll', 'wups.dll', 'wups2.dll', 'wuwebv.dll', 'wucltux.dll'):
             fp = os.path.join(sys32, dll)
             if os.path.exists(fp):
-                run(f'regsvr32.exe /s "{fp}"', shell=True, ok_codes=(0, 3, 4, 5))
+                run(f'regsvr32.exe /s "{fp}"', shell=True, ok_codes=(0, 3, 4, 5), timeout=60)
         log('  ✅ WU DLL-ek újraregisztrálva.')
-        r = run('netsh winsock reset', shell=True)
+        r = run('netsh winsock reset', shell=True, timeout=60)
         if getattr(r, 'returncode', 1) == 0:
             reboot_reasons.append('a winsock reset csak újraindítás után lép életbe')
         else:
             problems.append('a winsock reset nem sikerült')
+    return cache
 
+
+def _repair_start_services(run, log, deps):
+    """A szolgáltatások (és a leállított függőik) visszaindítása, visszaolvasva.
+    Visszatérés: a problémák listája (üres = mind fut)."""
     log('▶️ Szolgáltatások visszaindítása (frissítés-keresést NEM indítunk)...')
-    names = list(WU_REPAIR_START_ORDER) + [d for d in stop['deps'] if d not in WU_REPAIR_START_ORDER]
+    names = list(WU_REPAIR_START_ORDER) + [d for d in deps if d not in WU_REPAIR_START_ORDER]
     ps = WU_REPAIR_START_PS.replace('__SERVICES__', _ps_list(names))
     res = run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
               timeout=30 * len(names) + 60, encoding='utf-8')
     start = parse_service_lines(getattr(res, 'stdout', '') or '')
     logging.info(f"[WU_REPAIR] Indítás: {start['start']} | hibák: {start['errors']}")
+    problems = []
     for n in names:
         st = start['start'].get(n)
         if st == 'Running':
@@ -623,11 +694,7 @@ def repair_wu(run, log, full_reset=False):
             msg = f'a(z) {n} szolgáltatás nem indult el (állapot: {st})'
         problems.append(msg)
         log(f'  ⚠️ {msg}')
-    services_ok = not problems
-    if services_ok:
-        log('  ✅ A szolgáltatások futnak.')
-    return {'services_ok': services_ok, 'problems': problems, 'cache': cache,
-            'scheduled': scheduled, 'reboot_reasons': reboot_reasons}
+    return problems
 
 
 def _parse_iso(val):

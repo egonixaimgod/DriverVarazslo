@@ -25,6 +25,7 @@ def _res(out='', rc=0):
 
 
 STOP_OUT = "STOP|UsoSvc|OK\nSTOP|wuauserv|KILLED|1234|Stopped\nSTOP|bits|ALREADY\nSTOP|cryptsvc|OK\nDEPS|AppIDSvc\n"
+PURGE_OK = {'ok': True, 'moved': 3, 'locked': [], 'bg_delete': True}
 START_OUT = ("START|cryptsvc|Running\nSTART|bits|Running\nSTART|wuauserv|Running\n"
              "START|UsoSvc|Running\nSTART|AppIDSvc|Running\n")
 
@@ -87,8 +88,7 @@ class RepairTest(unittest.TestCase):
         return _res()
 
     def test_soha_nem_keres_es_a_fuggoket_visszainditja(self):
-        with mock.patch.object(wc, 'clear_software_distribution',
-                               return_value={'ok': True, 'remaining': 0, 'sample': []}):
+        with mock.patch.object(wc, 'purge_software_distribution', return_value=PURGE_OK):
             rep = wc.repair_wu(self._run, lambda m: None)
         joined = '\n'.join(self.cmds)
         for bad in ('StartScan', 'detectnow', 'ScanInstallWait', 'StartDownload'):
@@ -100,17 +100,86 @@ class RepairTest(unittest.TestCase):
     def test_letiltott_szolgaltatas_problema(self):
         out = START_OUT.replace('START|wuauserv|Running', 'START|wuauserv|DISABLED')
         run = lambda cmd, **k: _res(out if 'Start-Service' in str(cmd) else STOP_OUT)
-        with mock.patch.object(wc, 'clear_software_distribution',
-                               return_value={'ok': True, 'remaining': 0, 'sample': []}):
+        with mock.patch.object(wc, 'purge_software_distribution', return_value=PURGE_OK):
             rep = wc.repair_wu(run, lambda m: None)
         self.assertFalse(rep['services_ok'])
         self.assertTrue(any('LE VAN TILTVA' in p for p in rep['problems']))
 
     def test_valasz_nelkul_nem_hamis_siker(self):
-        with mock.patch.object(wc, 'clear_software_distribution',
-                               return_value={'ok': True, 'remaining': 0, 'sample': []}):
+        with mock.patch.object(wc, 'purge_software_distribution', return_value=PURGE_OK):
             rep = wc.repair_wu(lambda *a, **k: _res(''), lambda m: None)
         self.assertFalse(rep['services_ok'])
+
+
+class PurgeTest(unittest.TestCase):
+    """Terepi hiba (2026-11-03, ASUS Vivobook, Win10): 735 729 fájl, 260 karakternél hosszabb
+    útvonalak - a fájlonkénti törlés/ütemezés ~40 óra lett volna. Most: félretétel + háttér-rd."""
+
+    def setUp(self):
+        quiet()
+        self.base = tempfile.mkdtemp()
+        self.root = os.path.join(self.base, 'SoftwareDistribution')
+        deep = os.path.join(self.root, 'Download', 'x' * 60)
+        for i in range(4):                       # > 260 karakteres útvonal
+            deep = os.path.join(deep, 'amd64_microsoft-windows-e..ent-winrt.resources_' + str(i) * 20)
+        os.makedirs('\\\\?\\' + deep)
+        for j in range(50):
+            open('\\\\?\\' + os.path.join(deep, f'f{j}.mui'), 'w').close()
+        os.makedirs(os.path.join(self.root, 'DataStore'))
+        open(os.path.join(self.root, 'ReportingEvents.log'), 'w').close()
+        self.cmds = []
+
+    def tearDown(self):
+        import subprocess
+        subprocess.run(['cmd', '/c', 'rd', '/s', '/q', '\\\\?\\' + self.base], capture_output=True)
+
+    def _run(self, cmd, **k):
+        self.cmds.append(cmd[-1] if isinstance(cmd, list) else cmd)
+        return _res('OK\n')
+
+    def test_felretesz_es_hatterben_torol(self):
+        r = wc.purge_software_distribution(self._run, root=self.root)
+        self.assertTrue(r['ok'])
+        self.assertEqual(r['moved'], 3)
+        self.assertEqual(os.listdir(self.root), [])          # a WU üres gyorsítótárat lát
+        self.assertTrue(r['bg_delete'])
+        self.assertIn('rd /s /q "\\\\?\\' + self.root + wc.WU_TRASH_SUFFIX + '"', self.cmds[0])
+        self.assertIn('-WindowStyle Hidden', self.cmds[0])
+
+    def test_zarolt_elem_bent_marad_es_ujrainditasi_ok(self):
+        real = os.rename
+
+        def ren(a, b):
+            if a.endswith('DataStore'):
+                raise PermissionError(32, 'used by another process')
+            real(a, b)
+        with mock.patch.object(wc.os, 'rename', side_effect=ren):
+            r = wc.purge_software_distribution(self._run, root=self.root)
+        self.assertFalse(r['ok'])
+        self.assertEqual(r['locked'], ['DataStore'])
+        self.assertEqual(r['moved'], 2)
+
+    def test_hatter_torles_bukasa_nem_hamis_siker(self):
+        r = wc.purge_software_distribution(lambda *a, **k: _res('', 1), root=self.root)
+        self.assertFalse(r['bg_delete'])
+
+    def test_hiba_utan_is_visszaindulnak_a_szolgaltatasok(self):
+        cmds = []
+        run = lambda cmd, **k: (cmds.append(str(cmd)), _res(START_OUT if 'Start-Service' in str(cmd) else STOP_OUT))[1]
+        with mock.patch.object(wc, 'purge_software_distribution', side_effect=RuntimeError('x')):
+            with self.assertRaises(RuntimeError):
+                wc.repair_wu(run, lambda m: None)
+        self.assertTrue(any('Start-Service' in c for c in cmds))
+
+    def test_nincs_fajlonkenti_torles_es_registry_utemezes(self):
+        import inspect
+        src = inspect.getsource(wc.repair_wu) + inspect.getsource(wc._repair_cleanup) + \
+            inspect.getsource(wc.purge_software_distribution)
+        for bad in ('MoveFileEx', 'Remove-Item', 'clear_software_distribution('):
+            self.assertNotIn(bad, src)
+        purge = inspect.getsource(wc.purge_software_distribution)
+        for bad in ('rmtree', 'os.walk', 'os.remove'):
+            self.assertNotIn(bad, purge)
 
 
 class _Wu(guiwu.GuiWuMixin):
@@ -137,7 +206,7 @@ class _Wu(guiwu.GuiWuMixin):
         return [c for c in self.cmds if isinstance(c, list) and c[:1] == ['shutdown']]
 
 
-OK_REP = {'services_ok': True, 'problems': [], 'cache': {'ok': True}, 'scheduled': 0, 'reboot_reasons': []}
+OK_REP = {'services_ok': True, 'problems': [], 'cache': {'ok': True}, 'reboot_reasons': []}
 
 
 class ConcludeTest(unittest.TestCase):
