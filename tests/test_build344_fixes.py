@@ -118,46 +118,36 @@ class NoSourceActionable(unittest.TestCase):
 
 
 class SoftwareDistribution(unittest.TestCase):
+    """A WU-gyorsítótár kiürítésének verdiktje a visszaolvasás (Build 344 óta; 2026-11-03
+    óta a félretevős `purge_software_distribution`-nel)."""
+
     def setUp(self):
         quiet()
         self.tmp = tempfile.mkdtemp()
         self._sr = os.environ.get('SYSTEMROOT')
         os.environ['SYSTEMROOT'] = self.tmp
-        self._rm = shutil.rmtree
-        self._sleep = wusettings_core.time.sleep
-        wusettings_core.time.sleep = lambda s: None
 
     def tearDown(self):
-        shutil.rmtree = self._rm
-        wusettings_core.time.sleep = self._sleep
         os.environ['SYSTEMROOT'] = self._sr or ''
-        self._rm(self.tmp, ignore_errors=True)
+        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_zarolt_fajl_nem_hamis_siker(self):
         sd = os.path.join(self.tmp, 'SoftwareDistribution', 'Download', 'x', 'Metadata')
         os.makedirs(sd)
         open(os.path.join(sd, 'UpdateAgent.dll'), 'w').close()
-
-        def locked(path, ignore_errors=False):
-            raise PermissionError(5, 'Access is denied')
-        shutil.rmtree = locked
-        res = wusettings_core.clear_software_distribution(lambda *a, **k: None)
-        self.assertFalse(res['ok'])
-        self.assertEqual(res['remaining'], 1)
-        self.assertTrue(wusettings_core.software_distribution_message(res).startswith('⚠️'))
         logs = []
-        # 2026-11-03: a WU-gombok közös javítása (repair_wu) - a zárolt maradék nem hamis
-        # siker, hanem újraindítási ok (a befejező lépés törli).
         with mock.patch.object(wusettings_core.os, 'rename', side_effect=PermissionError(5, 'Access is denied')):
             rep = wusettings_core.repair_wu(lambda *a, **k: None, logs.append)
-        self.assertFalse(any('✅ Gyorsítótár törölve' in m for m in logs))
+        self.assertFalse(rep['cache']['ok'])
+        self.assertEqual(rep['cache']['locked'], ['Download'])
+        self.assertFalse(any('✅ Gyorsítótár kiürítve' in m for m in logs))
         self.assertTrue(any('újraindítás után' in r for r in rep['reboot_reasons']))
 
-    def test_sikeres_torles(self):
+    def test_sikeres_kiurites(self):
         os.makedirs(os.path.join(self.tmp, 'SoftwareDistribution', 'DataStore'))
-        res = wusettings_core.clear_software_distribution(lambda *a, **k: None)
+        res = wusettings_core.purge_software_distribution(lambda *a, **k: None)
         self.assertTrue(res['ok'])
-        self.assertEqual(wusettings_core.software_distribution_message(res), '✅ Gyorsítótár törölve.')
+        self.assertEqual(os.listdir(os.path.join(self.tmp, 'SoftwareDistribution')), [])
 
 
 class UsageSameOriginal(unittest.TestCase):

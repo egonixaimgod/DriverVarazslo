@@ -14,7 +14,6 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from app.common import _app_data_dir
 from app.common import _app_exe_path
-from app.common import _ps_quote
 from app.common import logon_task_ps
 from app import avcheck_core
 from app import backup_core
@@ -1642,7 +1641,7 @@ class GuiAutofixMixin:
         else:
             exec_path, args = sys.executable, f'"{exe_path}" {resume_flag}'
 
-        # Az idézőjelek egyszeresek: a _ps_quote nélkül egy aposztrófos felhasználónév
+        # Az idézőjelek egyszeresek (a common.logon_task_ps _ps_quote-tal escapel): enélkül egy aposztrófos felhasználónév
         # (C:\Users\O'Brien\...) széttörné a generált parancsot és megölné a láncot.
         #
         # A -Settings KÖTELEZŐ, nem díszítés (terepen bizonyított, 2026-08-05, Dell
@@ -3261,11 +3260,9 @@ class GuiAutofixMixin:
                     self._disable_sleep_sync()
                     
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update szüneteltetése (~10 év)...'})
-                    # Fix (nem hosszabbító) szünet a közös builderből, AUTOFIX_WU_PAUSE_DAYS
-                    # hosszan (~10 év) - explicit user decision, lásd a konstans indoklását.
-                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-                               wusettings_core.build_wu_pause_ps(
-                                   wusettings_core.AUTOFIX_WU_PAUSE_DAYS, additive=False)])
+                    # Fix (nem hosszabbító) szünet a KÖZÖS függvénnyel (ugyanaz, mint a gomboké),
+                    # AUTOFIX_WU_PAUSE_DAYS hosszan (~10 év) - explicit user decision.
+                    wusettings_core.pause_for_days(wusettings_core.AUTOFIX_WU_PAUSE_DAYS, extend=False)
                     self.emit('task_progress', {'task': 'autofix', 'log': _wu_pause_line(
                         '✅ Windows Update szüneteltetve (~10 év - a Beállításokban egy kattintással folytatható).\n')})
 
@@ -3349,24 +3346,30 @@ class GuiAutofixMixin:
                     if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
                     
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Szolgáltatások leállítása és újraindítási jelzések (Pending Reboot) törlése...'})
-                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", wusettings_core.WU_STOP_SERVICES_PS])
+                    # A KÖZÖS leállítás (ugyanaz, mint a WU-gomboké). A szolgáltatásokat itt
+                    # szándékosan nem indítjuk vissza: pár másodperc múlva újraindul a gép.
+                    wusettings_core.stop_wu_services(
+                        self._run, lambda m: self.emit('task_progress', {'task': 'autofix', 'log': m}))
                     # ok_codes=(0, 1): az 1-es kód a "kulcs nem létezik" - nincs beragadt reboot-jelzés, várt eset.
                     self._run(['reg', 'delete', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', '/f'], ok_codes=(0, 1))
 
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Beragadt frissítések és WU gyorsítótár (SoftwareDistribution) ürítése...'})
                     # A verdikt a visszaolvasás (2026-09-28): a lenti záró sor eddig akkor is
                     # "gyorsítótár ürítve"-t írt, ha zárolt fájlok maradtak.
-                    sd_res = wusettings_core.clear_software_distribution(self._run)
+                    # 2026-11-03: ugyanaz a félretevős kiürítés, mint a WU-gomboké (terepen egy
+                    # 735 729 fájlos, 260 karakternél hosszabb útvonalú gyorsítótárnál a régi
+                    # rmtree + Remove-Item azonnal elbukott). A háttér-törlést az újraindítás
+                    # félbeszakítja - indításkor a program folytatja (resume_trash_delete).
+                    sd_res = wusettings_core.purge_software_distribution(self._run)
                     if not sd_res['ok']:
                         self.emit('task_progress', {'task': 'autofix', 'log':
-                                  wusettings_core.software_distribution_message(sd_res)})
+                                  f"⚠️ A WU-gyorsítótár egy része zárolva ({', '.join(sd_res['locked'][:3])}) - "
+                                  f"a Windows Update működését nem akadályozza, a következő WU-gomb kiüríti."})
 
                     self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update szüneteltetése (~10 év)...'})
-                    # Fix (nem hosszabbító) szünet a közös builderből, AUTOFIX_WU_PAUSE_DAYS
+                    # Fix (nem hosszabbító) szünet a KÖZÖS függvénnyel, AUTOFIX_WU_PAUSE_DAYS
                     # hosszan (~10 év) - explicit user decision, lásd a konstans indoklását.
-                    self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-                               wusettings_core.build_wu_pause_ps(
-                                   wusettings_core.AUTOFIX_WU_PAUSE_DAYS, additive=False)])
+                    wusettings_core.pause_for_days(wusettings_core.AUTOFIX_WU_PAUSE_DAYS, extend=False)
                     self.emit('task_progress', {'task': 'autofix', 'log': _wu_pause_line(
                               '✅ WU gyorsítótár ürítve, a Windows Update szüneteltetve (~10 év).\n'
                               if sd_res['ok'] else

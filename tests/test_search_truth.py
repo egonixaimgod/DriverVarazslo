@@ -90,7 +90,9 @@ class WuSearchTimeoutTest(unittest.TestCase):
             pass
 
         self.assertIsNone(S(run)._search_wu_api_inner())
-        self.assertTrue(any('Stop-Service wuauserv' in c for c in cmds[1:]))
+        # 2026-11-03: a közös wusettings_core.restart_wu_services (le + vissza) gyógyít.
+        self.assertTrue(any('Stop-Service -Name $n' in c and "'wuauserv'" in c for c in cmds[1:]))
+        self.assertTrue(any('Start-Service -Name $n' in c and "'wuauserv'" in c for c in cmds[1:]))
 
 
 class ManualWuInstallTest(unittest.TestCase):

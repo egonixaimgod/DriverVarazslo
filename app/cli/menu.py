@@ -1551,6 +1551,7 @@ def run_cli_mode():
         return
 
     # Újraindítás után befejezendő WU-művelet (app/gui/wu.py) - a menü előtt.
+    api._resume_wu_trash_delete()
     try:
         if not api.target_os_path and api.wu_finish_pending():
             _run_screen(api, 'Windows Update - befejezés újraindítás után', lambda: api.finish_wu_after_reboot())

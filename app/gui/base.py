@@ -350,6 +350,7 @@ class GuiBaseMixin:
                 wu_finish = self.wu_finish_pending()
             except Exception as e:
                 logging.warning(f"[INIT] A befejezésre váró WU-művelet nem ellenőrizhető: {e}", exc_info=True)
+        self._resume_wu_trash_delete()
         return {'build': common.BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path, 'resume_mode': getattr(self, 'resume_mode', False), 'resume_step1': getattr(self, 'resume_step1', False), 'app_data_dir': _app_data_dir(), 'wu_finish': wu_finish}
 
     def reboot_system(self):

@@ -20,24 +20,24 @@ from datetime import datetime, timezone
 # === /AUTO-IMPORTS ===
 
 
-# A WU szüneteltetés registry-értékeinek eltávolítása (feloldás) - a resume_wu, az
-# enable_wu_reset és a set_wu_pause(False) is ugyanezt használja.
-WU_PAUSE_REMOVE_PS = """
-$regPath = 'HKLM:\\SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings'
-Remove-ItemProperty -Path $regPath -Name 'PauseUpdatesExpiryTime' -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path $regPath -Name 'PauseFeatureUpdatesEndTime' -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path $regPath -Name 'PauseQualityUpdatesEndTime' -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path $regPath -Name 'PauseUpdatesStartTime' -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path $regPath -Name 'PauseFeatureUpdatesStartTime' -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path $regPath -Name 'PauseQualityUpdatesStartTime' -ErrorAction SilentlyContinue
-"""
+# EGY FELADAT = EGY FÜGGVÉNY (2026-11-03, explicit user decision: „ne legyen, hogy valahol
+# megváltoztatom, a fix ugyanazt csinálja, mégis más függvényt hív”). Eddig a szünet
+# beírására, törlésére és a szolgáltatás-leállításra 2-3 külön kód élt (PowerShell a fixben,
+# Python a gombokban, egy harmadik a driverkeresésben). Most mindenki ezeket hívja:
+#   szünet beírása   -> pause_for_days / write_pause_until
+#   szünet törlése   -> remove_pause
+#   szolg. leállítás -> stop_wu_services;  le + vissza -> restart_wu_services
+#   gyorsítótár      -> purge_software_distribution
+#   driver-tiltás    -> set_wu_driver_policy
+# A régi `WU_PAUSE_REMOVE_PS`, `WU_STOP_SERVICES_PS`, `build_wu_pause_ps` és
+# `clear_software_distribution` TÖRÖLVE - ne éleszd újra (`tests/test_wu_settings.py:
+# EgyFuggvenyTest` őrzi).
 
-# A WU szolgáltatások leállítása a cache-műveletek előtt.
-WU_STOP_SERVICES_PS = """
+# A szünet feloldása utáni wuauserv-újraindítás (a fix telepítő lába és a záró feloldás
+# eddig is így csinálta; mérve a keresésnek nem kell, de terepen bevált, maradt).
+WU_RESTART_WUAUSERV_PS = """
 Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
-Stop-Service bits -Force -ErrorAction SilentlyContinue
-Stop-Service cryptsvc -Force -ErrorAction SilentlyContinue
-Stop-Service UsoSvc -Force -ErrorAction SilentlyContinue
+Start-Service wuauserv -ErrorAction SilentlyContinue
 """
 
 
@@ -51,57 +51,6 @@ Stop-Service UsoSvc -Force -ErrorAction SilentlyContinue
 # nem kell hozzá szerviz. A biztonsági frissítések tehát nincsenek véglegesen elvágva, csak
 # nem indulnak el maguktól.
 AUTOFIX_WU_PAUSE_DAYS = 3650
-
-
-def build_wu_pause_ps(days, additive=True):
-    """A WU szüneteltetést beállító PowerShell script.
-
-    additive=True (felhasználói Pause gomb): ha már van érvényes szünet ÉS days==7,
-    a meglévő lejárathoz adja hozzá a napokat (így a gomb ismételt nyomogatása
-    hosszabbít); különben mostantól számol. A script kimenete az új lejárati dátum.
-
-    additive=False (AutoFix): mindig mostantól számolt fix lejárat - az AutoFix
-    szándéka "kb. N nap mostantól", nem a meglévő szünet hosszabbítása."""
-    days = int(days)
-    if additive:
-        date_calc = """
-    $currentPauseStr = (Get-ItemProperty -Path $regPath -Name 'PauseUpdatesExpiryTime' -ErrorAction SilentlyContinue).PauseUpdatesExpiryTime
-
-    if ($currentPauseStr -and $daysToAdd -eq 7) {
-        try {
-            $currentPause = [datetime]$currentPauseStr
-            if ($currentPause -lt $now) { $currentPause = $now }
-        } catch {
-            $currentPause = $now
-        }
-        $newDate = $currentPause.AddDays($daysToAdd)
-    } else {
-        $newDate = $now.AddDays($daysToAdd)
-    }
-"""
-    else:
-        date_calc = """
-    $newDate = $now.AddDays($daysToAdd)
-"""
-    return f"""
-    $regPath = 'HKLM:\\SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings'
-    if (!(Test-Path $regPath)) {{ New-Item -Path $regPath -Force | Out-Null }}
-
-    $daysToAdd = {days}
-    $now = (Get-Date).ToUniversalTime()
-{date_calc}
-    $dateStr = $newDate.ToString("yyyy-MM-ddTHH:mm:ssZ")
-    $startStr = $now.ToString("yyyy-MM-ddTHH:mm:ssZ")
-
-    Set-ItemProperty -Path $regPath -Name 'PauseUpdatesExpiryTime' -Value $dateStr -Type String -Force | Out-Null
-    Set-ItemProperty -Path $regPath -Name 'PauseFeatureUpdatesEndTime' -Value $dateStr -Type String -Force | Out-Null
-    Set-ItemProperty -Path $regPath -Name 'PauseQualityUpdatesEndTime' -Value $dateStr -Type String -Force | Out-Null
-    Set-ItemProperty -Path $regPath -Name 'PauseUpdatesStartTime' -Value $startStr -Type String -Force | Out-Null
-    Set-ItemProperty -Path $regPath -Name 'PauseFeatureUpdatesStartTime' -Value $startStr -Type String -Force | Out-Null
-    Set-ItemProperty -Path $regPath -Name 'PauseQualityUpdatesStartTime' -Value $startStr -Type String -Force | Out-Null
-
-    Write-Output $dateStr
-    """
 
 
 def read_wu_status(run):
@@ -186,21 +135,19 @@ def set_wu_driver_policy(run, disabled):
 
 
 def set_wu_pause(run, pause=True, days=AUTOFIX_WU_PAUSE_DAYS):
-    """Egyszerű pause be/ki a driver-policy értékekkel együtt (az AutoFix használja):
-    pause=True fix (nem hosszabbító) szünet mostantól + driver-tiltás; pause=False a
-    szünet feloldása + driver-engedélyezés + wuauserv restart.
+    """Szünet be/ki a driver-tiltással együtt (a fix telepítő lába használja, a saját
+    WU-keresése köré): pause=True fix (nem hosszabbító) szünet mostantól + driver-tiltás;
+    pause=False a szünet feloldása + wuauserv-újraindítás + driver-engedélyezés.
+    2026-11-03 óta a közös `pause_for_days` / `remove_pause` / `set_wu_driver_policy`
+    megy alatta (eddig saját PowerShell). Visszatérés: minden lépés visszaolvasva rendben-e.
 
     A `days` alapértéke AUTOFIX_WU_PAUSE_DAYS (~10 év) - lásd a konstans indoklását."""
     if pause:
-        run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-             build_wu_pause_ps(days, additive=False)])
-        set_wu_driver_policy(run, disabled=True)
-    else:
-        run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WU_PAUSE_REMOVE_PS + """
-Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
-Start-Service wuauserv -ErrorAction SilentlyContinue
-"""])
-        set_wu_driver_policy(run, disabled=False)
+        ok = pause_for_days(days, extend=False) is not None
+        return set_wu_driver_policy(run, disabled=True) and ok
+    ok = remove_pause()
+    run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WU_RESTART_WUAUSERV_PS])
+    return set_wu_driver_policy(run, disabled=False) and ok
 
 
 # =====================================================================
@@ -352,57 +299,9 @@ def restore_stranded_search_window(marker_path):
     return close_search_window(state, marker_path)
 
 
-def _software_distribution_leftovers(sw_dist, limit=3):
-    """A törlés UTÁN még ott lévő fájlok száma + néhány név (relatív útvonal)."""
-    if not os.path.exists(sw_dist):
-        return 0, []
-    n, sample = 0, []
-    for root, _dirs, files in os.walk(sw_dist):
-        for fn in files:
-            n += 1
-            if len(sample) < limit:
-                sample.append(os.path.relpath(os.path.join(root, fn), sw_dist))
-    return n, sample
-
-
-def clear_software_distribution(run, retries=4):
-    """A SoftwareDistribution mappa törlése újrapróbálásokkal, végső PS fallbackkal - és a
-    VERDIKT A VISSZAOLVASÁS, nem a próbálkozások kimenete (4. elv, 2026-09-28).
-
-    Terepen (Build 344, CLI "WU driver letiltás"): a törlés négyszer `Access is denied`-dal
-    bukott (`Download\\...\\Metadata\\UpdateAgent.dll` zárolva), a PowerShell-tartalék 1-es
-    kóddal tért vissza - a képernyőn mégis "✅ Gyorsítótár törölve." állt, mert a hívó a
-    visszatérési értéket meg sem nézte. Visszatérés: {'ok', 'remaining', 'sample'}."""
-    sysroot = os.environ.get('SYSTEMROOT', r'C:\Windows')
-    sw_dist = os.path.join(sysroot, 'SoftwareDistribution')
-    deleted = False
-    for _ in range(retries):
-        try:
-            if os.path.exists(sw_dist):
-                shutil.rmtree(sw_dist, ignore_errors=False)
-            deleted = True
-            break
-        except Exception as e:
-            logging.warning(f"[WU_SETTINGS] SoftwareDistribution törlés újrapróbálás: {e}")
-            time.sleep(3)
-    if not deleted:
-        run(["powershell", "-NoProfile", "-Command", f'Remove-Item -Path "{sw_dist}" -Recurse -Force -ErrorAction SilentlyContinue'])
-    remaining, sample = _software_distribution_leftovers(sw_dist)
-    if remaining:
-        logging.warning(f"[WU_SETTINGS] A SoftwareDistribution törlése után {remaining} fájl MARADT "
-                        f"(zárolva), pl.: {sample}")
-    else:
-        logging.info("[WU_SETTINGS] SoftwareDistribution: visszaolvasva üres/nem létezik - törölve.")
-    return {'ok': remaining == 0, 'remaining': remaining, 'sample': sample}
-
-
-def software_distribution_message(res):
-    """A képernyőre kerülő sor a törlés VALÓDI eredményéről."""
-    if res.get('ok'):
-        return '✅ Gyorsítótár törölve.'
-    pelda = f", pl. {res['sample'][0]}" if res.get('sample') else ''
-    return (f"⚠️ A WU-gyorsítótár {res.get('remaining', '?')} fájlja most nem törölhető (zárolva{pelda}) - "
-            f"a Windows Update működését nem akadályozza, egy újraindítás után törölhető.")
+# A régi `clear_software_distribution` (rmtree + Remove-Item) 2026-11-03-án TÖRÖLVE: a
+# 260 karakternél hosszabb útvonalakon azonnal elbukott (terep: ASUS, 735 729 fájl). Minden
+# hívó a `purge_software_distribution`-t használja. Ne éleszd újra.
 
 
 # =====================================================================
@@ -415,16 +314,16 @@ def software_distribution_message(res):
 # újraindít, és bejelentkezés után a program magától befejezi és ellenőrzi.
 #
 # MÉRVE (2026-11-03, a fejlesztői gépen, Win10 22H2):
-#   - A Windows Update-vezénylő a TÉNYLEGES szünet- és driver-állapotot a
-#     `UpdatePolicy\PolicyState` kulcsban tartja (QualityUpdatesPaused,
-#     PauseQualityUpdatesEndTime, ExcludeWUDrivers). Ugyanakkor a `UX\Settings` alatt
-#     NEM volt szünet-érték, a PolicyState mégis 2036-ig szüneteltetett -> a régi kiírás
-#     („nincs szünet”) hazudott, mert csak a UX\Settings-et olvasta.
-#   - A UX\Settings átírása után sem az UsoSvc+wuauserv újraindítása (60 mp), sem a
-#     `UsoClient RefreshSettings` (40 mp) NEM vitte át az új értéket a PolicyState-be.
-#     Ezért a PolicyState-tel való egyezés hiánya = újraindítás kell. Hogy az újraindítás
-#     átviszi-e, NINCS mérve: a befejező lépés ezt az újraindítás után visszaolvassa, és ha
-#     nem, kimondja (nem indít újra még egyszer).
+#   - A vezénylő a `UpdatePolicy\PolicyState` kulcsban is tart szünet- és driver-értékeket
+#     (QualityUpdatesPaused, PauseQualityUpdatesEndTime, ExcludeWUDrivers). A UX\Settings
+#     átírása után ezt sem az UsoSvc+wuauserv újraindítása (60 mp), sem a `UsoClient
+#     RefreshSettings` (40 mp) nem frissítette.
+#   - VISSZAVONVA (ugyanaznap, terepen, ASUS, 30 napos szünet): a PolicyState-et „a Windows
+#     tényleges állapotának” vettem, és ha eltért, „még nem vette át”-ot írtam + újraindítást
+#     kértem. A Windows (Beállítások oldal) a szünetet mutatta és betartotta, a PolicyState
+#     mégis több újraindítás után is a régit őrizte -> a kiírás hamis volt, és MÉRÉS nélküli
+#     feltevésre épült. Az igazság a UX\Settings: ezt írja a Beállítások alkalmazás, és a WU
+#     keresése ezt tartja be (mérve 2026-09-27). A PolicyState csak naplózott tájékoztatás.
 #   - A régi „Szolgáltatások újraindítása” gomb `wuauclt /detectnow` + `UsoClient
 #     StartScan` hívással KERESÉST indított (szüneteltetett gépen is) - ez letöltötte a
 #     „szemetet”. A régi szünet-gomb leállította a cryptsvc/bits/UsoSvc szolgáltatást, és
@@ -530,6 +429,17 @@ def start_background_delete(run, path):
     return ok
 
 
+def resume_trash_delete(run, root=None):
+    """Indításkor: ha egy korábbi kiürítés félretett fáját egy újraindítás félbehagyta
+    (a fix lánca a kiürítés után azonnal újraindít), a háttér-törlés folytatódik."""
+    root = root or os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), 'SoftwareDistribution')
+    trash_root = root + WU_TRASH_SUFFIX
+    if not os.path.isdir(trash_root):
+        return None
+    logging.info(f"[WU_REPAIR] Félretett WU-gyorsítótár maradt ({trash_root}) - a háttér-törlés folytatódik.")
+    return start_background_delete(run, trash_root)
+
+
 def purge_software_distribution(run, root=None):
     """A SoftwareDistribution minden elemének félretétele (átnevezés) + a félretett fa
     háttér-törlése. Ami nem nevezhető át (zárolt), az bent marad, és újraindítási ok.
@@ -583,16 +493,11 @@ def wu_reboot_flags():
     return reasons
 
 
-def repair_wu(run, log, full_reset=False):
-    """A KÖZÖS WU-javítás, minden WU-gomb ezt futtatja (keresést SOHA nem indít, a szünet-
-    és driver-beállításhoz NEM nyúl):
-      1. UsoSvc, wuauserv, bits, cryptsvc leállítása (beragadásnál a saját folyamatuk lelövése),
-      2. a SoftwareDistribution (beragadt letöltések, WU-adatbázis) kiürítése: az elemek
-         félretétele átnevezéssel + háttér-törlés; a zárolt maradék újraindítási ok
-         (a befejező lépés üríti),
-      3. full_reset: catroot2 átnevezése, WU DLL-ek újraregisztrálása, winsock reset,
-      4. a szolgáltatások (és a leállított függőik) visszaindítása MINDIG (`finally`), visszaolvasva.
-    Visszatérés: {'services_ok', 'problems', 'cache', 'reboot_reasons'}."""
+def stop_wu_services(run, log):
+    """A WU-szolgáltatások (UsoSvc, wuauserv, BITS, cryptsvc) leállítása - a KÖZÖS
+    leállítás (gombok, a fix törlő lába, a WU-időtúllépés utáni gyógyítás). Beragadásnál
+    a szolgáltatás SAJÁT folyamatát lelövi (közös svchost-ot soha).
+    Visszatérés: {'deps' [a leállított, futó függők], 'problems', 'reboot_reasons', 'stop'}."""
     problems, reboot_reasons = [], []
     log('🧹 Windows Update szolgáltatások leállítása (UsoSvc, wuauserv, BITS, cryptsvc)...')
     ps = WU_REPAIR_STOP_PS.replace('__SERVICES__', _ps_list(WU_REPAIR_SERVICES)).replace(
@@ -610,7 +515,29 @@ def repair_wu(run, log, full_reset=False):
     if not stop['stop']:
         logging.error(f"[WU_REPAIR] A leállító szkript nem adott választ (kód={getattr(res, 'returncode', None)}).")
         problems.append('a szolgáltatások leállítása nem ellenőrizhető')
+    return {'deps': stop['deps'], 'problems': problems, 'reboot_reasons': reboot_reasons,
+            'stop': stop['stop']}
 
+
+def restart_wu_services(run, log):
+    """Le + vissza, takarítás NÉLKÜL (a driverkeresés WU-időtúllépése után gyógyít).
+    Keresést nem indít. Visszatérés: a problémák listája (üres = minden fut)."""
+    stop = stop_wu_services(run, log)
+    return stop['problems'] + _repair_start_services(run, log, stop['deps'])
+
+
+def repair_wu(run, log, full_reset=False):
+    """A KÖZÖS WU-javítás, minden WU-gomb ezt futtatja (keresést SOHA nem indít, a szünet-
+    és driver-beállításhoz NEM nyúl):
+      1. UsoSvc, wuauserv, bits, cryptsvc leállítása (beragadásnál a saját folyamatuk lelövése),
+      2. a SoftwareDistribution (beragadt letöltések, WU-adatbázis) kiürítése: az elemek
+         félretétele átnevezéssel + háttér-törlés; a zárolt maradék újraindítási ok
+         (a befejező lépés üríti),
+      3. full_reset: catroot2 átnevezése, WU DLL-ek újraregisztrálása, winsock reset,
+      4. a szolgáltatások (és a leállított függőik) visszaindítása MINDIG (`finally`), visszaolvasva.
+    Visszatérés: {'services_ok', 'problems', 'cache', 'reboot_reasons'}."""
+    stop = stop_wu_services(run, log)
+    problems, reboot_reasons = list(stop['problems']), list(stop['reboot_reasons'])
     cache = {'ok': False, 'moved': 0, 'locked': [], 'bg_delete': False}
     try:
         cache = _repair_cleanup(run, log, full_reset, problems, reboot_reasons)
@@ -705,9 +632,9 @@ def _parse_iso(val):
 
 
 def read_effective_state():
-    """A Windows Update-vezénylő TÉNYLEGES állapota (UpdatePolicy\\PolicyState), vagy None,
-    ha nem olvasható (régebbi Windows / hiányzó kulcs) - ilyenkor nem ellenőrizhető, és ezt
-    a hívó ki is mondja. {'paused_until': ISO|None, 'exclude_drivers': bool|None}"""
+    """A Windows Update-vezénylő belső PolicyState-je, CSAK NAPLÓZÁSHOZ (nem verdikt, lásd a
+    fenti VISSZAVONVA bekezdést), vagy None, ha nem olvasható.
+    {'paused_until': ISO|None, 'exclude_drivers': bool|None}"""
     try:
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _POLICY_STATE_KEY, 0,
                             winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as k:
@@ -737,27 +664,6 @@ def desired_state():
 
 def _day(v):
     return (v or '')[:10] or None
-
-
-def state_mismatches(desired, effective):
-    """Ahol a Windows tényleges állapota eltér a beállítottól (emberi szöveggel). Nem
-    olvasható tényleges állapotnál üres lista (a hívó külön jelzi, hogy nem ellenőrizhető)."""
-    if effective is None:
-        return []
-    out = []
-    d, e = _day(desired.get('paused_until')), _day(effective.get('paused_until'))
-    if d != e:
-        if d and not e:
-            out.append(f'a szünet ({d}-ig) be van állítva, de a Windows még nem vette át')
-        elif e and not d:
-            out.append(f'a Windows még szüneteltetve tartja ({e}-ig), pedig a szünet nincs beállítva')
-        else:
-            out.append(f'a Windows még a régi szünetet tartja ({e}-ig), a beállított: {d}-ig')
-    ex = effective.get('exclude_drivers')
-    if ex is not None and ex != bool(desired.get('exclude_drivers')):
-        out.append('a driver-letiltást a Windows még nem vette át' if desired.get('exclude_drivers')
-                   else 'a Windows még tiltja a drivereket, pedig engedélyezve vannak')
-    return out
 
 
 def pause_end_for(days, extend):
@@ -794,6 +700,12 @@ def write_pause_until(end_dt):
     return end
 
 
+def pause_for_days(days, extend=False):
+    """A szünet beírása N napra - a KÖZÖS belépési pont (gombok, CLI, a fix A és B lába).
+    Visszatérés: a lejárat ISO-ban, vagy None (bukás, visszaolvasva)."""
+    return write_pause_until(pause_end_for(days, extend))
+
+
 def remove_pause():
     """A szünet törlése a UX\\Settings alól, visszaolvasva. Igaz, ha nincs érvényes szünet."""
     for n in WU_PAUSE_VALUE_NAMES:
@@ -807,16 +719,13 @@ def remove_pause():
     return left is None
 
 
-def describe_state(desired, effective):
-    """Rövid emberi összefoglaló a TÉNYLEGES állapotról (ha olvasható), különben a beállítottról."""
-    src = effective if effective is not None else desired
-    pu = _day(src.get('paused_until'))
-    ex = src.get('exclude_drivers')
-    if ex is None:
-        ex = desired.get('exclude_drivers')
+def describe_state(desired):
+    """Rövid emberi összefoglaló a BEÁLLÍTOTT (visszaolvasott) állapotról - ezt használja
+    a Windows Update, és ezt mutatja a Beállítások oldal is."""
+    pu = _day(desired.get('paused_until'))
     pause = f'szüneteltetve {pu}-ig' if pu else 'NINCS szüneteltetve'
-    drv = 'driver-frissítés LETILTVA' if ex else 'driver-frissítés engedélyezve'
-    return f"{pause} · {drv}" + ('' if effective is not None else ' (a Windows saját állapota nem olvasható)')
+    drv = 'driver-frissítés LETILTVA' if desired.get('exclude_drivers') else 'driver-frissítés engedélyezve'
+    return f"{pause} · {drv}"
 
 
 # --- Újraindítás utáni befejezés (a feladat a következő bejelentkezéskor indítja a programot) ---
@@ -900,11 +809,10 @@ def reassert_pending(run, pending, log):
 
 
 def resume_wu(run, log):
-    """A WU szüneteltetés feloldása (registry + wuauserv restart + COM Resume)."""
-    run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WU_PAUSE_REMOVE_PS + """
-Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
-Start-Service wuauserv -ErrorAction SilentlyContinue
-
+    """A WU szüneteltetés feloldása (a közös `remove_pause` + wuauserv-újraindítás + COM
+    Resume) - a fix lánca a végén ezt hívja, ha a technikus nem kért szünetet."""
+    remove_pause()
+    run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WU_RESTART_WUAUSERV_PS + """
 try { (New-Object -ComObject Microsoft.Update.AutoUpdate).Resume() | Out-Null } catch {}
 """])
     left = wu_paused_until()        # a verdikt a visszaolvasás

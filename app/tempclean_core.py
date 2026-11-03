@@ -49,6 +49,27 @@ def _fmt_bytes(n):
     return f"{n:.1f} TB"
 
 
+def _long_path(path):
+    """A `\\\\?\\` előtagos alak: így a 260 karakteres MAX_PATH korlát nem érvényes.
+    TEREPEN (2026-11-03, ASUS Vivobook, Win10, `LongPathsEnabled` nélkül): a WU-gyorsítótár
+    735 729 fájljának útvonala hosszabb volt 260 karakternél, és minden sima `os.remove` /
+    `rmtree` `WinError 3`-mal (útvonal nem található) bukott. Mérve a fejlesztői gépen: az
+    előtagos útvonallal 618 karakteres fájl is törölhető/listázható."""
+    p = os.path.abspath(path)
+    if p.startswith('\\\\?\\'):
+        return p
+    if p.startswith('\\\\'):
+        return '\\\\?\\UNC\\' + p[2:]
+    return '\\\\?\\' + p
+
+
+def _disp(path):
+    """A naplóba / képernyőre az előtag nélküli alak kerül."""
+    if path.startswith('\\\\?\\UNC\\'):
+        return '\\\\' + path[8:]
+    return path[4:] if path.startswith('\\\\?\\') else path
+
+
 def _is_reparse(path):
     """Mappa-link (junction) vagy symlink-e - ezeket SOHA nem követjük (lásd a modul fejét)."""
     try:
@@ -83,7 +104,7 @@ def _delete_contents(folder, st, cancel_check=None):
     except OSError as e:
         st['failed'] += 1
         if len(st['samples']) < FAILED_SAMPLE_MAX:
-            st['samples'].append(f'{folder} (nem olvasható: {e.__class__.__name__})')
+            st['samples'].append(f'{_disp(folder)} (nem olvasható: {e.__class__.__name__})')
         return
     for e in entries:
         if cancel_check and cancel_check():
@@ -99,7 +120,7 @@ def _delete_contents(folder, st, cancel_check=None):
                 if not _remove_file(full):
                     st['failed'] += 1
                     if len(st['samples']) < FAILED_SAMPLE_MAX:
-                        st['samples'].append(full)
+                        st['samples'].append(_disp(full))
             continue
         try:
             is_dir = e.is_dir(follow_symlinks=False)
@@ -122,7 +143,7 @@ def _delete_contents(folder, st, cancel_check=None):
         else:
             st['failed'] += 1
             if len(st['samples']) < FAILED_SAMPLE_MAX:
-                st['samples'].append(full)
+                st['samples'].append(_disp(full))
 
 
 def _clean_folder_contents(folder, cancel_check=None):
@@ -133,7 +154,7 @@ def _clean_folder_contents(folder, cancel_check=None):
     st = {'freed': 0, 'removed': 0, 'failed': 0, 'samples': [], 'cancelled': False}
     if not folder or not os.path.isdir(folder):
         return 0, 0, 0
-    _delete_contents(folder, st, cancel_check)
+    _delete_contents(_long_path(folder), st, cancel_check)
     logging.info(f"[TEMPCLEAN] {folder}: {st['removed']} fájl törölve ({_fmt_bytes(st['freed'])}), "
                  f"{st['failed']} kihagyva{' (MEGSZAKÍTVA)' if st['cancelled'] else ''}"
                  + (f" - minta: {st['samples']}" if st['samples'] else ''))
@@ -149,7 +170,7 @@ def folder_size(folder):
     except OSError:
         return None, None
     tot = n = 0
-    stack = [folder]
+    stack = [_long_path(folder)]
     while stack:
         cur = stack.pop()
         try:

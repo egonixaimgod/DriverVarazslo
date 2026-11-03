@@ -196,7 +196,7 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 <summary><b>🪟 Operációs rendszer</b></summary>
 <br/>
 
-- **Windows Update:** automatikus driverfrissítés tiltása és visszaállítása, szüneteltetés (+1 hét, tetszőleges napszám, 10 év), javítás. Minden gomb kitakarítja a beragadt letöltéseket és rendbe teszi a szolgáltatásokat, frissítés-keresést soha nem indít; az állapotot a Windows ténylegesen érvényes beállításából olvassa, és ha az csak újraindítás után áll be, 10 mp múlva újraindít, majd bejelentkezés után magától befejezi és ellenőrzi.
+- **Windows Update:** automatikus driverfrissítés tiltása és visszaállítása, szüneteltetés (+1 hét, tetszőleges napszám, 10 év), javítás. Minden gomb kitakarítja a beragadt letöltéseket és rendbe teszi a szolgáltatásokat, frissítés-keresést soha nem indít; az eredményt visszaolvassa, és ha a takarításhoz újraindítás kell (zárolt fájl, beragadt szolgáltatás), 10 mp múlva újraindít, majd bejelentkezés után magától befejezi és ellenőrzi.
 - **Windows és Office aktiválás:** licencállapot közvetlenül WMI-ből, a **BIOS-ba égetett gyári kulcs** kiolvasása és használata, KMS-tartalék a szerviz saját kiszolgálójával. A végeredményt a program a rendszertől kérdezi vissza.
 - **BitLocker:** a rendszermeghajtó állapota és a titkosítás kikapcsolása.
 - **⚡ Teljesítmény-mód:** a beépített „Nagy teljesítményű” energiaséma hangolt értékekkel (hálózatról és akkumulátorról is), a régi séma megnevezésével és a visszaállítás parancsával.

@@ -4,12 +4,12 @@ A közös logika: app/wusettings_core.py.
 
 2026-11-03 (explicit user decision): MINDEN gomb ugyanazon a folyamaton megy át
 (`_wu_action`): a kért beállítás beírása + visszaolvasása -> a közös WU-javítás
-(szolgáltatások le, beragadt szemét törlése, szolgáltatások vissza; keresést SOHA nem
-indít) -> a Windows TÉNYLEGES állapotának visszaolvasása. Ha a Windows még nem vette át
-(mérve: csak újraindítás után veszi át), vagy zárolt szemét maradt: a program kiírja,
-hogy 10 mp múlva újraindítja a gépet, bejelentkezés után egy ütemezett feladat elindítja,
-és a `finish_wu_after_reboot` befejezi + ellenőrzi. „✅ Kész” csak visszaolvasott,
-egyező állapotra jön."""
+(szolgáltatások le, beragadt szemét kiürítése, szolgáltatások vissza; keresést SOHA nem
+indít) -> verdikt a visszaolvasott beállításból (ezt használja a WU és a Beállítások oldal).
+Ha a program SAJÁT művelete újraindítást igényel (zárolt gyorsítótár, beragadt
+szolgáltatás, winsock reset): kiírja, hogy 10 mp múlva újraindítja a gépet, bejelentkezés
+után egy ütemezett feladat elindítja, és a `finish_wu_after_reboot` befejezi + ellenőrzi.
+A vezénylő PolicyState-je NEM verdikt (2026-11-03 terepen hamis „még nem vette át”-ot adott)."""
 
 # === AUTO-IMPORTS ===
 import os
@@ -24,7 +24,6 @@ from app.common import _app_exe_path, logon_task_ps
 WU_FINISH_TASK = 'DriverVarazsloWuFinish'
 WU_FINISH_FLAG = '--wu-finish'
 WU_REBOOT_COUNTDOWN = 10          # mp, a Mégse gomb addig megfogja
-WU_FINISH_WAIT = 90               # mp: újraindítás után eddig várunk, hogy a Windows átvegye
 
 
 class GuiWuMixin:
@@ -37,23 +36,23 @@ class GuiWuMixin:
     # ÁLLAPOT
     # ================================================================
     def check_wu_status(self):
-        """A kiírás a Windows TÉNYLEGES állapotából (PolicyState) jön; ha az eltér a
-        beállítottól, azt kimondja. Visszatérés: {status, color, lines[]}."""
+        """Az állapot a Windows Update által HASZNÁLT beállításokból jön (UX\\Settings szünet +
+        a driver-házirend) - ugyanez látszik a Beállítások > Windows Update oldalon, és a WU
+        keresése ezt tartja be (mérve 2026-09-27). A vezénylő belső PolicyState-je csak a
+        naplóba kerül: 2026-11-03-án terepen (ASUS, 30 napos szünet) a Windows a szünetet
+        mutatta és betartotta, a PolicyState mégis újraindítások után is a régit őrizte - a rá
+        épülő „még nem vette át” kiírás hamis volt. Visszatérés: {status, color, lines[]}."""
         logging.info("[API] check_wu_status()")
         if self.target_os_path:
             return {'status': 'Offline (Nem olvasható)', 'color': 'unknown', 'lines': []}
         try:
             st = wusettings_core.read_wu_status(self._run)
-            desired = {'paused_until': st['paused_until'], 'exclude_drivers': st['policy_disabled']}
-            eff = st['effective']
-            mism = wusettings_core.state_mismatches(desired, eff)
+            logging.info(f"[WU_STATUS] (csak tájékoztató) vezénylő PolicyState: {st['effective']}")
             pending = wusettings_core.load_pending()
             lines = []
 
-            src = eff if eff is not None else desired
-            pu = (src.get('paused_until') or '')[:10]
-            lines.append(f"⏸️ Szüneteltetés: {'szüneteltetve ' + pu + '-ig' if pu else 'nincs szüneteltetve'}"
-                         + ('' if eff is not None else ' (beállítás szerint; a Windows állapota nem olvasható)'))
+            pu = (st['paused_until'] or '')[:10]
+            lines.append(f"⏸️ Szüneteltetés: {'szüneteltetve ' + pu + '-ig' if pu else 'nincs szüneteltetve'}")
             if st['policy_disabled'] and st['search_disabled']:
                 drv = 'LETILTVA (WU-ajánlat és eszköztelepítés is)'
             elif st['policy_disabled']:
@@ -63,20 +62,14 @@ class GuiWuMixin:
             else:
                 drv = 'engedélyezve'
             lines.append(f'🧩 Driver-frissítés: {drv}')
-            for m in mism:
-                lines.append(f'⚠️ {m}')
-            if mism:
-                lines.append('➡️ Újraindítás után lép életbe - vagy nyomd meg a „WU Javítás” gombot, az elvégzi.')
             for r in st['reboot_flags']:
-                lines.append(f'🔁 {r}')
+                lines.append(f'ℹ️ {r[0].upper() + r[1:]} (a Windows saját frissítése; a program gombjai ettől működnek)')
             if pending:
                 lines.append(f"⏳ Újraindításra vár: {pending.get('action', 'WU-művelet')} "
                              f"(bejelentkezés után a program magától befejezi)")
 
             if st['service_disabled']:
                 result = {'status': 'Windows Update szolgáltatás LETILTVA (services.msc)', 'color': 'disabled'}
-            elif mism:
-                result = {'status': '⚠️ A Windows még NEM vette át a beállítást - újraindítás kell', 'color': 'warning'}
             elif pu:
                 result = {'status': f'SZÜNETELTETVE {pu}-ig · Driverek: {"LETILTVA" if st["policy_disabled"] else "engedélyezve"}',
                           'color': 'warning'}
@@ -121,17 +114,22 @@ class GuiWuMixin:
         self._safe_thread(task, worker)
 
     def _wu_conclude(self, task, title, rep, finishing):
-        """A verdikt: a Windows tényleges állapota + a javítás eredménye. Újraindítás kell
-        -> (első körben) 10 mp-es visszaszámlálás + befejező feladat; újraindítás után nincs
-        újabb újraindítás, csak őszinte jelentés."""
+        """A verdikt: a visszaolvasott beállítás (amit a Windows Update használ) + a javítás
+        eredménye. Újraindítás CSAK akkor, ha a program saját művelete igényli (zárolt
+        gyorsítótár, beragadt szolgáltatás, winsock reset) -> 10 mp-es visszaszámlálás +
+        befejező feladat; újraindítás után nincs újabb újraindítás, csak őszinte jelentés.
+        A Windows saját „újraindítás kell” jelzője (egy félbemaradt frissítésnél tartós lehet)
+        csak tájékoztatás - különben minden gombnyomás újraindítana."""
         log = lambda m: self.emit('task_progress', {'task': task, 'log': m})
         desired = wusettings_core.desired_state()
-        eff = wusettings_core.read_effective_state()
-        mism = wusettings_core.state_mismatches(desired, eff)
-        reasons = mism + rep['reboot_reasons'] + wusettings_core.wu_reboot_flags()
-        state_txt = wusettings_core.describe_state(desired, eff)
-        logging.info(f"[WU] {title}: beállítva={desired}, Windows szerint={eff}, újraindítás oka={reasons}, "
-                     f"problémák={rep['problems']}")
+        reasons = list(rep['reboot_reasons'])
+        state_txt = wusettings_core.describe_state(desired)
+        flags = wusettings_core.wu_reboot_flags()
+        logging.info(f"[WU] {title}: beállítva={desired}, vezénylő PolicyState (tájékoztató)="
+                     f"{wusettings_core.read_effective_state()}, újraindítás oka={reasons}, "
+                     f"Windows-jelzők={flags}, problémák={rep['problems']}")
+        for f in flags:
+            log(f'ℹ️ {f[0].upper() + f[1:]} - ez a Windows saját frissítéséé, a beállítást nem akadályozza.')
 
         if not reasons or finishing:
             if finishing:
@@ -141,11 +139,11 @@ class GuiWuMixin:
                 for r in reasons:
                     log(f'⚠️ {r}')
                 log('⚠️ Az újraindítás után sem állt helyre minden - a fenti tételeket nézd meg (a napló is tartalmazza).')
-                status = f'⚠️ Nem minden lépett életbe · Windows szerint: {state_txt}'
+                status = f'⚠️ Nem minden állt helyre · beállítás: {state_txt}'
             elif rep['problems']:
                 status = f"⚠️ A beállítás életben ({state_txt}), de: {'; '.join(rep['problems'])}"
             else:
-                status = f'✅ Kész · Windows szerint: {state_txt}'
+                status = f'✅ Kész · {state_txt}'
             log(status)
             self.emit('task_complete', {'task': task, 'status': status})
             return
@@ -211,6 +209,15 @@ class GuiWuMixin:
                    f'Unregister-ScheduledTask -TaskName "{WU_FINISH_TASK}" -Confirm:$false -ErrorAction SilentlyContinue'],
                   ok_codes=(0, 1))
 
+    def _resume_wu_trash_delete(self):
+        """Indításkor (GUI és CLI): a félbehagyott háttér-törlés folytatása. Soha nem dob."""
+        if self.target_os_path:
+            return
+        try:
+            wusettings_core.resume_trash_delete(self._run)
+        except Exception as e:
+            logging.warning(f"[INIT] A félretett WU-gyorsítótár háttér-törlése nem indult: {e}", exc_info=True)
+
     def wu_finish_pending(self):
         """Indításkor: van-e újraindítás után befejezendő WU-művelet (és tényleg volt-e
         azóta újraindítás). Nem eldönthető uptime-nál is befejezzük (a befejezés nem árt)."""
@@ -223,8 +230,7 @@ class GuiWuMixin:
 
     def finish_wu_after_reboot(self):
         """Újraindítás után: a beállítás újra-ellenőrzése (ha elveszett, újra beírjuk), a
-        megmaradt szemét takarítása, majd a Windows tényleges állapotának visszaolvasása
-        (legfeljebb WU_FINISH_WAIT mp-ig várva, hogy átvegye). Újraindítást NEM kér."""
+        megmaradt szemét takarítása, majd a verdikt. Újraindítást NEM kér."""
         logging.info("[API] finish_wu_after_reboot()")
         pending = wusettings_core.load_pending()
         if not pending:
@@ -240,14 +246,6 @@ class GuiWuMixin:
             if not wusettings_core.reassert_pending(self._run, pending, log):
                 log('⚠️ A kért beállítás nem írható vissza (lásd a naplót).')
             rep = wusettings_core.repair_wu(self._run, log)
-            log('⏳ Várakozás, hogy a Windows átvegye a beállítást...')
-            t0 = time.monotonic()
-            while time.monotonic() - t0 < WU_FINISH_WAIT:
-                if not wusettings_core.state_mismatches(wusettings_core.desired_state(),
-                                                        wusettings_core.read_effective_state()):
-                    break
-                time.sleep(3)
-            logging.info(f"[WU_PENDING] Várakozás vége {time.monotonic() - t0:.0f} mp után.")
             self._wu_conclude(task, title, rep, finishing=True)
         self._safe_thread(task, worker)
         return True
@@ -285,8 +283,7 @@ class GuiWuMixin:
             return
 
         def apply(log):
-            st = wusettings_core.describe_state(wusettings_core.desired_state(), None).replace(
-                ' (a Windows saját állapota nem olvasható)', '')
+            st = wusettings_core.describe_state(wusettings_core.desired_state())
             return True, f'ℹ️ A beállítások változatlanok maradnak ({st}); frissítés-keresés NEM indul.'
         self._wu_action('restart_wu', 'WU javítás (szolgáltatások újraindítása + takarítás)', apply)
 
@@ -308,7 +305,7 @@ class GuiWuMixin:
             extend = days == 7
 
         def apply(log):
-            end = wusettings_core.write_pause_until(wusettings_core.pause_end_for(days, extend))
+            end = wusettings_core.pause_for_days(days, extend)
             return (end is not None,
                     f'✅ Szünet beírva: {end[:10]}-ig' if end else 'A szünet NEM íródott be (lásd a naplót).')
         self._wu_action('pause_wu', f'WU szüneteltetés ({days} nap)', apply)

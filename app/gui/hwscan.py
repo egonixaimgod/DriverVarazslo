@@ -1321,15 +1321,10 @@ try {
 
             # A WU szolgáltatások újraindítása a GÉPET gyógyítja (a következő keresés már
             # jó eséllyel másodpercek alatt lefut), de az EREDMÉNYRE itt már nem várunk újra.
-            reset_ps = r"""
-            Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
-            Stop-Service bits -Force -ErrorAction SilentlyContinue
-            Stop-Service cryptsvc -Force -ErrorAction SilentlyContinue
-            Start-Service cryptsvc -ErrorAction SilentlyContinue
-            Start-Service bits -ErrorAction SilentlyContinue
-            Start-Service wuauserv -ErrorAction SilentlyContinue
-            """
-            self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", reset_ps])
+            # 2026-11-03: a KÖZÖS le+vissza (ugyanaz, mint a WU-gomboké; eddig saját PowerShell).
+            bad = wusettings_core.restart_wu_services(self._run, lambda m: logging.info(f"[WU_API] {m.strip()}"))
+            if bad:
+                logging.warning(f"[WU_API] A WU-szolgáltatások újraindítása után: {bad}")
             # SZÁNDÉKOSAN NINCS újrapróbálkozás (korábban volt még egy teljes keresési kör):
             # terepen bizonyított (klónozott rendszer vadonatúj AM5 hardveren, 2026-07, két
             # egymás utáni szkennél is), hogy a szolgáltatás-újraindítás utáni retry ugyanúgy

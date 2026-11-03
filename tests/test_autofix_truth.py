@@ -201,11 +201,16 @@ class WuReadbackTest(unittest.TestCase):
     def test_resume_wu(self):
         quiet()
         logs = []
-        with mock.patch.object(wusettings_core, 'wu_paused_until', return_value='2036-01-01T00:00:00Z'):
+        # 2026-11-03 óta a feloldás a közös remove_pause-on megy (winreg) - csonkolni kell,
+        # különben a fejlesztői gép valódi szünetét törölné (a tests/__init__.py védőhálója fogta meg).
+        with mock.patch.object(wusettings_core, 'remove_pause', return_value=False), \
+                mock.patch.object(wusettings_core, 'wu_paused_until', return_value='2036-01-01T00:00:00Z'):
             self.assertFalse(wusettings_core.resume_wu(lambda *a, **k: _res(), logs.append))
         self.assertIn('NEM oldódott fel', logs[-1])
-        with mock.patch.object(wusettings_core, 'wu_paused_until', return_value=None):
+        with mock.patch.object(wusettings_core, 'remove_pause', return_value=True) as rp, \
+                mock.patch.object(wusettings_core, 'wu_paused_until', return_value=None):
             self.assertTrue(wusettings_core.resume_wu(lambda *a, **k: _res(), logs.append))
+        rp.assert_called_once()
 
     def test_pause_line(self):
         quiet()
