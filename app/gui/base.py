@@ -341,7 +341,16 @@ class GuiBaseMixin:
 
     def get_init_data(self):
         logging.info(f"[API] get_init_data() hívás - build={common.BUILD_NUMBER}, target={self.target_os_path}")
-        return {'build': common.BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path, 'resume_mode': getattr(self, 'resume_mode', False), 'resume_step1': getattr(self, 'resume_step1', False), 'app_data_dir': _app_data_dir()}
+        resume = getattr(self, 'resume_mode', False) or getattr(self, 'resume_step1', False)
+        # Újraindítás után befejezendő WU-művelet (app/gui/wu.py). A fix lánca elsőbbséget
+        # kap (egyszerre egy feladat fut); a jelző megmarad a következő indulásra.
+        wu_finish = False
+        if not resume and not self.target_os_path:
+            try:
+                wu_finish = self.wu_finish_pending()
+            except Exception as e:
+                logging.warning(f"[INIT] A befejezésre váró WU-művelet nem ellenőrizhető: {e}", exc_info=True)
+        return {'build': common.BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path, 'resume_mode': getattr(self, 'resume_mode', False), 'resume_step1': getattr(self, 'resume_step1', False), 'app_data_dir': _app_data_dir(), 'wu_finish': wu_finish}
 
     def reboot_system(self):
         logging.info("[API] reboot_system() - Felhasználó újraindítást kért")

@@ -1307,7 +1307,12 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .wu-status.enabled{background:rgba(212,136,255,0.2);color:var(--green);border:2px solid rgba(212,136,255,0.4)}
 .wu-status.disabled{background:rgba(255,100,90,0.2);color:var(--red);border:2px solid rgba(255,100,90,0.4)}
 .wu-status.unknown{background:var(--glass);color:var(--text2);border:1px solid var(--glass-border)}
+.wu-status.warning{background:rgba(255,224,102,0.14);color:var(--yellow);border:2px solid rgba(255,224,102,0.4)}
 .wu-actions{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.wu-lines{display:flex;flex-direction:column;gap:4px;margin:-6px 0 14px;color:var(--text2);font-size:13px}
+.wu-lines:empty{display:none}
+.wu-days{display:inline-flex;gap:8px;align-items:center}
+.wu-days input{width:84px;padding:8px 10px;border-radius:var(--r-sm);border:1px solid var(--glass-border);background:var(--glass);color:var(--text);font:inherit}
 
 /* Modal overlay */
 .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(5,15,12,0.85);backdrop-filter:blur(10px);z-index:1000;display:none;align-items:center;justify-content:center;animation:modalBgIn 0.2s ease}
@@ -2021,21 +2026,30 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
         </div>
 
         <div class="panel glass">
-          <div class="panel-title"><span class="emoji">🔄</span> Windows Update — driver-frissítések állapota és kapcsolói</div>
+          <div class="panel-header-row">
+            <div class="panel-title"><span class="emoji">🔄</span> Windows Update — állapot és driver-frissítések</div>
+            <button class="btn btn-sm" onclick="checkWuStatus()">🔄 Állapot Frissítése</button>
+          </div>
           <div class="wu-status unknown" id="wu-status">Állapot: Ismeretlen</div>
+          <div class="wu-lines" id="wu-status-lines"></div>
+          <p style="margin-bottom: 16px; color: var(--text3);">Az állapot a <b style="color:var(--text2)">Windows saját, ténylegesen érvényes</b> beállítását mutatja. <b style="color:var(--text2)">Minden gomb</b> rendbe is teszi a Windows Update-et: leállítja a szolgáltatásait, kitörli a beragadt letöltéseket és a WU-gyorsítótárat, majd visszaindítja a szolgáltatásokat — <b style="color:var(--text2)">frissítés-keresést soha nem indít</b>. Ha a Windows csak újraindítás után veszi át a beállítást, a program kiírja, és <b style="color:var(--text2)">10 mp múlva újraindítja a gépet</b>; bejelentkezés után magától befejezi és ellenőrzi.</p>
           <div class="wu-actions">
             <button class="btn btn-danger" onclick="disableWu()">⛔ WU Driver Letiltás</button>
-            <button class="btn btn-success" onclick="enableWu()">✅ WU Driver Engedélyezés + Reset</button>
-            <button class="btn btn-warning" onclick="restartWu()">⚡ WU Szolgáltatások Újraindítása</button>
+            <button class="btn btn-success" onclick="enableWu()">✅ WU Driver Engedélyezés + Teljes Reset</button>
+            <button class="btn btn-warning" onclick="restartWu()">⚡ WU Javítás (Szolgáltatások Újraindítása)</button>
           </div>
         </div>
-        
+
         <div class="panel glass" style="margin-top: 16px;">
           <div class="panel-title"><span class="emoji">⏸️</span> Windows Update Frissítések Szüneteltetése</div>
-          <p style="margin-bottom: 16px; color: var(--text3);">Ezekkel a gombokkal a teljes Windows Update működését (a biztonsági frissítéseket is) elhalaszthatod a jövőbe. Az 1 hetet többször is megnyomhatod a hetek halmozásához!</p>
+          <p style="margin-bottom: 16px; color: var(--text3);">A teljes Windows Update (a biztonsági frissítések is) szüneteltetése. Az 1 hetet többször is megnyomhatod a hetek halmozásához; a megadott napok és a 10 év mostantól számít. A driver-letiltás beállítása egyik gombtól sem változik.</p>
           <div class="wu-actions">
             <button class="btn btn-primary" onclick="pauseWu(7)">⏳ +1 Hét Szünet</button>
-            <button class="btn btn-danger" onclick="pauseWu(3650)">🛑 10 Év Szünet (Végleges)</button>
+            <span class="wu-days">
+              <input type="number" id="wu-pause-days" min="1" max="3650" step="1" value="30" aria-label="Szünet napokban">
+              <button class="btn btn-primary" onclick="pauseWuCustom()">⏸️ Szünet ennyi napra</button>
+            </span>
+            <button class="btn btn-danger" onclick="pauseWu(3650)">🛑 10 Év Szünet</button>
             <button class="btn btn-success" onclick="resumeWu()">▶️ Szünetelés Feloldása</button>
           </div>
         </div>
@@ -3158,6 +3172,13 @@ window.addEventListener('pywebviewready', async () => {
       setTimeout(() => {
         startAutoFix(true);
       }, 1000);
+    } else if (data.wu_finish) {
+      // Újraindítás után befejezendő WU-gomb (szünet / tiltás / javítás): az Operációs
+      // rendszer nézetben a program befejezi és ellenőrzi (app/gui/wu.py).
+      setTimeout(() => {
+        switchView('os');
+        api().finish_wu_after_reboot().catch(e => toast('WU befejezés hiba: ' + e, 'error'));
+      }, 800);
     } else {
       api().check_for_updates().then(async (upd) => {
           if (upd && upd.has_update) {
@@ -6608,6 +6629,13 @@ function updateWuStatus(data) {
   const el = document.getElementById('wu-status');
   el.textContent = 'Állapot: ' + (data.status || 'Ismeretlen');
   el.className = 'wu-status ' + (data.color || 'unknown');
+  const box = document.getElementById('wu-status-lines');
+  box.innerHTML = '';
+  for (const ln of (data.lines || [])) {
+    const d = document.createElement('div');
+    d.textContent = ln;
+    box.appendChild(d);
+  }
 }
 async function startAutoFix(skipConfirm = false) {
   let ok = skipConfirm;
@@ -6672,19 +6700,30 @@ async function restartWu() {
   }
 }
 
-async function pauseWu(days) {
+// Az állapot a feladat VÉGÉN frissül (onTaskComplete), nem indításkor - a régi 1,5 mp-es
+// frissítés a művelet előtti állapotot mutatta.
+async function pauseWu(days, extend) {
   try {
-    await api().pause_wu(days);
-    setTimeout(checkWuStatus, 1500); 
+    if (extend === undefined) await api().pause_wu(days);
+    else await api().pause_wu(days, extend);
   } catch (e) {
     toast('Szüneteltetés hiba: ' + e, 'error');
   }
 }
 
+function pauseWuCustom() {
+  const raw = document.getElementById('wu-pause-days').value;
+  const days = Number(raw);
+  if (!Number.isInteger(days) || days < 1 || days > 3650) {
+    toast('Adj meg egy egész számot 1 és 3650 nap között!', 'error');
+    return;
+  }
+  pauseWu(days, false);
+}
+
 async function resumeWu() {
   try {
     await api().resume_wu();
-    setTimeout(checkWuStatus, 1500);
   } catch (e) {
     toast('Feloldás hiba: ' + e, 'error');
   }
@@ -8137,7 +8176,7 @@ function onTaskComplete(data) {
   
   // Refresh relevant views
   if (data.task === 'delete' || data.task === 'restore') setTimeout(loadDrivers, 500);
-  if (data.task === 'disable_wu' || data.task === 'enable_wu' || data.task === 'restart_wu') setTimeout(checkWuStatus, 500);
+  if (['disable_wu', 'enable_wu', 'restart_wu', 'pause_wu', 'resume_wu', 'wu_finish'].includes(data.task)) setTimeout(checkWuStatus, 500);
   if (data.task === 'toolsinstall') {
     refreshServiceTools();
     // A telepítés-pipák törlése: enélkül egy ottfelejtett pipa a KÖVETKEZŐ telepítéskor

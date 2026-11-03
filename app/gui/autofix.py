@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from app.common import _app_data_dir
 from app.common import _app_exe_path
 from app.common import _ps_quote
+from app.common import logon_task_ps
 from app import avcheck_core
 from app import backup_core
 from app import drivers_core
@@ -1664,16 +1665,7 @@ class GuiAutofixMixin:
         # nézte, és utána feltétel nélkül jött a `shutdown /r /f` - egy elbukott regisztráció
         # (letiltott Feladatütemező, PowerShell-hiba) után a lánc némán megállt, a B láb után
         # egy driverek nélküli gépen. Most a feladat argumentumát olvassuk vissza.
-        task_ps = f'''
-        $action = New-ScheduledTaskAction -Execute '{_ps_quote(exec_path)}' -Argument '{_ps_quote(args)}'
-        $trigger = New-ScheduledTaskTrigger -AtLogOn
-        $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
-        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero)
-        try {{ Register-ScheduledTask -TaskName "DriverVarazsloResume" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null }}
-        catch {{ Write-Output ('REGHIBA: ' + $_.Exception.Message); exit 1 }}
-        $t = Get-ScheduledTask -TaskName "DriverVarazsloResume" -ErrorAction SilentlyContinue
-        if ($t) {{ Write-Output ('ARGS=' + $t.Actions[0].Arguments) }}
-        '''
+        task_ps = logon_task_ps("DriverVarazsloResume", exec_path, args)
         res = self._run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", task_ps], ok_codes=(0, 1))
         out = res.stdout or ''
         if any(ln.strip().startswith('ARGS=') and resume_flag in ln for ln in out.splitlines()):

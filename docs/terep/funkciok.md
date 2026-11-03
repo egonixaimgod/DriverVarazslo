@@ -531,3 +531,25 @@ function getToolFile_(data) {
 **Build 400, a felhasználó gépén:** a HD Sentinel letöltésére „hibás jelszó” jött, és nem volt hol újat megadni. Élőben mérve: a Hitelesítőadat-kezelőben egy 5 karakteres jelszó állt, amit a szerver elutasított („hibás jelszó (a szkript LOG_READ_PASSWORD értéke)”) — a jelszót a mentés után átírták az Apps Scriptben. A `toollib_password_needed` csak a mentés tényét nézte. Most a kérdés előtt a Drive-nál ellenőriz, elutasításra `forget_password` + újra kérdez (hálózati hibára nem kér új jelszót); a felület a beírt jelszót `toollib_verify_password`-del azonnal ellenőrzi, rossznál ugyanabban az ablakban újra kérdez. A javított kód élőben elfelejtette a rossz jelszót.
 
 A „link birtokában bárki” megosztás azért kell, mert a nagy fájlt az Apps Script nem tudja átadni (a válasz-méret korlátja ~50 MB); a link csak jelszóval kerül ki. A hibás jelszó szövege tartalmazza a „jelsz” szót, így a `friendly_upload_error` lefordítja.
+
+## WU-gombok az Operációs rendszer nézetben (2026-11-03, Build 404 után)
+
+**A bejelentés (a felhasználó, egy „szétbaszott” WU-jú gépen):** a „Szolgáltatások újraindítása” meggyógyította, de utána azonnal frissítést keresett és rengeteg „szemetet” töltött le; a program ezután is „szüneteltetve”-t írt, miközben a Windows láthatóan keresett; az „1 hét szünet” utána „megölte” a WU-t (sokáig tartott, lefagyott, „beragadt szar maradt bent”). Kérés: egy harmadik, tetszőleges napszámú szünet; minden gomb takarítson és javítson; keresést ne indítson; a meglévő szünet/tiltás maradjon; ha kell, „10 mp múlva újraindul”, és bejelentkezés után legyen kész, amit kért.
+
+**Mi volt a régi kódban (forrásból olvasva):**
+- `restart_wu_services`: `net stop`/`net start` + `wuauclt.exe /resetauthorization /detectnow` + `UsoClient.exe StartScan` → minden nyomásra KERESÉS (szüneteltetett gépen is).
+- `pause_wu` és `disable_wu_full`: `WU_STOP_SERVICES_PS` (wuauserv, bits, cryptsvc, UsoSvc le), a `RebootRequired` kulcs törlése, `SoftwareDistribution` törlése 4×3 mp újrapróbálással, majd CSAK `net start wuauserv` → a cryptsvc/BITS/UsoSvc leállítva maradt. A felület az állapotot 1,5 mp-cel az INDÍTÁS után kérdezte le (a pause/resume nem volt a `task_complete`-es frissítési listán), vagyis a művelet előtti állapotot mutatta.
+- `read_wu_status` csak a `UX\Settings\PauseUpdatesExpiryTime`-ot nézte.
+
+**Mérve a fejlesztői gépen (Win10 19045, 2026-11-03):**
+- `UX\Settings`: egyetlen `Pause*` érték sem volt. `UpdatePolicy\PolicyState`: `QualityUpdatesPaused=1`, `PauseQualityUpdatesEndTime=2036-09-29T07:49:29Z`, `QualityUpdatePausePeriodInDays=3650`, `ExcludeWUDrivers=1`. A régi kiírás tehát „nincs szünet”-et mondott volna egy ténylegesen szüneteltetett gépen. (Hogy a UX-értékeket mi törölte, nincs kiderítve; a `open/close_search_window` törli és visszaírja őket.)
+- A UX-ba 2036-09-30-at írva (a szünet így is 10 éves maradt), emelt jogon: `Stop-Service UsoSvc` 0,53 mp, `wuauserv` 0,01 mp, indítás után 60 mp-ig 2 mp-enként olvasva a PolicyState végig `2036-09-29` maradt. Utána `UsoClient RefreshSettings` (emelt): 40 mp alatt szintén nem változott, és új WU-esemény sem keletkezett. → **A PolicyState-et sem a szolgáltatás-újraindítás, sem a RefreshSettings nem frissíti.** Hogy az újraindítás frissíti-e, NINCS mérve (a fejlesztői gépet nem indítottuk újra); a befejező lépés ezt minden gépen visszaolvassa. A próba után a UX-értékek visszakerültek `2036-09-29`-re (egyezik a PolicyState-tel).
+- Nem emelt jogon a `UX\Settings` írható volt (a `Set-ItemProperty` hiba nélkül lefutott), az UsoSvc leállítása nem.
+
+**Az új működés:** lásd CLAUDE.md 17. fejezet „Windows Update gombok”. Döntések, amiket tudatosan hoztam:
+- A `RebootRequired` kulcsot a gombok már NEM törlik (a régi kód „beragadt jelzés”-nek vette): ez a Windows valódi jelzése, eltüntetése csak elrejti, hogy újraindítás kell. Most a jelzőre újraindítás jön.
+- A `msiserver` kikerült a javításból (nem WU-szolgáltatás; az újraindítása egy épp futó telepítőt szakíthatna meg).
+- A `PendingFileRenameOperations` nem újraindítási ok a WU-gomboknak (sok gépen tartósan nem üres → minden gombnyomás újraindítana).
+- Az „Engedélyezés + Teljes Reset” is takarít (catroot2, DLL-ek, winsock), és a winsock reset miatt mindig újraindít; `UsoClient StartScan`-t ez sem futtat már.
+- A szünet a Pythonból (winreg) íródik, visszaolvasva; a `+1 hét` egy érvényes szünethez adódik, az N nap és a 10 év mostantól számít.
+- A befejezés indításkor csak akkor fut, ha a mentés óta tényleg volt újraindítás (`rebooted_since`: bootidő = most − uptime > mentés ideje). Egy elhalasztott (Mégse) újraindítás után a feladat bent marad, a következő bejelentkezéskor befejeződik.

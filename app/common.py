@@ -445,6 +445,23 @@ def _ps_quote(value):
     return str(value).replace("'", "''")
 
 
+def logon_task_ps(task_name, exec_path, args):
+    """A bejelentkezéskor induló (emelt, interaktív) ütemezett feladat regisztrálása +
+    visszaolvasása - a fix lánca (DriverVarazsloResume) és a WU-befejezés közös szkriptje.
+    A -Settings KÖTELEZŐ (akkuról is induljon; indoklás: autofix._schedule_autofix_resume).
+    A kimenet `ARGS=<a feladat argumentuma>` vagy `REGHIBA: …`."""
+    return f'''
+        $action = New-ScheduledTaskAction -Execute '{_ps_quote(exec_path)}' -Argument '{_ps_quote(args)}'
+        $trigger = New-ScheduledTaskTrigger -AtLogOn
+        $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero)
+        try {{ Register-ScheduledTask -TaskName "{task_name}" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null }}
+        catch {{ Write-Output ('REGHIBA: ' + $_.Exception.Message); exit 1 }}
+        $t = Get-ScheduledTask -TaskName "{task_name}" -ErrorAction SilentlyContinue
+        if ($t) {{ Write-Output ('ARGS=' + $t.Actions[0].Arguments) }}
+        '''
+
+
 # ============================================================================
 # PARANCS-FUTTATÁS KÖZÖS KONSTANSAI (mindkét _run + a hívók használják)
 # ============================================================================
