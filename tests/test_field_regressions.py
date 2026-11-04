@@ -7,6 +7,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 import tests  # noqa: F401
 from tests.catalog_stub import quiet
@@ -243,6 +244,36 @@ class StaleBinding(unittest.TestCase):
         self.assertIn('AMD SMBus', m2['packages']['oem2.inf']['why'])
 
 
+class AbsentGpuUnderPresentPort(unittest.TestCase):
+    """2026-11-03, terep (MSI MS-7D69, ASRock A620, ASUS E1504FA): egy kiszerelt videókártya
+    szelleme a JELEN LÉVŐ PCIe-port alatt 'board:gpu'-ra került, amihez nincs kártya ->
+    „Váratlan hely-kulcs 'board:gpu' - az 'Egyéb' kártyára kerül”. Napló szó szerint:
+    `oem20.inf -> board:gpu: NVIDIA GeForce RTX 5060 | ... most NEM csatlakoztatott eszközt`."""
+
+    PORT = {'id': 'PCI\\VEN_1022&DEV_14DB&SUBSYS_14531022&REV_00\\3&2411E6FE&0&09', 'present': True,
+            'cls': 'System', 'desc': 'PCI Express-gyökérport', 'inf': 'pci.inf',
+            'hwids': ['PCI\\VEN_1022&DEV_14DB&SUBSYS_14531022&REV_00'], 'compat': ['PCI\\CC_060400']}
+    GHOST = {'id': 'PCI\\VEN_10DE&DEV_2D05&SUBSYS_88EE1043&REV_A1\\4&1A2B3C4D&0&0009', 'present': False,
+             'cls': 'Display', 'desc': 'NVIDIA GeForce RTX 5060', 'inf': 'oem20.inf',
+             'hwids': ['PCI\\VEN_10DE&DEV_2D05&SUBSYS_88EE1043&REV_A1'], 'compat': ['PCI\\CC_030000', 'PCI\\CC_0300'],
+             'parent': 'PCI\\VEN_1022&DEV_14DB&SUBSYS_14531022&REV_00\\3&2411E6FE&0&09'}
+
+    def test_szellem_gpu_a_nincs_jelen_csoportba(self):
+        from app import machinemap_core as mm
+        quiet()
+        slots, _g = mm.assign_node_slots([self.PORT, self.GHOST])
+        self.assertEqual(slots[self.GHOST['id'].lower()][0], 'absent:gpu')
+
+    def test_leallitott_szoftver_komponens_marad_a_szulonel(self):
+        from app import machinemap_core as mm
+        quiet()
+        comp = {'id': 'SWD\\DRIVERENUM\\{ABC}#COMP&1', 'present': False, 'cls': 'SoftwareComponent',
+                'desc': 'Szoftver-komponens', 'inf': 'oem7.inf', 'hwids': ['SWC\\VEN_1022'],
+                'compat': [], 'parent': self.PORT['id']}
+        slots, _g = mm.assign_node_slots([self.PORT, comp])
+        self.assertEqual(slots[comp['id'].lower()][0], slots[self.PORT['id'].lower()][0])
+
+
 class BootChainFromNodes(unittest.TestCase):
     """2026-10-12: a boot-lánc bejárása az eszközfából (a Get-PnpDeviceProperty-s bejárás
     54-133 mp volt). Terepi lánc: Lenovo 20KGS4032P, USB-s teszt-SSD."""
@@ -265,9 +296,119 @@ class BootChainFromNodes(unittest.TestCase):
         run = lambda *a, **k: CommandResult(0, json.dumps({'DiskIds': ids[0]}), '')
         infs_got, _c, det = _collect_boot_path_protection(run, node_fn=lambda: nodes)
         self.assertTrue(det)
-        self.assertEqual(infs_got, set(infs[:7]))
+        self.assertEqual(infs_got, set())            # csupa Windows-INF: nincs védendő third-party (2026-11-04)
         run_empty = lambda *a, **k: CommandResult(0, json.dumps({'DiskIds': []}), '')
         self.assertFalse(_collect_boot_path_protection(run_empty, node_fn=lambda: nodes)[2])  # fail-safe
+
+
+class NarrowedBootProtection(unittest.TestCase):
+    """2026-11-04, explicit user decision: a fix csak RAID / Intel VMD (vagy ismeretlen)
+    vezérlő mögött véd boot-drivert; szabványos NVMe/AHCI-n a Windows saját drivere viszi."""
+
+    def _chain(self, ctrl_inf, ctrl_svc, ctrl_ids, extra=None):
+        disk = 'SCSI\\DISK&VEN_NVME\\5&1&0&000000'
+        ctrl = 'PCI\\VEN_X\\4&1'
+        nodes = [{'id': disk, 'parent': ctrl, 'inf': 'disk.inf', 'service': 'disk', 'cls': 'DiskDrive',
+                  'compat': ['GenDisk'], 'desc': 'Lemez'},
+                 {'id': ctrl, 'parent': 'PCI\\ROOT\\0', 'inf': ctrl_inf, 'service': ctrl_svc, 'cls': 'SCSIAdapter',
+                  'hwids': ctrl_ids[:1], 'compat': ctrl_ids[1:], 'desc': 'Vezérlő'},
+                 {'id': 'PCI\\ROOT\\0', 'parent': 'ACPI\\PNP0A08\\0', 'inf': (extra or {}).get('inf', 'pci.inf'),
+                  'service': 'pci', 'cls': 'System', 'compat': ['PCI\\CC_0604'], 'desc': 'PCIe-port'},
+                 {'id': 'ACPI\\PNP0A08\\0', 'parent': 'HTREE\\ROOT\\0', 'inf': 'acpi.inf', 'service': 'ACPI', 'cls': 'System'}]
+        return disk, nodes
+
+    def _collect(self, ctrl_inf, ctrl_svc, ctrl_ids, services=lambda inf: [], extra=None):
+        from app.wu_core import _collect_boot_path_protection
+        quiet()
+        disk, nodes = self._chain(ctrl_inf, ctrl_svc, ctrl_ids, extra)
+        run = lambda *a, **k: CommandResult(0, json.dumps({'DiskIds': [disk]}), '')
+        return _collect_boot_path_protection(run, node_fn=lambda: nodes, inf_services=services)
+
+    def test_intel_vmd_raid_is_protected(self):
+        infs, chain, det = self._collect('oem50.inf', 'iaStorVD',
+                                         ['PCI\\VEN_8086&DEV_9A0B&SUBSYS_0A6C1028', 'PCI\\VEN_8086&DEV_9A0B&CC_010400', 'PCI\\CC_0104'],
+                                         services=lambda inf: ['iastorvd'])
+        self.assertTrue(det)
+        self.assertEqual(infs, {'oem50.inf'})
+        self.assertEqual(chain[0]['Mode'], 'raid')
+        self.assertIn('NEM indul', chain[1]['Verdict']['why'])
+
+    def test_asus_micron_nvme_is_deletable(self):
+        # Terepi lánc (ASUS E1504FA, 2026-11-03 napló): "Micron NVMe Storage Controller [SCSIAdapter]
+        # INF=oem116.inf szolgáltatás=mtinvme". Az osztálykódot a napló nem írta ki: a szabványos
+        # NVMe-osztálykód (CC_010802) itt feltevés, élesben a fix futása dönti el.
+        infs, chain, _det = self._collect('oem116.inf', 'mtinvme',
+                                          ['PCI\\VEN_1344&DEV_5411', 'PCI\\VEN_1344&DEV_5411&CC_010802', 'PCI\\CC_010802'],
+                                          services=lambda inf: ['mtinvme'])
+        self.assertEqual(infs, set())
+        self.assertEqual(chain[0]['Mode'], 'nvme')
+        self.assertIn('stornvme', chain[1]['Verdict']['why'])
+
+    def test_rst_on_ahci_controller_is_deletable(self):
+        # Élőben mérve 2026-11-04, fejlesztői gép: Intel 100 Series SATA AHCI Controller, oem11.inf, iaStorA.
+        infs, chain, _det = self._collect('oem11.inf', 'iaStorA',
+                                          ['PCI\\VEN_8086&DEV_A102&SUBSYS_86941043', 'PCI\\VEN_8086&DEV_A102&CC_010601',
+                                           'PCI\\VEN_8086&DEV_A102&CC_0106'], services=lambda inf: ['iastora'])
+        self.assertEqual(infs, set())
+        self.assertEqual(chain[0]['Mode'], 'ahci')
+
+    def test_chipset_naming_inf_is_deletable_unless_unreadable(self):
+        # Terepi lánc (2026-10-xx napló): "Mobile 6th/7th Generation Intel(R) Processor Family I/O PCI
+        # Express Root Port #5 - 9D14 [System] INF=oem163.inf szolgáltatás=pci" - csak elnevező INF.
+        args = ('stornvme.inf', 'stornvme', ['PCI\\VEN_144D&DEV_A808', 'PCI\\CC_010802'])
+        self.assertEqual(self._collect(*args, services=lambda inf: [], extra={'inf': 'oem163.inf'})[0], set())
+        self.assertEqual(self._collect(*args, services=lambda inf: None, extra={'inf': 'oem163.inf'})[0],
+                         {'oem163.inf'})                         # olvashatatlan INF -> óvatos ág
+
+    def test_unknown_controller_with_own_driver_is_protected(self):
+        infs, chain, _det = self._collect('oem77.inf', 'lsi_sas3', ['PCI\\VEN_1000&DEV_0097', 'PCI\\CC_010700'],
+                                          services=lambda inf: ['lsi_sas3'])
+        self.assertEqual(infs, {'oem77.inf'})
+        self.assertEqual(chain[0]['Mode'], 'unknown')
+
+    def test_closing_report_marks_storage_switch_as_intended(self):
+        from app.gui import autofix as af
+        quiet()
+
+        class H(af.GuiAutofixMixin):
+            def __init__(self):
+                self.events = []
+
+            def emit(self, e, p=None):
+                self.events.append((e, p))
+
+            def _get_installed_driver_info(self):
+                return {'PCI\\VEN_1344&DEV_5411\\4&1': {'inf': 'stornvme.inf', 'provider': 'Microsoft'}}
+
+            def _query_pnp_devices(self):
+                return [{'pnp_id': 'PCI\\VEN_1344&DEV_5411\\4&1', 'name': 'Micron NVMe Storage Controller'}]
+        h = H()
+        pre = {'PCI\\VEN_1344&DEV_5411\\4&1': {'inf': 'mtinvme.inf', 'provider': 'Micron', 'version': '2.1.19.0',
+                                               'class': 'SCSIAdapter'}}
+        with mock.patch.object(af, 'driverstore_package_inf', return_value=None), \
+                mock.patch.object(af, '_is_inbox_driver', return_value=True), \
+                mock.patch.object(af, '_filter_wu_scan_devices', side_effect=lambda x: x):
+            h._fix_driver_regressions(pre)
+        self.assertTrue(h._health_lost_vendor[0]['intended'])
+        self.assertIn('szándékos', h._health_lost_vendor[0]['why'])
+
+    def test_drivers_view_gets_the_same_verdict(self):
+        """A Driverek nézet a fixével KÖZÖS döntést kapja (csak kiírja, nem tilt)."""
+        from app.gui import drivers as gdrv
+        from app import driverusage_core as duc
+        quiet()
+        chain = [{'Inf': 'disk.inf', 'Mode': 'raid'},
+                 {'Inf': 'oem50.inf', 'Mode': 'raid', 'Verdict': {'protect': True, 'why': 'RAID', 'device': 'VMD'}}]
+
+        class H(gdrv.GuiDriversMixin):
+            target_os_path = None
+            _run = staticmethod(lambda *a, **k: CommandResult(0, '', ''))
+        with mock.patch('app.wu_core._collect_boot_path_protection', return_value=({'oem50.inf'}, chain, True)), \
+                mock.patch.object(duc, 'collect_usage_context', return_value=None):
+            out = H().get_driver_usage([{'published': 'oem50.inf'}])
+        self.assertEqual(out['boot']['mode'], 'raid')
+        self.assertTrue(out['boot']['packages']['oem50.inf']['protect'])
+        self.assertIn('error', out)                          # a használat elbukott, a boot-adat ettől még megvan
 
 
 if __name__ == '__main__':

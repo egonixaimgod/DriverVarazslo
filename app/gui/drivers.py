@@ -7,7 +7,12 @@ import threading
 import time
 import logging
 import traceback
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from app import backup_core
 from app import drivers_core
+from app import win32
+from app.wu_core import export_drivers_backup
 # === /AUTO-IMPORTS ===
 
 
@@ -89,6 +94,8 @@ class GuiDriversMixin:
             logging.info("[USAGE] Offline mód - a használat-felderítés kihagyva "
                          f"(célpont: {self.target_os_path}).")
             return {'usage': {}, 'counts': {}, 'offline': True}
+        boot_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='bootinfo')
+        boot_future = boot_pool.submit(self._boot_driver_info)
         try:
             from app import driverusage_core as duc
             # A csomaglistát a felülettől vesszük át, ha már betöltötte: a dism
@@ -103,13 +110,37 @@ class GuiDriversMixin:
                 # eredménytől: az előbbi alapján TILOS törlési döntést hozni.
                 logging.warning("[USAGE] A felderítés nem adott eredményt - a felület "
                                 "'ismeretlen' állapotot mutat, nem 'nem használt'-at.")
-                return {'usage': {}, 'counts': {}, 'error': 'A használat-felderítés nem futott le.'}
-            out = {'usage': usage, 'counts': counts}
+                return {'usage': {}, 'counts': {}, 'error': 'A használat-felderítés nem futott le.',
+                        'boot': boot_future.result()}
+            out = {'usage': usage, 'counts': counts, 'boot': boot_future.result()}
             out.update(self._build_machine_map(ctx, pkgs))
             return out
         except Exception as e:
             logging.warning(f"[USAGE] A használat-felderítés sikertelen: {e}", exc_info=True)
-            return {'usage': {}, 'counts': {}, 'error': str(e)}
+            return {'usage': {}, 'counts': {}, 'error': str(e), 'boot': boot_future.result()}
+        finally:
+            boot_pool.shutdown(wait=False)
+
+    def _boot_driver_info(self):
+        """A rendszerlemez vezérlőjének fajtája (RAID/VMD vagy NVMe/AHCI), és a láncán lévő
+        third-party csomagok döntése a Driverek nézetnek (explicit user decision, 2026-11-04:
+        *„a driverkezelőben is írja ki … ha intel raid … ha pedig ahci-s … nyugodtan
+        törölhető”*). UGYANAZ a döntés, amit az 1 kattintásos fix törlése használ
+        (`wu_core._collect_boot_path_protection`). EZ NEM SZŰRŐ: a kézi törlés továbbra is
+        mindent töröl, amit a technikus kipipál (1. elv) - csak kimondjuk a kockázatot."""
+        from app.wu_core import _collect_boot_path_protection, BOOT_MODE_TEXT
+        try:
+            _infs, chain, detected = _collect_boot_path_protection(self._run)
+        except Exception as e:
+            logging.warning(f"[BOOT-PROTECT] A Driverek nézet boot-felderítése elbukott: {e}", exc_info=True)
+            return None
+        if not detected or not chain:
+            return {'detected': False, 'mode': None, 'packages': {},
+                    'text': 'A rendszerlemez vezérlője nem azonosítható - a tároló-driverek törlése kockázatos lehet.'}
+        mode = chain[0].get('Mode') or 'unknown'
+        packages = {os.path.basename(c.get('Inf') or '').lower(): dict(c['Verdict'])
+                    for c in chain if c.get('Verdict')}
+        return {'detected': True, 'mode': mode, 'text': BOOT_MODE_TEXT[mode], 'packages': packages}
 
     def _build_machine_map(self, ctx, pkgs):
         """A GÉP FELÉPÍTÉSE: alkatrészek és a hozzájuk tartozó driverek
@@ -268,6 +299,58 @@ class GuiDriversMixin:
     # ================================================================
     # DRIVER DELETION
     # ================================================================
+    def _backup_before_delete(self, published_names):
+        """A kézi törlés előtti MENTÉS és VISSZAÁLLÍTÁSI PONT (explicit user decision,
+        2026-11-04: *„amikor törlök barmi drivert akkor … legyen magarol a driverrol mentes
+        is illetve visszaallitasi pontot is csinaljon”*). Az eset: egy ASUS-on a gyanús NVMe
+        drivert kell törölni, és ha a gép utána nem indul, egy WinPE-ből vissza kell tudni
+        rakni (Mentés és Visszaállítás → Driverek visszaállítása → „Kézi törlés előtt”).
+
+        Élő gépen pontosan a kijelölt csomagok mennek, ugyanazzal a függvénnyel, amivel az 1
+        kattintásos fix ment (`export_drivers_backup`). Offline célnál a pnputil nem
+        használható, ott a cél-Windows ÖSSZES third-party drivere kerül mentésre (DISM), a
+        cél lemezére. A mentés hibája NEM állítja meg a törlést (CLAUDE.md 1. elv: a törlés
+        elé nem kerül néma feltétel), de kiírjuk. Visszatérés: a mentés mappája vagy None."""
+        def emit(msg):
+            self.emit('task_progress', {'task': 'delete', 'log': msg})
+        target = self.target_os_path
+        root = backup_core.manual_backup_root(target)
+        folder = None
+        try:
+            backup_core.prune_manual_backups(root, keep=backup_core.MANUAL_BACKUP_KEEP - 1)
+            emit('💾 Mentés a törlendő driverekről, hogy szükség esetén vissza lehessen rakni őket...')
+            if target:
+                r = backup_core.backup_drivers(self._run, emit, self._check_cancel, root, target,
+                                               'thirdparty', self._si, self._nw)
+                folder = r['folder'] if r['status'] in ('ok', 'partial') else None
+            else:
+                dest = os.path.join(root, datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+                folders = win32.driver_store_folders(published_names)
+                repo = os.path.join(backup_core.windows_dir(), 'System32', 'DriverStore', 'FileRepository')
+                need = sum(backup_core.dir_size(os.path.join(repo, f)) for f in folders.values())
+                logging.info(f"[DELETE] Mentés a törlés előtt ide: {dest} ({len(published_names)} csomag, "
+                             f"kb. {need / 2 ** 20:.0f} MB)")
+                ok, mb, _sec = export_drivers_backup(
+                    self._run, [{'published': p} for p in published_names], log=emit, guard={},
+                    dest=dest, purpose='a Driverek kezelése nézet KÉZI törlése előtt',
+                    min_free_gb=need / 2 ** 30 + 0.5)
+                if ok:
+                    folder = dest
+                    if ok < len(published_names):
+                        emit(f'   ⚠️ {len(published_names) - ok} csomag mentése nem sikerült (a napló nevesíti).')
+                    emit(f'   ✅ {ok}/{len(published_names)} csomag elmentve ({mb} MB): {dest}')
+        except Exception as e:
+            logging.error(f"[DELETE] A törlés előtti mentés kivétellel elszállt: {e}", exc_info=True)
+        if not folder:
+            logging.warning("[DELETE] A törlés előtti mentés NEM készült el - a törlés folytatódik.")
+            emit('   ⚠️ A mentés NEM készült el - a törlés ettől még lefut. Ha biztosra akarsz menni, '
+                 'nyomj Mégsét, és mentsd ki kézzel (Mentés és Visszaállítás).')
+        if target:
+            emit('ℹ️ Offline módban visszaállítási pont nem készíthető (a cél-Windows most nem fut).')
+        else:
+            self._create_restore_point_sync(task_id='delete', label='kézi driver-törlés')
+        return folder
+
     def delete_drivers(self, published_names, reboot=False, list_target=None):
         logging.info(f"[API] delete_drivers() - {len(published_names)} driver, "
                      f"reboot={reboot}, a lista lemeze: {list_target!r}, a mostani cél: {self.target_os_path!r}")
@@ -295,9 +378,11 @@ class GuiDriversMixin:
             in_use = []
             logging.info(f"[DELETE] Törlés indulása: {total} db driver")
             self.emit('task_start', {'task': 'delete', 'title': f'Törlés folyamatban... ({total} driver{where})'})
-            self.emit('task_progress', {'task': 'delete', 'log': f'Kijelölt driverek törlése indult ({total} db{where})'})
+            backup_folder = self._backup_before_delete(published_names)
+            self.emit('task_progress', {'task': 'delete', 'log': f'\nKijelölt driverek törlése indult ({total} db{where})'})
 
             cancelled = False
+            i = 0
             for i, pub in enumerate(published_names):
                 if self._cancel_flag:
                     self.emit('task_progress', {'task': 'delete', 'log': '❗ Törlés megszakítva a felhasználó által!'})
@@ -379,10 +464,12 @@ class GuiDriversMixin:
                                             'counter': '❗ Megszakítva',
                                             'status': f'❗ Megszakítva! Sikeres: {success}, Sikertelen: {fail}'})
             else:
-                self.emit('task_progress', {'task': 'delete', 'log': f'\n--- Sikeres: {success}, Sikertelen: {fail} ---', 'current': total, 'total': total})
+                saved = (f'💾 Mentés: {backup_folder}' if backup_folder
+                         else '⚠️ mentés NEM készült (lásd fent)')
+                self.emit('task_progress', {'task': 'delete', 'log': f'\n--- Sikeres: {success}, Sikertelen: {fail} ---\n{saved}', 'current': total, 'total': total})
                 self.emit('task_complete', {'task': 'delete', 'success': success, 'fail': fail,
                                             'counter': f'✅ {success} / ❌ {fail}',
-                                            'status': f'Kész! Sikeres: {success}, Sikertelen: {fail}'})
+                                            'status': f'Kész! Sikeres: {success}, Sikertelen: {fail} · {saved}'})
 
                 # Újraindítás ha kérték
                 if reboot and success > 0:

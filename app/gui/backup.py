@@ -1,217 +1,205 @@
-"""DriverVarázsló GUI - Mentés és Visszaállítás nézet: driver backup/restore,
-visszaállítási pont, WIM-kinyerés (a közös logika: app/backup_core.py)."""
+"""DriverVarázsló GUI - Mentés és Visszaállítás nézet (2026-11-04-én újraírva).
+
+Driver-mentés (third-party / a Windows saját driverei / mindkettő), visszaállítás egy
+mentésből erre a gépre vagy egy nem induló Windowsra, a Windows saját drivereinek
+kinyerése egy telepítő-lemezképből, visszaállítási pont. A logika EGY példányban az
+`app/backup_core.py`-ban van, ez a fájl csak a felület (és a CLI) kapuja: mappát kér,
+szálat indít, és a haladást a folyamatablakba küldi."""
 
 # === AUTO-IMPORTS ===
 import os
-import subprocess
 import re
 import logging
-from datetime import datetime
 from app import backup_core
 # === /AUTO-IMPORTS ===
 
+_COUNT_RE = re.compile(r'(\d+)\s*(?:/|of)\s*(\d+)', re.IGNORECASE)
+
 
 class GuiBackupMixin:
-    """Mentés és Visszaállítás nézet: driver backup/restore, visszaállítási pont, WIM-kinyerés. A DriverToolApi része (összerakás: app/gui/api.py)."""
+    """Mentés és Visszaállítás nézet. A DriverToolApi része (összerakás: app/gui/api.py)."""
 
-    # ================================================================
-    # BACKUP / RESTORE
-    # ================================================================
-    def backup_third_party(self):
-        logging.info("[API] backup_third_party()")
-        dest = self.select_directory('Válassz mappát a driverek kimentéséhez')
-        if not dest:
-            logging.info("[BACKUP] Mégse - nincs mappa kiválasztva")
-            return
-        logging.info(f"[BACKUP] Third-party backup indítása -> {dest}")
-
-        def worker():
-            folder = os.path.join(dest, f"DriverVarázsló_Export_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-            logging.info(f"[BACKUP] Célmappa létrehozása: {folder}")
-            os.makedirs(folder, exist_ok=True)
-            self.emit('task_start', {'task': 'backup', 'title': 'Driver Exportálás'})
-            self.emit('task_progress', {'task': 'backup', 'log': f'Célmappa: {folder}\nExportálás indítása...', 'indeterminate': True})
-
-            logging.info("[BACKUP] DISM export-driver futtatása...")
-            dism_cmd = backup_core.export_drivers_cmd(self.target_os_path, folder)
-            logging.debug(f"[CMD] Popen futtatása: {' '.join(dism_cmd)}")
-            process = subprocess.Popen(
-                dism_cmd,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                startupinfo=self._si, creationflags=self._nw, errors='replace')
-
-            cancelled = False
-            for line in process.stdout:
-                if self._check_cancel():
-                    self._run(['taskkill', '/F', '/T', '/PID', str(process.pid)])
-                    process.wait()  # Prevent zombie process
-                    cancelled = True
-                    break
-                line = line.strip()
-                if not line:
-                    continue
-                logging.debug(f"[BACKUP] DISM: {line[:100]}")
-                m = re.search(r'(\d+)\s*(?:/|of)\s*(\d+)', line, re.I)
-                if m:
-                    self.emit('task_progress', {'task': 'backup', 'current': int(m.group(1)), 'total': int(m.group(2)),
-                                                'counter': f'{m.group(1)}/{m.group(2)}', 'status': line[:60]})
-                self.emit('task_progress', {'task': 'backup', 'log': line})
-            process.wait()
-
-            if cancelled:
-                self.emit('task_complete', {'task': 'backup', 'status': '❗ Megszakítva!', 'log': '\n--- MEGSZAKÍTVA! ---'})
+    def _bk_logger(self, task):
+        """A mag `log` callbackja: a sor a folyamatablakba megy, a DISM folyamatjelzője
+        (`[===  42.0%  ]`) és a `12/58` / `12 of 58` számláló pedig a sávra."""
+        def log(msg):
+            msg = str(msg)
+            pct = backup_core.progress_percent(msg)
+            if pct is not None:
+                self.emit('task_progress', {'task': task, 'current': int(pct), 'total': 100,
+                                            'counter': f'{pct:.0f}%'})
                 return
+            ev = {'task': task, 'log': msg}
+            m = _COUNT_RE.search(msg)
+            if m and int(m.group(2)) > 0:
+                ev.update({'current': int(m.group(1)), 'total': int(m.group(2)),
+                           'counter': f'{m.group(1)} / {m.group(2)}'})
+            self.emit('task_progress', ev)
+        return log
 
-            success = process.returncode == 0
-            logging.info(f"[BACKUP] DISM befejezve, returncode={process.returncode}")
-            self.emit('task_complete', {'task': 'backup',
-                                        'status': f'{"✅ Sikeres export!" if success else "❌ Hiba!"} Mappa: {folder}',
-                                        'log': f'\n--- {"Sikeres" if success else "Hibás"} export: {folder} ---'})
-        self._safe_thread('backup', worker)
+    # ------------------------------------------------------------------ áttekintés
+    def get_backup_overview(self):
+        """A nézet induló adatai: honnan ment a program, mekkora a két rész, és milyen
+        automatikus mentések vannak ezen a lemezen."""
+        target = self.target_os_path
+        logging.info(f"[API] get_backup_overview() - cél: {target or 'élő rendszer'}")
+        try:
+            sizes = backup_core.store_overview(target)
+        except Exception as e:
+            logging.error(f"[BACKUP] A driver-tár áttekintése elbukott: {e}", exc_info=True)
+            sizes = None
+        try:
+            auto = backup_core.list_auto_backups(target)
+        except Exception as e:
+            logging.error(f"[BACKUP] Az automatikus mentések listája elbukott: {e}", exc_info=True)
+            auto = []
+        return {'source': backup_core.describe_source(target), 'offline': bool(target),
+                'target_root': backup_core.target_root(target) if target else '',
+                'is_pe': os.environ.get('SystemDrive', 'C:').upper() == 'X:',
+                'sizes': sizes, 'auto_backups': auto}
 
-    def backup_all(self):
-        logging.info("[API] backup_all()")
-        dest = self.select_directory('Válassz mappát az ÖSSZES driver kimentéséhez')
-        if not dest:
-            logging.info("[BACKUP_ALL] Mégse - nincs mappa kiválasztva")
+    # ---------------------------------------------------------------------- mentés
+    def backup_drivers(self, mode, dest=None):
+        """Mentés indítása. `mode`: 'thirdparty' | 'windows' | 'all'; `dest`: a célmappa
+        (None = mappaválasztó). A mentés ezen belül egy új, dátumozott mappába kerül."""
+        logging.info(f"[API] backup_drivers(mode={mode!r}, dest={dest!r})")
+        if mode not in backup_core.BACKUP_MODES:
+            self.emit('toast', {'message': f'Ismeretlen mentés-fajta: {mode}', 'type': 'error'})
             return
-        logging.info(f"[BACKUP_ALL] Összes driver backup indítása -> {dest}")
+        dest = dest or self.select_directory('Hova mentsem a drivereket?')
+        if not dest:
+            logging.info("[BACKUP] Mégse - nincs célmappa")
+            return
+        target = self.target_os_path
 
         def worker():
-            self.emit('task_start', {'task': 'backup', 'title': 'ÖSSZES Driver Exportálása'})
-            result = backup_core.backup_all_drivers(
-                self._run,
-                lambda msg: self.emit('task_progress', {'task': 'backup', 'log': msg, 'indeterminate': True}),
-                self._check_cancel,
-                dest, self.target_os_path)
-
-            if result['status'] == 'cancelled':
-                self.emit('task_complete', {'task': 'backup', 'status': '❗ Megszakítva!', 'log': '\n--- MEGSZAKÍTVA! ---'})
-            elif result['status'] == 'no_space':
-                self.emit('task_complete', {'task': 'backup', 'status': '❌ Nincs elég szabad hely!'})
+            what = backup_core.BACKUP_MODES[mode][1]
+            self.emit('task_start', {'task': 'backup', 'title': f'Driver-mentés: {what}'})
+            r = backup_core.backup_drivers(self._run, self._bk_logger('backup'), self._check_cancel,
+                                           dest, target, mode, self._si, self._nw)
+            st = r['status']
+            if st == 'ok':
+                status = f'✅ Mentés kész ({r["size_mb"]:.0f} MB): {r["folder"]}'
+            elif st == 'partial':
+                status = f'⚠️ A mentés hiányos ({r["size_mb"]:.0f} MB): {r["folder"]}'
+            elif st == 'cancelled':
+                status = '❗ Megszakítva'
+            elif st == 'no_space':
+                status = '❌ Nincs elég hely a célmeghajtón'
             else:
-                size_mb = result['size_mb']
-                hibatlan = result['dism_ok'] and result.get('copy_ok', True)
-                self.emit('task_complete', {'task': 'backup',
-                                            'status': f'{"✅" if hibatlan else "⚠️"} Kész! OEM: {"Sikeres" if result["dism_ok"] else "Sikertelen"}, '
-                                                      f'Inbox: {"másolva" if result.get("copy_ok", True) else "HIÁNYOS"}. Méret: {size_mb:.0f} MB',
-                                            'log': f'\n--- Export kész: {result["folder"]} ({size_mb:.0f} MB) ---'})
+                status = '❌ A mentés nem sikerült'
+            log = '\n' + ('\n'.join('⚠️ ' + p for p in r['problems']) if r['problems'] else '')
+            self.emit('task_complete', {'task': 'backup', 'status': status, 'log': log,
+                                        'folder': r.get('folder')})
         self._safe_thread('backup', worker)
 
+    # ---------------------------------------------------------------- visszaállítás
+    def inspect_backup_folder(self, path=None):
+        """Egy mentés tartalma a felületnek (melyik csomagok, van-e Windows-rész).
+        `path` None = mappaválasztó. Mégse esetén None."""
+        path = path or self.select_directory('Válaszd ki a mentés mappáját')
+        if not path:
+            return None
+        logging.info(f"[API] inspect_backup_folder({path!r})")
+        info = backup_core.inspect_backup(path)
+        logging.info(f"[RESTORE] {path}: ok={info['ok']}, {info['kind'] or info['error']}, "
+                     f"{len(info['packages'])} csomag, windows={bool(info['windows'])}")
+        return info
+
+    def check_restore_target(self, path=None):
+        """Egy nem induló Windows meghajtójának ellenőrzése. `path` None = mappaválasztó."""
+        path = path or self.select_directory('Válaszd ki a nem induló Windows meghajtóját')
+        if not path:
+            return None
+        root = backup_core.target_root(path)
+        problem = backup_core.offline_target_problem(root)
+        logging.info(f"[API] check_restore_target({path!r}) -> {root}: {problem or 'rendben'}")
+        return {'ok': not problem, 'root': root, 'error': problem,
+                'label': '' if problem else backup_core.describe_windows(root)}
+
+    def restore_drivers(self, source, target=None, packages=None, include_windows=True, fix_boot=True):
+        """Visszaállítás a `source` mentésből. `target` None = erre a gépre, különben egy nem
+        induló Windows meghajtója; `packages` = a kiválasztott csomag-mappák (None = mind)."""
+        logging.info(f"[API] restore_drivers(source={source!r}, target={target!r}, "
+                     f"packages={'mind' if packages is None else len(packages)}, "
+                     f"windows={include_windows}, boot={fix_boot})")
+        if target is None and os.environ.get('SystemDrive', 'C:').upper() == 'X:':
+            self.emit('toast', {'message': 'WinPE alatt nincs „erre a gépre” visszaállítás - válaszd ki a nem induló Windows meghajtóját.', 'type': 'error'})
+            return
+
+        def worker():
+            where = f'→ {target}' if target else '→ erre a gépre'
+            self.emit('task_start', {'task': 'restore', 'title': f'Driver-visszaállítás {where}'})
+            r = backup_core.restore_drivers(self._run, self._bk_logger('restore'), self._check_cancel,
+                                            self._si, self._nw, source, target, packages,
+                                            include_windows, fix_boot)
+            # A pnputil/DISM itt Popen-nel fut, nem a `_run`-on: a csomaglista gyorsítótárát
+            # nekünk kell eldobni, különben a Driverek nézet a régi listát mutatná.
+            invalidate = getattr(self, 'invalidate_driver_cache', None)
+            if invalidate:
+                invalidate()
+            st = r['status']
+            if st == 'ok':
+                status = f'✅ Visszaállítás kész: {r["tp_done"]} third-party csomag' + (
+                    ', a Windows hiányzó fájljai visszamásolva' if r['windows'] == 'copied' else '')
+                if target:
+                    status += ' - indítsd el a gépet a javított Windowsról'
+            elif st == 'errors':
+                status = f'⚠️ Visszaállítás hibákkal: {r["tp_done"]} sikerült, {len(r["tp_failed"])} nem'
+            elif st == 'cancelled':
+                status = '❗ Megszakítva'
+            else:
+                status = '❌ A visszaállítás nem indult el (lásd a naplót)'
+            log = ('\nNem sikerült: ' + ', '.join(r['tp_failed'])) if r['tp_failed'] else ''
+            self.emit('task_complete', {'task': 'restore', 'status': status, 'log': log})
+        self._safe_thread('restore', worker)
+
+    # ------------------------------------------------------- telepítő-lemezképből
+    def extract_wim(self, image=None, dest=None):
+        """A Windows saját drivereinek kinyerése egy `install.wim` / `install.esd` fájlból
+        (a neve a régi, mert a CLI és a felület így hívja). None = fájl-/mappaválasztó."""
+        logging.info(f"[API] extract_wim(image={image!r}, dest={dest!r})")
+        image = image or self.select_file('Válaszd ki az install.wim vagy install.esd fájlt',
+                                          'Windows lemezkép (*.wim;*.esd)')
+        if not image:
+            return
+        dest = dest or self.select_directory('Hova mentsem a kinyert drivereket?')
+        if not dest:
+            return
+        target = self.target_os_path
+
+        def worker():
+            self.emit('task_start', {'task': 'wim', 'title': 'Windows-driverek kinyerése lemezképből'})
+            r = backup_core.extract_windows_drivers(self._run, self._bk_logger('wim'), self._check_cancel,
+                                                    image, dest, target)
+            st = r['status']
+            if st == 'ok':
+                status = f'✅ {r["count"]} Windows-csomag kinyerve ({r["size_mb"]:.0f} MB): {r["folder"]}'
+            elif st == 'partial':
+                status = f'⚠️ Hiányos kinyerés ({r["count"]} csomag): {r["folder"]}'
+            elif st == 'cancelled':
+                status = '❗ Megszakítva'
+            else:
+                status = f'❌ Nem sikerült: {r["error"]}'
+            self.emit('task_complete', {'task': 'wim', 'status': status,
+                                        'log': f'\n{r["error"]}' if r.get('error') and st != 'fail' else ''})
+        self._safe_thread('wim', worker)
+
+    # --------------------------------------------------------- visszaállítási pont
     def create_restore_point(self):
         logging.info("[API] create_restore_point()")
         if self.target_os_path:
-            self.emit('toast', {'message': '❌ Hiba: Visszaállítási pont csak Élő rendszeren készíthető!', 'type': 'error'})
+            self.emit('toast', {'message': '❌ Visszaállítási pont csak a most futó Windowsról készíthető (offline módban nem).', 'type': 'error'})
             return
+
         def worker():
-            logging.info("[RESTORE_POINT] Worker indult - visszaállítási pont létrehozása...")
-            self.emit('task_start', {'task': 'rp', 'title': 'Visszaállítási Pont'})
+            self.emit('task_start', {'task': 'rp', 'title': 'Visszaállítási pont'})
             status, desc = backup_core.create_restore_point(
                 self._run,
                 lambda msg: self.emit('task_progress', {'task': 'rp', 'log': msg, 'indeterminate': True}))
-            if status == 'ok':
-                self.emit('task_complete', {'task': 'rp', 'status': f'✅ Visszaállítási pont létrehozva: {desc}'})
-            elif status == 'ok_unverified':
-                self.emit('task_complete', {'task': 'rp', 'status': '⚠ Visszaállítási pont létrehozás elindítva (ellenőrzés később)'})
-            elif status == 'enable_failed':
-                self.emit('task_complete', {'task': 'rp', 'status': '❌ Rendszervédelem nem kapcsolható be!'})
-            else:
-                self.emit('task_complete', {'task': 'rp', 'status': '❌ Hiba a visszaállítási pont létrehozásánál!'})
+            text = {'ok': f'✅ Visszaállítási pont létrehozva: {desc}',
+                    'ok_unverified': '⚠️ A visszaállítási pont létrehozása elindult, de még nem látszik a listában',
+                    'enable_failed': '❌ A rendszervédelem nem kapcsolható be ezen a gépen'}.get(
+                status, '❌ A visszaállítási pont nem jött létre')
+            self.emit('task_complete', {'task': 'rp', 'status': text})
         self._safe_thread('rp', worker)
-
-    def restore_online(self):
-        logging.info("[API] restore_online()")
-        source = self.select_directory('ÉLŐ MÓD: Válassz kimentett driver mappát')
-        if not source:
-            logging.info("[RESTORE] Mégse - nincs forrás kiválasztva")
-            return
-        logging.info(f"[RESTORE] Online restore indítása: source={source}")
-        self._run_restore(online=True, source=source, target=None)
-
-    def restore_offline(self):
-        logging.info("[API] restore_offline()")
-        target = self.select_directory('OFFLINE MÓD: 1. Válaszd ki a HALOTT WINDOWS meghajtóját')
-        if not target:
-            logging.info("[RESTORE] Mégse - nincs cél kiválasztva")
-            return
-        target = os.path.splitdrive(os.path.abspath(target))[0] + "\\"
-        logging.info(f"[RESTORE] Offline target: {target}")
-        source = self.select_directory('OFFLINE MÓD: 2. Válassz kimentett driver mappát')
-        if not source:
-            logging.info("[RESTORE] Mégse - nincs forrás kiválasztva")
-            return
-        logging.info(f"[RESTORE] Offline restore indítása: source={source}, target={target}")
-        self._run_restore(online=False, source=source, target=target)
-
-    def _run_restore(self, online, source, target):
-        logging.info(f"[RESTORE] _run_restore: online={online}, source={source}, target={target}")
-        def worker():
-            mode = 'Élő' if online else 'Offline'
-            logging.info(f"[RESTORE] Worker indult - {mode} mód")
-            self.emit('task_start', {'task': 'restore', 'title': f'Driver Visszaállítás ({mode})'})
-            self.emit('task_progress', {'task': 'restore', 'log': f'=== {mode.upper()} RESTORE ===\nForrás: {source}\nCél: {target or "jelenlegi rendszer"}\n', 'indeterminate': True})
-
-            result = backup_core.run_restore(
-                self._run,
-                lambda msg: self.emit('task_progress', {'task': 'restore', 'log': msg}),
-                self._check_cancel,
-                self._si, self._nw,
-                online, source, target)
-
-            if result == 'cancelled':
-                self.emit('task_complete', {'task': 'restore', 'status': '❗ Megszakítva!'})
-            elif result == 'errors':
-                self.emit('task_complete', {'task': 'restore', 'status': '⚠️ Visszaállítás hibákkal fejeződött be!'})
-            else:
-                self.emit('task_complete', {'task': 'restore', 'status': '✅ Visszaállítás befejezve!'})
-
-        self._safe_thread('restore', worker)
-
-    def extract_wim(self):
-        logging.info("[API] extract_wim()")
-        wim_path = self.select_file('Válaszd ki az install.wim fájlt', 'WIM fájlok (*.wim)|*.wim')
-        if not wim_path:
-            logging.info("[WIM] Mégse - nincs WIM kiválasztva")
-            return
-        logging.info(f"[WIM] WIM fájl: {wim_path}")
-        if wim_path.lower().endswith(".esd"):
-            logging.info("[WIM] ESD fájl konvertálása szükséges.")
-        dest = self.select_directory('Válassz ideiglenes mappát a kicsomagoláshoz')
-        if not dest:
-            logging.info("[WIM] Mégse - nincs célmappa kiválasztva")
-            return
-        logging.info(f"[WIM] Célmappa: {dest}")
-
-        def worker():
-            logging.info("[WIM] Worker indult - WIM kinyerés...")
-            self.emit('task_start', {'task': 'wim', 'title': 'WIM Driver Kinyerés'})
-
-            # A lépésszámláló/fázis-üzenetek a core log-sorai alapján frissülnek.
-            step_state = {'esd': wim_path.lower().endswith('.esd')}
-
-            def log(msg):
-                extra = {}
-                if msg.startswith('ESD -> WIM'):
-                    extra = {'indeterminate': True, 'counter': '1/4', 'status': 'Fájl konvertálása...'}
-                elif msg.startswith('WIM csatolás'):
-                    extra = {'indeterminate': True, 'counter': '1/3', 'status': 'Képfájl csatolása...'}
-                elif msg.startswith('Fájlok másolása'):
-                    extra = {'counter': '3/4' if step_state['esd'] else '2/3', 'status': 'Gyári driverek másolása...'}
-                elif msg.startswith('WIM leválasztása'):
-                    extra = {'counter': '4/4' if step_state['esd'] else '3/3', 'status': 'Takarítás...'}
-                self.emit('task_progress', {'task': 'wim', 'log': msg, **extra})
-
-            try:
-                target_folder = backup_core.extract_wim(
-                    self._run, log, self._check_cancel,
-                    wim_path, dest, self.target_os_path)
-                self.emit('task_complete', {'task': 'wim', 'status': f'✅ Gyári driverek kimentve: {target_folder}',
-                                            'log': f'\n✅ Kész! Mappa: {target_folder}'})
-            except backup_core.RestoreCancelled:
-                self.emit('task_complete', {'task': 'wim', 'status': '❗ Megszakítva!'})
-            except Exception as e:
-                logging.error(f"[WIM] Hiba: {e}", exc_info=True)
-                self.emit('task_error', {'task': 'wim', 'error': str(e)})
-                self.emit('task_complete', {'task': 'wim', 'status': f'❌ Hiba: {e}'})
-
-        self._safe_thread('wim', worker)

@@ -2798,19 +2798,124 @@ def boot_chain_from_nodes(disk_ids, nodes):
             if name.startswith('@') and ';' in name:
                 name = name.split(';', 1)[1].strip()
             chain.append({'Id': n.get('id') or cur, 'Name': name, 'Class': n.get('cls') or '',
-                          'Inf': n.get('inf') or '', 'Service': n.get('service') or ''})
+                          'Inf': n.get('inf') or '', 'Service': n.get('service') or '',
+                          'Ids': [str(x) for x in (n.get('hwids') or []) + (n.get('compat') or [])]})
             cur = (n.get('parent') or '').strip().upper()
             if cur.startswith('HTREE'):
                 break
     return chain
 
 
-def _collect_boot_path_protection(run_fn, node_fn=None):
-    """Felderíti, milyen eszközlánc hordozza a RENDSZERLEMEZT, és mely driver-csomagok
-    élnek ezen a láncon.
+# ---------------------------------------------------------------------------------------
+# SZŰKÍTETT BOOT-VÉDELEM (2026-11-04, explicit user decision: *„ha nem intel raidesek hanem
+# AHCI-re van állítva a gép akkor nyugodtan ki lehet törölni minden drivert a boot
+# drivereket is, mert ott nincs kockázat”*). A terepi naplók szerint a régi, a lánc MINDEN
+# third-party csomagját védő változat két dolgot tartott meg: egy Intel chipset-INF-et egy
+# PCIe-porton (csak elnevezi az eszközt, a drivere a Windows `pci`-je), és az ASUS E1504FA
+# Micron NVMe driverét (`oem116.inf` = `mtinvme.inf`) - pont azt, amit gyanúsítottunk.
+#
+# A döntés a vezérlő PCI-OSZTÁLYKÓDJA (a hardver-/kompatibilis azonosítók `CC_xxxxxx` tagja):
+#   CC_0104   RAID-vezérlő (Intel VMD / RST RAID, AMD RAIDXpert) -> VÉDVE: a Windowsnak
+#             ehhez nincs saját drivere (a Windows telepítője sem látja a lemezt az Intel
+#             RST/VMD driver betöltése nélkül), tehát nélküle a gép nem indul.
+#   CC_010802 NVMe, CC_010601 AHCI (SATA), CC_0C0330 USB 3 (xHCI), USB-háttértár, GenDisk
+#             -> törölhető: a Windows saját drivere (stornvme / storahci / usbxhci / uaspstor
+#             / disk) viszi - a Windows telepítője is így látja a lemezt, külön driver nélkül.
+#   csak elnevező INF (a csomag nem telepít szolgáltatást, az eszköz a Windows saját
+#             szolgáltatásán fut, pl. `pci`) -> törölhető.
+#   minden más (ismeretlen vezérlő, olvashatatlan INF) -> VÉDVE (bizonytalanságban az óvatos ág).
+# ---------------------------------------------------------------------------------------
+_BOOT_RAID_CC = 'CC_0104'
+_BOOT_INBOX_COVERS = (
+    ('CC_010802', 'nvme', 'NVMe', 'stornvme'),
+    ('CC_010601', 'ahci', 'AHCI (SATA)', 'storahci'),
+    ('CC_0C0330', 'usb', 'USB 3 (xHCI)', 'usbxhci'),
+    ('USB\\CLASS_08', 'usb', 'USB-háttértár', 'uaspstor / usbstor'),
+    ('GENDISK', 'disk', 'lemez', 'disk'),
+)
+BOOT_MODE_TEXT = {
+    'raid': 'RAID / Intel VMD (RST) módban megy - a Windowsnak ehhez NINCS saját drivere',
+    'nvme': 'NVMe módban megy - a Windows saját drivere (stornvme) viszi',
+    'ahci': 'AHCI (SATA) módban megy - a Windows saját drivere (storahci) viszi',
+    'usb': 'USB-n van (pl. teszt-SSD) - a Windows saját USB-driverei viszik',
+    'unknown': 'a vezérlő fajtája nem ismerhető fel - biztonságból védve',
+}
+
+
+def _ids_have(ids, token):
+    """Egy azonosító-listában szerepel-e a tag (`PCI\\CC_0104`, `...&CC_010400`, `GenDisk`)."""
+    t = token.upper()
+    for i in ids or []:
+        u = str(i).upper()
+        if '\\' in t:
+            if u.startswith(t):
+                return True
+        elif u == t or ('\\' + t) in u or ('&' + t) in u:
+            return True
+    return False
+
+
+def boot_storage_mode(chain):
+    """A rendszerlemez vezérlőjének fajtája a láncból: 'raid' | 'nvme' | 'ahci' | 'usb' |
+    'unknown'. A RAID bárhol a láncon nyer (az NVMe-lemez a VMD-vezérlő MÖGÖTT ül)."""
+    if any(_ids_have(c.get('Ids'), _BOOT_RAID_CC) for c in chain or []):
+        return 'raid'
+    for c in chain or []:
+        for token, mode, _label, _drv in _BOOT_INBOX_COVERS:
+            if mode != 'disk' and _ids_have(c.get('Ids'), token):
+                return mode
+    return 'unknown'
+
+
+def _default_inf_services(inf_name):
+    """Egy publikált INF (`%WinDir%\\INF\\oemNN.inf`) által telepített szolgáltatások, vagy
+    None, ha az INF nem olvasható (akkor a hívó biztonságból véd)."""
+    from app.driverusage_core import parse_inf_facts
+    text = _read_text_best_effort(os.path.join(os.environ.get('SystemRoot') or r'C:\Windows', 'INF', inf_name))
+    return parse_inf_facts(text)['services'] if text else None
+
+
+def classify_boot_chain(chain, inf_services=None):
+    """A lánc third-party (`oemNN.inf`) csomagjaira: kell-e védeni. TISZTA (az INF-olvasó
+    cserélhető). Visszatérés: {inf_kisbetűvel: {'protect': bool, 'why': str, 'device': név}}."""
+    inf_services = inf_services or _default_inf_services
+    raid = boot_storage_mode(chain) == 'raid'
+    out = {}
+    for c in chain or []:
+        inf = os.path.basename(str(c.get('Inf') or '')).strip().lower()
+        if not re.match(r'^oem\d+\.inf$', inf):
+            continue
+        ids, svc = c.get('Ids') or [], (c.get('Service') or '').strip().lower()
+        cover = next(((label, drv) for token, _m, label, drv in _BOOT_INBOX_COVERS if _ids_have(ids, token)), None)
+        if raid:
+            v = (True, 'a rendszerlemez RAID / Intel VMD (RST) vezérlő mögött van: a Windowsnak ehhez nincs '
+                       'saját drivere, nélküle a gép NEM indul el')
+        elif cover:
+            v = (False, f'szabványos {cover[0]} vezérlő: a törlése után a Windows saját drivere ({cover[1]}) '
+                        f'viszi tovább - a Windows telepítője is így látja a lemezt, külön driver nélkül')
+        else:
+            try:
+                services = inf_services(inf)
+            except Exception as e:
+                logging.warning(f"[BOOT-PROTECT] {inf} szolgáltatásai nem olvashatók: {e}")
+                services = None
+            if services is not None and svc and svc not in services:
+                v = (False, f'csak elnevezi az eszközt: a drivere a Windows saját „{svc}” szolgáltatása, '
+                            f'ami a törlés után is megmarad')
+            else:
+                v = (True, 'ismeretlen fajtájú vezérlő a rendszerlemez útján - biztonságból védve')
+        out[inf] = {'protect': v[0], 'why': v[1], 'device': c.get('Name') or ''}
+    return out
+
+
+def _collect_boot_path_protection(run_fn, node_fn=None, inf_services=None):
+    """Felderíti, milyen eszközlánc hordozza a RENDSZERLEMEZT, és a rajta lévő third-party
+    csomagok közül melyiket kell védeni (`classify_boot_chain`, 2026-11-04 óta szűkítve).
 
     Visszatérés: (protected_infs, chain, detected)
-      - protected_infs: a láncon lévő INF-nevek halmaza kisbetűvel (pl. {'oem7.inf'});
+      - protected_infs: a VÉDENDŐ third-party INF-nevek halmaza kisbetűvel (pl. {'oem7.inf'});
+        a lánc minden eleme megkapja a 'Verdict' kulcsot (ha third-party), a teljes lánc a
+        'Mode' kulcsot (`boot_storage_mode`);
       - chain: a lánc eszközei (név/osztály/INF/szolgáltatás) - CSAK naplózásra, de a
         terepi kérdésre ("miért maradt bent ez a driver?") ez az egyetlen válasz;
       - detected: sikerült-e egyáltalán felderíteni a láncot. HAMIS esetén a hívónak a
@@ -2837,18 +2942,28 @@ def _collect_boot_path_protection(run_fn, node_fn=None):
             if not chain:
                 logging.warning(f"[BOOT-PROTECT] A rendszerlemez ({disk_ids}) nincs az eszközfában.")
         detected = bool(chain)
-        for c in chain:
-            base = os.path.basename(str(c.get('Inf') or '')).strip().lower()
-            if base.endswith('.inf'):
-                protected_infs.add(base)
+        if detected:
+            verdicts = classify_boot_chain(chain, inf_services)
+            mode = boot_storage_mode(chain)
+            for c in chain:
+                c['Mode'] = mode
+                v = verdicts.get(os.path.basename(str(c.get('Inf') or '')).strip().lower())
+                if v:
+                    c['Verdict'] = v
+            protected_infs = {inf for inf, v in verdicts.items() if v['protect']}
     except Exception as e:
         logging.warning(f"[BOOT-PROTECT] A rendszerlemez eszközláncának felderítése sikertelen: {e}")
         detected = False
     if detected:
         for c in chain:
+            cc = sorted({m.group(0) for i in c.get('Ids') or [] for m in [re.search(r'CC_[0-9A-F]+', str(i).upper())] if m})
             logging.info(f"[BOOT-PROTECT] Boot-lánc: {c.get('Name') or '?'} [{c.get('Class') or '?'}] "
-                         f"INF={c.get('Inf') or '-'} szolgáltatás={c.get('Service') or '-'}")
-        logging.info(f"[BOOT-PROTECT] A rendszerlemez útvonalán lévő védett INF-ek: {sorted(protected_infs)}")
+                         f"INF={c.get('Inf') or '-'} szolgáltatás={c.get('Service') or '-'} "
+                         f"osztálykód={','.join(cc) or '-'}"
+                         + (f" -> {'VÉDVE' if c['Verdict']['protect'] else 'törölhető'}: {c['Verdict']['why']}"
+                            if c.get('Verdict') else ''))
+        logging.info(f"[BOOT-PROTECT] A rendszerlemez: {BOOT_MODE_TEXT.get(chain[0].get('Mode'), '?')}. "
+                     f"Védett third-party INF-ek: {sorted(protected_infs) or 'nincs'}")
     else:
         logging.warning("[BOOT-PROTECT] A rendszerlemez eszközlánca NEM azonosítható - "
                         "fail-safe: a tárolóvezérlő-osztályok csomagjait védjük.")
@@ -2918,8 +3033,14 @@ def _export_one(run_fn, pub, dest, guard, tag):
     return res
 
 
-def export_drivers_backup(run_fn, drivers, log=None, guard=None):
+def export_drivers_backup(run_fn, drivers, log=None, guard=None, dest=None, purpose=None,
+                          min_free_gb=DRIVER_BACKUP_MIN_FREE_GB):
     """A TÖRLENDŐ csomagok biztonsági mentése, a törlés ELŐTT.
+
+    Két hívó, EGY függvény (2026-11-04): az 1 kattintásos fix (`dest` nélkül: a
+    `driver_backup` mappa, amit minden fix felülír) és a Driverek kezelése nézet kézi
+    törlése (`dest` = egy dátumozott mappa a `driver_backup_kezi` alatt, `purpose` a
+    leírásba, `min_free_gb` a kijelölt csomagok méretéből számolva).
 
     EZ NEM A TILTOTT "MENTSD EL ÉS RAKD VISSZA" MINTA (CLAUDE.md: "re-driver from ZERO").
     A lánc SOHA nem állítja vissza ezt automatikusan, és nem is épít rá: a fix ugyanúgy
@@ -2936,13 +3057,13 @@ def export_drivers_backup(run_fn, drivers, log=None, guard=None):
     SOHA nem akaszthatja meg a fixet."""
     if not drivers:
         return 0, 0, 0
-    dest = _driver_backup_dir()
+    dest = dest or _driver_backup_dir()
     t0 = time.monotonic()
     try:
-        free_gb = shutil.disk_usage(os.path.dirname(dest) or 'C:\\').free / (1024 ** 3)
-        if free_gb < DRIVER_BACKUP_MIN_FREE_GB:
+        free_gb = shutil.disk_usage(os.path.splitdrive(dest)[0] + '\\').free / (1024 ** 3)
+        if free_gb < min_free_gb:
             msg = (f"Kevés a szabad hely ({free_gb:.1f} GB), a driver-mentés kimarad "
-                   f"(legalább {DRIVER_BACKUP_MIN_FREE_GB} GB kellene).")
+                   f"(legalább {min_free_gb:.1f} GB kellene).")
             logging.warning(f"[DRV-BACKUP] {msg}")
             if log:
                 log(f'   ⚠️ {msg}')
@@ -2987,15 +3108,22 @@ def export_drivers_backup(run_fn, drivers, log=None, guard=None):
     # múlva talált mappáról senki nem tudja, melyik gép melyik fixéhez tartozott.
     try:
         with open(os.path.join(dest, 'INFO.txt'), 'w', encoding='utf-8') as f:
-            f.write("DriverVarázsló - driver-mentés az 1 kattintásos fix TÖRLÉSI fázisa előtt\n")
+            f.write(f"DriverVarázsló - driver-mentés {purpose or 'az 1 kattintásos fix TÖRLÉSI fázisa előtt'}\n")
             f.write(f"Készült: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Mentett csomagok: {ok} db, {mb} MB\n\n")
             f.write("A program ezt AUTOMATIKUSAN SOHA nem állítja vissza - ez kézi mentsvár.\n")
-            f.write("Visszatöltés egy csomagra (rendszergazda parancssorból):\n")
+            f.write("Visszaállítás: Mentés és Visszaállítás -> Driverek visszaállítása -> ez a mappa\n")
+            f.write("(erre a gépre vagy egy nem induló Windowsra is), vagy rendszergazda parancssorból:\n")
             f.write("   pnputil /add-driver \"<ide_az_inf_utvonala>\" /install\n\n")
             for d in drivers:
-                f.write(f"{d.get('published', '?')}\t{d.get('original', '?')}\t"
-                        f"{d.get('provider', '?')}\t{d.get('class', '?')}\n")
+                pub = d.get('published', '?')
+                orig = d.get('original')
+                if not orig:
+                    # A kézi törlés csak a neveket kapja: az exportált mappában ott az eredeti INF.
+                    sub = os.path.join(dest, os.path.splitext(pub)[0])
+                    orig = next((x for x in (os.listdir(sub) if os.path.isdir(sub) else [])
+                                 if x.lower().endswith('.inf')), '?')
+                f.write(f"{pub}\t{orig}\t{d.get('provider', '?')}\t{d.get('class', '?')}\n")
     except Exception as e:
         logging.debug(f"[DRV-BACKUP] Az INFO.txt nem írható: {e}")
     logging.info(f"[DRV-BACKUP] {ok}/{len(drivers)} csomag mentve ide: {dest} "

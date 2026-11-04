@@ -29,3 +29,29 @@ def _no_real_registry(*a, **k):
 
 _wc._reg_write = _no_real_registry
 _wc._reg_delete = _no_real_registry
+
+# VÉDŐHÁLÓ (2026-11-04): a kézi driver-törlés óta MENT is (backup_core), és ez a valódi
+# `C:\DriverVarazslo`-ba írna, a DISM-et pedig nem a csonkolt `run`-on, hanem Popen-nel
+# (`_stream_cmd`) indítja. Teszt egyiket sem teheti: a mentések gyökere egy eldobható
+# mappa, a `_stream_cmd` pedig hibát dob (aki kell, mock.patch.object-tel felülírja).
+import atexit  # noqa: E402
+import shutil  # noqa: E402
+import tempfile  # noqa: E402
+from app import backup_core as _bc  # noqa: E402
+
+from app import wu_core as _wu  # noqa: E402
+
+TEST_APP_DATA = tempfile.mkdtemp(prefix='dv_test_appdata_')
+atexit.register(shutil.rmtree, TEST_APP_DATA, True)
+_bc._app_data_dir = lambda: TEST_APP_DATA
+# A wu_core is: a 2026-11-03-i Wi-Fi-teszt a valódi `export_wlan_profiles`-t futtatta, ami a
+# VALÓDI `C:\DriverVarazslo\wlan_backup`-ot törölte és hozta létre (2026-11-04-én vettük észre).
+_wu._app_data_dir = lambda: TEST_APP_DATA
+
+
+def _no_real_process(cmd, *a, **k):
+    raise RuntimeError(f"Teszt NEM indíthat valódi folyamatot (backup_core._stream_cmd): {cmd}")
+
+
+REAL_STREAM_CMD = _bc._stream_cmd     # a saját tesztje (csonkolt Popen-nel) ezt hívja
+_bc._stream_cmd = _no_real_process

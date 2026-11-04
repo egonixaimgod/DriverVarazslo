@@ -184,7 +184,9 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 <summary><b>💾 Mentés, visszaállítás és offline javítás</b></summary>
 <br/>
 
-- Teljes driver-mentés és visszaállítás, régi mentésekből is.
+- Driver-mentés három fajtában: csak a **third-party** driverek, csak a **Windows saját** driverei, vagy mindkettő.
+- Visszaállítás **erre a gépre** vagy egy **nem induló Windowsra**, driverenként kiválasztva, régi mentésekből is. A Windows saját drivereiből csak a hiányzó fájlok mennek vissza.
+- A **Driverek kezelése** nézet minden törlés előtt magától ment, és visszaállítási pontot készít.
 - **Offline mód:** a program egy másik Windowsból vagy WinPE-ből indítva a sérült telepítés driverein dolgozik (`dism /Image`). A driverlista mindig a saját lemezéhez kötött, így egy lemezváltás után sem törölhet rossz helyről.
 - Driverek kinyerése **WIM/ESD** telepítőképekből.
 - Rendszerindítás (BCD) automatikus javítása offline visszaállítás után.

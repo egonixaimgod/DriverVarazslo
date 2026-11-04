@@ -181,6 +181,20 @@ class CliBridgeMixin:
             logging.info(f"[CLI-TASK] '{task}' vége.")
 
     # --------------------------------------------------- fájl/mappa választás
+    def select_directory(self, title='Válassz mappát'):
+        """A GUI mappaválasztójának CLI-párja. 2026-11-04-ig HIÁNYZOTT: a CLI a GUI
+        változatát örökölte (`self._window.create_file_dialog`), és a Mentés menü minden
+        pontja AttributeError-ral állt meg - pont WinPE alatt, ahol a CLI a tartalék."""
+        import os
+        p = ui.ask(f'{title} - teljes útvonal (üresen = mégse)')
+        if not p:
+            return None
+        p = p.strip().strip('"')
+        if not os.path.isdir(p):
+            ui.err(f"Nincs ilyen mappa: {p}")
+            return None
+        return p
+
     def select_file(self, *_a, **_k):
         import os
         p = ui.ask('Fájl teljes útvonala (üresen = mégse)')

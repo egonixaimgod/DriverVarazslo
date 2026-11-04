@@ -445,6 +445,25 @@ def _delete_drivers_flow(api):
                   for d in act]
                  + ['', 'A törlésükkel a hozzájuk tartozó eszköz vagy program működése megszűnhet.'],
                  color=ui.RED)
+    # A RENDSZERLEMEZ LÁNCÁN LÉVŐ CSOMAGOK (2026-11-04, a GUI törlés-megerősítőjével azonos):
+    # nem tiltás (1. elv), csak a kockázat kimondása - ugyanabból a döntésből, mint a fixé.
+    boot = (info.get('boot') or {}).get('packages') or {}
+    bsel = [(d, boot[(d.get('published') or '').lower()]) for d in to_delete
+            if (d.get('published') or '').lower() in boot]
+    crit = [(d, v) for d, v in bsel if v.get('protect')]
+    safe = [(d, v) for d, v in bsel if not v.get('protect')]
+    if crit:
+        ui.write('')
+        ui.panel('BOOT-KRITIKUS - NÉLKÜLE A WINDOWS NEM INDUL EL',
+                 [f"{d.get('original') or d.get('published')}  ->  {v.get('why')}" for d, v in crit]
+                 + ['', 'Ha mégis törlöd: WinPE/Sergei alól a Mentés és visszaállítás → „Kézi törlés előtt” '
+                        'mentésből visszarakható.'], color=ui.RED)
+    if safe:
+        ui.write('')
+        ui.panel('A RENDSZERLEMEZ VEZÉRLŐJE - NYUGODTAN TÖRÖLHETŐ',
+                 [f"{d.get('original') or d.get('published')}  ->  {v.get('why')}" for d, v in safe], color=ui.GREEN)
+    ui.dim('Törlés előtt a program elmenti ezeket a csomagokat (DriverVarazslo\\driver_backup_kezi), '
+           'és visszaállítási pontot készít - visszarakni: Mentés és visszaállítás → Driverek visszaállítása.')
     if not ui.confirm(f"Biztosan törlöd ezt a {len(to_delete)} csomagot?", False):
         ui.dim('Megszakítva.')
         return
@@ -830,30 +849,122 @@ def _autofix_resume(api):
 # ---------------------------------------------------------------------------
 
 def _menu_backup(api):
+    """Mentés és visszaállítás (2026-11-04-én újraírva, a GUI nézetével azonos lépések)."""
     while True:
         _header(api, 'Mentés és visszaállítás')
         c = ui.menu([
-            ('1', 'Third-party driverek exportálása', 'Minden gyártói csomag mentése mappába'),
-            ('2', 'ÖSSZES driver exportálása', 'Nagy méret, hosszabb idő'),
-            ('3', 'Driverek visszaállítása (élő rendszer)', None),
-            ('4', 'Driverek visszaállítása OFFLINE rendszerre', 'WinPE-ből, másik lemezre'),
-            ('5', 'Driverek kinyerése WIM/ESD képfájlból', None),
-            ('6', 'Visszaállítási pont készítése', None),
+            ('1', 'Driverek mentése', 'Third-party / a Windows saját drivered / mindkettő'),
+            ('2', 'Driverek visszaállítása egy mentésből', 'Erre a gépre vagy egy nem induló Windowsra'),
+            ('3', 'Rendszer-visszaállítási pont készítése', 'Csak a most futó Windowson'),
+            ('4', 'A Windows saját drivereinek kinyerése egy telepítő-lemezképből', 'install.wim / install.esd'),
+            ('5', 'BootFixer.cmd letöltése', 'Ha a Windows a boot miatt nem indul'),
         ], back_label='Vissza a főmenübe')
         if c == '0':
             return
         if c == '1':
-            _run_screen(api, 'Export', lambda: api.backup_third_party())
+            _cli_backup(api)
         elif c == '2':
-            _run_screen(api, 'Teljes export', lambda: api.backup_all())
+            _cli_restore(api)
         elif c == '3':
-            _run_screen(api, 'Visszaállítás', lambda: api.restore_online())
-        elif c == '4':
-            _run_screen(api, 'Offline visszaállítás', lambda: api.restore_offline())
-        elif c == '5':
-            _run_screen(api, 'WIM kinyerés', lambda: api.extract_wim())
-        elif c == '6':
             _run_screen(api, 'Visszaállítási pont', lambda: api.create_restore_point())
+        elif c == '4':
+            img = api.select_file('Az install.wim / install.esd fájl')
+            dest = img and api.select_directory('Hova mentse a kinyert drivereket? (létező mappa)')
+            if img and dest:
+                _run_screen(api, 'Kinyerés lemezképből', lambda: api.extract_wim(img, dest))
+        elif c == '5':
+            _run_screen(api, 'BootFixer', lambda: api.download_boot_fixer())
+
+
+def _cli_backup(api):
+    _header(api, 'Driverek mentése')
+    ov = api.get_backup_overview() or {}
+    sizes = ov.get('sizes') or {}
+    ui.kv('Forrás', ov.get('source') or '?')
+
+    def meta(key):
+        s = sizes.get(key)
+        return f"{s['count']} csomag, kb. {s['mb']:.0f} MB" if s else 'méret nem olvasható'
+    tp, win = sizes.get('thirdparty'), sizes.get('windows')
+    both = (f"{tp['count'] + win['count']} csomag, kb. {tp['mb'] + win['mb']:.0f} MB" if tp and win
+            else 'méret nem olvasható')
+    c = ui.menu([
+        ('1', 'Csak a third-party driverek (ajánlott)',
+         f'Amiket utólag raktak fel (gyártók, WU, programok) - ezeket törli a program. {meta("thirdparty")}'),
+        ('2', 'Csak a Windows saját drivered',
+         f'Amiket a Windows telepítője hozott - a program soha nem törli őket. {meta("windows")}'),
+        ('3', 'Mindkettő (teljes mentés)', both),
+    ], back_label='Mégse')
+    mode = {'1': 'thirdparty', '2': 'windows', '3': 'all'}.get(c)
+    if not mode:
+        return
+    dest = api.select_directory('Hova mentsen? (egy létező mappa, pl. E:\\Mentesek - lehetőleg ne a javítandó lemez)')
+    if dest:
+        _run_screen(api, 'Driverek mentése', lambda: api.backup_drivers(mode, dest))
+
+
+def _cli_restore(api):
+    _header(api, 'Driverek visszaállítása')
+    ov = api.get_backup_overview() or {}
+    auto = ov.get('auto_backups') or []
+    src = None
+    if auto:
+        labels = [f"{b['kind']}  ·  {b['created']}  ·  {b['count']} csomag  ({b['path']})" for b in auto]
+        idx = ui.pick_indices('Automatikus mentés választása (vagy Mégse = másik mappa megadása)',
+                              len(auto), labels=labels, single=True)
+        src = auto[idx[0]]['path'] if idx else None
+    src = src or api.select_directory('A mentés mappája')
+    if not src:
+        return
+    info = api.inspect_backup_folder(src) or {}
+    if not info.get('ok'):
+        ui.err(info.get('error') or 'A mentés nem olvasható.')
+        ui.pause()
+        return
+    pkgs = info.get('packages') or []
+    winp = info.get('windows')
+    ui.panel('A MENTÉS TARTALMA', [
+        f"{info.get('kind')}  ·  {info.get('created') or '?'}",
+        f"Third-party csomag: {len(pkgs)} db",
+        f"A Windows saját része: {winp['count']} csomag" if winp else 'A Windows saját része: nincs benne',
+    ])
+    chosen = None
+    if pkgs:
+        labels = [f"{p['inf']}  ·  {p['provider'] or '?'}  ·  {p['cls'] or '?'}  ·  {p['version'] or '?'} ({p['date'] or '?'})"
+                  + (f"  -  {p['name']}" if p['name'] else '') for p in pkgs]
+        idx = ui.pick_indices('Melyik third-party drivereket rakja vissza?', len(pkgs), labels=labels,
+                              defaults=list(range(len(pkgs))))
+        chosen = None if len(idx) == len(pkgs) else [pkgs[i]['dir'] for i in idx]
+        if not idx:
+            chosen = []
+    include_win = bool(winp) and ui.confirm(
+        'A Windows saját drivereiből a HIÁNYZÓ fájlokat is visszamásolja? (a meglévőket nem írja felül)', True)
+    if chosen == [] and not include_win:
+        ui.dim('Nincs mit visszaállítani.')
+        ui.pause()
+        return
+    items = [] if ov.get('is_pe') else [('1', 'Erre a gépre', 'A most futó Windowsba (pnputil)')]
+    items.append(('2', 'Egy nem induló Windowsra', 'Pl. WinPE / Sergei alól (DISM)'))
+    t = ui.menu(items, back_label='Mégse')
+    target, fix_boot = None, False
+    if t == '2':
+        p = ui.ask('A nem induló Windows meghajtója (pl. D:\\)', ov.get('target_root') or '')
+        chk = api.check_restore_target(p) if p else None
+        if not chk or not chk.get('ok'):
+            ui.err((chk or {}).get('error') or 'Nincs megadva meghajtó.')
+            ui.pause()
+            return
+        target = chk['root']
+        ui.ok(f"Cél: {target} {chk.get('label') or ''}")
+        fix_boot = ui.confirm('Utána a boot-betöltő (BCD) javítása is?', True)
+    elif t != '1':
+        return
+    n = len(pkgs) if chosen is None else len(chosen)
+    if not ui.confirm(f"Indulhat a visszaállítás? {n} third-party csomag"
+                      f"{' + a Windows hiányzó fájljai' if include_win else ''} -> {target or 'erre a gépre'}", True):
+        return
+    _run_screen(api, 'Driverek visszaállítása',
+                lambda: api.restore_drivers(src, target, chosen, include_win, fix_boot))
 
 
 def _menu_wu(api):

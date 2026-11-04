@@ -38,6 +38,10 @@ class _Host:
     def _safe_thread(self, _name, fn):
         fn()
 
+    def _backup_before_delete(self, names):
+        # A törlés előtti mentésnek saját tesztje van (test_backup_truth.ManualDeleteBackupTest).
+        return None
+
     def _check_cancel(self):
         return False
 

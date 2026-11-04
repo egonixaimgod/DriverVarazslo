@@ -500,11 +500,14 @@ def assign_node_slots(nodes, form='desktop'):
                     res = ('board:' + func, why)
         # NEM JELENLÉVŐ BELSŐ ESZKÖZ: nem tehetjük egy alkatrész alá, ami a gépben VAN -
         # a gépbe áttett lemezen egy korábbi gép videókártyája különben "a gép
-        # videókártyájaként" jelenne meg. Ha a szülője jelen van (egy leállított
-        # szoftver-komponens), marad a szülőnél.
+        # videókártyájaként" jelenne meg. Ha a szülője jelen van ÉS a helyét tőle örökli
+        # (egy leállított szoftver-komponens), marad a szülőnél. 2026-11-03-ig a kivétel
+        # minden jelen lévő szülőre szólt: egy kiszerelt videókártya szelleme (a PCIe-port
+        # megvan) így 'board:gpu'-ra került, amihez nincs kártya -> "Egyéb – board:gpu"
+        # (terepen: GT 730, RTX 5060, HD Graphics 620).
         if not n.get('present') and not res[0].startswith('ext:') and res[0] != 'software':
-            if parent is None or not parent.get('present'):
-                func = node_function(n)[0]
+            func = node_function(n)[0]
+            if func != F_INHERIT or parent is None or not parent.get('present'):
                 if func == F_INHERIT:
                     func = F_OTHER
                 res = ('absent:' + func, 'a gép részeként van nyilvántartva, de most nincs jelen')

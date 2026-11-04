@@ -945,6 +945,70 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .card-title{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;color:var(--text)}
 .card-desc{font-size:12px;color:var(--text2);line-height:1.7}
 
+/* --- Mentés és Visszaállítás (2026-11-04-én újraírva): kártyás választók, lépések --- */
+#view-backup [hidden]{display:none!important}
+#view-backup code{font-family:var(--mono);font-size:11.5px;color:var(--text2);background:rgba(0,0,0,0.25);padding:1px 5px;border-radius:4px}
+.bk-source{font-size:12px;color:var(--text2);padding:4px 12px;border-radius:999px;background:rgba(100,220,200,0.10);border:1px solid rgba(100,220,200,0.35)}
+.bk-source.offline{background:rgba(255,179,71,0.14);border-color:rgba(255,179,71,0.45);color:var(--orange)}
+.bk-modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.bk-mode,.bk-target,.bk-auto-item{all:unset;box-sizing:border-box;cursor:pointer;font-family:var(--font);transition:border-color var(--t),background var(--t),box-shadow var(--t)}
+.bk-mode:focus-visible,.bk-target:focus-visible,.bk-auto-item:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.bk-mode{display:flex;flex-direction:column;gap:8px;padding:16px;border-radius:var(--r);border:1px solid var(--glass-border);background:rgba(40,24,66,0.55)}
+.bk-mode:hover,.bk-target:hover,.bk-auto-item:hover{border-color:var(--glass-border-hover)}
+.bk-mode.sel,.bk-target.sel,.bk-auto-item.sel{border-color:#5fe3c8;background:linear-gradient(135deg,rgba(80,220,200,0.16),rgba(40,24,66,0.6));box-shadow:inset 0 0 0 1px #5fe3c8}
+.bk-mode-head{display:flex;align-items:center;gap:8px}
+.bk-mode-ico{font-size:20px;display:inline-flex}
+.bk-winlogo{width:1em;height:1em;fill:#4cb2ff;vertical-align:-0.12em}
+.bk-mode-title{font-size:14px;font-weight:800;color:var(--text)}
+.bk-badge{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.6px;padding:2px 8px;border-radius:999px;background:rgba(80,220,200,0.18);border:1px solid rgba(80,220,200,0.5);color:#7ff0d8}
+.bk-mode-desc{font-size:12px;line-height:1.6;color:var(--text2)}
+.bk-mode-desc b{color:var(--text)}
+.bk-mode-meta{margin-top:auto;font-size:11.5px;font-weight:700;color:var(--text3);font-variant-numeric:tabular-nums}
+.bk-mode.sel .bk-mode-meta{color:#7ff0d8}
+.bk-foot{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid rgba(180,100,255,0.18)}
+.bk-foot-hint{flex:1 1 320px;font-size:12px;color:var(--text3);line-height:1.6}
+.bk-foot-hint b{color:var(--text2)}
+.bk-foot .btn-big{padding:14px 28px;font-size:15px}
+.bk-restore-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.bk-step{display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:var(--r);background:rgba(30,18,50,0.45);border:1px solid rgba(180,100,255,0.2);min-width:0}
+.bk-step>.btn{align-self:flex-start}
+.bk-step-t{font-size:13px;font-weight:800;color:var(--text);display:flex;align-items:center;gap:8px}
+.bk-num{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent2);color:#000;font-size:12px;font-weight:900}
+.bk-sub-t{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--accent);margin-top:4px}
+.bk-auto{display:flex;flex-direction:column;gap:6px;max-height:190px;overflow-y:auto}
+.bk-auto-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r-sm);border:1px solid rgba(180,100,255,0.25);background:rgba(50,30,80,0.4);font-size:12px;color:var(--text2);line-height:1.4}
+.bk-auto-item b{color:var(--text)}
+.bk-auto-n{margin-left:auto;white-space:nowrap;color:var(--text3)}
+.bk-empty{font-size:12px;color:var(--text3);padding:4px 0;line-height:1.5}
+.bk-targets{display:grid;gap:8px}
+.bk-target{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:var(--r-sm);border:1px solid rgba(180,100,255,0.25);background:rgba(50,30,80,0.4)}
+.bk-target:disabled{opacity:.4;cursor:not-allowed}
+.bk-target-t{font-size:13px;font-weight:700;color:var(--text)}
+.bk-target-d{font-size:11.5px;color:var(--text3)}
+.bk-offline{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.bk-offline-st{font-size:12px;color:var(--text3)}
+.bk-offline-st.ok{color:#66ffb2}
+.bk-offline-st.bad{color:var(--red)}
+.bk-content{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+.bk-content-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.bk-content-t{flex:1;min-width:0;font-size:13px;font-weight:700;color:var(--text);overflow-wrap:anywhere}
+.bk-content-actions{display:flex;gap:6px}
+.bk-pkgs{max-height:320px;overflow:auto;border:1px solid rgba(180,100,255,0.2);border-radius:var(--r-sm)}
+.bk-pkgs table{width:100%;border-collapse:collapse;font-size:12px}
+.bk-pkgs th{position:sticky;top:0;z-index:1;background:#2a1846;text-align:left;font-size:11px;font-weight:700;color:var(--text3);padding:7px 10px}
+.bk-pkgs td{padding:6px 10px;border-top:1px solid rgba(180,100,255,0.12);color:var(--text2);vertical-align:top}
+.bk-pkgs td.n b{color:var(--text);display:block}
+.bk-pkgs td span{font-size:11px;color:var(--text3)}
+.bk-pkgs tbody tr{cursor:pointer}
+.bk-pkgs tbody tr:hover td{background:rgba(180,100,255,0.07)}
+.bk-opt{display:flex;align-items:flex-start;padding:10px 12px;border-radius:var(--r-sm);background:rgba(30,18,50,0.45);border:1px solid rgba(180,100,255,0.2)}
+.bk-opt b{color:var(--text);font-weight:700}
+.bk-opt-d{display:block;font-size:11.5px;color:var(--text3);margin-top:2px}
+.bk-cards .card .btn{align-self:flex-start;margin-top:auto}
+/* A rendszerlemez láncán lévő csomag jelzése (2026-11-04): piros = nélküle nem indul, zöld = törölhető */
+.boot-note{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:8px;font-size:10.5px;font-weight:700;line-height:1.35;white-space:normal}
+.boot-note.crit{background:rgba(255,100,90,0.18);border:1px solid rgba(255,100,90,0.5);color:#ff9d93}
+.boot-note.ok{background:rgba(46,224,138,0.12);border:1px solid rgba(46,224,138,0.45);color:#7dffbd}
 /* Stress Teszt & Szervíz Programok */
 .stress-hero{position:relative;overflow:hidden;padding:24px 26px;margin-bottom:16px;display:flex;align-items:center;gap:22px;flex-wrap:wrap;background:linear-gradient(135deg,rgba(255,100,60,0.14),rgba(150,50,200,0.18) 55%,var(--glass));border:1px solid rgba(255,140,90,0.35);border-radius:var(--r);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
 .stress-hero::before{content:'🔥';position:absolute;right:-14px;bottom:-34px;font-size:150px;opacity:0.07;pointer-events:none;transform:rotate(-12deg)}
@@ -1948,50 +2012,125 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
       </div>
 
       <!-- VIEW: Backup -->
+      <!-- ===== MENTÉS ÉS VISSZAÁLLÍTÁS (2026-11-04-én újraírva, explicit user decision:
+           *„ezt a mentés visszaállítás tabot teljesen alakítsd át … legyen profi és átlátható”*).
+           Három rész: 1. mentés (három fajta, választható kártyákkal), 2. visszaállítás
+           (A: melyik mentésből → B: hova → a mentés tartalma driverenként pipálható),
+           3. további eszközök (visszaállítási pont, BootFixer, Windows-driverek ISO-ból).
+           A logika: app/backup_core.py, a kapu: app/gui/backup.py. A régi kártyák gombjai
+           (backupThirdParty / backupAll / restoreDrivers) törölve. -->
       <div class="view" id="view-backup">
         <div class="view-hero vh-teal" data-emoji="💾">
           <div class="vh-text">
             <div class="vh-title">💾 Mentés és Visszaállítás</div>
-            <div class="vh-sub">Driver-mentés és -visszaállítás élő rendszeren és offline (WinPE) módban, tiszta gyári driverek kinyerése Windows ISO-ból, visszaállítási pont és boot-javító eszköz — minden, ami a biztonságos szervizeléshez kell.</div>
+            <div class="vh-sub">Elmentheted a gép drivereit, és egy mentésből vissza is rakhatod őket — erre a gépre, vagy egy olyan Windowsra, ami nem indul el (pl. Sergei / WinPE alól). <b>A Driverek kezelése nézet minden törlés előtt magától is ment</b>, és visszaállítási pontot készít, így egy rossz törlés mindig visszacsinálható.</div>
             <div class="vh-chips">
-              <span class="hero-chip">📦 Teljes driver-export</span>
-              <span class="hero-chip">♻️ Offline visszaállítás (DISM)</span>
-              <span class="hero-chip">📀 ISO/WIM kinyerés</span>
+              <span class="hero-chip">🧩 Third-party · <svg class="winlogo bk-winlogo" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1"/><rect x="13" y="1" width="10" height="10" rx="1"/><rect x="1" y="13" width="10" height="10" rx="1"/><rect x="13" y="13" width="10" height="10" rx="1"/></svg> Windows · 📚 mindkettő</span>
+              <span class="hero-chip">♻️ Nem induló Windowsra is</span>
+              <span class="hero-chip">☑️ Driverenként választható</span>
+              <span class="hero-chip">🛡️ Visszaállítási pont</span>
               <span class="hero-chip">🔧 BootFixer</span>
             </div>
           </div>
         </div>
-        <div class="cards">
+
+        <div class="panel glass">
+          <div class="panel-header-row">
+            <div class="panel-title"><span class="emoji">💾</span> 1. Driverek mentése</div>
+            <span class="bk-source" id="bk-source">Forrás: …</span>
+          </div>
+          <div class="bk-modes" role="radiogroup" aria-label="Mit mentsen?">
+            <button type="button" class="bk-mode sel" data-mode="thirdparty" role="radio" aria-checked="true" onclick="bkSelectMode('thirdparty')">
+              <span class="bk-mode-head"><span class="bk-mode-ico">🧩</span><span class="bk-mode-title">Csak a third-party driverek</span><span class="bk-badge">AJÁNLOTT</span></span>
+              <span class="bk-mode-desc">Amiket <b>nem a Windows telepítője hozott</b>, hanem utólag kerültek fel: a gép gyártójától (Lenovo, ASUS, Dell…), az alkatrészek gyártóitól (NVIDIA, AMD, Intel, Realtek…), a Windows Update-ről vagy egy program telepítőjéből. <b>Ezeket tudja a DriverVarázsló törölni</b> — ezért ezeket érdemes menteni.</span>
+              <span class="bk-mode-meta" id="bk-meta-thirdparty">…</span>
+            </button>
+            <button type="button" class="bk-mode" data-mode="windows" role="radio" aria-checked="false" onclick="bkSelectMode('windows')">
+              <span class="bk-mode-head"><span class="bk-mode-ico"><svg class="winlogo bk-winlogo" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1"/><rect x="13" y="1" width="10" height="10" rx="1"/><rect x="1" y="13" width="10" height="10" rx="1"/><rect x="13" y="13" width="10" height="10" rx="1"/></svg></span><span class="bk-mode-title">Csak a Windows saját driverei</span></span>
+              <span class="bk-mode-desc">Amiket a <b>Windows telepítője hozott magával</b>: alap USB, SATA/NVMe, billentyűzet, egér, alap kijelző és társaik. A DriverVarázsló ezekhez soha nem nyúl — akkor kell, ha egy Windows saját driver-fájljai sérültek vagy eltűntek.</span>
+              <span class="bk-mode-meta" id="bk-meta-windows">…</span>
+            </button>
+            <button type="button" class="bk-mode" data-mode="all" role="radio" aria-checked="false" onclick="bkSelectMode('all')">
+              <span class="bk-mode-head"><span class="bk-mode-ico">📚</span><span class="bk-mode-title">Mindkettő — teljes mentés</span></span>
+              <span class="bk-mode-desc">A third-party és a Windows saját driverei együtt, egy mappában. Visszaállításkor bármelyik részt — és driverenként is — külön kiválaszthatod.</span>
+              <span class="bk-mode-meta" id="bk-meta-all">…</span>
+            </button>
+          </div>
+          <div class="bk-foot">
+            <span class="bk-foot-hint">A mentés egy új, dátumozott mappába kerül (<code>DriverVarázsló_Mentés_…</code>) azon a helyen, amit kiválasztasz. <b>Tipp:</b> pendrive-ra vagy másik lemezre ments, ne arra, amit javítani készülsz.</span>
+            <button class="btn btn-big btn-primary" id="btn-bk-backup" onclick="bkStartBackup()">💾 Mentés indítása…</button>
+          </div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-title"><span class="emoji">♻️</span> 2. Driverek visszaállítása egy mentésből</div>
+          <div class="bk-restore-grid">
+            <div class="bk-step">
+              <div class="bk-step-t"><span class="bk-num">A</span> Melyik mentésből?</div>
+              <button class="btn" onclick="bkPickBackup()">📂 Mentés mappájának kiválasztása…</button>
+              <div class="bk-sub-t">Automatikus mentések ezen a lemezen</div>
+              <div class="bk-auto" id="bk-auto"><div class="bk-empty">Betöltés…</div></div>
+            </div>
+            <div class="bk-step">
+              <div class="bk-step-t"><span class="bk-num">B</span> Hova?</div>
+              <div class="bk-targets" role="radiogroup" aria-label="Hova állítsa vissza?">
+                <button type="button" class="bk-target sel" id="bk-t-live" role="radio" aria-checked="true" onclick="bkSetTarget('live')">
+                  <span class="bk-target-t">🖥️ Erre a gépre</span>
+                  <span class="bk-target-d">A most futó Windowsba telepíti vissza a drivereket.</span>
+                </button>
+                <button type="button" class="bk-target" id="bk-t-offline" role="radio" aria-checked="false" onclick="bkSetTarget('offline')">
+                  <span class="bk-target-t">💽 Egy nem induló Windowsra</span>
+                  <span class="bk-target-d">Pl. Sergei / WinPE alól: a nem induló Windows meghajtójára építi be őket (DISM).</span>
+                </button>
+              </div>
+              <div class="bk-offline" id="bk-offline" hidden>
+                <button class="btn btn-sm" onclick="bkPickOfflineTarget()">💽 Meghajtó kiválasztása…</button>
+                <span class="bk-offline-st" id="bk-offline-st">Még nincs kiválasztva.</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="bk-content" id="bk-content" hidden>
+            <div class="bk-content-head">
+              <span class="bk-content-t" id="bk-content-t"></span>
+              <span class="bk-content-actions" id="bk-pkg-actions">
+                <button class="btn btn-sm" onclick="bkCheckAll(true)">Mind</button>
+                <button class="btn btn-sm" onclick="bkCheckAll(false)">Egyik sem</button>
+              </span>
+            </div>
+            <div class="bk-pkgs" id="bk-pkgs"></div>
+            <label class="toggle bk-opt" id="bk-win-row" hidden>
+              <input type="checkbox" id="bk-win" checked onchange="bkUpdateRestore()"><span class="toggle-track"></span>
+              <span><b><svg class="winlogo bk-winlogo" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1"/><rect x="13" y="1" width="10" height="10" rx="1"/><rect x="1" y="13" width="10" height="10" rx="1"/><rect x="13" y="13" width="10" height="10" rx="1"/></svg> A Windows saját driverei is<span id="bk-win-n"></span></b><span class="bk-opt-d">Csak a HIÁNYZÓ fájlokat másolja vissza — a meglévőket soha nem írja felül.</span></span>
+            </label>
+            <label class="toggle bk-opt" id="bk-boot-row" hidden>
+              <input type="checkbox" id="bk-boot" checked onchange="bkUpdateRestore()"><span class="toggle-track"></span>
+              <span><b>🔧 Utána a boot-betöltő (BCD) javítása is</b><span class="bk-opt-d">Ha a gép egy driver miatt nem indult, ez nem kell hozzá, de nem is árt. Ha a boot is sérült, ez rendbe teszi.</span></span>
+            </label>
+          </div>
+
+          <div class="bk-foot">
+            <span class="bk-foot-hint" id="bk-restore-sum">Válassz ki egy mentést (A).</span>
+            <button class="btn btn-big btn-success" id="btn-bk-restore" onclick="bkStartRestore()" disabled>♻️ Visszaállítás indítása</button>
+          </div>
+        </div>
+
+        <div class="cards bk-cards">
           <div class="card glass">
-            <div class="card-title">📦 Third-Party Driver Mentés</div>
-            <div class="card-desc">Kimenti a rendszer összes harmadik féltől származó (third-party) driverét egy mappába. Ezt később vissza tudod állítani DISM-mel vagy pnputil-lal.</div>
-            <button class="btn btn-primary" onclick="backupThirdParty()">Mentés indítása</button>
+            <div class="card-title">🛡️ Rendszer-visszaállítási pont</div>
+            <div class="card-desc">A Windows saját „mentési pontja”: a registryt, a rendszerfájlokat és a drivereket menti (a dokumentumokat és a programokat nem). Visszaállítani a Windows <b>Rendszer-visszaállítás</b> ablakában (<code>rstrui</code>), nem induló gépen a helyreállító környezetben lehet (Hibaelhárítás → Speciális beállítások → Rendszer-visszaállítás). <b>A program magától is készít egyet</b> minden kézi driver-törlés és -telepítés, valamint az 1 kattintásos fix előtt.</div>
+            <button class="btn btn-primary" id="btn-bk-rp" onclick="createRestorePoint()">🛡️ Visszaállítási pont készítése</button>
           </div>
           <div class="card glass">
-            <div class="card-title">📦 ÖSSZES Driver Mentés</div>
-            <div class="card-desc">Kimenti az összes drivert (third-party + Windows gyári inbox driverek is). Nagyobb fájlméret, de teljes biztonsági másolat.</div>
-            <button class="btn btn-primary" onclick="backupAll()">Összes driver mentése</button>
-          </div>
-          <div class="card glass">
-            <div class="card-title">♻️ Lementett Driverek Visszaállítása</div>
-            <div class="card-desc">Egy korábban kimentett driver mappát visszatelepít az élő rendszerre (pnputil) vagy egy offline meghajtóra (DISM).</div>
-            <button class="btn btn-success" onclick="restoreDrivers()">Visszaállítás</button>
-          </div>
-          <div class="card glass">
-            <div class="card-title">📀 ISO / WIM / ESD Alap Driver Kinyerés</div>
-            <div class="card-desc">Egy hivatalos Windows ISO install.wim fájljából kibányássza a tiszta gyári drivereket (alap USB, PS/2, Touchpad, stb).</div>
-            <button class="btn btn-warning" onclick="extractWim()">WIM Kinyerés</button>
-          </div>
-          <div class="card glass">
-            <div class="card-title">🛡️ Rendszer-visszaállítási Pont</div>
-            <div class="card-desc">Létrehoz egy Windows rendszer-visszaállítási pontot a jelenlegi állapotról, mielőtt bármit változtatnál.</div>
-            <button class="btn" onclick="createRestorePoint()">Visszaállítási pont létrehozása</button>
-          </div>
-          <div class="card glass">
-            <div class="card-title">🔧 BCD Boot Hiba Javítása (BootFixer)</div>
-            <div class="card-desc">Ha egy Windows nem bootol (0xc0000098, BCD hiba): letölti a BootFixer.cmd boot-javító toolt a C:\DriverVarazslo mappába. Futtasd le (dupla katt, admin jogot magától kér), válaszd ki a javítandó meghajtót, és a tool újraírja a boot partíciót.</div>
+            <div class="card-title">🔧 Nem induló Windows: BootFixer</div>
+            <div class="card-desc">Ha a Windows a <b>boot</b> miatt nem indul (0xc0000098, BCD-hiba, „nincs rendszerindító eszköz”): letölti a BootFixer.cmd boot-javító eszközt a <code>C:\DriverVarazslo</code> mappába. A program nem futtatja — indítsd el dupla kattintással (az admin jogot magától kéri), válaszd ki a javítandó Windows meghajtóját, és újraírja a boot-partíciót.</div>
             <button class="btn btn-warning" onclick="downloadBootFixer()" id="btn-bootfixer">⬇️ BootFixer.cmd letöltése</button>
             <div id="bootfixer-result"></div>
+          </div>
+          <div class="card glass">
+            <div class="card-title">📀 Windows-driverek egy telepítő-lemezképből</div>
+            <div class="card-desc">Ha egy Windows saját drivereiről nincs mentés: egy hivatalos Windows ISO <code>sources\install.wim</code> vagy <code>install.esd</code> fájljából kinyeri őket. Az eredmény egy „Windows saját driverei” mentés, amit fent, a visszaállításnál rakhatsz fel. <b>Ugyanolyan verziójú ISO kell</b>, mint a javítandó Windows (pl. Windows 10 22H2-höz Windows 10 22H2). Egy ESD átalakítása 10-15 perc is lehet.</div>
+            <button class="btn" onclick="extractWim()">📀 Lemezkép kiválasztása…</button>
           </div>
         </div>
       </div>
@@ -2971,6 +3110,9 @@ let driverSortDir = 'asc';
 let driverUsage = null;
 let driverUsageError = '';
 let driverUsageOffline = false;
+// A rendszerlemez vezérlője (RAID/VMD vagy NVMe/AHCI) és a láncán lévő csomagok döntése
+// (get_driver_usage -> 'boot', 2026-11-04). Csak kimondja a kockázatot, NEM tilt semmit.
+let driverBoot = null;
 // A KIJELZETT lista lemeze ('' = élő rendszer) és a MOSTANI cél. A kettő eltérése = elavult
 // lista: azt nem mutatjuk, és a törlés a lista lemezét is elküldi (2026-10-12).
 let driversTarget = '';
@@ -3787,6 +3929,7 @@ function switchView(name) {
   if (name === 'display') loadDisplayView();
   if (name === 'tempclean') scanTempSizes();
   if (name === 'shoplabel') loadShopLabelView();
+  if (name === 'backup') loadBackupView();
   // A KEZDŐLAP a naplók-kártyát is tartalmazza (2026-09-18), ezért itt fut a letöltési
   // mappa útvonalának kiírása. Nem drága: egy szinkron API-hívás.
   if (name === 'home') { loadLogsViewInfo(); ensureReportDefaults(); }
@@ -4530,11 +4673,13 @@ async function changeTarget() {
       const data = await api().get_init_data();
       updateTargetLabel(null, data.sys_drive);
       loadDrivers();
+      if (currentView === 'backup') loadBackupView();
       return;
     }
     updateTargetLabel(res.path);
     toast('Célpont beállítva: ' + res.path, 'info');
     loadDrivers();
+    if (currentView === 'backup') { bkOffline = null; loadBackupView(); }
   } catch (e) {
     toast('Hiba a célpont váltásakor: ' + e, 'error');
   }
@@ -4546,6 +4691,7 @@ async function resetTarget() {
     updateTargetLabel(null, data.sys_drive);
     toast('Visszaállítva: jelenlegi rendszer', 'success');
     loadDrivers();
+    if (currentView === 'backup') loadBackupView();
   } catch (e) {
     toast('Hiba a visszaállítás során: ' + e, 'error');
   }
@@ -4976,7 +5122,7 @@ function selectUnusedDrivers() {
 async function loadDriverUsage(force) {
   if (!drivers.length) return;
   if (isResumeLeg && !force) { driverUsage = null; return; }
-  driverUsage = null; driverUsageError = ''; driverUsageOffline = false;
+  driverUsage = null; driverUsageError = ''; driverUsageOffline = false; driverBoot = null;
   renderDriverUsageBar();
   // Lásd loadPrinterDriverInfs: egy lecserélt lista használat-adata (pl. a C: "Használatban"
   // jelzései) nem kerülhet egy másik lemez listájára - a "Csak a nem használtak" gomb erre épít.
@@ -4987,6 +5133,7 @@ async function loadDriverUsage(force) {
     driverUsageOffline = !!(res && res.offline);
     driverUsageError = (res && res.error) ? String(res.error) : '';
     driverUsage = (res && res.usage && Object.keys(res.usage).length) ? res.usage : null;
+    driverBoot = (res && res.boot) || null;
     setDriverMachine(res && res.machine, res && res.machine_error);
   } catch (e) {
     if (drivers !== forList) return;
@@ -5032,7 +5179,22 @@ const WHAT_KIND = {
   'inf': '📄 a driver-fájl szerint',
   'service': '⚙️ szoftveres driver'
 };
-function drvWhatCell(d) { return whatCellHtml(d, drvMachineInfo(d)); }
+function drvWhatCell(d) { return whatCellHtml(d, drvMachineInfo(d), bootNoteHtml(drvBootOf(d), driverBoot && driverBoot.mode)); }
+function drvBootOf(d) {
+  return (driverBoot && driverBoot.packages && driverBoot.packages[(d.published || '').toLowerCase()]) || null;
+}
+/* A rendszerlemez láncán lévő csomag jelzése (2026-11-04, explicit user decision): RAID/VMD
+   mögött "nélküle nem indul", szabványos NVMe/AHCI-n "nyugodtan törölhető". A Driverek
+   nézet és az 1 kattintásos fix dialógusa is ezt hívja. `v` = {protect, why}. */
+function bootNoteHtml(v, mode) {
+  if (!v) return '';
+  const short = String(v.why || '').split(':')[0];
+  const txt = v.protect
+    ? (mode === 'raid' ? '🛡️ BOOT-KRITIKUS: nélküle a Windows NEM indul el (RAID / Intel VMD mód)'
+                       : '🛡️ BOOT-KRITIKUS LEHET: ismeretlen vezérlő a rendszerlemez útján')
+    : '💾 A rendszerlemez útján van, de nyugodtan törölhető (' + short + ')';
+  return '<div class="boot-note ' + (v.protect ? 'crit' : 'ok') + '" title="' + esc(v.why || '') + '">' + esc(txt) + '</div>';
+}
 /* A tömör "Driver" cella (2026-10-01) - a Driverek nézet ÉS a fix dialógusa is ezt hívja:
    fent a csomag neve (Original Name) + opcionális címke (a fixben: MEGMARAD), alatta
    kisbetűvel a published név · gyártó · verzió. A buborék mindent kiír. */
@@ -5598,7 +5760,9 @@ async function deleteSelected() {
     toast('Nincs érvényes driver kijelölve!', 'error');
     return;
   }
-  let msg = 'Biztosan törlöd a kiválasztott ' + names.length + ' drivert?';
+  let msg = 'Biztosan törlöd a kiválasztott ' + names.length + ' drivert?'
+    + '\n\n💾 Előtte a program elmenti őket, és visszaállítási pontot készít — ha kellene, a '
+    + 'Mentés és Visszaállítás → „Kézi törlés előtt” mentésből visszarakhatod (nem induló gépre is).';
   if (driversTarget) {
     msg = '💽 OFFLINE MÓD: a(z) ' + driversTarget + ' meghajtón lévő Windowsból törölsz, NEM a futó gépből!\n\n' + msg;
   }
@@ -5622,6 +5786,20 @@ async function deleteSelected() {
   if (sby.length) {
     msg += '\n\n🟡 ' + sby.length + ' olyan, amihez tartozik eszköz vagy nyomtató, de most nincs bedugva '
         + '(pl. kihúzott nyomtató/telefon) — a hiány csak a következő csatlakoztatáskor derülne ki.';
+  }
+  // A RENDSZERLEMEZ LÁNCÁN LÉVŐ CSOMAGOK (2026-11-04): nem tiltás (1. elv), csak a kockázat.
+  const bootCrit = sel.filter(d => (drvBootOf(d) || {}).protect);
+  const bootOk = sel.filter(d => drvBootOf(d) && !drvBootOf(d).protect);
+  if (bootCrit.length) {
+    msg += '\n\n🛡️ BOOT-KRITIKUS: ' + bootCrit.length + ' driver nélkül a Windows NEM fog elindulni ('
+        + (driverBoot && driverBoot.text || '') + '):';
+    bootCrit.forEach(d => { msg += '\n   • ' + (d.original || d.published) + ' — ' + drvBootOf(d).why; });
+    msg += '\nHa mégis törlöd: Sergei / WinPE alól a Mentés és Visszaállítás → „Kézi törlés előtt” mentésből visszarakható.';
+  }
+  if (bootOk.length) {
+    msg += '\n\n💾 ' + bootOk.length + ' a rendszerlemez vezérlőjének drivere, de nyugodtan törölhető — '
+        + (driverBoot && driverBoot.text || '') + ':';
+    bootOk.forEach(d => { msg += '\n   • ' + (d.original || d.published) + ' — ' + drvBootOf(d).why.split(':')[0]; });
   }
   if (idl.length) {
     msg += '\n\n🟡 ' + idl.length + ' olyan szoftveres driver, aminek a szolgáltatása most nem fut '
@@ -7027,19 +7205,219 @@ async function loadLogsViewInfo() {
   } catch (e) { /* csak a kiírt útvonal, nem kritikus */ }
 }
 
-/* ========== BACKUP / RESTORE ========== */
-async function backupThirdParty() {
+/* ========== MENTÉS ÉS VISSZAÁLLÍTÁS (2026-11-04-én újraírva) ==========
+   A logika a Pythonban él (app/backup_core.py, kapu: app/gui/backup.py); itt csak az
+   állapot: melyik mentés-fajta van kiválasztva, melyik mentésből és hova állítunk vissza.
+   A nézetbe lépéskor (switchView) és minden mentés/visszaállítás/törlés után a
+   `loadBackupView` friss adatot kér (méretek, automatikus mentések listája). */
+let bkMode = 'thirdparty';
+let bkOverview = null;
+let bkInfo = null;        // a kiválasztott mentés tartalma (inspect_backup_folder)
+let bkTarget = 'live';
+let bkOffline = null;     // {root, label} - a kiválasztott nem induló Windows
+let bkLoadSeq = 0;
+
+function bkMb(mb) {
+  return mb >= 1024 ? (mb / 1024).toFixed(1).replace('.', ',') + ' GB' : Math.round(mb) + ' MB';
+}
+function bkSetMeta(key, text) {
+  const el = document.getElementById('bk-meta-' + key);
+  if (el) el.textContent = text;
+}
+async function loadBackupView() {
+  const seq = ++bkLoadSeq;
+  ['thirdparty', 'windows', 'all'].forEach(k => bkSetMeta(k, 'méret számolása…'));
+  let ov = null;
   try {
-    await api().backup_third_party();
+    ov = await api().get_backup_overview();
+  } catch (e) {
+    toast('A mentés-nézet adatai nem tölthetők be: ' + e, 'error');
+  }
+  if (seq !== bkLoadSeq) return;          // közben újabb kérés indult (pl. lemezváltás)
+  bkOverview = ov || {};
+  const src = document.getElementById('bk-source');
+  src.textContent = 'Forrás: ' + (bkOverview.source || '?');
+  src.classList.toggle('offline', !!bkOverview.offline);
+  const s = bkOverview.sizes;
+  if (s) {
+    bkSetMeta('thirdparty', s.thirdparty.count + ' csomag · ' + bkMb(s.thirdparty.mb));
+    bkSetMeta('windows', s.windows.count + ' csomag · ' + bkMb(s.windows.mb));
+    bkSetMeta('all', (s.thirdparty.count + s.windows.count) + ' csomag · ' + bkMb(s.thirdparty.mb + s.windows.mb));
+  } else {
+    ['thirdparty', 'windows', 'all'].forEach(k => bkSetMeta(k, '⚠️ a driver-tár nem olvasható'));
+  }
+  const rp = document.getElementById('btn-bk-rp');
+  rp.disabled = !!bkOverview.offline;
+  rp.title = bkOverview.offline ? 'Offline módban nem készíthető: a cél-Windows most nem fut.' : '';
+  // WinPE alatt nincs "erre a gépre"; offline módban a nem induló Windows előre kitöltve.
+  document.getElementById('bk-t-live').disabled = !!bkOverview.is_pe;
+  if (bkOverview.is_pe && bkTarget === 'live') bkSetTarget('offline');
+  if (bkOverview.offline && !bkOffline) {
+    bkSetTarget('offline');
+    bkCheckOffline(bkOverview.target_root);
+  }
+  bkRenderAuto();
+  bkUpdateRestore();
+}
+function bkSelectMode(m) {
+  bkMode = m;
+  document.querySelectorAll('#view-backup .bk-mode').forEach(b => {
+    const on = b.dataset.mode === m;
+    b.classList.toggle('sel', on);
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+}
+async function bkStartBackup() {
+  try {
+    await api().backup_drivers(bkMode, null);
   } catch (e) {
     toast('Mentési hiba: ' + e, 'error');
   }
 }
-async function backupAll() {
+function bkRenderAuto() {
+  const box = document.getElementById('bk-auto');
+  const list = (bkOverview && bkOverview.auto_backups) || [];
+  if (!list.length) {
+    box.innerHTML = '<div class="bk-empty">Ezen a lemezen még nincs automatikus mentés. A Driverek kezelése nézet minden törlés előtt készít egyet.</div>';
+    return;
+  }
+  box.innerHTML = list.map((b, i) =>
+    '<button type="button" class="bk-auto-item' + (bkInfo && bkInfo.path === b.path ? ' sel' : '')
+    + '" onclick="bkPickAuto(' + i + ')" title="' + esc(b.path) + '">'
+    + '<span>' + (b.kind.indexOf('Kézi') === 0 ? '🗑️' : '🚀') + '</span>'
+    + '<span><b>' + esc(b.kind) + '</b><br>' + esc(b.created || '?') + '</span>'
+    + '<span class="bk-auto-n">' + b.count + ' csomag</span></button>').join('');
+}
+function bkPickAuto(i) {
+  const b = ((bkOverview && bkOverview.auto_backups) || [])[i];
+  if (b) bkPickBackup(b.path);
+}
+async function bkPickBackup(path) {
+  let info = null;
   try {
-    await api().backup_all();
+    info = await api().inspect_backup_folder(path || null);
   } catch (e) {
-    toast('Mentési hiba: ' + e, 'error');
+    toast('A mentés nem olvasható: ' + e, 'error');
+    return;
+  }
+  if (!info) return;                       // Mégse a mappaválasztóban
+  if (!info.ok) {
+    toast(info.error || 'Ez a mappa nem driver-mentés.', 'error');
+    return;
+  }
+  bkInfo = info;
+  bkRenderContent();
+  bkRenderAuto();
+}
+function bkRenderContent() {
+  const box = document.getElementById('bk-content');
+  box.hidden = !bkInfo;
+  if (!bkInfo) { bkUpdateRestore(); return; }
+  document.getElementById('bk-content-t').textContent = '📦 ' + bkInfo.kind
+    + (bkInfo.created ? ' · ' + bkInfo.created : '') + ' — ' + bkInfo.path;
+  const pk = bkInfo.packages || [];
+  const tbl = document.getElementById('bk-pkgs');
+  document.getElementById('bk-pkg-actions').hidden = !pk.length;
+  tbl.hidden = !pk.length;
+  tbl.innerHTML = !pk.length ? '' :
+    '<table><thead><tr><th style="width:30px"></th><th>Third-party driver</th><th>Gyártó</th><th>Típus</th><th>Verzió · dátum</th></tr></thead><tbody>'
+    + pk.map((p, i) => '<tr onclick="bkToggleRow(event,' + i + ')">'
+      + '<td><input type="checkbox" class="bk-pk" data-i="' + i + '" checked onchange="bkUpdateRestore()" aria-label="' + esc(p.inf) + '"></td>'
+      + '<td class="n"><b>' + esc(p.name || p.inf) + '</b><span>' + esc(p.inf) + ' · ' + esc(p.rel) + '</span></td>'
+      + '<td>' + esc(p.provider || '—') + '</td><td>' + esc(p.cls || '—') + '</td>'
+      + '<td>' + esc(p.version || '—') + (p.date ? '<br><span>' + esc(p.date) + '</span>' : '') + '</td></tr>').join('')
+    + '</tbody></table>';
+  const w = bkInfo.windows;
+  document.getElementById('bk-win-row').hidden = !w;
+  if (w) document.getElementById('bk-win-n').textContent = ' (' + w.count + ' csomag)';
+  bkUpdateRestore();
+}
+function bkToggleRow(ev, i) {
+  if (ev.target && ev.target.tagName === 'INPUT') return;
+  const cb = document.querySelector('#bk-pkgs .bk-pk[data-i="' + i + '"]');
+  if (cb) { cb.checked = !cb.checked; bkUpdateRestore(); }
+}
+function bkCheckAll(on) {
+  document.querySelectorAll('#bk-pkgs .bk-pk').forEach(cb => { cb.checked = on; });
+  bkUpdateRestore();
+}
+function bkSelectedPkgs() {
+  return [...document.querySelectorAll('#bk-pkgs .bk-pk')].filter(cb => cb.checked).map(cb => +cb.dataset.i);
+}
+function bkSetTarget(t) {
+  if (t === 'live' && bkOverview && bkOverview.is_pe) return;
+  bkTarget = t;
+  [['live', 'bk-t-live'], ['offline', 'bk-t-offline']].forEach(([k, id]) => {
+    const el = document.getElementById(id);
+    el.classList.toggle('sel', k === t);
+    el.setAttribute('aria-checked', k === t ? 'true' : 'false');
+  });
+  document.getElementById('bk-offline').hidden = t !== 'offline';
+  document.getElementById('bk-boot-row').hidden = t !== 'offline';
+  bkUpdateRestore();
+}
+async function bkPickOfflineTarget() {
+  await bkCheckOffline(null);
+}
+async function bkCheckOffline(path) {
+  let r = null;
+  try {
+    r = await api().check_restore_target(path);
+  } catch (e) {
+    toast('A meghajtó nem ellenőrizhető: ' + e, 'error');
+    return;
+  }
+  if (!r) return;
+  const st = document.getElementById('bk-offline-st');
+  if (r.ok) {
+    bkOffline = {root: r.root, label: r.label};
+    st.textContent = '✅ ' + r.root + (r.label ? ' — ' + r.label : '');
+    st.className = 'bk-offline-st ok';
+  } else {
+    bkOffline = null;
+    st.textContent = '❌ ' + r.error;
+    st.className = 'bk-offline-st bad';
+  }
+  bkUpdateRestore();
+}
+function bkUpdateRestore() {
+  const btn = document.getElementById('btn-bk-restore');
+  const sum = document.getElementById('bk-restore-sum');
+  const n = bkInfo ? bkSelectedPkgs().length : 0;
+  const win = !!(bkInfo && bkInfo.windows && document.getElementById('bk-win').checked);
+  let why = '';
+  if (!bkInfo) why = 'Válassz ki egy mentést (A).';
+  else if (!n && !win) why = 'Jelölj ki legalább egy drivert a listában.';
+  else if (bkTarget === 'offline' && !bkOffline) why = 'Válaszd ki a nem induló Windows meghajtóját (B).';
+  btn.disabled = !!why;
+  if (why) { sum.textContent = why; return; }
+  const parts = [];
+  if (n) parts.push(n + ' third-party driver');
+  if (win) parts.push('a Windows hiányzó driver-fájljai');
+  const dest = bkTarget === 'offline'
+    ? bkOffline.root + (bkOffline.label ? ' (' + bkOffline.label + ')' : '') : 'erre a gépre';
+  sum.innerHTML = 'Visszakerül: <b>' + esc(parts.join(' + ')) + '</b> → <b>' + esc(dest) + '</b>'
+    + (bkTarget === 'offline' && document.getElementById('bk-boot').checked ? ', utána BCD-javítás' : '');
+}
+async function bkStartRestore() {
+  if (!bkInfo) return;
+  const idx = bkSelectedPkgs();
+  const pkgs = idx.length === (bkInfo.packages || []).length ? null : idx.map(i => bkInfo.packages[i].dir);
+  const win = !!(bkInfo.windows && document.getElementById('bk-win').checked);
+  const target = bkTarget === 'offline' ? (bkOffline && bkOffline.root) : null;
+  if (bkTarget === 'offline' && !target) return;
+  const boot = bkTarget === 'offline' && document.getElementById('bk-boot').checked;
+  const what = [idx.length ? idx.length + ' third-party driver' : '', win ? 'a Windows hiányzó driver-fájljai' : '']
+    .filter(Boolean).join(' + ');
+  const where = target ? target + (bkOffline.label ? ' (' + bkOffline.label + ')' : '') + ' — nem induló Windows'
+    : 'erre a gépre (a most futó Windows)';
+  const ok = await showConfirm('Visszaállítás indítása', 'Mentés: ' + bkInfo.path + '\n\nVisszakerül: ' + what
+    + '\nCél: ' + where + (boot ? '\nUtána: a boot-betöltő (BCD) javítása' : '') + '\n\nIndulhat?');
+  if (!ok) return;
+  try {
+    await api().restore_drivers(bkInfo.path, target, pkgs, win, boot);
+  } catch (e) {
+    toast('Visszaállítási hiba: ' + e, 'error');
   }
 }
 async function createRestorePoint() {
@@ -7078,41 +7456,11 @@ function onBootFixerReady(data) {
     el.innerHTML = '';
   }
 }
-async function restoreDrivers() {
-  const choice = await showConfirm3('Visszaállítási Mód',
-    'ÉLŐRENDSZERRE (erre a futó Windowsra) akarod visszatenni a drivereket?',
-    'Igen (Élő mód)', 'Nem (Offline WinPE)', 'Mégse');
-  if (choice === true) {
-    try {
-      await api().restore_online();
-    } catch (e) {
-      toast('Élő visszaállítási hiba: ' + e, 'error');
-    }
-  } else if (choice === false) {
-    const ok = await showConfirm('Offline Visszaállítás Lépései', 
-      'OFFLINE módot választottál.\n\nA folyamat a következőképpen fog lezajlani:\n\n' +
-      '1. VÁLASZ TÁRHELYET (CÉLPONT / DESTINATION):\n' +
-      '   Először ki kell választanod azt a meghajtót/Windows mappát, ahová a drivereket telepíteni szeretnéd (pl. a halott rendszered meghajtója).\n\n' +
-      '2. VÁLASZ FORRÁST (SOURCE):\n' +
-      '   Ezután ki kell választanod azt a mappát, ahol a lementett drivereid vannak (pl. a WIM-ből kinyert driverek mappája).\n\n' +
-      'Készen állsz a varázsló indítására?');
-    if (ok) {
-      try {
-        await api().restore_offline();
-      } catch (e) {
-        toast('Offline visszaállítási hiba: ' + e, 'error');
-      }
-    }
-  }
-}
 async function extractWim() {
-  const ok = await showConfirm('ISO / WIM / ESD Alap Driver Kinyerés',
-    'Ezzel az opcióval egy hivatalos Windows ISO sources\\install.wim vagy install.esd fájljából bányásszuk ki a TISZTA Windows drivereket.\n\nAkarod folytatni?');
-  if (!ok) return;
   try {
-    await api().extract_wim();
+    await api().extract_wim(null, null);
   } catch (e) {
-    toast('WIM kinyerési hiba: ' + e, 'error');
+    toast('Kinyerési hiba: ' + e, 'error');
   }
 }
 
@@ -8176,6 +8524,8 @@ function onTaskComplete(data) {
   
   // Refresh relevant views
   if (data.task === 'delete' || data.task === 'restore') setTimeout(loadDrivers, 500);
+  // A Mentés nézet méretei és automatikus mentés-listája is elavul (új mentés, törlés előtti mentés).
+  if (['backup', 'restore', 'wim', 'delete'].includes(data.task) && currentView === 'backup') setTimeout(loadBackupView, 300);
   if (['disable_wu', 'enable_wu', 'restart_wu', 'pause_wu', 'resume_wu', 'wu_finish'].includes(data.task)) setTimeout(checkWuStatus, 500);
   if (data.task === 'toolsinstall') {
     refreshServiceTools();
@@ -8287,6 +8637,7 @@ let delLoading = false;
 // viszont a fail-safe ág véd MINDEN tároló-osztályt. A második esetben a "az útvonalán
 // van" állítás túlmutatna a bizonyítékon - ugyanaz a hiba, mint a színprofilos ügyben.
 let delBootDetected = true;
+let delBootMode = null;   // a rendszerlemez vezérlője: 'raid' | 'nvme' | 'ahci' | 'usb' | 'unknown'
 // A felismert Wi-Fi kártya neve - csak a "nincs mit zárolni" magyarázathoz kell.
 let delWifiAdapter = '';
 // A GÉP FELÉPÍTÉSE a csoportosításhoz (2026-10-01, explicit user decision). Ugyanaz az
@@ -8314,9 +8665,10 @@ let delGroupKeys = [];
 // kivette a pipát és semmi nem változott a jobb oldalon.
 function delRowForce(d) {
   if (d.group === 'boot')
-    return { on: false, why: delBootDetected
-      ? 'A rendszerlemez indítási útvonalán van – sosem töröljük'
-      : 'Nem sikerült felderíteni a rendszerlemez útvonalát – biztonságból minden tároló-driver marad' };
+    return { on: false, why: d.boot && d.boot.why
+      ? 'Boot-kritikus, nem töröljük: ' + d.boot.why
+      : (delBootDetected ? 'A rendszerlemez indítási útvonalán van – nem töröljük'
+                         : 'Nem sikerült felderíteni a rendszerlemez útvonalát – biztonságból minden tároló-driver marad') };
   if (d.group === 'wifi' && document.getElementById('mc-wifi-mode').checked) {
     return document.getElementById('mc-rebuild-wifi').checked
       ? { on: true,  why: 'Wi-Fi újraépítés bekapcsolva – törlődik, majd azonnal, tisztán visszatelepül a mentett példányból' }
@@ -8480,6 +8832,7 @@ function renderDeletePreview() {
         + (devs.length > 2 ? ' +' + (devs.length - 2) : '') + '</div>';
     }
     if (force) extra += '<div class="del-lock">🔒 ' + esc(force.why) + '</div>';
+    else if (d.boot) extra += bootNoteHtml(d.boot, delBootMode);
     const st = d.usage || 'unknown';
     // A sor bal szélén a KATEGÓRIA színe fut (ugyanaz, mint a Driverek nézetben); a
     // korábbi piros/sárga használat-csík 2026-10-01-én kikerült. A MEGMARADÓ sor (nincs
@@ -8704,6 +9057,7 @@ function showAutoFixConfirm(title, message) {
     document.getElementById('mc-del-search').value = '';
     delUnchecked = new Set();
     delBootDetected = true;
+    delBootMode = null;
     delWifiAdapter = '';
     delTab = 'all';
     // AZONNALI CSOPORTOSÍTÁS: ha a Driverek nézet már elkészítette a gép-térképet és a
@@ -8734,6 +9088,7 @@ function showAutoFixConfirm(title, message) {
       pv = pv || {};
       const list = pv.drivers || [];
       delBootDetected = pv.boot_detected !== false;
+      delBootMode = pv.boot_mode || null;
       delWifiAdapter = pv.wifi_adapter || '';
       // A SORRENDET a render adja (delVisibleIndices): alkatrész, azon belül használat
       // (aktív felül) - ugyanaz, mint a Driverek nézetben.

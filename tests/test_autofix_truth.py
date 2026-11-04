@@ -152,6 +152,53 @@ class WedgedDeleteTest(_TempState):
         self.assertIn('oem2.inf (fail.inf)', '\n'.join(c.log_lines()))
 
 
+class WifiRebuildAfterWedgeTest(_TempState):
+    """2026-11-03, ASUS E1504FA: egy szellem GPU-driver törlése beragadt, és a kért teljes
+    Wi-Fi újraépítés végleg elmaradt (a záró jelentés sem mondta ki). Most a lánc-állapotba
+    kerül, a következő láb a beragadt törlések befejezése után pótolja."""
+
+    def _wedge(self, c):
+        drvs = [{'published': 'oem81.inf', 'original': 'igdlh64.inf', 'class': 'Display'},
+                {'published': 'oem82.inf', 'original': 'iigd_ext.inf', 'class': 'Extension'},
+                {'published': 'oem5.inf', 'original': 'netwtw08.inf', 'class': 'Net'}]
+        c._drivers = drvs
+        c._autofix_wifi_mode = True
+        c._autofix_rebuild_wifi = True
+        with mock.patch.object(af, '_collect_boot_path_protection', return_value=(set(), [], True)), \
+                mock.patch.object(af, '_is_boot_path_protected', return_value=False), \
+                mock.patch.object(af, '_export_net_driver_backup', return_value=0), \
+                mock.patch.object(af, 'export_drivers_backup', return_value=(0, 0, 0)), \
+                mock.patch.object(af, 'export_wifi_driver_backup', return_value=True), \
+                mock.patch.object(af, 'collect_wifi_protection', return_value=({'oem5.inf'}, {'ssid': 'Bolt'})), \
+                mock.patch.object(af, 'is_wifi_protected', side_effect=lambda d, infs: d['published'] in infs), \
+                mock.patch.object(af, 'collect_driver_usage', return_value={}), \
+                mock.patch.object(af, 'is_reboot_pending', return_value=False), \
+                mock.patch.object(af, 'spawn_failed', return_value=False), \
+                mock.patch.object(c, '_get_installed_driver_info', create=True, return_value={}), \
+                mock.patch.object(c, '_rebuild_wifi_driver_step') as rebuild, \
+                mock.patch.object(drivers_core, 'delete_driver_package',
+                                  side_effect=lambda run, name, timeout=None: SimpleNamespace(returncode=1)), \
+                mock.patch.object(drivers_core, 'delete_stalled', return_value=True), \
+                mock.patch.object(drivers_core, 'delete_succeeded', return_value=False), \
+                mock.patch.object(drivers_core, 'delete_blocked_in_use', return_value=False):
+            self.assertEqual(c._delete_third_party_sync(), 'wedged')
+        rebuild.assert_not_called()                  # beragadáskor nem fut le...
+
+    def test_halasztva_majd_potolva(self):
+        c = _Chain()
+        self._wedge(c)
+        pend = c._autofix_stats_get('wifi_rebuild_pending')
+        self.assertEqual([p['published'] for p in pend], ['oem5.inf'])   # ...de feljegyezve
+        self.assertIn('halasztva', '\n'.join(c.log_lines()))
+        with mock.patch.object(c, '_rebuild_wifi_driver_step') as rebuild:
+            self.assertTrue(c._finish_pending_wifi_rebuild())
+            rebuild.assert_called_once()
+            self.assertEqual(rebuild.call_args[0][0][0]['published'], 'oem5.inf')
+            self.assertFalse(c._finish_pending_wifi_rebuild())          # egyszer fut
+            rebuild.assert_called_once()
+        self.assertFalse(c._autofix_stats_get('wifi_rebuild_pending'))
+
+
 class ResumeTaskTest(_TempState):
     """1-es pont: a folytató feladat verdiktje a visszaolvasott argumentum."""
 

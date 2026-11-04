@@ -36,6 +36,10 @@ class _Host(gdrv.GuiDriversMixin):
     def _safe_thread(self, _name, fn):
         fn()
 
+    def _backup_before_delete(self, names):
+        # A törlés előtti mentésnek saját tesztje van (test_backup_truth.ManualDeleteBackupTest).
+        return None
+
 
 class StaleListTest(unittest.TestCase):
     def test_list_from_before_target_switch_is_dropped(self):

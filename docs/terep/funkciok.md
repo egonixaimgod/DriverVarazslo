@@ -377,7 +377,34 @@ Vagyis **ezen a gépen EGYETLEN SMBIOS mező sem hordozza a gyártót**; az egye
 
 A nem-mappa lépések (miniatűr, Lomtár, komponenstár) egy helyen: `SPECIAL_CATEGORIES`; a GUI és a CLI is abból dolgozik. **Ellenőrizve:** a törlés a zárolt/junction/írásvédett/mély-mappa próbán (bájtra pontos), a méret-felmérés élőben, a két szolgáltatás-szkript szintaxisa (PSParser, 0 hiba) és logikája csonkkal, a nézet DOM-meghajtással (a törlés gomb pontosan a kipipált kategóriákat küldi) és képernyőképpel. **Nem futott élőben** (nem emelt jogú shell): maga a szolgáltatás-leállítás és a DISM.
 
+### Mentés és Visszaállítás (2026-11-04) — a nézet és a mag újraírása
+
+**Kérés (explicit user decision, szó szerint):** *„azt akarom akkor hogy a driverkeeloben amikor törlök barmi drivert akkor akkor is legyen magarol a driverrol mentes is illetve visszaallitasi pontot is csinaljon”*; *„ezt a mentés visszaállítás tabot teljesen alakítsd át, ami kell funkcio tartsd meg de mai nem kell az mehet … legyen egy driver mentes resz … ki tudd valasztani h csak third partyt … vagy osszes drivert … vagy cask ezt csak azt”*; *„a lementett driverek visszallitasa nyivan maradjon es tudjon visszaallitani third party meg windows oem drivereket is amiket csak le tudsz menteni tudd is visszaállítani”*; *„ez az iso wim driver kinyerés … ha mukodik akkor tartsuk meg”*; *„a rendszer visszaallitas pont is nyilvan fasza illetve a bcd bood script letöltése is releváns”*. Az ok: egy ASUS E1504FA-n a gyanús Micron NVMe drivert (`oem116.inf` = `mtinvme.inf`) kell törölni, és ha a gép utána nem indul, Sergei alól vissza kell tudni rakni.
+
+**Mért adatok (fejlesztői gép, nem emelt jogú shell):**
+- A third-party / Windows szétválasztás: a `%WinDir%\INF\oemNN.inf` mind az 58 esetben BÁJTRA azonos a DriverStore-mappájában lévő INF-fel, és a hash szerinti párosítás 0 eltéréssel egyezik a `SetupGetInfDriverStoreLocationW` eredményével (`win32.driver_store_folders`). Ezért a `third_party_store_folders` hash-sel dönt, ami offline lemezen is működik (a setupapi nem).
+- `store_overview()`: 721 csomag-mappa, ebből 58 third-party (2038,7 MB) és 663 Windows-csomag (355,6 MB), 1,1 mp.
+- „A Windows saját driverei” mentés élőben: 663 csomag, 385,5 MB, 7,0 mp, 677 INF, egyetlen `oem*.inf` sem került bele; a kimenet `inspect_backup`-pal visszaolvasva helyes.
+- A robocopy „csak a hiányzó” kapcsolói (`/XC /XN /XO`) élőben, eldobható mappákon: a meglévő, ELTÉRŐ tartalmú fájl nem íródott felül, a hiányzó átment (kód: 1), az `*.inf /XF oem*.inf oem*.pnf` csak a nem-oem INF-et vitte át, a második futás kódja 0. A `/ZB` itt nem futott (nem emelt jog).
+- A felület headless Chrome-ban, csonkolt API-val, valódi csomagadatokkal (6 valódi DriverStore-mappa): a „Visszaállítás indítása” pontosan a kipipált 5 csomag mappáját, a `D:\` célt, a Windows-részt és a BCD-kérést küldi; 1186 px szélességen is egy sorban marad a három kártya.
+
+**NEM mérve:** a DISM-export emelt jogon; a visszaállítás élő gépen és offline lemezre (driver-veremhez nyúl); a lemezkép-kinyerés valódi `install.wim`/`.esd`-vel; a program Sergei/WinPE alatt.
+
+**Mi változott a régihez képest (a régi kódból):**
+- A „Third-party” és az „ÖSSZES” mentés két külön kártya volt, a teljes mentés a TELJES `FileRepository`-t másolta (a third-partykat kétszer: DISM + másolás) és a teljes `Windows\INF`-et, az `oemNN.inf`-ekkel együtt. Offline visszaállításkor ez a cél gép `oemNN.inf` fájljait felülírhatta egy másik csomag INF-jével (az oem-számozás gépenként más).
+- Az élő visszaállítás `pnputil /add-driver <gyökér>\*.inf /subdirs` volt: egy teljes mentésnél a `_Windows_Inbox_Drivers` ~700 Windows-INF-jét is third-party másolatként rakta fel.
+- A régi WIM-formátum offline visszaállítása fizikai másolás (felülírással) + `dism /Add-Driver /Recurse` volt a Windows-csomagokra. Most: csak a hiányzó fájlok, DISM nélkül (a DISM a Windows saját csomagjait `oemNN` másolatként venné fel; egy más verziójú INF egy működő driver mellé rakva több kárt tenne, mint hasznot).
+- `_stream_cmd`: a Mégse után `break` + `wait()` volt; ha a gyerekfolyamat közben megtöltötte a csövet, örökre várt (holtpont). Most a kimenetet a végéig kiolvassuk, csak nem továbbítjuk.
+- A CLI-ben nem volt mappaválasztó (`select_directory`): a GUI változatát örökölte (`self._window`), a Mentés menü minden pontja AttributeError-ral állt meg — pont WinPE alatt, ahol a CLI a tartalék.
+- A régi felület mappaválasztóinak `title`-je a pywebview-ban nem jelenik meg (a `create_file_dialog` nem kapja meg), ezért a régi „1. válaszd a halott Windowst, 2. a mentést” lépéseket a felhasználó nem látta; most a nézet maga mutatja a két lépést (A/B) és a kiválasztott értékeket.
+
+**A kézi törlés előtti mentés** (`GuiDriversMixin._backup_before_delete`): élő gépen a kijelölt csomagok az 1 kattintásos fix függvényével (`wu_core.export_drivers_backup`, új `dest`/`purpose`/`min_free_gb` paraméterek; a szabad-hely küszöb a csomagok méretéből + 0,5 GB), offline célnál a cél-Windows összes third-party drivere (DISM, a cél lemezére). Hely: `<rendszer- vagy cél-lemez>\DriverVarazslo\driver_backup_kezi\<idő>`, a legfrissebb 5 marad (egy teljes törlés mentése 1–2,5 GB). Utána visszaállítási pont (`_create_restore_point_sync(label='kézi driver-törlés')`), offline módban nem (a cél nem fut, kiírjuk). A mentés hibája nem állítja meg a törlést (1. elv), de a képernyőn és a záró állapotsorban is kimondjuk.
+
+**Saját hiba, ami közben kiderült:** a 2026-11-03-i `WifiRebuildAfterWedgeTest` a valódi `wu_core.export_wlan_profiles`-t futtatta, ami a VALÓDI `C:\DriverVarazslo\wlan_backup`-ot `rmtree`-zte és hozta létre. A teljes tesztkészlet utáni `find -newer` ellenőrzés fogta meg (a mappa a tesztfutás percében keletkezett). Javítás: a `tests/__init__.py` a `wu_core` és a `backup_core` `_app_data_dir`-jét is eldobható mappára állítja, a `backup_core._stream_cmd`-et pedig hibára.
+
 ### 2026-10-12: review-javítások — mentés, visszaállítás, BCD
+
+> **2026-11-04: A `run_restore` és a `backup_all_drivers` TÖRÖLVE** (a fenti újraírás váltotta fel őket, a kilépési kódokra vonatkozó szabály változatlan, a `restore_drivers`-ben él). Az alábbi „a WIM-ág DISM-hibái szándékosan figyelmen kívül” mondat **visszavonva**: a Windows saját részét már nem regisztráljuk DISM-mel.
 
 Kódolvasásból, a felhasználó kérésére; terepen NEM reprodukálva. Teszt: `tests/test_backup_truth.py` (7 eset; 6 elbukik a régi kódon, a 7. a jó-út eset).
 

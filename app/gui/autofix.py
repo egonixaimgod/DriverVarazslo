@@ -38,6 +38,7 @@ from app.wu_core import export_drivers_backup
 from app.wu_core import _driver_backup_dir
 from app.wu_core import _collect_boot_path_protection
 from app.wu_core import _is_boot_path_protected
+from app.wu_core import BOOT_MODE_TEXT
 from app.wu_core import _export_net_driver_backup
 from app.wu_core import _restore_net_driver_backup
 from app.wu_core import detect_wifi_state
@@ -269,8 +270,8 @@ class GuiAutofixMixin:
         except Exception as e:
             logging.warning(f"[AUTOFIX-CLEANUP] Induláskori házirend-takarítás hiba (nem kritikus): {e}")
 
-    def _create_restore_point_sync(self, task_id='autofix'):
-        desc = "DriverVarázsló AutoFix - " + datetime.now().strftime("%Y-%m-%d %H:%M")
+    def _create_restore_point_sync(self, task_id='autofix', label='AutoFix'):
+        desc = f"DriverVarázsló {label} - " + datetime.now().strftime("%Y-%m-%d %H:%M")
         self.emit('task_progress', {'task': task_id, 'log': 'Registry Mentés (Restore Point) készítése folyamatban...', 'indeterminate': True})
         # Gyors (nem ellenőrzött) változat a közös backup_core-ból - az AutoFix egy
         # elutasított pont miatt nem áll meg.
@@ -410,9 +411,19 @@ class GuiAutofixMixin:
         # jön - olyan állapot, amit már semmilyen visszaállításunk nem tud helyrehozni.
         # Lásd wu_core._collect_boot_path_protection (ott a fail-safe ág magyarázata is).
         boot_infs, boot_chain, boot_detected = _collect_boot_path_protection(self._run)
+        boot_why = {}
         if boot_detected:
             chain_txt = ' → '.join(f"{c.get('Name') or '?'} [{c.get('Class') or '?'}]" for c in boot_chain) or '?'
             self.emit('task_progress', {'task': task_id, 'log': f'💾 Rendszerlemez útvonala: {chain_txt}'})
+            boot_mode = ((boot_chain or [{}])[0].get('Mode')) or 'unknown'
+            self.emit('task_progress', {'task': task_id, 'log': f'💾 A rendszerlemez {BOOT_MODE_TEXT.get(boot_mode, boot_mode)}.'})
+            for c in boot_chain:
+                v = c.get('Verdict')
+                if v:
+                    boot_why[os.path.basename(c.get('Inf') or '').lower()] = v['why']
+                    if not v['protect']:
+                        self.emit('task_progress', {'task': task_id, 'log':
+                                  f"   ✅ {c.get('Inf')} ({c.get('Name') or '?'}) a láncon van, de törölhető: {v['why']}"})
         else:
             self.emit('task_progress', {'task': task_id, 'log': '⚠️ A rendszerlemez eszközlánca nem azonosítható - biztonságból MINDEN tárolóvezérlő-driver védve marad.'})
         boot_protected = [d for d in drivers if _is_boot_path_protected(d, boot_infs, boot_detected)]
@@ -422,8 +433,9 @@ class GuiAutofixMixin:
             self.emit('task_progress', {'task': task_id, 'log': f'🛡️ {len(boot_protected)} db boot-kritikus tárolódriver VÉDVE (nem töröljük, különben a gép nem indulna el):'})
             for d in boot_protected:
                 line = f"{d.get('published', '?')} ({d.get('original', '?')}) - {d.get('provider', '?')} [{d.get('class', '?')}]"
-                self.emit('task_progress', {'task': task_id, 'log': f'   • {line}'})
-                logging.warning(f"[BOOT-PROTECT] Törlésből KIZÁRVA (boot-kritikus): {line}")
+                why = boot_why.get((d.get('published') or '').lower()) or 'a lánc nem azonosítható - biztonsági alapállapot'
+                self.emit('task_progress', {'task': task_id, 'log': f'   • {line} - {why}'})
+                logging.warning(f"[BOOT-PROTECT] Törlésből KIZÁRVA (boot-kritikus): {line} - {why}")
         else:
             logging.info("[BOOT-PROTECT] A törlési listán nincs a rendszerlemez útvonalához tartozó csomag.")
 
@@ -709,8 +721,14 @@ class GuiAutofixMixin:
                             for f in failed:
                                 self.emit('task_progress', {'task': task_id, 'log': f'   • {f}'})
                         if getattr(self, '_autofix_rebuild_wifi', False) and wifi_protected_pkgs:
-                            logging.warning("[WIFI-REBUILD] A beragadt törlés miatt a Wi-Fi driver újraépítése elmarad.")
-                            self.emit('task_progress', {'task': task_id, 'log': '⚠️ A Wi-Fi driver teljes újraépítése most elmarad (a törlés beragadt) - a régi Wi-Fi driver a helyén marad.\n'})
+                            # 2026-11-03 (terep, ASUS E1504FA): eddig itt végleg elmaradt, és a
+                            # záró jelentés sem mondta ki. A mentés a törlés ELŐTT már elkészült,
+                            # tehát a következő láb a beragadt törlések befejezése után pótolja
+                            # (_finish_pending_wifi_rebuild).
+                            self._autofix_stats_set('wifi_rebuild_pending', wifi_protected_pkgs)
+                            logging.warning("[WIFI-REBUILD] A beragadt törlés miatt a Wi-Fi driver újraépítése "
+                                            "a következő lábra halasztva (wifi_rebuild_pending).")
+                            self.emit('task_progress', {'task': task_id, 'log': '⏭️ A Wi-Fi driver teljes újraépítése az újraindítás utánra halasztva (a törlés beragadt) - a beragadt törlések befejezése után pótoljuk.\n'})
                         return 'wedged'
                     continue
                 stalled_streak = 0
@@ -1960,6 +1978,19 @@ class GuiAutofixMixin:
                 logging.warning(f"[REGRESSZIO] {dev_name}: ELŐTTE {orig} ({before.get('provider')} "
                                 f"{before.get('version')}) -> MOST {info.get('inf')} ({info.get('provider')})")
                 path = driverstore_package_inf(orig) if orig else None
+                if not path and (before.get('class') or '').strip().lower() in ('scsiadapter', 'hdc'):
+                    # SZÁNDÉKOS ÁLLAPOT (2026-11-04, szűkített boot-védelem): egy szabványos
+                    # NVMe/AHCI vezérlő gyári driverét a fix törli, a Windows sajátja viszi
+                    # tovább, tárolót pedig a lánc soha nem telepít. A jelentésben MARAD (az
+                    # elveszett gyári driverek listája szűrés nélküli), de nem teendőként.
+                    regressed += 1
+                    self._note_lost_vendor_driver(
+                        dev_name, before, f'szándékos: most a Windows saját tároló-driverén fut ({info.get("inf")}), '
+                        f'a fix tároló-drivert nem telepít; a régi a törlés előtti mentésben megvan', intended=True)
+                    self.emit('task_progress', {'task': task_id, 'log': f'   ℹ️ {dev_name}: a Windows saját tároló-driverén fut ({info.get("inf")}) - ez a szándékos állapot.'})
+                    logging.info(f"[REGRESSZIO] {dev_name}: tároló-vezérlő, szándékosan a Windows saját "
+                                 f"driverén ({info.get('inf')}); a gyári {orig} nincs a gépen.")
+                    continue
                 if not path:
                     regressed += 1
                     self._note_lost_vendor_driver(dev_name, before, 'a gyári csomag már nincs a gépen')
@@ -1999,7 +2030,7 @@ class GuiAutofixMixin:
                      f"{regressed} megmaradt.")
         return fixed, regressed, pending
 
-    def _note_lost_vendor_driver(self, dev_name, before, why):
+    def _note_lost_vendor_driver(self, dev_name, before, why, intended=False):
         """Egy ELVESZETT gyári driver feljegyzése a ZÁRÓ JELENTÉSHEZ (2026-09-07).
 
         MIÉRT KELL (terepi napló, ASRock B450M-HDV, 2026-09-04): a lánc törölte az
@@ -2023,6 +2054,7 @@ class GuiAutofixMixin:
                 'provider': (before or {}).get('provider') or '?',
                 'version': (before or {}).get('version') or '?',
                 'why': why,
+                'intended': intended,
             })
         except Exception as e:
             logging.debug(f"[REGRESSZIO] Az elveszett driver feljegyzése nem sikerült: {e}")
@@ -2420,12 +2452,18 @@ class GuiAutofixMixin:
                           f'\n❗ {len(lost)} eszköz a fix ELŐTT gyári driveren futott, most viszont a Windows alapdriverén van:'})
                 for l in lost:
                     self.emit('task_progress', {'task': task_id, 'log':
-                              f"   • {l['name']} - előtte: {l['provider']} {l['version']} "
-                              f"({l['inf']}) - {l['why']}"})
-                self.emit('task_progress', {'task': task_id, 'log':
-                          '👉 A gép ezekkel MŰKÖDIK, de gyengébben (pl. hangkártyánál hiányzó effektek, '
-                          'tapipadnál szaggatás). A gyári drivert a gép- vagy alaplapgyártó '
-                          'letöltőoldaláról érdemes kézzel pótolni.'})
+                              f"   {'ℹ️' if l.get('intended') else '•'} {l['name']} - előtte: {l['provider']} "
+                              f"{l['version']} ({l['inf']}) - {l['why']}"})
+                if any(not l.get('intended') for l in lost):
+                    self.emit('task_progress', {'task': task_id, 'log':
+                              '👉 A gép ezekkel MŰKÖDIK, de gyengébben (pl. hangkártyánál hiányzó effektek, '
+                              'tapipadnál szaggatás). A gyári drivert a gép- vagy alaplapgyártó '
+                              'letöltőoldaláról érdemes kézzel pótolni.'})
+                if any(l.get('intended') for l in lost):
+                    self.emit('task_progress', {'task': task_id, 'log':
+                              'ℹ️ A tároló-vezérlőknél (ℹ️) ez a szándékos állapot: szabványos NVMe/AHCI, a Windows '
+                              'saját drivere teljes értékűen viszi. Ha mégis a gyári kellene: Mentés és '
+                              'Visszaállítás → „1 kattintásos fix előtt” mentés.'})
                 # Egy eszköz csak EGY listában szerepeljen: amit itt már kimondtunk, azt a
                 # lenti "nincs hozzá gyári csomag" felsorolás ne ismételje meg más üzenettel.
                 lost_names = {(l['name'] or '').strip().lower() for l in lost}
@@ -2706,6 +2744,11 @@ class GuiAutofixMixin:
                     self.emit('task_progress', {'task': task_id, 'log': 'A Windows Update és a katalógus sem kínált hozzá újabbat, tehát a jelenlegi a legfrissebb elérhető. Ha mindenképp tiszta újratelepítést akarsz, tedd kábelre a gépet, és futtasd újra a fixet Wi-Fi mód nélkül.'})
                 else:
                     self.emit('task_progress', {'task': task_id, 'log': '\n📶 Wi-Fi-s telepítés: a Wi-Fi kártya drivere ki volt hagyva a törlésből; hogy a végén melyik driveren fut, nem olvasható ki.'})
+                if self._autofix_stats_get('wifi_rebuild_pending'):
+                    # A kért teljes újraépítés el sem jutott a pótlásig (a beragadt törlés
+                    # újraindításokkal sem fejeződött be) - ezt ki kell mondani.
+                    logging.warning("[WIFI-REBUILD] A kért teljes újraépítés a lánc végéig sem futott le.")
+                    self.emit('task_progress', {'task': task_id, 'log': '⚠️ A kért teljes Wi-Fi driver-újraépítés ELMARADT: a törlés beragadt, és újraindítás után sem fejeződött be. A Wi-Fi a régi driverén működik.'})
                 clear_wlan_backup()
             # A WU videokártya-driverei jellemzően hónapokkal a gyári kiadás mögött járnak.
             # 2026-09-02-ig itt az állt, hogy a manuális szken "az NVIDIA/AMD/Intel gyári
@@ -2808,7 +2851,11 @@ class GuiAutofixMixin:
                 # felderíteni a rendszerlemez láncát) fail-safe módon az egész
                 # BOOT_FALLBACK_PROTECT_CLASSES-t védi - ezt a döntést nem szabad itt
                 # újraírni, ezért a törléssel KÖZÖS _is_boot_path_protected dönt.
-                boot_infs, _boot_chain, boot_detected = f_boot.result()
+                boot_infs, boot_chain, boot_detected = f_boot.result()
+            # A boot-lánc döntésének INDOKA soronként (2026-11-04): a dialógus ezt írja ki a
+            # zárolt (RAID/VMD) és a „láncon van, de törölhető” (NVMe/AHCI) sorokhoz is.
+            boot_why = {os.path.basename(c.get('Inf') or '').lower(): c['Verdict']
+                        for c in boot_chain or [] if c.get('Verdict')}
             out = []
             for d in drivers:
                 pub = (d.get('published') or '').lower()
@@ -2831,6 +2878,7 @@ class GuiAutofixMixin:
                     'usage': u.get('state', USAGE_UNKNOWN),
                     'usage_text': u.get('summary', ''),
                     'usage_reasons': u.get('reasons', []),
+                    'boot': boot_why.get(pub),
                 })
             groups = {}
             for r in out:
@@ -2869,6 +2917,7 @@ class GuiAutofixMixin:
                     'wifi_connected': bool(wifi_state.get('wifi')),
                     'wifi_rows': groups.get('wifi', 0),
                     'boot_detected': boot_detected,
+                    'boot_mode': (boot_chain[0].get('Mode') if boot_detected and boot_chain else None),
                     'usage_counts': usage_counts,
                     'machine': mm, 'machine_error': mm_out.get('machine_error', '')}
         except Exception as e:
@@ -2876,6 +2925,21 @@ class GuiAutofixMixin:
             return {'drivers': [], 'wifi_adapter': '', 'wifi_present': False,
                     'wifi_connected': False, 'wifi_rows': 0, 'error': str(e),
                     'machine': None}
+
+    def _finish_pending_wifi_rebuild(self, task_id='autofix'):
+        """A B lábon beragadt törlés miatt elhalasztott Wi-Fi újraépítés pótlása (a
+        `wifi_rebuild_pending` a lánc-állapotban). A jelzőt a lépés UTÁN töröljük: egy
+        közbeni összeomlás után a következő láb újra megpróbálja (a lépés megismételhető:
+        eltávolítás + visszatöltés ugyanabból a mentésből)."""
+        pkgs = self._autofix_stats_get('wifi_rebuild_pending')
+        if not pkgs:
+            return False
+        logging.info(f"[WIFI-REBUILD] Az elhalasztott újraépítés pótlása: "
+                     f"{[p.get('original') or p.get('published') for p in pkgs]}")
+        self.emit('task_progress', {'task': task_id, 'log': '📶 A törlés beragadása miatt elhalasztott Wi-Fi driver-újraépítés pótlása...'})
+        self._rebuild_wifi_driver_step(pkgs, task_id)
+        self._autofix_stats_set('wifi_rebuild_pending', [])
+        return True
 
     def _rebuild_wifi_driver_step(self, wifi_pkgs, task_id='autofix'):
         """A Wi-Fi driver TELJES újraépítése a törlési fázis végén (opcionális lépés).
@@ -3444,6 +3508,9 @@ class GuiAutofixMixin:
                         # pending-reboot állapotban hagyná a gépet, és a telepítés első
                         # csomagja azonnal a [kód=4]-es falba futna.
                         self.emit('task_progress', {'task': 'autofix', 'log': '\n✅ Minden törlendő driver eltávolítva!'})
+                        # A beragadás miatt elhalasztott Wi-Fi újraépítés helye ugyanaz, mint a
+                        # B lábon: a törlés vége, közvetlenül egy újraindítás ELŐTT.
+                        self._finish_pending_wifi_rebuild()
                         self.emit('task_progress', {'task': 'autofix', 'log': '🔄 Újraindulás, és utána indul a TELEPÍTÉS!'})
                         self._schedule_autofix_resume('--resume-autofix')
                         self._reboot_or_cancel('Újraindulás a telepítés előtt...')
