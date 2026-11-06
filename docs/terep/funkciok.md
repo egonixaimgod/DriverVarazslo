@@ -379,6 +379,8 @@ A nem-mappa lépések (miniatűr, Lomtár, komponenstár) egy helyen: `SPECIAL_C
 
 ### Mentés és Visszaállítás (2026-11-04) — a nézet és a mag újraírása
 
+> **2026-11-05:** a mentés forrása már nem a felső „Másik lemez” sávból (globális cél) jön, hanem a panel saját „Honnan mentsen?” választójából, és az „A” lépés automatikus mentései a „B”-ben választott lemezéi. Részletek és mérés: `docs/terep/felulet.md` (grep: `2026-11-05: a felső`).
+
 **Kérés (explicit user decision, szó szerint):** *„azt akarom akkor hogy a driverkeeloben amikor törlök barmi drivert akkor akkor is legyen magarol a driverrol mentes is illetve visszaallitasi pontot is csinaljon”*; *„ezt a mentés visszaállítás tabot teljesen alakítsd át, ami kell funkcio tartsd meg de mai nem kell az mehet … legyen egy driver mentes resz … ki tudd valasztani h csak third partyt … vagy osszes drivert … vagy cask ezt csak azt”*; *„a lementett driverek visszallitasa nyivan maradjon es tudjon visszaallitani third party meg windows oem drivereket is amiket csak le tudsz menteni tudd is visszaállítani”*; *„ez az iso wim driver kinyerés … ha mukodik akkor tartsuk meg”*; *„a rendszer visszaallitas pont is nyilvan fasza illetve a bcd bood script letöltése is releváns”*. Az ok: egy ASUS E1504FA-n a gyanús Micron NVMe drivert (`oem116.inf` = `mtinvme.inf`) kell törölni, és ha a gép utána nem indul, Sergei alól vissza kell tudni rakni.
 
 **Mért adatok (fejlesztői gép, nem emelt jogú shell):**

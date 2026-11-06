@@ -70,7 +70,7 @@ class GuiDriversMixin:
             logging.warning(f"[PRINTER-FILTER] A nyomtató-driverek felderítése sikertelen: {e}")
             return {'published': [], 'count': 0, 'error': str(e)}
 
-    def get_driver_usage(self, known_drivers=None):
+    def get_driver_usage(self, known_drivers=None, target=None):
         """MELYIK CSOMAGOT HASZNÁLJA MOST A GÉP - a Driverek nézet csoportosításához.
 
         MIÉRT (explicit user decision, 2026-09-17): a technikus eddig VAKON törölt. A
@@ -88,11 +88,13 @@ class GuiDriversMixin:
 
         OFFLINE MÓDBAN NEM FUT: a futó gép eszközei és szolgáltatásai semmit nem
         mondanak egy MÁSIK lemezen lévő Windows csomagjairól - az ottani állapotot ide
-        kiírni néma hazugság lenne. Ilyenkor 'unknown' marad minden sor."""
-        logging.info(f"[API] get_driver_usage({len(known_drivers or [])} csomag)")
-        if self.target_os_path:
+        kiírni néma hazugság lenne. Ilyenkor 'unknown' marad minden sor.
+        `target`: a lista lemeze (a GUI Driverek nézete küldi; None = a CLI globális célja)."""
+        logging.info(f"[API] get_driver_usage({len(known_drivers or [])} csomag, cél: {target!r})")
+        target = target or self.target_os_path
+        if target:
             logging.info("[USAGE] Offline mód - a használat-felderítés kihagyva "
-                         f"(célpont: {self.target_os_path}).")
+                         f"(célpont: {target}).")
             return {'usage': {}, 'counts': {}, 'offline': True}
         boot_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='bootinfo')
         boot_future = boot_pool.submit(self._boot_driver_info)
@@ -173,7 +175,7 @@ class GuiDriversMixin:
     # ================================================================
     # DRIVER LISTING
     # ================================================================
-    def load_drivers(self):
+    def load_drivers(self, target=None):
         # CSAK THIRD-PARTY (2026-10-13, explicit user decision: *"nem akarom véletlenül
         # kitörölni az összes drivert a gépről"*). Az "összes driver" mód (a Windows saját
         # csomagjai, a nem-oem csomagok force-törlése) a GUI-ból 2026-09-18-án, a CLI-ből és
@@ -183,8 +185,11 @@ class GuiDriversMixin:
         # technikus abból törölt a D:\ képen - egy másik Windowsban ugyanaz az oemNN.inf
         # egészen más driver. Csak a LEGUTÓBBI betöltés eredménye mehet ki, és csak akkor,
         # ha a céllemez azóta nem változott.
+        # A CÉL A NÉZETÉ (2026-11-05, explicit user decision: a felső „Másik lemez” sáv
+        # megszűnt): a GUI Driverek nézete minden kéréssel elküldi, melyik Windows listáját
+        # kéri (`target`, None = ez a gép). A CLI nem küld semmit, ott a globális cél dönt.
         self._drv_load_gen = getattr(self, '_drv_load_gen', 0) + 1
-        gen, target = self._drv_load_gen, self.target_os_path
+        gen, target = self._drv_load_gen, (target or self.target_os_path or None)
         logging.info(f"[API] load_drivers() - #{gen}, cél: {target or 'élő rendszer'}")
         def worker():
             self.emit('drivers_loading', {'target': target or ''})
@@ -197,16 +202,16 @@ class GuiDriversMixin:
             # A kettő gyökeresen mást jelent a technikusnak, ezért a hibát ki kell mondani.
             problems = []
             def _stale():
-                if gen == self._drv_load_gen and target == self.target_os_path:
+                # Minden lemezváltás új betöltést indít, tehát a sorszám elég.
+                if gen == self._drv_load_gen:
                     return False
                 logging.warning(f"[DRIVERS] A #{gen} betöltés ({target or 'élő rendszer'}) ELAVULT "
-                                f"(azóta: #{self._drv_load_gen}, cél: {self.target_os_path or 'élő rendszer'}) "
-                                f"- az eredménye nem jelenik meg.")
+                                f"(azóta: #{self._drv_load_gen}) - az eredménye nem jelenik meg.")
                 return True
             try:
                 if target:
                     logging.info(f"[DRIVERS] Offline mód: {target}")
-                    drivers = self._get_offline_drivers(problems)
+                    drivers = self._get_offline_drivers(problems, target)
                 else:
                     logging.info("[DRIVERS] Third-party driverek lekérdezés")
                     drivers = self._get_third_party_drivers(problems)
@@ -290,16 +295,17 @@ class GuiDriversMixin:
         jelzéssel)."""
         return getattr(self, '_dv_store_gen', 0)
 
-    def _get_offline_drivers(self, problems=None):
-        logging.debug("[DRIVERS] _get_offline_drivers()")
-        drivers = drivers_core.get_offline_drivers(self._run, self.target_os_path, problems)
+    def _get_offline_drivers(self, problems=None, target=None):
+        target = target or self.target_os_path
+        logging.debug(f"[DRIVERS] _get_offline_drivers({target})")
+        drivers = drivers_core.get_offline_drivers(self._run, target, problems)
         logging.debug(f"[DRIVERS] _get_offline_drivers: {len(drivers)} valid driver")
         return drivers
 
     # ================================================================
     # DRIVER DELETION
     # ================================================================
-    def _backup_before_delete(self, published_names):
+    def _backup_before_delete(self, published_names, target=None):
         """A kézi törlés előtti MENTÉS és VISSZAÁLLÍTÁSI PONT (explicit user decision,
         2026-11-04: *„amikor törlök barmi drivert akkor … legyen magarol a driverrol mentes
         is illetve visszaallitasi pontot is csinaljon”*). Az eset: egy ASUS-on a gyanús NVMe
@@ -313,7 +319,6 @@ class GuiDriversMixin:
         elé nem kerül néma feltétel), de kiírjuk. Visszatérés: a mentés mappája vagy None."""
         def emit(msg):
             self.emit('task_progress', {'task': 'delete', 'log': msg})
-        target = self.target_os_path
         root = backup_core.manual_backup_root(target)
         folder = None
         try:
@@ -353,17 +358,20 @@ class GuiDriversMixin:
 
     def delete_drivers(self, published_names, reboot=False, list_target=None):
         logging.info(f"[API] delete_drivers() - {len(published_names)} driver, "
-                     f"reboot={reboot}, a lista lemeze: {list_target!r}, a mostani cél: {self.target_os_path!r}")
+                     f"reboot={reboot}, a lista lemeze: {list_target!r}, a globális cél: {self.target_os_path!r}")
         logging.info(f"[DELETE] Törlendő driverek: {published_names}")
         # A KIJELÖLÉS LEMEZE = A TÖRLÉS LEMEZE (2026-10-12, lásd load_drivers): az oemNN.inf
         # szám lemezenként mást jelent, egy másik lemez listájáról jött névvel SOHA nem törlünk.
-        if list_target is not None and (list_target or None) != (self.target_os_path or None):
+        # A GUI a lista lemezét küldi (`list_target`, '' = ez a gép), és a törlés OTT fut; a CLI
+        # nem küld semmit, ott a globális cél dönt. Ha mindkettő van, és eltér: megtagadjuk.
+        if list_target is not None and self.target_os_path and (list_target or None) != self.target_os_path:
             logging.error(f"[DELETE] MEGTAGADVA: a kijelölt lista a(z) {list_target or 'élő rendszer'} "
-                          f"lemezéről jött, a cél viszont {self.target_os_path or 'az élő rendszer'}.")
+                          f"lemezéről jött, a cél viszont {self.target_os_path}.")
             self.emit('toast', {'message': '❌ A kijelölt lista egy MÁSIK lemezről jött - a törlés megtagadva. '
                                            'Frissítsd a listát, és jelöld ki újra!', 'type': 'error'})
             return
-        where = f' – OFFLINE: {self.target_os_path}' if self.target_os_path else ''
+        target = self.target_os_path if list_target is None else (list_target or None)
+        where = f' – OFFLINE: {target}' if target else ''
         def worker():
             total = len(published_names)
             success = 0
@@ -378,7 +386,7 @@ class GuiDriversMixin:
             in_use = []
             logging.info(f"[DELETE] Törlés indulása: {total} db driver")
             self.emit('task_start', {'task': 'delete', 'title': f'Törlés folyamatban... ({total} driver{where})'})
-            backup_folder = self._backup_before_delete(published_names)
+            backup_folder = self._backup_before_delete(published_names, target)
             self.emit('task_progress', {'task': 'delete', 'log': f'\nKijelölt driverek törlése indult ({total} db{where})'})
 
             cancelled = False
@@ -399,8 +407,8 @@ class GuiDriversMixin:
                     # Időkorlát minden pnputil-törlésre (CLAUDE.md 11.): egy beragadt PnP-veremnél
                     # csomagonként percekig lógna. Offline a DISM töröl, egy lemezképen az lassabb.
                     res = drivers_core.delete_driver_package(
-                        self._run, pub, self.target_os_path,
-                        timeout=None if self.target_os_path else drivers_core.DELETE_DRIVER_TIMEOUT)
+                        self._run, pub, target,
+                        timeout=None if target else drivers_core.DELETE_DRIVER_TIMEOUT)
 
                     if drivers_core.delete_stalled(res):
                         fail += 1
@@ -436,7 +444,7 @@ class GuiDriversMixin:
                     log=lambda m: self.emit('task_progress', {'task': 'delete', 'log': m}),
                     check_cancel=lambda: bool(self._cancel_flag),
                     timeout=drivers_core.DELETE_DRIVER_TIMEOUT,
-                    target_os_path=self.target_os_path)
+                    target_os_path=target)
                 success += len(r['deleted'])
                 fail += len(r['failed'])
                 if r['failed']:
@@ -450,7 +458,7 @@ class GuiDriversMixin:
                               'log': drivers_core.in_use_explanation(len(r['still_in_use']))})
 
             # Post-delete scan
-            is_offline = bool(self.target_os_path)
+            is_offline = bool(target)
             is_pe = os.environ.get('SystemDrive', 'C:') == 'X:'
             if not is_offline and not is_pe and success > 0:
                 self.emit('task_progress', {'task': 'delete', 'log': 'Hardverek újraszkennelése...', 'status': 'Hardverek újraszkennelése...'})

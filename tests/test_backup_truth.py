@@ -381,7 +381,7 @@ class ManualDeleteBackupTest(unittest.TestCase):
         with mock.patch.object(gdrv.backup_core, 'backup_drivers',
                                return_value={'status': 'ok', 'folder': 'D:\\x'}) as bk, \
                 mock.patch.object(gdrv.backup_core, 'prune_manual_backups'):
-            self.assertEqual(h._backup_before_delete(['oem116.inf']), 'D:\\x')
+            self.assertEqual(h._backup_before_delete(['oem116.inf'], 'D:\\'), 'D:\\x')
         self.assertEqual(bk.call_args[0][3], 'D:\\DriverVarazslo\\driver_backup_kezi')
         self.assertEqual(bk.call_args[0][5], 'thirdparty')
         self.assertEqual(h.rp, [])

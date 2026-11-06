@@ -38,7 +38,7 @@ class _Host:
     def _safe_thread(self, _name, fn):
         fn()
 
-    def _backup_before_delete(self, names):
+    def _backup_before_delete(self, names, target=None):
         # A törlés előtti mentésnek saját tesztje van (test_backup_truth.ManualDeleteBackupTest).
         return None
 
@@ -103,7 +103,8 @@ class ThirdPartyOnlyTest(unittest.TestCase):
         from app.gui.drivers import GuiDriversMixin
         self.assertFalse(hasattr(drivers_core, 'get_all_drivers'))
         self.assertFalse(hasattr(drivers_core, 'force_delete_driver_files'))
-        self.assertEqual(list(inspect.signature(GuiDriversMixin.load_drivers).parameters), ['self'])
+        # a `target` a nézet lemeze (2026-11-05), nem egy „mind” kapcsoló
+        self.assertEqual(list(inspect.signature(GuiDriversMixin.load_drivers).parameters), ['self', 'target'])
         self.assertNotIn('list_all', inspect.signature(GuiDriversMixin.delete_drivers).parameters)
         self.assertNotIn('all_drivers', inspect.signature(drivers_core.get_offline_drivers).parameters)
 

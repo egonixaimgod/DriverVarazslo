@@ -146,13 +146,14 @@ def describe_windows(root):
 
 
 def offline_target_problem(root):
-    """Miért NEM lehet ez egy offline visszaállítás célja? None = mehet."""
+    """Miért NEM lehet ez egy offline (nem futó) Windows? None = mehet. A visszaállítás
+    célja, a mentés forrása és a Driverek nézet „Másik Windows” választója is ezt kérdezi."""
     if not os.path.isfile(os.path.join(root, 'Windows', 'System32', 'config', 'SYSTEM')):
         return (f'A(z) {root} meghajtón nincs Windows (hiányzik a '
-                f'Windows\\System32\\config\\SYSTEM). Válaszd ki a nem induló Windows meghajtóját.')
+                f'Windows\\System32\\config\\SYSTEM). Annak a Windowsnak a meghajtóját válaszd ki.')
     sysdrv = os.environ.get('SystemDrive', 'C:')
     if sysdrv.upper() != 'X:' and os.path.normcase(root) == os.path.normcase(sysdrv + '\\'):
-        return ('Ez a most futó Windows meghajtója - erre az „Erre a gépre” móddal állíts vissza '
+        return ('Ez a most futó Windows meghajtója - ehhez az „Ez a gép” / „Erre a gépre” választás való '
                 '(egy futó Windowsba a DISM offline módja nem tud írni).')
     return None
 

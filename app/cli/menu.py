@@ -1617,7 +1617,7 @@ def _menu_settings(api):
             if p:
                 api.apply_target_os(p)
         elif c == '2':
-            api.reset_target_os()     # ugyanaz, mint a GUI-é (naplóz is)
+            api.reset_target_os()     # naplóz is (a GUI-ban 2026-11-05 óta nincs globális cél)
             ui.ok('Visszaálltunk az élő rendszerre.')
             ui.pause()
         elif c == '3':

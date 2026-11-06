@@ -377,17 +377,9 @@ class GuiBaseMixin:
             return True
         return False
 
-    def change_target_os(self):
-        logging.info("[API] change_target_os() hívás")
-        result = self._window.create_file_dialog(_FOLDER_DIALOG, allow_multiple=False)
-        if result and len(result) > 0:
-            d = os.path.abspath(result[0]).replace("/", "\\")
-            has_win = os.path.exists(os.path.join(d, "Windows"))
-            logging.info(f"[API] change_target_os: kiválasztva={d}, has_windows={has_win}")
-            return {'path': d, 'has_windows': has_win}
-        logging.info("[API] change_target_os: mégse")
-        return None
-
+    # A GLOBÁLIS CÉL (`target_os_path`) 2026-11-05 óta CSAK A CLI-é (Beállítások → Cél
+    # rendszer). A GUI-ban nincs felső „Másik lemez” sáv (explicit user decision): a Driverek
+    # és a Mentés nézet a saját választóján dönt, és a lemezt minden hívással elküldi.
     def apply_target_os(self, path):
         logging.info(f"[API] apply_target_os({path})")
         # A FUTÓ rendszer meghajtó-gyökere nem lehet offline cél: a DISM a futó

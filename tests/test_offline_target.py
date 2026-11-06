@@ -36,7 +36,7 @@ class _Host(gdrv.GuiDriversMixin):
     def _safe_thread(self, _name, fn):
         fn()
 
-    def _backup_before_delete(self, names):
+    def _backup_before_delete(self, names, target=None):
         # A törlés előtti mentésnek saját tesztje van (test_backup_truth.ManualDeleteBackupTest).
         return None
 
@@ -133,6 +133,107 @@ class DeleteTargetGuardTest(unittest.TestCase):
                 mock.patch.object(gdrv.time, 'sleep'):
             h.delete_drivers(['oem4.inf'], list_target='D:\\')
         dele.assert_called_once()
+
+
+class _SyncThread:
+    """A betöltő szál helyett: a `start()` azonnal lefuttatja a munkát."""
+    def __init__(self, target=None, **_k):
+        self._fn = target
+
+    def start(self):
+        self._fn()
+
+
+class ViewOwnedTargetTest(unittest.TestCase):
+    """2026-11-05, explicit user decision: a felső „Jelenlegi rendszer / Másik lemez” sáv
+    megszűnt. A GUI-ban nincs globális cél: a Driverek nézet és a Mentés nézet a saját
+    választóján dönt, és a lemezt minden hívás paraméterként viszi - így egy D:-re váltott
+    Driverek nézet nem teszi „offline”-ná a WU-, aktiválás- stb. nézeteket."""
+
+    def test_list_request_carries_the_views_disk(self):
+        quiet()
+        h = _Host()                                   # globális cél: nincs
+        with mock.patch.object(h, '_get_offline_drivers', return_value=[{'published': 'oem4.inf'}]) as off, \
+                mock.patch.object(h, '_get_third_party_drivers') as live, \
+                mock.patch.object(gdrv.threading, 'Thread', _SyncThread):
+            h.load_drivers('D:\\')
+        live.assert_not_called()
+        self.assertEqual(off.call_args[0][1], 'D:\\')
+        loaded = [p for e, p in h.events if e == 'drivers_loaded']
+        self.assertEqual(loaded[0]['target'], 'D:\\')
+        self.assertIsNone(h.target_os_path)           # a nézet választása nem globális
+
+    def test_delete_runs_on_the_lists_disk(self):
+        quiet()
+        h = _Host()
+        seen = []
+        h._backup_before_delete = lambda names, target=None: seen.append(target)
+        with mock.patch.object(drivers_core, 'delete_driver_package', return_value=_res('', 0)) as dele, \
+                mock.patch.object(gdrv.time, 'sleep'):
+            h.delete_drivers(['oem4.inf'], list_target='D:\\')
+        self.assertEqual(dele.call_args[0][2], 'D:\\')
+        self.assertIsNone(dele.call_args[1]['timeout'])          # offline DISM: nincs pnputil-korlát
+        self.assertEqual(seen, ['D:\\'])                           # a mentés is arról a lemezről
+
+    def test_live_list_deletes_live(self):
+        quiet()
+        h = _Host()
+        with mock.patch.object(drivers_core, 'delete_driver_package', return_value=_res('', 0)) as dele, \
+                mock.patch.object(gdrv.time, 'sleep'):
+            h.delete_drivers(['oem4.inf'], list_target='')
+        self.assertIsNone(dele.call_args[0][2])
+        self.assertEqual(dele.call_args[1]['timeout'], drivers_core.DELETE_DRIVER_TIMEOUT)
+
+    def test_usage_is_unknown_for_another_windows(self):
+        out = _Host().get_driver_usage([{'published': 'oem4.inf'}], 'D:\\')
+        self.assertTrue(out['offline'])
+
+    def test_backup_source_is_the_views_choice(self):
+        from app.gui import backup as gbk
+
+        class B(gbk.GuiBackupMixin):
+            target_os_path = None
+            _si = _nw = None
+
+            def __init__(self):
+                self.events = []
+                self._run = lambda *a, **k: _res()
+
+            def emit(self, e, p=None):
+                self.events.append((e, p))
+
+            def _safe_thread(self, _n, fn):
+                fn()
+
+            def _check_cancel(self):
+                return False
+
+        b = B()
+        with mock.patch.object(gbk.backup_core, 'store_overview', return_value=None) as so, \
+                mock.patch.object(gbk.backup_core, 'list_auto_backups', return_value=[]), \
+                mock.patch.object(gbk.backup_core, 'describe_source', return_value='D:\\'):
+            ov = b.get_backup_overview('D:\\')
+        self.assertEqual(so.call_args[0][0], 'D:\\')
+        self.assertTrue(ov['offline'])
+        with mock.patch.object(gbk.backup_core, 'backup_drivers',
+                               return_value={'status': 'ok', 'size_mb': 1, 'folder': 'E:\\m', 'problems': []}) as bd:
+            b.backup_drivers('thirdparty', 'E:\\', 'D:\\')
+        self.assertEqual(bd.call_args[0][4], 'D:\\')              # forrás: a választott Windows
+        with mock.patch.object(gbk.backup_core, 'list_auto_backups', return_value=[{'path': 'x'}]) as la:
+            self.assertEqual(b.list_auto_backups('D:\\'), [{'path': 'x'}])
+        self.assertEqual(la.call_args[0][0], 'D:\\')
+
+    def test_ui_has_no_global_target(self):
+        import os
+        import re
+        html = open(os.path.join(os.path.dirname(__file__), '..', 'ui.html'), encoding='utf-8').read()
+        script = html[html.index('<script>'):]
+        for gone in ('class="target-bar"', 'apply_target_os', 'reset_target_os', 'change_target_os'):
+            self.assertNotIn(gone, html if gone.startswith('class=') else script, gone)
+        self.assertRegex(script, r'api\(\)\.load_drivers\(currentTargetPath')
+        self.assertRegex(script, r'api\(\)\.backup_drivers\(bkMode, null, bkSrc')
+        self.assertRegex(script, r'api\(\)\.get_driver_usage\(drivers, driversTarget')
+        self.assertEqual(len(re.findall(r'id="(drv-sys|bk-src)"', html)), 2)
 
 
 class OfflineDismDeleteTest(unittest.TestCase):

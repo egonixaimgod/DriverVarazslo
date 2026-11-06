@@ -38,10 +38,12 @@ class GuiBackupMixin:
         return log
 
     # ------------------------------------------------------------------ áttekintés
-    def get_backup_overview(self):
+    def get_backup_overview(self, source=None):
         """A nézet induló adatai: honnan ment a program, mekkora a két rész, és milyen
-        automatikus mentések vannak ezen a lemezen."""
-        target = self.target_os_path
+        automatikus mentések vannak ezen a lemezen. `source`: a mentés forrása, amit a GUI a
+        nézetben választ (None/'' = ez a gép; 2026-11-05 óta nincs globális „másik lemez” sáv).
+        A CLI nem küldi, ott a globális cél dönt."""
+        target = source or self.target_os_path
         logging.info(f"[API] get_backup_overview() - cél: {target or 'élő rendszer'}")
         try:
             sizes = backup_core.store_overview(target)
@@ -59,10 +61,11 @@ class GuiBackupMixin:
                 'sizes': sizes, 'auto_backups': auto}
 
     # ---------------------------------------------------------------------- mentés
-    def backup_drivers(self, mode, dest=None):
+    def backup_drivers(self, mode, dest=None, source=None):
         """Mentés indítása. `mode`: 'thirdparty' | 'windows' | 'all'; `dest`: a célmappa
-        (None = mappaválasztó). A mentés ezen belül egy új, dátumozott mappába kerül."""
-        logging.info(f"[API] backup_drivers(mode={mode!r}, dest={dest!r})")
+        (None = mappaválasztó); `source`: melyik Windowsról (None = ez a gép, a CLI-ben a
+        globális cél). A mentés ezen belül egy új, dátumozott mappába kerül."""
+        logging.info(f"[API] backup_drivers(mode={mode!r}, dest={dest!r}, source={source!r})")
         if mode not in backup_core.BACKUP_MODES:
             self.emit('toast', {'message': f'Ismeretlen mentés-fajta: {mode}', 'type': 'error'})
             return
@@ -70,7 +73,7 @@ class GuiBackupMixin:
         if not dest:
             logging.info("[BACKUP] Mégse - nincs célmappa")
             return
-        target = self.target_os_path
+        target = source or self.target_os_path
 
         def worker():
             what = backup_core.BACKUP_MODES[mode][1]
@@ -106,9 +109,23 @@ class GuiBackupMixin:
                      f"{len(info['packages'])} csomag, windows={bool(info['windows'])}")
         return info
 
+    def list_auto_backups(self, root=None):
+        """Egy lemez automatikus mentései (fix, kézi törlés). `root` None = ez a gép. A
+        visszaállítás „A” lépése a „B”-ben választott lemezét kéri: egy nem induló Windows
+        mentései annak a lemezén vannak."""
+        try:
+            out = backup_core.list_auto_backups(root or None)
+        except Exception as e:
+            logging.error(f"[BACKUP] Az automatikus mentések listája elbukott ({root!r}): {e}", exc_info=True)
+            out = []
+        logging.info(f"[API] list_auto_backups({root!r}) -> {len(out)} db")
+        return out
+
     def check_restore_target(self, path=None):
-        """Egy nem induló Windows meghajtójának ellenőrzése. `path` None = mappaválasztó."""
-        path = path or self.select_directory('Válaszd ki a nem induló Windows meghajtóját')
+        """Egy másik (nem futó) Windows meghajtójának ellenőrzése: a visszaállítás célja, a
+        mentés forrása és a Driverek nézet „Másik Windows” választója is ezt hívja.
+        `path` None = mappaválasztó."""
+        path = path or self.select_directory('Válaszd ki a másik Windows meghajtóját')
         if not path:
             return None
         root = backup_core.target_root(path)
