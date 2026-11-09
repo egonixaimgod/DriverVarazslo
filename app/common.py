@@ -872,6 +872,12 @@ _CALL_LOG_EXCLUDE = {
     # tényleges DÖNTÉS (mennyi sorból melyik nyert és miért) egyetlen összegző sorként
     # megy ki a _catalog_find_driver-ből, ami többet ér, mint a hívásonkénti nyers zaj.
     '_catalog_row_score', '_catalog_row_is_microsoft',
+    # A RAM TEST HCI-figyelő ciklusa (2026-11-09, terepi naplóból MÉRVE: ASRock B450M, Build 407,
+    # egész éjszakás teszt): 2 mp-enként, példányonként hívódnak, 54 944 naplósorból 54 136
+    # ezek [CALL]-párja volt - 5 MB kb. 2 óránként, a 9,5 órás teszt első 8,5 órája kiesett a
+    # rotációból. Döntés egyikben sincs: az állapotot a hívó félpercenként kiírja
+    # ("[RAMTEST] HCI állapot"), a bezárt felugró ablakot a _ramtest_hci_dismiss_popups maga.
+    '_stress_user32', '_ramtest_ctrl_text', '_ramtest_dlg_item', '_ramtest_hci_dismiss_popups',
 
     # ------------------------------------------------------------------------------
     # ESZKÖZÖNKÉNT/CSOMAGONKÉNT hívott segédek (2026-09-07, terepi naplóból MÉRVE).

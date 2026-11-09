@@ -46,6 +46,8 @@ class GuiBaseMixin:
         self._last_report_path = None  # a legutóbb generált Rendszer Riport útvonala (print_via_store_printer-hez)
         self.resume_mode = '--resume-autofix' in sys.argv
         self.resume_step1 = '--resume-step1' in sys.argv
+        # Az A láb újrakezdése egy óra-javítás utáni újraindítás után (autofix._autofix_clock_gate).
+        self.resume_clockfix = '--resume-clockfix' in sys.argv
         self.skip_printer_drivers = '--skip-printer-drivers' in sys.argv
         # Az AutoFix indító dialógusán bejelölt "tárolóvezérlő-driverek is" választás. A
         # lábak külön processzek, ezért a nyomtató-flaghez hasonlóan CSAK az ütemezett
@@ -144,7 +146,7 @@ class GuiBaseMixin:
         pnputil-törlés-sorozat egymásnak esne. Csendes: a felületre nem emit-el
         (indulásnál nincs is még hova), csak a naplóba dolgozik."""
         try:
-            if getattr(self, 'resume_mode', False) or getattr(self, 'resume_step1', False):
+            if getattr(self, 'resume_mode', False) or getattr(self, 'resume_step1', False) or getattr(self, 'resume_clockfix', False):
                 logging.debug("[INIT] Resume láb - az elhalasztott INF-kivezetést a lánc végzi el.")
                 return
             logging.info("[INIT] Elhalasztott INF-kivezetés található - befejezés a háttérben.")
@@ -341,7 +343,7 @@ class GuiBaseMixin:
 
     def get_init_data(self):
         logging.info(f"[API] get_init_data() hívás - build={common.BUILD_NUMBER}, target={self.target_os_path}")
-        resume = getattr(self, 'resume_mode', False) or getattr(self, 'resume_step1', False)
+        resume = getattr(self, 'resume_mode', False) or getattr(self, 'resume_step1', False) or getattr(self, 'resume_clockfix', False)
         # Újraindítás után befejezendő WU-művelet (app/gui/wu.py). A fix lánca elsőbbséget
         # kap (egyszerre egy feladat fut); a jelző megmarad a következő indulásra.
         wu_finish = False
@@ -351,7 +353,7 @@ class GuiBaseMixin:
             except Exception as e:
                 logging.warning(f"[INIT] A befejezésre váró WU-művelet nem ellenőrizhető: {e}", exc_info=True)
         self._resume_wu_trash_delete()
-        return {'build': common.BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path, 'resume_mode': getattr(self, 'resume_mode', False), 'resume_step1': getattr(self, 'resume_step1', False), 'app_data_dir': _app_data_dir(), 'wu_finish': wu_finish}
+        return {'build': common.BUILD_NUMBER, 'sys_drive': self.sys_drive, 'target_os': self.target_os_path, 'resume_mode': getattr(self, 'resume_mode', False), 'resume_step1': getattr(self, 'resume_step1', False), 'resume_clockfix': getattr(self, 'resume_clockfix', False), 'app_data_dir': _app_data_dir(), 'wu_finish': wu_finish}
 
     def reboot_system(self):
         logging.info("[API] reboot_system() - Felhasználó újraindítást kért")

@@ -17,6 +17,7 @@ from app.common import _app_exe_path
 from app.common import logon_task_ps
 from app import avcheck_core
 from app import backup_core
+from app import clock_core
 from app import drivers_core
 from app import dupdrivers_core
 from app import wusettings_core
@@ -76,6 +77,7 @@ from app.drivers_core import DELETE_DRIVER_TIMEOUT
 from app.gui.hwscan import PNP_ERROR_CODE_DESCRIPTIONS
 from app.gui.hwscan import _device_stem
 from app.gui.hwscan import _nb_title
+from app.gui.hwscan import NO_BIND_REASON_OS
 from datetime import datetime
 # === /AUTO-IMPORTS ===
 
@@ -248,7 +250,7 @@ class GuiAutofixMixin:
         szándékosan beállított házirendet így nem írunk felül. Mindent naplóz, hibát elnyel.
         """
         try:
-            if getattr(self, 'resume_mode', False) or getattr(self, 'resume_step1', False):
+            if getattr(self, 'resume_mode', False) or getattr(self, 'resume_step1', False) or getattr(self, 'resume_clockfix', False):
                 logging.debug("[AUTOFIX-CLEANUP] Resume láb - a NoAutoUpdate ellenőrzése kihagyva (élő lánc).")
                 return
             if not os.path.exists(self._autofix_stats_path()):
@@ -578,8 +580,12 @@ class GuiAutofixMixin:
                 log=lambda m: self.emit('task_progress', {'task': task_id, 'log': m}))
             if saved:
                 self.emit('task_progress', {'task': task_id, 'log':
-                          f'   ✅ {saved} csomag elmentve ({saved_mb} MB, {saved_sec:.0f} mp) ide: '
-                          f'{_driver_backup_dir()}'})
+                          f'   ✅ {saved}/{len(drivers)} csomag elmentve ({saved_mb} MB, {saved_sec:.0f} mp) ide: '
+                          f'{_driver_backup_dir()}'
+                          # 2026-11-09 (HP ProDesk): 3/4 mentés után is "✅ 3 csomag elmentve" állt.
+                          + (f'\n   ⚠️ {len(drivers) - saved} csomagot a Windows nem tudott exportálni - '
+                             f'ezekről NINCS mentés (melyik: a naplóban, [DRV-BACKUP]).'
+                             if saved < len(drivers) else '')})
                 self.emit('task_progress', {'task': task_id, 'log':
                           '   ℹ️ A program ezt magától SOHA nem tölti vissza - ha mégis kellene, '
                           'a mappában lévő INFO.txt leírja, hogyan.\n'})
@@ -961,6 +967,10 @@ class GuiAutofixMixin:
     def _scan_and_install_wu_sync(self, task_id='autofix'):
         max_loops = 4
         total_installed_in_session = 0
+        # MI NEM FUTOTT LE ebben a lábban a keresésből (elbukott WU-keresés, nem válaszoló
+        # katalógus). A láb zárása ebből dönti el, hogy mondhatja-e: "minden driver fent van"
+        # (2026-11-09, HP ProDesk: 0 driver + bukott keresés után "SIKERESEN BEFEJEZŐDÖTT" jött).
+        self._autofix_search_gaps = []
 
         # Kísérlet-számláló UpdateID-nként. A SIKERESEN telepített csomagot a következő
         # körben maga a WU szerver szűri ki (IsInstalled=0), ezért itt csak loop-védelem
@@ -1137,6 +1147,8 @@ class GuiAutofixMixin:
                     self.emit('task_progress', {'task': task_id, 'log': '⚠️ A Windows Update keresés nem adott eredményt (nem válaszolt) - a WU-s driverek egy része HIÁNYOZHAT.'})
                     self.emit('task_progress', {'task': task_id, 'log': 'A katalógus-zárókör még megpróbálja pótolni; utána érdemes kézi szkennelést futtatni a "Driver Keresés és Telepítés" menüben.'})
                     logging.warning("[AUTOFIX-WU] A kör WU-találat nélkül zárul, mert a keresés elbukott (NEM azért, mert minden telepítve van).")
+                    self._autofix_search_gaps.append(
+                        f"a Windows Update keresése elbukott ({code or 'nem válaszolt'})")
                 else:
                     self.emit('task_progress', {'task': task_id, 'log': '✅ Szerveren nincs újabb valós illesztőprogram.'})
                     self.emit('task_progress', {'task': task_id, 'log': 'Minden elérhető driver telepítve! Keresési lánc befejezve.'})
@@ -1438,6 +1450,8 @@ class GuiAutofixMixin:
                     # kézi szken) újra megkérdezi - a gyorsítótár a hibát szándékosan nem tette el.
                     _unreached = getattr(self, '_catalog_unreached', None) or []
                     if _unreached:
+                        self._autofix_search_gaps.append(
+                            f"a Microsoft Update Catalog {len(_unreached)} eszközre nem válaszolt")
                         self.emit('task_progress', {'task': task_id, 'log':
                                   f'🌐 {len(_unreached)} eszközről nem tudtuk ellenőrizni, van-e újabb '
                                   f'driver (a katalógus nem válaszolt, vagy a telepített driverek nem '
@@ -1572,7 +1586,8 @@ class GuiAutofixMixin:
                             self._autofix_stats_set('catalog_no_bind', tried + fresh)
                             logging.info(f"[AUTOFIX] {len(fresh)} nem-kötő katalógus-csomag feljegyezve a következő lábnak: "
                                          f"{[f['name'] for f in fresh]}")
-                    elif not skipped_known:
+                    elif not skipped_known and not _unreached:
+                        # Ha a katalógus nem válaszolt, a "nincs driver" nem igaz - a 🌐 sor már kimondta.
                         self.emit('task_progress', {'task': task_id, 'log': 'ℹ️ A katalógusban sincs telepíthető driver ezekre az eszközökre.'})
         except Exception as e:
             logging.warning(f"[AUTOFIX] Katalógus-zárókör hiba (nem kritikus): {e}", exc_info=True)
@@ -1770,6 +1785,55 @@ class GuiAutofixMixin:
             time.sleep(0.5)
         self._chain_timer_leg_end(reboot=True)
         self._run(['shutdown', '/r', '/t', '0', '/f'])
+
+    def _autofix_clock_gate(self, mode, keep_packages=None, task_id='autofix'):
+        """A rendszeróra ellenőrzése és javítása a láncban (explicit user decision, 2026-11-09:
+        *„ha szar az óra … a progi állítsa be az órát és próbálja újra”*). Terep: HP ProDesk
+        600 G5, az óra 2 évet késett, minden TLS-kapcsolat elbukott, 0 driver egy letörölt gépen.
+
+        mode: 'start' (A láb, a kattintás után) / 'after_reboot' (az óra-javítás utáni
+        újraindulás: ellenőrzés, majd a fix ELÖLRŐL) / 'leg' (telepítő láb eleje).
+        False = a láb itt véget ér (újraindulunk, vagy megálltunk - MÉG A TÖRLÉS ELŐTT)."""
+        state, off = clock_core.ensure_clock()
+        drift = clock_core.drift_text(off) if off is not None else ''
+        logging.info(f"[AUTOFIX-ÓRA] mód={mode}, állapot={state}, eltérés={off}")
+        if state == 'ok':
+            if mode == 'after_reboot':
+                self.emit('task_progress', {'task': task_id, 'log': '✅ A rendszeróra az újraindítás után is pontos - a fix most elölről indul.\n'})
+            return True
+        if state == 'unknown':
+            if mode != 'leg':
+                self.emit('task_progress', {'task': task_id, 'log': 'ℹ️ A rendszeróra most nem ellenőrizhető (az időkiszolgálók nem válaszoltak) - a fix megy tovább.'})
+            return True
+        if state == 'failed':
+            if mode == 'leg':
+                self.emit('task_progress', {'task': task_id, 'log': f'⚠️ A gép órája hibás ({drift}), és nem sikerült beállítani - a driver-keresés emiatt elbukhat.'})
+                return True
+            self.emit('task_progress', {'task': task_id, 'log':
+                      f'❌ A gép órája hibás ({drift}), és NEM sikerült beállítani. Hibás órával a driver-letöltések '
+                      f'biztonságos kapcsolata nem épül fel, ezért a fix NEM indul el - semmi nem törlődött.\n'
+                      f'👉 TEENDŐ: állítsd be a dátumot és az időt a Windowsban (vagy a BIOS-ban), és indítsd újra a fixet.'})
+            self.emit('toast', {'message': '❌ Hibás a gép órája, és nem sikerült beállítani - a fix nem indult el.', 'type': 'error'})
+            self.emit('task_complete', {'task': task_id, 'status': '❌ Hibás rendszeróra!'})
+            return False
+        # 'fixed': hibás volt, beállítva és visszaolvasva
+        self._autofix_stats_set('clock_fixed', drift)
+        if mode != 'start':
+            self.emit('task_progress', {'task': task_id, 'log':
+                      f'🕒 A gép órája az újraindítás után megint hibás volt ({drift}) - újra beállítottuk, a fix megy tovább. '
+                      f'Az óra valószínűleg a kimerült alaplapi (CMOS) elem miatt nem marad meg.'})
+            return True
+        self.emit('task_progress', {'task': task_id, 'log':
+                  f'🕒 A gép órája hibás volt: {drift}. Emiatt a Windows Update és a Microsoft Update Catalog '
+                  f'kapcsolata nem épülne fel - beállítottuk a pontos időre.'})
+        self.emit('task_progress', {'task': task_id, 'log': '🔄 Újraindítás, utána az óra ellenőrzése - ha rendben van, a fix magától ELÖLRŐL indul.'})
+        # A dialógus kézi kivételei a következő (külön) folyamatnak: az A láb onnan olvassa vissza.
+        self._autofix_stats_set('clock_keep_packages', [
+            {'published': k.get('published') or '', 'original': k.get('original') or ''}
+            for k in (keep_packages or []) if k.get('published')])
+        self._schedule_autofix_resume('--resume-clockfix', task_id)
+        self._reboot_or_cancel('Újraindulás az óra beállítása után...', task_id)
+        return False
 
     def _autofix_stats_path(self):
         return os.path.join(_app_data_dir(), 'autofix_stats.json')
@@ -2160,9 +2224,21 @@ class GuiAutofixMixin:
                 a, b = _prov(a), _prov(b)
                 return bool(a) and bool(b) and (a.startswith(b) or b.startswith(a))
 
+            # AMI BIZONYÍTOTTAN ELVESZETT, AZ NEM "LECSERÉLŐDÖTT" (2026-11-09, MSI MS-7D69): az
+            # amdhdaudbus.inf a "lecserélődött (az eszköz működik)" listán állt, miközben a
+            # regresszió-jelentés szerint az eszköze a Windows hdaudbus.inf-jére esett vissza.
+            # Az ilyen csomag a két jóindulatú csoportból kimarad - a ❗ szekció mondja ki.
+            lost_keys = {((l.get('provider') or '').strip().lower(), (l.get('version') or '').strip())
+                         for l in (getattr(self, '_health_lost_vendor', None) or [])}
+            lost_pkgs = [p for p in gone if (_prov(p), (p.get('version') or '').strip()) in lost_keys]
+            if lost_pkgs:
+                logging.info(f"[AUTOFIX] Nem soroljuk a 'lecserélődött' csomagok közé (az eszköze elvesztette "
+                             f"a gyári driverét, a ❗ szekció írja ki): {[p.get('original') for p in lost_pkgs]}")
             replaced, vendor_other, missing = [], [], []
             for p in gone:
                 same_vendor = [c for c in current if _same_vendor(p, c)]
+                if same_vendor and p in lost_pkgs:
+                    continue
                 if any(_cls(c) == _cls(p) for c in same_vendor):
                     replaced.append(p)
                 elif same_vendor:
@@ -2483,8 +2559,12 @@ class GuiAutofixMixin:
                 # A TEENDŐ AZ ESZKÖZ FAJTÁJÁHOZ IGAZODIK (2026-09-27, terepi naplóból): a
                 # régi, egyetlen mondat mindenre az "alaplapi hang/LAN/chipset -> alaplap-
                 # gyártó" teendőt írta, egy monitornál is - ami ott valótlan útmutatás.
+                _gaps = getattr(self, '_autofix_summary_gaps', None) or []
                 self.emit('task_progress', {'task': task_id, 'log':
-                          '👉 Ezekhez sem a Windows Update, sem a Microsoft Update Catalog nem adott gyári csomagot. '
+                          (f'👉 A driver-keresés ezen a gépen NEM volt teljes ({"; ".join(_gaps)}), ezért NEM tudjuk, '
+                           f'van-e ezekhez gyári csomag - a fix újrafuttatása eldönti. '
+                           if _gaps else
+                           '👉 Ezekhez sem a Windows Update, sem a Microsoft Update Catalog nem adott gyári csomagot. ')
                           + self._health_remedy_text([d.get('pclass') for d, _i in worth])})
             if skipped_by_user:
                 names = ', '.join(f"{d['name']}" for d, _i in skipped_by_user[:4])
@@ -2633,7 +2713,10 @@ class GuiAutofixMixin:
                 return f"   • {nm} - {ttl}" if ttl else f"   • {nm}"
 
             wrong_pkg = [nb for nb, _h in fresh if 'nem alkalmazható' in (nb.get('reason') or '')]
-            not_bound = [nb for nb, _h in fresh if nb not in wrong_pkg]
+            # MÁS WINDOWSRA KÉSZÜLT (2026-11-09, ASUS E1504FA): ezeket sem telepítettük fel, a
+            # régi kód mégis a "feltelepült, de az eszköz nem vette át" csoportba tette őket.
+            wrong_os = [nb for nb, _h in fresh if (nb.get('reason') or '') == NO_BIND_REASON_OS]
+            not_bound = [nb for nb, _h in fresh if nb not in wrong_pkg and nb not in wrong_os]
             logging.info(f"[AUTOFIX] Katalógus-csomag nem jutott el az eszközig - más gépre való: "
                          f"{[nb.get('name') for nb in wrong_pkg]}; nem kötött rá: "
                          f"{[nb.get('name') for nb in not_bound]}")
@@ -2655,6 +2738,14 @@ class GuiAutofixMixin:
                 for nb in wrong_pkg:
                     self.emit('task_progress', {'task': task_id, 'log': _line(nb)})
                 self.emit('task_progress', {'task': task_id, 'log': '   A katalógus ugyanarra a chipre a többi gépgyártó változatát is felkínálja; a program ellenőrizte az INF-eket, és ezek egyike sem ismeri ezt az eszközt. Ez nem hiba, csak ehhez a géphez nincs gyári csomag a katalógusban.'})
+            if wrong_os:
+                n_dev, n_pkg = _devcount(wrong_os), len(wrong_os)
+                self.emit('task_progress', {'task': task_id, 'log':
+                          f'\n📎 {n_dev} eszközhöz a Microsoft Update Catalog csak MÁS WINDOWS-VERZIÓRA készült '
+                          f'csomagot adott (nem telepítettük fel'
+                          + (f'; {n_pkg} csomagot próbáltunk végig' if n_pkg != n_dev else '') + '):'})
+                for nb in wrong_os:
+                    self.emit('task_progress', {'task': task_id, 'log': _line(nb)})
             if not_bound:
                 n_dev, n_pkg = _devcount(not_bound), len(not_bound)
                 self.emit('task_progress', {'task': task_id, 'log':
@@ -2667,17 +2758,25 @@ class GuiAutofixMixin:
             # küldte a technikust - az az ág aznap TÖRLŐDÖTT a programból, tehát nem létező
             # felületre mutatott volna. A teendő ugyanaz maradt, csak most a gyártó saját
             # letöltőoldala a cím, ami videokártyára és alaplapi eszközre egyaránt igaz.
-            self.emit('task_progress', {'task': task_id, 'log': '👉 TEENDŐ: a legfrissebb drivert a hardver gyártójának saját letöltőoldala adja - videokártyánál az NVIDIA/AMD/Intel oldala, alaplapi eszköznél az alaplapgyártóé (a "Driver Keresés és Telepítés" menü gép/alaplap-kártyája kilinkel oda).'})
+            self.emit('task_progress', {'task': task_id, 'log': '👉 TEENDŐ: a legfrissebb drivert a hardver gyártójának saját letöltőoldala adja - videokártyánál az NVIDIA/AMD/Intel oldala, alaplapi eszköznél az alaplap- vagy gépgyártóé.'})
         except Exception as e:
             logging.warning(f"[AUTOFIX] A nem-kötő katalógus-csomagok jelentése hiba (nem kritikus): {e}")
 
-    def _emit_autofix_summary(self, chain_total, pre_packages=None, task_id='autofix', no_bind=None):
+    def _emit_autofix_summary(self, chain_total, pre_packages=None, task_id='autofix', no_bind=None,
+                              clock_note=None, search_gaps=None):
         """ZÁRÓ ÖSSZEFOGLALÓ a lánc legvégén: hány driver települt a TELJES lánc alatt,
         MELY csomagok nem kerültek vissza, mely katalógus-csomagokat nem vett át az eszköz,
         és mely eszközök maradtak hibakódosak (hogy a maradék lyuk sose legyen néma).
         Minden hibát elnyel - az összefoglaló sosem akaszthatja meg a lezárást."""
         try:
             self.emit('task_progress', {'task': task_id, 'log': f'\n📊 ÖSSZEFOGLALÓ: a teljes AutoFix lánc alatt összesen {chain_total} driver települt.'})
+            # A health-jelentés "sem a WU, sem a katalógus nem adott" mondata ebből tudja, hogy
+            # a keresés nem volt teljes (lásd _emit_driver_health).
+            self._autofix_summary_gaps = search_gaps or []
+            if clock_note:
+                self.emit('task_progress', {'task': task_id, 'log':
+                          f'🕒 A gép órája a fix elején hibás volt ({clock_note}) - a program beállította. '
+                          f'Ha újra elállítódik, az alaplapi (CMOS) elem cseréje a teendő.'})
             self._emit_missing_packages(pre_packages, task_id)
             self._emit_catalog_no_bind(no_bind, task_id)
             pnp_data = self._query_pnp_devices()
@@ -3179,10 +3278,15 @@ class GuiAutofixMixin:
         def worker():
             is_resume_step1 = getattr(self, 'resume_step1', False)
             is_resume_mode = getattr(self, 'resume_mode', False)
+            # Az A láb ÚJRAKEZDÉSE egy óra-javítás utáni újraindítás után (_autofix_clock_gate):
+            # az A láb fut le elölről, de a dialógus döntései már argv-ből és a lánc-állapotból jönnek.
+            is_resume_clockfix = getattr(self, 'resume_clockfix', False)
+            from_argv = is_resume_step1 or is_resume_mode or is_resume_clockfix
+            keep_pkgs = keep_packages
             # Resume lábakon (új processz, a dialógus meg sem jelenik újra) a JS-paraméter
             # irreleváns - az A láb által a Scheduled Task argumentumába épített flag-et kell
             # sys.argv-ből visszaolvasni (lásd __init__: self.skip_printer_drivers).
-            if is_resume_step1 or is_resume_mode:
+            if from_argv:
                 skip_printers = getattr(self, 'skip_printer_drivers', True)
                 allow_storage = getattr(self, 'allow_storage_drivers', False)
                 allow_fw = getattr(self, 'allow_firmware_updates', False)
@@ -3224,7 +3328,7 @@ class GuiAutofixMixin:
             # kivizsgálásánál pont ez a mező vinne félre. Ezért a FELOLDOTT értéket is
             # kilogoljuk, forrás-megjelöléssel.
             logging.info(f"[AUTOFIX] Nyomtató-kihagyás (érvényes érték): {skip_printers} "
-                         f"(forrás: {'sys.argv --skip-printer-drivers' if (is_resume_step1 or is_resume_mode) else 'GUI dialógus'})")
+                         f"(forrás: {'sys.argv --skip-printer-drivers' if from_argv else 'GUI dialógus'})")
             # A forrás-megjelölés itt SZÁNDÉKOSAN nem "GUI dialógus"/"sys.argv": 2026-09-02
             # óta egyik sem dönt, a program szabálya dönt. A sor azért marad, mert egy
             # terepi naplóból ki kell derülnie, hogy a tároló/firmware NEM azért maradt ki,
@@ -3237,26 +3341,26 @@ class GuiAutofixMixin:
             logging.info(f"[AUTOFIX] Firmware-frissítések engedélyezve: {allow_fw} "
                          f"(forrás: véglegesen tiltva, nincs hozzá kapcsoló)")
             logging.info(f"[AUTOFIX] Wi-Fi-s telepítés: {wifi} "
-                         f"(forrás: {'sys.argv --wifi-mode' if (is_resume_step1 or is_resume_mode) else 'GUI dialógus'})")
+                         f"(forrás: {'sys.argv --wifi-mode' if from_argv else 'GUI dialógus'})")
             # Csak Wi-Fi módban jelent bármit: vezetékesen az adapter drivere a normál
             # törlési fázisban megy el és a WU rakja vissza, tehát ott a "teljes
             # újraépítés" külön lépés nélkül is megtörténik.
             logging.info(f"[AUTOFIX] Wi-Fi driver teljes újraépítése: {rebuild_wifi and wifi} "
                          f"(kapcsoló={rebuild_wifi}, Wi-Fi mód={wifi}, forrás: "
-                         f"{'sys.argv --rebuild-wifi-driver' if (is_resume_step1 or is_resume_mode) else 'GUI dialógus'})")
+                         f"{'sys.argv --rebuild-wifi-driver' if from_argv else 'GUI dialógus'})")
             self._autofix_skip_printers = skip_printers
             self._autofix_allow_storage = allow_storage
             self._autofix_allow_firmware = allow_fw
             logging.info(f"[AUTOFIX] Záró Windows Update-szüneteltetés (~10 év): {wu_pause} "
-                         f"(forrás: {'sys.argv --no-wu-pause' if (is_resume_step1 or is_resume_mode) else 'GUI dialógus'})")
+                         f"(forrás: {'sys.argv --no-wu-pause' if from_argv else 'GUI dialógus'})")
             logging.info(f"[AUTOFIX] Microsoft Update Catalog keresés: {use_cat} "
-                         f"(forrás: {'sys.argv --no-catalog' if (is_resume_step1 or is_resume_mode) else 'GUI dialógus'})")
+                         f"(forrás: {'sys.argv --no-catalog' if from_argv else 'GUI dialógus'})")
             self._autofix_wifi_mode = wifi
             self._autofix_rebuild_wifi = bool(rebuild_wifi) and wifi
             self._autofix_wu_pause = wu_pause
             self._autofix_use_catalog = use_cat
 
-            task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if (is_resume_mode or is_resume_step1) else '1 Kattintásos Driver Javítás és Frissítés'
+            task_title = '1 Katt. Fix (RESTART UTÁNI LÁNC FOLYTATÁSA!)' if from_argv else '1 Kattintásos Driver Javítás és Frissítés'
             self.emit('task_start', {'task': 'autofix', 'title': task_title})
             if is_resume_mode or is_resume_step1:
                 # A lánc-idő mérése: az előző láb óta eltelt újraindulás + ennek a lábnak az órája.
@@ -3266,11 +3370,23 @@ class GuiAutofixMixin:
                 # türelmesebben: a lánc indítása pillanatában is előfordulhat, hogy a
                 # Wi-Fi épp most áll fel (a tech az imént kapcsolt hálózatot).
                 if not is_resume_mode and not is_resume_step1:
+                    if is_resume_clockfix:
+                        # Az óra-javítás folytató feladata egyszer használatos: ha ez a láb megáll
+                        # (nincs net, az óra nem állítható), ne induljon el minden bejelentkezéskor.
+                        # Ha továbbmegy, az A láb lentebb újra regisztrálja (--resume-step1).
+                        self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'], ok_codes=(0, 1))
+                        keep_pkgs = self._autofix_stats_get('clock_keep_packages') or []
                     self.emit('task_progress', {'task': 'autofix', 'log': '⏳ Internetkapcsolat ellenőrzése...'})
                     if not self._wait_for_internet(self._net_wait_seconds(), 'autofix', 'a fix indítása előtt'):
                         self.emit('toast', {'message': '❌ Nincs internetkapcsolat! Kérlek csatlakozz egy hálózathoz az Autofix előtt!', 'type': 'error'})
                         self.emit('task_complete', {'task': 'autofix', 'status': '❌ Nincs Internetkapcsolat!'})
                         return
+                    # RENDSZERÓRA (2026-11-09): hibás órával minden TLS-kapcsolat elbukik, ezért
+                    # MÉG A TÖRLÉS ELŐTT ellenőrizzük és javítjuk - lásd _autofix_clock_gate.
+                    if not self._autofix_clock_gate('after_reboot' if is_resume_clockfix else 'start', keep_pkgs):
+                        return
+                    # Csak az óra-javítás utáni lábon: máskor egy félbehagyott régi lánc maradéka lenne.
+                    clock_note = self._autofix_stats_get('clock_fixed') if is_resume_clockfix else None
 
                 # ÚJ LÉPÉS (-1. LÉPÉS)
                 if not is_resume_mode and not is_resume_step1:
@@ -3311,10 +3427,13 @@ class GuiAutofixMixin:
                     # csak a fenti _autofix_stats_clear() UTÁN, különben azonnal elveszne.
                     # Név szerint naplózzuk: a "hova tűnt / miért maradt meg X" kérdés
                     # később csak így válaszolható meg a logból.
-                    if keep_packages:
+                    if clock_note:
+                        # A _autofix_stats_clear() UTÁN: a záró jelentés mondja ki (clock_fixed).
+                        self._autofix_stats_set('clock_fixed', clock_note)
+                    if keep_pkgs:
                         keep_clean = [{'published': (k.get('published') or ''),
                                        'original': (k.get('original') or '')}
-                                      for k in keep_packages if k.get('published')]
+                                      for k in keep_pkgs if k.get('published')]
                         if keep_clean:
                             self._autofix_stats_set('keep_packages', keep_clean)
                             logging.info(f"[AUTOFIX] A technikus {len(keep_clean)} csomagot vett ki a törlésből: "
@@ -3555,6 +3674,10 @@ class GuiAutofixMixin:
                             # oldják meg, aminek beépített drivere van) - az üzenet ezért ezt
                             # tanácsolja.
                             self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ A hálózat továbbra sem él - a WU keresés így valószínűleg üres lesz. Ellenőrizd a kábelt/Wi-Fi-t, vagy dugj a gépbe USB-RJ45 átalakítót (annak beépített drivere van)!\n'})
+                    if net_ok:
+                        # Ha a gép órája nem éli túl az újraindítást (kimerült CMOS-elem),
+                        # minden telepítő láb elején újra be kell állítani.
+                        self._autofix_clock_gate('leg')
 
                 # 4. Átmenetileg engedélyezzük a WU-t és unpause a driverkereséshez
                 self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update ideiglenes felébresztése a szükséges driverek lekéréséhez...', 'indeterminate': True})
@@ -3622,7 +3745,11 @@ class GuiAutofixMixin:
                     self._autofix_stats_set('settle_done', True)
                     logging.info("[AUTOFIX] Záró ülepítő újraindítás: a lezárás és a jelentés a "
                                  "friss boot utáni, végleges állapoton fut le.")
-                    self.emit('task_progress', {'task': 'autofix', 'log': '\n🔄 Minden driver fent van. Egy utolsó újraindítás következik, hogy az eszközök véglegesen a helyükre álljanak - utána a gép KÉSZ.'})
+                    gaps = getattr(self, '_autofix_search_gaps', None) or []
+                    if gaps:
+                        self.emit('task_progress', {'task': 'autofix', 'log': f'\n🔄 Ebben a körben nem települt driver, DE a keresés nem volt teljes ({"; ".join(gaps)}). Újraindítás - a következő kör újra megpróbálja.'})
+                    else:
+                        self.emit('task_progress', {'task': 'autofix', 'log': '\n🔄 Minden driver fent van. Egy utolsó újraindítás következik, hogy az eszközök véglegesen a helyükre álljanak - utána a gép KÉSZ.'})
                     self._schedule_autofix_resume('--resume-autofix')
                     self._reboot_or_cancel('Záró újraindulás felkészítve...')
                     return
@@ -3670,7 +3797,11 @@ class GuiAutofixMixin:
                 # A "MINDEN LÉPÉS KÉSZ" CSAK akkor igaz, ha nem jön még egy láb. Korábban
                 # a kör végén mindig kiment, majd közvetlenül utána a gép újraindult -
                 # a felhasználó felé ez befejezett folyamat + váratlan reboot volt.
-                if not should_chain:
+                # A HIÁNYOS KERESÉS NEM "KÉSZ" (2026-11-09): ha a záró láb WU-keresése elbukott
+                # vagy a katalógus nem válaszolt, a lánc végigért, de a gép nincs bizonyítottan
+                # feldriverezve - a 🎉 és a "SIKERESEN BEFEJEZŐDÖTT" ilyenkor néma hamis siker lenne.
+                search_gaps = getattr(self, '_autofix_search_gaps', None) or []
+                if not should_chain and not search_gaps:
                     self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 EZ A KÖR KÉSZ!'})
                 if should_chain:
                     # A láb-statisztika a záró összefoglalóhoz ÉS a plafon számlálójához kell.
@@ -3696,6 +3827,9 @@ class GuiAutofixMixin:
                         # Ide a láb-plafon miatt jutottunk (települt driver, de már nem
                         # indítunk újabb kört) - ne írjunk "nulla új drivert".
                         self.emit('task_progress', {'task': 'autofix', 'log': f'\n🎉 KÉSZ! Ebben a körben {installed_count} driver települt, a lánc lezárul.'})
+                    elif search_gaps:
+                        logging.error(f"[AUTOFIX] A lánc végigért, de a driver-keresés NEM volt teljes: {search_gaps}")
+                        self.emit('task_progress', {'task': 'autofix', 'log': f'\n⚠️ A lánc végigért, de a driver-keresés NEM volt teljes: {"; ".join(search_gaps)}. Hogy minden driver fent van-e, azt NEM tudjuk.'})
                     else:
                         self.emit('task_progress', {'task': 'autofix', 'log': '\n🎉 KÉSZ! Nulla újonnan fellelt driver, a konfiguráció végigért.'})
                     self._run(["powershell", "-NoProfile", "-Command", 'Unregister-ScheduledTask -TaskName "DriverVarazsloResume" -Confirm:$false -ErrorAction SilentlyContinue'], ok_codes=(0, 1))  # 1: a feladat már nem létezik (idempotens duplatörlés)
@@ -3740,13 +3874,15 @@ class GuiAutofixMixin:
                     # Ugyanígy a stats-fájl TÖRLÉSE ELŐTT: a lánc alatt megtalált, de az
                     # eszköz által át nem vett katalógus-csomagok (lásd _emit_catalog_no_bind).
                     no_bind = self._autofix_stats_get('catalog_no_bind') or []
+                    clock_note = self._autofix_stats_get('clock_fixed')
                     # A lánc alatt telepített driverek száma. VÁLTOZÓBA MENTVE, mert a
                     # `_autofix_stats_total_and_clear()` TÖRLI a stats-fájlt - egy második
                     # hívás már 0-t adna. A napló-feltöltés (lentebb) is ezt az értéket
                     # használja; korábban egy nem létező `chain_total` névre hivatkozott.
                     chain_total = self._autofix_stats_total_and_clear()
                     self._emit_autofix_summary(chain_total,
-                                               pre_packages=pre_packages, no_bind=no_bind)
+                                               pre_packages=pre_packages, no_bind=no_bind,
+                                               clock_note=clock_note, search_gaps=search_gaps)
 
                     # A DRIVEREKHEZ TARTOZÓ STORE-ALKALMAZÁSOK (NVIDIA Vezérlőpult, Intel
                     # Graphics Command Center, Realtek Audio Console...) - 2026-09-27.
@@ -3801,7 +3937,13 @@ class GuiAutofixMixin:
                         self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ A Windows Update fut, de DRIVERT továbbra sem telepít (ez a védelem a szüneteltetéstől függetlenül marad érvényben, hogy a most felrakott driverkészlet ne íródjon felül).'})
 
                     try:
-                        self.emit('task_progress', {'task': 'autofix', 'log': '\nA FOLYAMAT SIKERESEN BEFEJEZŐDÖTT!'})
+                        if search_gaps:
+                            self.emit('task_progress', {'task': 'autofix', 'log':
+                                      f'\n⚠️ A FOLYAMAT VÉGIGÉRT, DE NEM TELJES: {"; ".join(search_gaps)}.\n'
+                                      f'👉 TEENDŐ: ellenőrizd az internetkapcsolatot és a gép dátumát/idejét, majd futtasd újra '
+                                      f'az 1 kattintásos fixet (vagy egy szkennelést a "Driver Keresés és Telepítés" menüben).'})
+                        else:
+                            self.emit('task_progress', {'task': 'autofix', 'log': '\nA FOLYAMAT SIKERESEN BEFEJEZŐDÖTT!'})
                     except Exception as e:
                         logging.debug(f"[AUTOFIX] Záró emit sikertelen (ablak már bezárva?): {e}")
 
@@ -3851,8 +3993,11 @@ class GuiAutofixMixin:
                     self.upload_run_log(
                         'autofix',
                         f"1 KATTINTÁSOS FIX - {chain_total} driver telepítve, "
-                        f"{chain_time or 'ismeretlen idő'}")
-                    self.emit('task_complete', {'task': 'autofix', 'status': 'Teljesen befejezve',
+                        f"{chain_time or 'ismeretlen idő'}"
+                        + (' - A KERESÉS NEM VOLT TELJES' if search_gaps else ''))
+                    self.emit('task_complete', {'task': 'autofix',
+                                                'status': ('❌ Végigért, de a driver-keresés NEM volt teljes'
+                                                           if search_gaps else 'Teljesen befejezve'),
                                                 'chain_time': chain_time})
                     if not getattr(self, 'resume_mode', False):
                         time.sleep(1)

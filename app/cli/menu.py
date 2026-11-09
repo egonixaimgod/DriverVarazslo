@@ -833,7 +833,8 @@ def _autofix_keep_packages(api, skip_printer, wifi_mode, rebuild_wifi):
 def _autofix_resume(api):
     """A lánc folytatása újraindítás után. NEM a menü jön fel: az ütemezett feladat
     indított minket, a technikus nincs a gép előtt."""
-    leg = '--resume-step1' if api.resume_step1 else '--resume-autofix'
+    leg = ('--resume-clockfix' if getattr(api, 'resume_clockfix', False)
+           else '--resume-step1' if api.resume_step1 else '--resume-autofix')
     _header(api, 'AutoFix — a lánc folytatása')
     ui.info(f"Az újraindítás utáni folytatás indul ({leg})...")
     logging.info(f"[CLI] AutoFix lánc folytatása CLI módban ({leg}).")
@@ -1657,7 +1658,7 @@ def run_cli_mode():
 
     # ÚJRAINDÍTÁS UTÁNI FOLYTATÁS: nem a menü jön fel. Az ütemezett feladat indított
     # minket, a technikus nincs a gép előtt - a láncnak magától kell folytatódnia.
-    if getattr(api, 'resume_mode', False) or getattr(api, 'resume_step1', False):
+    if getattr(api, 'resume_mode', False) or getattr(api, 'resume_step1', False) or getattr(api, 'resume_clockfix', False):
         _autofix_resume(api)
         return
 

@@ -1202,7 +1202,7 @@ try {
     try {
         $SM = New-Object -ComObject Microsoft.Update.ServiceManager
         $SM.AddService2("7971f918-a847-4430-9279-4a52d1efe18d", 7, "") | Out-Null
-    } catch {}
+    } catch { [Console]::Error.WriteLine("WUSVC_ERR|" + ('0x{0:X8}' -f $_.Exception.HResult) + "|" + $_.Exception.Message) }
     $Searcher.ServerSelection = 3
     $Searcher.ServiceID = "7971f918-a847-4430-9279-4a52d1efe18d"
     $Result = $Searcher.Search("IsInstalled=0 and Type='Driver'")
@@ -1279,6 +1279,11 @@ try {
                     parts = line.split('|')
                     logging.info(f"[WU_API] Opcionális (BrowseOnly=1) driverek: {parts[2] if len(parts) > 2 else '?'} db, "
                                  f"ebből az alap-keresés NEM tartalmazta: {parts[1]} db")
+                elif line.startswith('WUSVC_ERR|'):
+                    # 2026-11-09 (HP ProDesk, 0x80248014): a regisztráció hibáját eddig egy üres
+                    # `catch {}` nyelte el - a napló nem mondta meg, miért "ismeretlen" a szolgáltatás.
+                    logging.warning(f"[WU_API] A Microsoft Update szolgáltatás regisztrálása (AddService2) "
+                                    f"nem sikerült: {line[10:300]}")
                 elif line.startswith('WUOPTEXTRA_ERR|'):
                     logging.warning(f"[WU_API] Az opcionális driverek külön keresése nem sikerült: {line[15:300]}")
             if self._wu_hidden:
@@ -1288,7 +1293,7 @@ try {
                 logging.info("[WU_API] Elrejtett driver-frissítés nincs.")
             # A WUHIDDEN sorok nem hibák - a hibaág csak a valódi hibaüzenetet lássa.
             res_err = '\n'.join(l for l in err_lines
-                                if not l.startswith(('WUHIDDEN', 'WUOPTEXTRA'))).strip()
+                                if not l.startswith(('WUHIDDEN', 'WUOPTEXTRA', 'WUSVC_ERR'))).strip()
             if not out and res_err:
                 # A HIBAKÓDOT KIMONDJUK - eddig egy 200 karakterre vágott, kontextussal
                 # teli stderr-részlet ment a naplóba, amiben a lényeg (a HRESULT) épp
@@ -1316,7 +1321,7 @@ try {
             # A 'autofix' csatornára CSAK akkor írunk, ha tényleg AutoFix fut: kézi
             # szkennelésnél ez a sor a logban ([EMIT:]) az AutoFix-hez tartozónak látszott,
             # és egy terepi bejelentés kivizsgálásakor pont ez viszi félre a nyomot.
-            if getattr(self, '_task_busy', None) == 'autofix' or getattr(self, 'resume_mode', False) or getattr(self, 'resume_step1', False):
+            if getattr(self, '_task_busy', None) == 'autofix' or getattr(self, 'resume_mode', False) or getattr(self, 'resume_step1', False) or getattr(self, 'resume_clockfix', False):
                 self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ Windows Update API időtúllépés! Szolgáltatások újraindítása...'})
 
             # A WU szolgáltatások újraindítása a GÉPET gyógyítja (a következő keresés már

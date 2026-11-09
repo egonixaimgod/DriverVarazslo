@@ -575,6 +575,25 @@ def system_uptime_seconds():
         return None
 
 
+class _SYSTEMTIME(ctypes.Structure):
+    _fields_ = [(n, ctypes.wintypes.WORD) for n in (
+        'wYear', 'wMonth', 'wDayOfWeek', 'wDay', 'wHour', 'wMinute', 'wSecond', 'wMilliseconds')]
+
+
+def set_system_time_utc(dt):
+    """A rendszeróra beállítása UTC-ben (`SetSystemTime`, emelt jog kell; a jogosultságot
+    a hívás maga kapcsolja be). 0, ha sikerült, különben a Win32 hibakód. Az időzónához
+    nem nyúl. A verdikt a hívó visszaolvasása (clock_core.ensure_clock)."""
+    st = _SYSTEMTIME(dt.year, dt.month, 0, dt.day, dt.hour, dt.minute, dt.second,
+                     dt.microsecond // 1000)
+    k32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    k32.SetSystemTime.argtypes = [ctypes.POINTER(_SYSTEMTIME)]
+    k32.SetSystemTime.restype = ctypes.wintypes.BOOL
+    if k32.SetSystemTime(ctypes.byref(st)):
+        return 0
+    return ctypes.get_last_error() or -1
+
+
 def driver_store_folders(published_infs):
     """A publikált INF-ek (`oemNN.inf`) DriverStore-mappájának NEVE (kisbetűsen),
     `SetupGetInfDriverStoreLocationW`-vel - subprocess és admin nélkül.

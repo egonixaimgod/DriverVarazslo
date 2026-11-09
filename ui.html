@@ -3335,7 +3335,7 @@ let isResumeLeg = false;
 window.addEventListener('pywebviewready', async () => {
   try {
     const data = await api().get_init_data();
-    isResumeLeg = !!(data.resume_mode || data.resume_step1);
+    isResumeLeg = !!(data.resume_mode || data.resume_step1 || data.resume_clockfix);
     document.getElementById('build-label').textContent = 'Build ' + String(data.build).padStart(3, '0');
     appDataDir = data.app_data_dir || '';
     document.getElementById('data-dir-label').textContent = '📁 ' + (appDataDir || 'Naplók/Riportok');
@@ -3353,7 +3353,7 @@ window.addEventListener('pywebviewready', async () => {
     if (!isResumeLeg) ensureReportDefaults();
     document.querySelector('.sidebar-title').classList.add('on-home');
     
-    if (data.resume_mode || data.resume_step1) {
+    if (data.resume_mode || data.resume_step1 || data.resume_clockfix) {
       setTimeout(() => {
         startAutoFix(true);
       }, 1000);

@@ -355,6 +355,14 @@ A törlés előtti driver-mentést egy vírusirtó megakasztotta. A program ilye
 </details>
 
 <details>
+<summary><b>A fix az elején újraindult, „a gép órája hibás volt” üzenettel</b></summary>
+<br/>
+
+Hibás (napokat-éveket késő vagy siető) rendszerórával a Windows Update és a Microsoft Update Catalog biztonságos kapcsolata nem épül fel, a fix egyetlen drivert sem tudna letölteni. Ezért a program minden fix elején ellenőrzi az órát; ha hibás, beállítja a pontos időre, újraindít, ellenőrzi, és a fixet elölről indítja. Ha az óra újra elállítódik, az alaplapi (CMOS) elem cseréje a teendő. Ha az órát nem sikerül beállítani, a fix még a törlés előtt megáll.
+
+</details>
+
+<details>
 <summary><b>Az ablak pár másodperc után fehér vagy fekete lesz</b></summary>
 <br/>
 
