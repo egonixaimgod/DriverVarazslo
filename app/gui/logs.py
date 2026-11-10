@@ -71,6 +71,42 @@ class GuiLogsMixin:
             logging.warning(f"[LOGUP] A napló-feltöltés hívása hibára futott (nem kritikus): {e}")
             return False
 
+    def upload_debug_log(self, password):
+        """KÉZI napló-feltöltés a Drive-ra (oldalsáv "napló feltöltése", CLI: Rendszer
+        karbantartás 11; explicit user decision, 2026-11-10), háttérszálon.
+
+        A KÓD a Drive-jelszó (ugyanaz, mint a naplók letöltésénél), és a DRIVE-NÁL
+        ellenőrizzük - az exébe nem kerül (a repó nyilvános). A feltöltő végpont maga nem
+        kér jelszót; a kód a véletlen/illetéktelen kattintás ellen van."""
+        password = (password or '').strip()
+        if not password:
+            self.emit('toast', {'message': '⚠️ Add meg a kódot!', 'type': 'warning'})
+            return
+
+        def worker():
+            task = 'logupload'
+            self.emit('task_start', {'task': task, 'title': 'Napló feltöltése a Drive-ra'})
+            try:
+                # shortcut: a jelszó próbája a `toolfile` akción megy (wlu.zip, a legkisebb
+                # csomag); ha a szkript kap saját jelszó-ellenőrző akciót, arra kell cserélni.
+                ok, err = self._toollib_check_password(password, 'wlu')
+                if not ok:
+                    logging.warning(f"[LOGUP] Kézi feltöltés: a kód ellenőrzése nem sikerült: {err}")
+                    hiba = '❌ Hibás kód - nem töltöttem fel semmit.' if 'jelsz' in (err or '').lower() \
+                        else f'❌ A kód nem ellenőrizhető (a Drive nem érhető el): {err}'
+                    self.emit('task_progress', {'task': task, 'log': hiba})
+                    self.emit('task_complete', {'task': task, 'status': '❌ Nem töltöttem fel'})
+                    return
+                up = self.upload_run_log(task, 'Kézi napló-feltöltés')
+                self.emit('task_complete', {'task': task,
+                                            'status': '✅ Napló feltöltve' if up else '❌ A feltöltés nem sikerült'})
+            except Exception as e:
+                logging.error(f"[LOGUP] A kézi napló-feltöltés hibára futott: {e}", exc_info=True)
+                self.emit('task_progress', {'task': task, 'log': f'❌ Hiba: {e}'})
+                self.emit('task_complete', {'task': task, 'status': '❌ Hiba'})
+
+        self._safe_thread('logupload', worker)
+
     def get_log_download_dir(self):
         """A letöltési mappa útvonala - a nézet ezt írja ki (szinkron, olcsó hívás)."""
         return logupload_core.download_dir()

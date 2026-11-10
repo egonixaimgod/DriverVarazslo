@@ -90,6 +90,11 @@ class Downloader(unittest.TestCase):
         self.assertFalse(any(f.endswith('.zip') for f in os.listdir(self.tmp)))   # a zip törölve
 
     def test_drive_jelszo_nelkul_nem_tolt_le(self):
+        # A VALÓDI Hitelesítőadat-kezelőt nem olvashatja: a fejlesztői gépen megjegyzett
+        # jelszóval a teszt az éles Drive-végpontot hívta, és ingadozva elbukott (2026-11-10).
+        p = mock.patch.object(tl, 'load_password', lambda: '')
+        p.start()
+        self.addCleanup(p.stop)
         self.assertIsNone(self.api._download_stresstools(keys=['aida64']))
         self.assertIn('jelszó', self.api._toollib_last_error)
         self.assertEqual(self.urls, [])

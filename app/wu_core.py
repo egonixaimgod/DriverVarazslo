@@ -1157,6 +1157,10 @@ HEALTH_REPORT_SKIP_INFS = {
     'hidtelephonydriver.inf',
     # Microsoft osztály-driverek, amikhez gyári alternatíva nem létezik
     'usbstor.inf', 'cdrom.inf', 'wpdfs.inf', 'wpdmtp.inf',
+    # USB-C UCSI (ACPI\USBC000): a firmware-ben megvalósított UCSI-hoz a Microsoft drivere
+    # A driver. Terepen (2026-11-10, HP ProDesk 600 G5): egyetlen sorként állt a "gyári
+    # driver jobb lenne" listán, a katalógus az ACPI\USBC000-ra 3 lábon sem adott semmit.
+    'ucmucsiacpiclient.inf',
     # szoftver-eszközök és WAN miniportok: nincs mögöttük fizikai hardver
     'c_swdevice.inf', 'netrasa.inf', 'netavpna.inf', 'netsstpa.inf', 'netloop.inf',
     'vwifibus.inf', 'netvwifibus.inf', 'basicrender.inf', 'printqueue.inf',

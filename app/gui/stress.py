@@ -438,6 +438,13 @@ class GuiStressMixin:
                         # A jelszó bizonyítottan jó (a Drive kiadta a fájlt): megjegyezzük.
                         toollib_core.save_password(password)
                 except Exception as e:
+                    if toollib_core.package_source(pkg) == toollib_core.SOURCE_DRIVE and '404' in str(e):
+                        # 2026-11-10, hdsentinel.zip: a szkript kiadta az azonosítót, de a Google
+                        # névtelenül 404-et adott (a többi 9 csomag lejött) - a fájl megosztása
+                        # a Drive oldalán nem él. A nyers "HTTP 404" ebből semmit nem mond.
+                        e = (f"{e} - a Drive nem adja ki a {toollib_core.zip_name(pkg)} fájlt, pedig megvan "
+                             f"(a megosztása nem él: a Google letiltotta/megjelölte, vagy a fájl a kukában van). "
+                             f"Teendő a Drive '{toollib_core.DRIVE_FOLDER}' mappájában: töröld és töltsd fel újra.")
                     self._toollib_last_error = f"{toollib_core.PACKAGES[pkg][1]}: {e}"
                     logging.error(f"[TOOLLIB] {pkg} letöltése/kicsomagolása nem sikerült: {e}")
                     return None

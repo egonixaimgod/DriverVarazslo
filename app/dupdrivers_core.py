@@ -466,8 +466,11 @@ def delete_duplicate_packages(run, log, names, active_infs, check_cancel=None, d
             if delete_blocked_in_use(res):
                 skipped += 1
                 logging.info(f"[DUPDRV] MARAD (használatban): {_cimke(name)} - {why}")
+                # A régi szöveg "a következő újraindítás után törölhető"-t ígért. Mérve
+                # (2026-11-10, HP ProDesk 600 G5, Build 411): 10 régi iigd_ext.inf az újabb
+                # kiadás telepítése utáni 3 újraindítás után is in-use volt, /force-szal is.
                 log(f'  ⏭ {_cimke(name)} marad: {why} - ez a takarításban normális, '
-                    f'a régi verzió a következő újraindítás után törölhető.')
+                    f'a régi verzió ártalmatlan (csak helyet foglal).')
             else:
                 fail += 1
                 logging.warning(f"[DUPDRV] SIKERTELEN törlés: {_cimke(name)} - {why} "

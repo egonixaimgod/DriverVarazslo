@@ -561,6 +561,18 @@ function getToolFile_(data) {
 
 A „link birtokában bárki” megosztás azért kell, mert a nagy fájlt az Apps Script nem tudja átadni (a válasz-méret korlátja ~50 MB); a link csak jelszóval kerül ki. A hibás jelszó szövege tartalmazza a „jelsz” szót, így a `friendly_upload_error` lefordítja.
 
+### `hdsentinel.zip`: HTTP 404 a Drive-ról (2026-11-10, Build 411, fejlesztői gép)
+
+**A napló:** `[TOOLLIB] Letöltés innen: https://drive.usercontent.google.com/download?id=1vXd…&export=download&confirm=t` → `HTTP Error 404: Not Found`. A jelszó jó volt, a szkript kiadta az azonosítót (méret: 32 272 456 bájt).
+
+**Mérve (a megjegyzett jelszóval, mind a 10 Drive-os csomagra `toolfile` + névtelen `Range: bytes=0-3` kérés):** aida64, treesize, teracopy, totalcmd, teamviewer, wlu, macrium, partitionwizard, occt → `206`, `PK\x03\x04`; **hdsentinel → 404** (a `drive.google.com/uc` alak is 404, a `/file/d/<id>/view` 403). Vagyis a kód és a szkript jó, EZ az egy fájl névtelenül nem érhető el, pedig a szkript `setSharing`-je hiba nélkül lefutott. **Az ok NINCS megmérve** (a Drive-fiókot innen nem látjuk); a jelöltek: a Google megjelölte a fájlt (a megjelölt fájl megosztása letiltott), vagy a `getFilesByName` egy kukában lévő régi példányt ad vissza. Kódból nem javítható; a program most a nyers „HTTP 404” helyett a teendőt írja ki (a Drive mappájában törlés + újrafeltöltés). Ha a Google a tartalmat jelöli meg, az újrafeltöltés sem segít: akkor a zipet más tartalommal/névvel kell feltölteni (a zip NEVÉT a `PACKAGES`-ben is át kell írni).
+
+**Mellékesen:** a `test_drive_jelszo_nelkul_nem_tolt_le` a valódi Hitelesítőadat-kezelőt olvasta; amióta a gépen van megjegyzett jelszó, az éles végpontot hívta, és egyszer elbukott (8 futásból 1). Most csonkolja a `load_password`-ot.
+
+### Kézi napló-feltöltés kóddal (2026-11-10, explicit user decision)
+
+*„legyen log feltöltése a drive-ba gomb valahol a főmenüben, és ha arra rányomok és beírom a kódot akkor feltölti ami ugye 1234”*. A gomb az oldalsávban van (a „napló törlése” alatt, minden nézetből elérhető), CLI: Rendszer karbantartás 11. **A kód a Drive-jelszó, és nincs a kódban**: a repó nyilvános, a `toolfile`/`loglist`/`logget` ugyanezzel a jelszóval véd, ezért a beírt kódot a Drive ellenőrzi (`_toollib_check_password(kód, 'wlu')`), nem egy beégetett érték. A feltöltő végpont (`action=log`) továbbra sem kér jelszót. Tesztelve csonkkal (`tests/test_log_upload_manual.py`); **élőben (valódi kattintás, valódi feltöltés) NINCS kipróbálva.**
+
 ## WU-gombok az Operációs rendszer nézetben (2026-11-03, Build 404 után)
 
 **A bejelentés (a felhasználó, egy „szétbaszott” WU-jú gépen):** a „Szolgáltatások újraindítása” meggyógyította, de utána azonnal frissítést keresett és rengeteg „szemetet” töltött le; a program ezután is „szüneteltetve”-t írt, miközben a Windows láthatóan keresett; az „1 hét szünet” utána „megölte” a WU-t (sokáig tartott, lefagyott, „beragadt szar maradt bent”). Kérés: egy harmadik, tetszőleges napszámú szünet; minden gomb takarítson és javítson; keresést ne indítson; a meglévő szünet/tiltás maradjon; ha kell, „10 mp múlva újraindul”, és bejelentkezés után legyen kész, amit kért.

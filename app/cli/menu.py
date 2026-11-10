@@ -1430,6 +1430,7 @@ def _menu_maintenance(api):
             # Ugyanaz a beállítás, mint az 1 kattintásos fix végén (app/gui/powerplan.py).
             ('9', 'Teljesítmény mód (energiaséma)', 'Teljesítménycentrikus séma, a fix végén beállított értékekkel'),
             ('10', 'A gép debug-naplójának törlése', 'A következő futás naplója tisztán olvasható lesz'),
+            ('11', 'A gép debug-naplójának feltöltése a Drive-ra', 'Kódot kér'),
         ], back_label='Vissza a főmenübe')
         if c == '0':
             return
@@ -1462,6 +1463,8 @@ def _menu_maintenance(api):
                 ui.info('Jelenlegi energiaséma: ' + st['name'])
             if ui.confirm('Beállítsam a teljesítmény módot? (laptopon rövidebb akkus üzemidő)', True):
                 _run_screen(api, 'Teljesítmény mód', lambda: api.apply_performance_mode())
+        elif c == '11':
+            _run_screen(api, 'Napló feltöltése', lambda: api.upload_debug_log(ui.ask('Kód')))
         elif c == '10':
             if ui.confirm('Törlöd a lemez debug-naplóit (a korábban erre a lemezre kötött gépekéit is)? '
                           '(a Drive-ról letöltött naplók maradnak)', False):
