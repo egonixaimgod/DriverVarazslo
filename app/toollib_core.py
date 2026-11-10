@@ -244,6 +244,46 @@ def forget_password():
         return False
 
 
+# DARABOLT LETÖLTÉS A SZKRIPTEN ÁT (2026-11-10): a Google a `hdsentinel.zip`-et megjelölte
+# ("Ez a fájl gyanúsnak tűnik. Csak a tulajdonos láthatja.") - megjelölt fájl nem osztható
+# meg, a nyilvános letöltés 404. A szkript viszont a tulajdonos nevében fut: a `toolchunk`
+# akció jelszó után darabonként, base64-ben adja le, megosztás nélkül. 4 MB/darab: a válasz
+# így ~5,4 MB, messze az Apps Script ~50 MB-os korlátja alatt.
+DRIVE_CHUNK_BYTES = 4 * 1024 * 1024
+# Felső korlát a darabszámra (egy hibás szerver-válasz ne pörgessen végtelen ciklust).
+DRIVE_MAX_CHUNKS = 500
+
+
+def drive_download_chunks(post, password, pkg, dest, progress_cb=None):
+    """A csomag letöltése a szkripten át, darabokban, a `dest` fájlba. Hibánál kivételt
+    dob (a hívó törli a csonkot). A verdikt a méret: a leírt bájtok = a szerver `size`-a."""
+    import base64
+    name = zip_name(pkg)
+    logging.info(f"[TOOLLIB] Darabolt letöltés a szkripten át: {name} ({DRIVE_CHUNK_BYTES // 1048576} MB-os darabok)")
+    done, size = 0, None
+    with open(dest, 'wb') as f:
+        for _ in range(DRIVE_MAX_CHUNKS):
+            resp, err = post({'action': 'toolchunk', 'pw': password, 'name': name,
+                              'offset': done, 'length': DRIVE_CHUNK_BYTES})
+            if err:
+                raise Exception(f"darabolt letöltés: {err}")
+            data = (resp or {}).get('data')
+            if not data or not (resp or {}).get('size'):
+                raise Exception("darabolt letöltés: a szerver nem adott adatot (az Apps Script "
+                                "még nem ismeri a `toolchunk` akciót? - új verziót kell telepíteni)")
+            size = int(resp['size'])
+            chunk = base64.b64decode(data)
+            f.write(chunk)
+            done += len(chunk)
+            if progress_cb:
+                progress_cb(done, size)
+            if done >= size:
+                break
+    if done != size:
+        raise Exception(f"darabolt letöltés: csonka ({done} bájt a(z) {size}-ból)")
+    logging.info(f"[TOOLLIB] Darabolt letöltés kész: {name}, {done} bájt.")
+
+
 def drive_file_id(post, password, pkg):
     """A Drive-fájl azonosítója az Apps Scripttől. `post(payload) -> (dict, hiba)` (a
     `logupload_core._post` a végponttal). Visszatérés: (azonosító, hiba-szöveg)."""

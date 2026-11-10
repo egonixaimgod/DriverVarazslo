@@ -565,7 +565,67 @@ A „link birtokában bárki” megosztás azért kell, mert a nagy fájlt az Ap
 
 **A napló:** `[TOOLLIB] Letöltés innen: https://drive.usercontent.google.com/download?id=1vXd…&export=download&confirm=t` → `HTTP Error 404: Not Found`. A jelszó jó volt, a szkript kiadta az azonosítót (méret: 32 272 456 bájt).
 
-**Mérve (a megjegyzett jelszóval, mind a 10 Drive-os csomagra `toolfile` + névtelen `Range: bytes=0-3` kérés):** aida64, treesize, teracopy, totalcmd, teamviewer, wlu, macrium, partitionwizard, occt → `206`, `PK\x03\x04`; **hdsentinel → 404** (a `drive.google.com/uc` alak is 404, a `/file/d/<id>/view` 403). Vagyis a kód és a szkript jó, EZ az egy fájl névtelenül nem érhető el, pedig a szkript `setSharing`-je hiba nélkül lefutott. **Az ok NINCS megmérve** (a Drive-fiókot innen nem látjuk); a jelöltek: a Google megjelölte a fájlt (a megjelölt fájl megosztása letiltott), vagy a `getFilesByName` egy kukában lévő régi példányt ad vissza. Kódból nem javítható; a program most a nyers „HTTP 404” helyett a teendőt írja ki (a Drive mappájában törlés + újrafeltöltés). Ha a Google a tartalmat jelöli meg, az újrafeltöltés sem segít: akkor a zipet más tartalommal/névvel kell feltölteni (a zip NEVÉT a `PACKAGES`-ben is át kell írni).
+**Mérve (a megjegyzett jelszóval, mind a 10 Drive-os csomagra `toolfile` + névtelen `Range: bytes=0-3` kérés):** aida64, treesize, teracopy, totalcmd, teamviewer, wlu, macrium, partitionwizard, occt → `206`, `PK\x03\x04`; **hdsentinel → 404** (a `drive.google.com/uc` alak is 404, a `/file/d/<id>/view` 403). Vagyis a kód és a szkript jó, EZ az egy fájl névtelenül nem érhető el, pedig a szkript `setSharing`-je hiba nélkül lefutott. **Az ok (a felhasználó képernyőfotója a Drive-ról, ugyanaznap):** a fájl fölött sárga sáv: *„Ez a fájl gyanúsnak tűnik. Csak a tulajdonos láthatja.”* (Felülvizsgálat kérése / További információ). A Google megjelölte; megjelölt fájl nem osztható meg, ezért az újrafeltöltés sem segítene. Hogy a zipben MI váltotta ki, nincs megmérve (a Google nem mondja meg).
+
+**A megoldás (explicit user decision: *„na akkor kerüljük meg”*):** megosztás helyett a szkript adja le a fájlt, a tulajdonos nevében, jelszó után, darabokban. Programoldal: `_download_stresstools` Drive-os csomagnál előbb a közvetlen letöltést próbálja (a 9 jó csomagnál gyors, és a régi szkripttel is megy), bukásra vagy nem-zip válaszra `toollib_core.drive_download_chunks` (`toolchunk` akció, `offset`/`length`, 4 MB-os darabok, base64; a verdikt: leírt bájt = a szerver `size`-a; legfeljebb 500 darab). A fájl átkódolását/titkosítását a szűrő ellen szándékosan NEM csináltuk (a fiók tiltását kockáztatná). Tesztek: `tests/test_toollib.py` (`test_megjelolt_*`). Az éles (régi) szkript a `toolchunk`-ra ma `{"ok": true}`-t ad adat nélkül (mérve) → a program „az Apps Script még nem ismeri a `toolchunk` akciót” hibát ír.
+
+**Az Apps Script kiegészítése (a lényege; a ténylegesen kiadott változatot lásd a kódblokkok alatt).** (1) A `doPost`-ban, a `toolfile` ág UTÁN:
+
+```js
+  // 1/c) MEGJELÖLT CSOMAG DARABOKBAN (2026-11-10): megosztás nélkül, a tulajdonos nevében.
+  if (data && data.action === 'toolchunk') {
+    if (!checkLogPassword_(data.pw)) {
+      Utilities.sleep(2000);
+      return jsonOut_({ ok: false, error: 'Hibás jelszó.' });
+    }
+    return getToolChunk_(data);
+  }
+```
+
+(2) A fájl végére:
+
+```js
+/* Egy programcsomag egy darabja base64-ben. A Drive REST API-t hívja Range fejléccel
+   (nem tölti be az egész fájlt), acknowledgeAbuse=true-val: a Google által megjelölt
+   fájlt a TULAJDONOS így letöltheti. Csak a DriverVarazslo_programok mappából szolgál ki. */
+function getToolChunk_(data) {
+  try {
+    const name = String(data.name || '');
+    const folders = DriveApp.getRootFolder().getFoldersByName('DriverVarazslo_programok');
+    if (!folders.hasNext()) return jsonOut_({ ok: false, error: 'Nincs DriverVarazslo_programok mappa a Drive gyökerében.' });
+    const files = folders.next().getFilesByName(name);
+    let f = null;
+    while (files.hasNext()) { const c = files.next(); if (!c.isTrashed()) { f = c; break; } }
+    if (!f) return jsonOut_({ ok: false, error: 'Nincs ilyen fájl a DriverVarazslo_programok mappában: ' + name });
+    const size = f.getSize();
+    const off = Math.max(0, Number(data.offset) || 0);
+    const len = Math.min(Math.max(1, Number(data.length) || 0), 8 * 1024 * 1024);
+    if (off >= size) return jsonOut_({ ok: false, error: 'A kért darab a fájl végén túl van.' });
+    const end = Math.min(size, off + len);       // kizáró vég
+    let bytes = null, hiba1 = '';
+    try { bytes = f.getBlob().getBytes().slice(off, end); } catch (err1) { hiba1 = String(err1); }
+    if (!bytes) {
+      // 2. út: Drive REST + acknowledgeAbuse (kell hozzá a script.external_request scope)
+      const resp = UrlFetchApp.fetch(
+        'https://www.googleapis.com/drive/v3/files/' + f.getId() + '?alt=media&acknowledgeAbuse=true', {
+          headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), Range: 'bytes=' + off + '-' + (end - 1) },
+          muteHttpExceptions: true });
+      if (resp.getResponseCode() !== 206) {
+        return jsonOut_({ ok: false, error: 'A Drive nem adta ki a fájlt. 1. út (getBlob): ' + hiba1 +
+                                            ' | 2. út (REST): HTTP ' + resp.getResponseCode() });
+      }
+      bytes = resp.getContent();
+    }
+    return jsonOut_({ ok: true, size: size, data: Utilities.base64Encode(bytes) });
+  } catch (err) {
+    return jsonOut_({ ok: false, error: String(err) });
+  }
+}
+```
+
+**Ahogy végül kiment (ugyanaznap, a felhasználó kérése: *„írd újra nekem a filet … hogy az egeszet ctrl a ctrl v kelljen csak”*):** a felhasználó beillesztette az ÉLŐ szkriptet. Az **bájtra a `git show 63486f5:appscript.txt` (Build 290, 481 sor) + a 2026-10-30-i `toolfile` kiegészítések** (`TOOL_FOLDER_NAME` konstans, a programcsomag-mappa sora az `engedelyezes()`-ben, `getToolFile_`) — tehát NEM a gitben utoljára tárolt 2026-09-07-i változat (`8d2a83a`: `sortName_`, `atnevezes`, `buildFromFiles_`); az a szerverre soha nem került fel, vagy visszaállt. A teljes új fájl ebből az alapból készült, szkripttel, csak hozzáadással (a `diff` 0 törölt sort mutat), `node --check`-kel ellenőrizve, és a vágólapra került. A fenti kódhoz képest: a mappa neve a `TOOL_FOLDER_NAME`, a darab felső korlátja a `TOOL_CHUNK_MAX_BYTES`, és **az 1. út a `getBlob()`** — azért, mert a projekt `appsscript.json`-jában explicit `oauthScopes` lista van (`spreadsheets` + `drive`), az `UrlFetchApp`-hoz pedig a `script.external_request` scope kellene (manifest-szerkesztés + újraengedélyezés, lásd fent a 2026-09-02-i menetet); a `getBlob` a meglévő engedéllyel megy. A REST-út tartalék, a hibája a válaszba kerül. **A szkript forrása továbbra sincs a repóban** (benne van a `LOG_READ_PASSWORD`, a repó nyilvános). **Megjegyzés: a jelszó értéke a nyilvános git-előzményben olvasható** (`63486f5:appscript.txt`), a felhasználónak jelezve.
+
+**NINCS mérve:** hogy a `getBlob()` vagy a REST-út a megjelölt fájlt a szkriptnek tényleg kiadja-e, és a teljes 32 MB-os letöltés ideje (8 kérés, a `getBlob` úton mindegyik az egész fájlt beolvassa).
 
 **Mellékesen:** a `test_drive_jelszo_nelkul_nem_tolt_le` a valódi Hitelesítőadat-kezelőt olvasta; amióta a gépen van megjegyzett jelszó, az éles végpontot hívta, és egyszer elbukott (8 futásból 1). Most csonkolja a `load_password`-ot.
 

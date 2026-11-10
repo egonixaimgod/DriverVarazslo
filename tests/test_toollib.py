@@ -112,6 +112,49 @@ class Downloader(unittest.TestCase):
         self.assertEqual(self.urls, [tl.drive_url('ABC123')])
         self.assertTrue(tl.package_ready(self.root, 'aida64'))
 
+    def _chunk_post(self, blob, calls, serve=True):
+        import base64
+
+        def post(run, url, payload, http=None):
+            calls.append((payload['action'], payload.get('offset')))
+            if payload['action'] == 'toolfile':
+                return {'ok': True, 'id': 'FLAGGED'}, ''
+            if not serve:
+                return {'ok': True}, ''            # a régi szkript nem ismeri a toolchunk-ot
+            part = blob[payload['offset']:payload['offset'] + payload['length']]
+            return {'ok': True, 'size': len(blob), 'data': base64.b64encode(part).decode()}, ''
+        return post
+
+    def _flagged(self, run, url, dest, **kw):
+        raise Exception('HTTP Error 404: Not Found')
+
+    def test_megjelolt_drive_fajl_darabokban_jon_le(self):
+        """2026-11-10, hdsentinel.zip: a Google megjelölte, a nyilvános letöltés 404 ->
+        a szkripten át, darabokban, és a csomag kész."""
+        import io
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as z:
+            z.writestr('HDSentinel.exe', 'x' * 5000)
+        calls = []
+        with mock.patch.object(stress_mod, 'download_with_cert_fallback', self._flagged), \
+                mock.patch.object(tl, 'DRIVE_CHUNK_BYTES', 64), \
+                mock.patch.object(stress_mod.logupload_core, '_post', self._chunk_post(buf.getvalue(), calls)):
+            root = self.api._download_stresstools(keys=['hdsentinel'], password='titok')
+        self.assertEqual(root, self.root)
+        self.assertTrue(os.path.exists(os.path.join(self.root, 'HD Sentinel', 'HDSentinel.exe')))
+        offsets = [o for a, o in calls if a == 'toolchunk']
+        self.assertGreater(len(offsets), 1)
+        self.assertEqual(offsets, list(range(0, len(buf.getvalue()), 64)))
+
+    def test_megjelolt_fajl_regi_szkripttel_oszinte_hiba(self):
+        calls = []
+        with mock.patch.object(stress_mod, 'download_with_cert_fallback', self._flagged), \
+                mock.patch.object(stress_mod.logupload_core, '_post', self._chunk_post(b'', calls, serve=False)):
+            self.assertIsNone(self.api._download_stresstools(keys=['hdsentinel'], password='titok'))
+        self.assertIn('toolchunk', self.api._toollib_last_error)
+        self.assertFalse(tl.package_ready(self.root, 'hdsentinel'))
+        self.assertFalse(any(f.endswith('.zip') for f in os.listdir(self.tmp)))
+
     def test_nem_zip_valasz_hiba_es_nincs_jelzo(self):
         def html(run, url, dest, **kw):
             with open(dest, 'w') as f:

@@ -55,3 +55,14 @@ def _no_real_process(cmd, *a, **k):
 
 REAL_STREAM_CMD = _bc._stream_cmd     # a saját tesztje (csonkolt Popen-nel) ezt hívja
 _bc._stream_cmd = _no_real_process
+
+# VÉDŐHÁLÓ (2026-11-10): teszt NEM nyúlhat a Windows VALÓDI Hitelesítőadat-kezelőjéhez.
+# A `test_toollib` sikeres Drive-letöltései (`password='titok'`) a valódi tárba mentették a
+# 'titok'-ot, vagyis MINDEN tesztfuttatás felülírta a fejlesztői gép megjegyzett Drive-
+# jelszavát - ez volt a Build 400-as "beragadt 5 karakteres hibás jelszó" valódi oka is.
+from app import toollib_core as _tl  # noqa: E402
+
+TEST_CRED_STORE = {}
+_tl.load_password = lambda: TEST_CRED_STORE.get('pw', '')
+_tl.save_password = lambda p: TEST_CRED_STORE.__setitem__('pw', p)
+_tl.forget_password = lambda: TEST_CRED_STORE.pop('pw', None) or True

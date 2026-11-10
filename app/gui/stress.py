@@ -397,13 +397,14 @@ class GuiStressMixin:
                     continue   # amíg a lockra vártunk, egy másik szál letöltötte
                 zip_path = os.path.join(os.path.dirname(root), 'DV_' + toollib_core.zip_name(pkg))
                 dest = toollib_core.package_dir(root, pkg)
+                drive_post = drive_pw = None
                 try:
                     if toollib_core.package_source(pkg) == toollib_core.SOURCE_DRIVE:
-                        url = benchmark_core.resolve_endpoint()
+                        endpoint = benchmark_core.resolve_endpoint()
+                        drive_post = lambda payload: logupload_core._post(self._run, endpoint, payload)
                         # Ha most nem írtak be jelszót, a gépen megjegyzett jelszó megy.
-                        fid, err = toollib_core.drive_file_id(
-                            lambda payload: logupload_core._post(self._run, url, payload),
-                            password or toollib_core.load_password(), pkg)
+                        drive_pw = password or toollib_core.load_password()
+                        fid, err = toollib_core.drive_file_id(drive_post, drive_pw, pkg)
                         if err:
                             if not password and 'jelsz' in err.lower():
                                 # A megjegyzett jelszó már nem jó: ne ragadjon be, a következő
@@ -415,8 +416,21 @@ class GuiStressMixin:
                         url = toollib_core.github_url(pkg)
                     logging.info(f"[TOOLLIB] Csomag letöltése: {pkg} ({toollib_core.package_source(pkg)}) -> {dest}")
                     dl_cb = (lambda done, total: progress('download', done, total)) if progress else None
-                    download_with_cert_fallback(self._run, url, zip_path, timeout=60, ps_timeout=600,
-                                                log_tag='TOOLLIB', progress_cb=dl_cb)
+                    try:
+                        download_with_cert_fallback(self._run, url, zip_path, timeout=60, ps_timeout=600,
+                                                    log_tag='TOOLLIB', progress_cb=dl_cb)
+                        direct_ok = zipfile.is_zipfile(zip_path)
+                        direct_err = '' if direct_ok else 'a letöltött fájl nem zip'
+                    except Exception as dl_err:
+                        if not drive_post:
+                            raise
+                        direct_ok, direct_err = False, str(dl_err)
+                    if not direct_ok and drive_post:
+                        # A Google megjelölte/nem osztja meg a fájlt (2026-11-10, hdsentinel.zip:
+                        # HTTP 404) -> a szkripten át, darabokban, megosztás nélkül.
+                        logging.warning(f"[TOOLLIB] {pkg}: a közvetlen Drive-letöltés nem ment ({direct_err}) "
+                                        f"- darabolt letöltés a szkripten át.")
+                        toollib_core.drive_download_chunks(drive_post, drive_pw, pkg, zip_path, dl_cb)
                     if not zipfile.is_zipfile(zip_path):
                         # A Drive megosztás nélkül egy HTML bejelentkező-oldalt ad 200-zal.
                         raise Exception("a letöltött fájl nem zip (Drive-on: a fájl nincs megosztva?)")
@@ -438,13 +452,6 @@ class GuiStressMixin:
                         # A jelszó bizonyítottan jó (a Drive kiadta a fájlt): megjegyezzük.
                         toollib_core.save_password(password)
                 except Exception as e:
-                    if toollib_core.package_source(pkg) == toollib_core.SOURCE_DRIVE and '404' in str(e):
-                        # 2026-11-10, hdsentinel.zip: a szkript kiadta az azonosítót, de a Google
-                        # névtelenül 404-et adott (a többi 9 csomag lejött) - a fájl megosztása
-                        # a Drive oldalán nem él. A nyers "HTTP 404" ebből semmit nem mond.
-                        e = (f"{e} - a Drive nem adja ki a {toollib_core.zip_name(pkg)} fájlt, pedig megvan "
-                             f"(a megosztása nem él: a Google letiltotta/megjelölte, vagy a fájl a kukában van). "
-                             f"Teendő a Drive '{toollib_core.DRIVE_FOLDER}' mappájában: töröld és töltsd fel újra.")
                     self._toollib_last_error = f"{toollib_core.PACKAGES[pkg][1]}: {e}"
                     logging.error(f"[TOOLLIB] {pkg} letöltése/kicsomagolása nem sikerült: {e}")
                     return None
