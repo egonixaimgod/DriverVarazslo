@@ -3465,6 +3465,8 @@ window.handlePyEvent = function(payload) {
       if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
       appendLog('❌ HIBA: ' + (data.error || 'Ismeretlen hiba'));
       document.getElementById('mp-status').textContent = '❌ Hiba történt!';
+      mpSetHead({now: '❌ Hiba történt!', pct: 100, pctText: '❌', eta: '', step: ''});
+      mpDedup();
       document.getElementById('mp-close-btn').style.display = 'inline-flex';
       document.getElementById('mp-cancel-btn').style.display = 'none';
       // Stressz-hibánál is felajánljuk az összes teszt bezárását - lehet, hogy a hiba
@@ -8399,7 +8401,10 @@ function showProgressModal(title, phase) {
   document.getElementById('mp-title').textContent = title || 'Folyamat';
   document.getElementById('mp-phase').textContent = phase || '';
   document.getElementById('mp-counter').textContent = '';
-  document.getElementById('mp-status').textContent = 'Inicializálás...';
+  // Üresen indul: az "Inicializálás..." végig kint maradt minden olyan feladatnál, ami nem
+  // küld `status`-t (pl. az 1 kattintásos fix), a fejléc alatt, a valódi lépés ellenére.
+  document.getElementById('mp-status').textContent = '';
+  document.getElementById('mp-status').style.display = 'none';
   document.getElementById('mp-time').textContent = '';
   document.getElementById('mp-log').innerHTML = '';
   document.getElementById('mp-progress-fill').style.width = '0%';
@@ -8408,7 +8413,8 @@ function showProgressModal(title, phase) {
   document.getElementById('mp-log').style.display = 'block';
     document.getElementById('mp-progress').style.display = 'block';
     document.getElementById('mp-counter').style.display = 'block';
-    document.getElementById('mp-time').style.display = 'block';
+    // Futás közben az eltelt időt a fejléc chipje mutatja; ez a sor csak a végén (Teljes idő).
+    document.getElementById('mp-time').style.display = 'none';
 
   // Reset button states
   const closeBtn = document.getElementById('mp-close-btn');
@@ -8421,7 +8427,7 @@ function showProgressModal(title, phase) {
   
   document.getElementById('modal-progress').classList.add('active');
   progressStartTime = Date.now();
-  mpProg = {pct: null, cur: 0, total: 0, ok: 0, bad: 0, t0: null, cur0: 0};
+  mpProg = {pct: null, cur: 0, total: 0, ok: 0, bad: 0, t0: null, cur0: 0, unit: ''};
   mpSetHead({now: title || 'Folyamat', sub: phase || '', pct: null, step: '', eta: '', ok: 0, bad: 0});
   if (progressTimer) clearInterval(progressTimer);
   progressTimer = setInterval(() => {
@@ -8468,24 +8474,57 @@ function updateProgressModal(data) {
     // sorokkal ("→ ...", "• ...", "--- Katalógus: ... ---", "Ezekhez a gyártó..."),
     // és ha azok is felülírnák a fejlécet, a "mi fut most" a művelet végén egy
     // tanácsot mutatna a művelet helyett - pontosan ez látszott az első renderen.
-    const t = String(data.log).split('\n')
-      .filter(x => x.trim() && /^\s*(⬇|📦|🧹|🔧|🔎|↻|🏭|🌐|🔄|🛡️|⚙️)/.test(x)).pop();
+    // 2026-11-11 (1 kattintásos fix: a fejléc percekig egy régi sort mutatott): a SZAKASZ-
+    // nyitó sor (`indeterminate`) és a számlálós sor (`total`) definíció szerint lépés-sor,
+    // jel nélkül is ("Third-party driverek összegyűjtése és törlése...", "(3/8) eszköz"),
+    // és a 🗑/⚙/🧪/☁️/⏳ jelű sor is az. Eredmény- és elválasztó sor (✅ ❌ ---) továbbra sem.
+    const lines = String(data.log).split('\n').filter(x => x.trim());
+    const isStep = x => /^\s*(⬇|📦|🧹|🔧|🔎|↻|🏭|🌐|🔄|🛡️|⚙|🗑|🧪|☁️|⏳|⚡|🛍️)/.test(x);
+    const isResult = x => /^\s*(✅|❌|🛑|⚠️|ℹ️|🎉|---|===|•|→)/.test(x);
+    let t = lines.filter(isStep).pop();
+    if (!t && (data.indeterminate || data.total > 0)) t = lines.filter(x => !isResult(x))[0];
     if (t) head.now = t.replace(/\s+/g, ' ').trim().slice(0, 120);
   }
-  if (data.counter) head.sub = String(data.counter);
+  // A puszta "3 / 13" vagy "42%" számláló NEM megy a fejléc alsorába: ugyanezt a "lépés"
+  // chip és a kör már kiírja (2026-11-11: kétszer állt kint, a törlésnél eggyel eltérve).
+  if (data.counter) head.sub = MP_PLAIN_COUNT.test(String(data.counter).trim()) ? '' : String(data.counter);
+  // A LEZÁRULT SZÁMLÁLÓ NEM MARAD "100%"-ON, ha utána új, számláló nélküli lépés indul
+  // (2026-11-11, a fix törlési lába: 58/58 után percekig 100% állt, miközben a Wi-Fi
+  // újraépítése és a takarítás futott).
+  if (!data.indeterminate && !(data.total > 0) && head.now && mpProg.total > 0 && mpProg.cur >= mpProg.total) {
+    head.pct = null; head.eta = ''; head.step = '';
+    mpProg.total = 0; mpProg.t0 = null;
+  }
   if (data.indeterminate) {
     head.pct = null;
     head.eta = '';                       // határozatlan szakaszban NEM találgatunk
+    head.step = '';                      // és az előző szakasz számlálója sem marad kint
+    mpProg.total = 0; mpProg.t0 = null;
   } else if (data.total && data.total > 0) {
     // A sebességmérés kezdete: az első lépés-üzenet (vagy ha a teljes darabszám változik,
     // pl. egy újabb kör indul, újrakezdjük).
-    if (mpProg.t0 == null || mpProg.total !== data.total || (data.current || 0) < mpProg.cur) {
+    const unit = data.unit || '';
+    if (mpProg.t0 == null || mpProg.total !== data.total || mpProg.unit !== unit || (data.current || 0) < mpProg.cur) {
       mpProg.t0 = Date.now(); mpProg.cur0 = data.current || 0;
     }
     mpProg.cur = data.current || 0;
     mpProg.total = data.total;
+    mpProg.unit = unit;
     head.pct = mpProg.cur / mpProg.total * 100;
-    head.step = mpProg.cur + ' / ' + mpProg.total;
+    // A SZÁMLÁLÓ MÉRTÉKEGYSÉGE (2026-11-11, felhasználói bejelentés: "lépés: 12582912 /
+    // 32272456" egy letöltésnél): a current/total nem mindig darab. A Python `unit`
+    // mezője mondja meg: 'bytes' -> MB-ban, 'percent'/'seconds' -> nincs külön chip (a
+    // kör és a "hátra" úgyis ezt mutatja), mező nélkül -> darab ("lépés: 3 / 12").
+    if (unit === 'bytes') {
+      const mb = b => (b / 1048576).toFixed(b < 10485760 ? 1 : 0);
+      head.step = mb(mpProg.cur) + ' / ' + mb(mpProg.total) + ' MB';
+      head.stepLabel = 'letöltve';
+    } else if (unit === 'percent' || unit === 'seconds') {
+      head.step = '';
+    } else {
+      head.step = mpProg.cur + ' / ' + mpProg.total;
+      head.stepLabel = 'lépés';
+    }
   }
   // A KÉSZ/HIBA SZÁMOKAT CSAK EXPLICIT MEZŐBŐL VESSZÜK ÁT, sosem a naplószövegből.
   // Az első változat a sor eleji ✅/❌ jelekből számolt, és rögtön hazudott is: a
@@ -8499,6 +8538,17 @@ function updateProgressModal(data) {
     head.ok = mpProg.ok; head.bad = mpProg.bad;
   }
   mpSetHead(head);
+  mpDedup();
+}
+/* A fejléc alatti régi sorok (állapot, számláló) csak akkor látszanak, ha MÁST mondanak,
+   mint a fejléc (2026-11-11): különben ugyanaz a szöveg kétszer állt egymás alatt. */
+const MP_PLAIN_COUNT = /^\d+\s*\/\s*\d+$|^\d+\s*%$/;
+function mpDedup() {
+  const t = id => (document.getElementById(id).textContent || '').replace(/\s+/g, ' ').trim();
+  const same = (a, b) => { const x = t(a); return !x || x === t(b); };
+  document.getElementById('mp-status').style.display = same('mp-status', 'mp-now') ? 'none' : '';
+  document.getElementById('mp-counter').style.display =
+    (same('mp-counter', 'mp-sub') || MP_PLAIN_COUNT.test(t('mp-counter'))) ? 'none' : 'block';
 }
 /* ===== A NAPLÓSOR TÍPUSA A VEZETŐ JELBŐL =====
    A Python oldal évek óta emoji-val kezdi a sorait (✅ ⚠️ ❌ ⬇ ↷ 🧹 …). Ezt eddig
@@ -8563,7 +8613,7 @@ function mpSetHead(o) {
     } else {
       const p = Math.max(0, Math.min(100, o.pct));
       ring.classList.remove('indet');
-      $('mp-pct').textContent = Math.round(p) + '%';
+      $('mp-pct').textContent = o.pctText || (Math.round(p) + '%');
       bar.setAttribute('stroke-dashoffset', C * (1 - p / 100));
     }
   }
@@ -8573,8 +8623,10 @@ function mpSetHead(o) {
     e.style.display = show ? '' : 'none';
     if (show) e.innerHTML = html;
   };
-  chip('step', 'mp-st-step', !!o.step, 'lépés: <b>' + esc(o.step || '') + '</b>');
-  chip('eta', 'mp-st-eta', !!o.eta, 'hátra: <b>' + esc(o.eta || '') + '</b>');
+  chip('step', 'mp-st-step', !!o.step, esc(o.stepLabel || 'lépés') + ': <b>' + esc(o.step || '') + '</b>');
+  // A becslés a FUTÓ SZAKASZRA szól (egy letöltésre, egy törlési körre), nem az egész
+  // feladatra - a felirat ezt mondja ki (a fixnél "hátra: 12 mp" állt egy 20 perces láncon).
+  chip('eta', 'mp-st-eta', !!o.eta, 'szakasz vége: <b>~' + esc(o.eta || '') + '</b>');
   chip('ok', 'mp-st-ok', o.ok > 0, '✅ <b>' + (o.ok || 0) + '</b> kész');
   chip('bad', 'mp-st-bad', o.bad > 0, '❌ <b>' + (o.bad || 0) + '</b> hiba');
 }
@@ -8600,6 +8652,7 @@ function onTaskComplete(data) {
   const s = Math.floor((Date.now() - progressStartTime) / 1000);
   const m = Math.floor(s / 60);
   const tEl = document.getElementById('mp-time');
+  tEl.style.display = 'block';
   // A TELJES LÁNC ideje, ha a Python küldte (csak az AutoFix legvégén, minden
   // újraindítással együtt). Enélkül a mező csak az AKTUÁLIS lábat mutatná - egy 4
   // újraindításos fix után az "6 perc"-nek látszana, ami félrevezető. Kiemelten,
@@ -8616,8 +8669,11 @@ function onTaskComplete(data) {
   document.getElementById('mp-progress-fill').style.width = '100%';
   // A fejlec is zarjon le: 100%, "Kesz", es a hatralevo ido chip eltunik.
   mpProg.total = mpProg.total || 1; mpProg.cur = mpProg.total;
-  mpSetHead({pct: 100, eta: '', now: (data && data.status) ? String(data.status) : '✅ Kész',
-             ok: mpProg.ok, bad: mpProg.bad});
+  // Sikertelen zárásnál a kör NEM mond 100%-ot (2026-11-11: "100%" állt az "❌ Egyetlen
+  // program telepítése sem sikerült" mellett); a letöltés-számláló chipje is eltűnik.
+  const endStatus = (data && data.status) ? String(data.status) : '✅ Kész';
+  mpSetHead({pct: 100, pctText: /^\s*(❌|🛑)/.test(endStatus) ? '❌' : '', eta: '', step: '',
+             now: endStatus, ok: mpProg.ok, bad: mpProg.bad});
   
   // Show close button, hide cancel button
   document.getElementById('mp-close-btn').style.display = 'inline-flex';
@@ -8632,6 +8688,7 @@ function onTaskComplete(data) {
     if (data.counter) document.getElementById('mp-counter').textContent = data.counter;
   }
   
+  mpDedup();
   // Refresh relevant views
   if (data.task === 'delete' || data.task === 'restore') setTimeout(loadDrivers, 500);
   // A Mentés nézet méretei és automatikus mentés-listája is elavul (új mentés, törlés előtti mentés).
@@ -8665,6 +8722,7 @@ async function cancelTask() {
     } else {
       document.getElementById('mp-status').innerHTML += '<br><br><span style="color:var(--yellow)">⏳ Megszakítás folyamatban... Várd meg amíg az alfolyamatok leállnak!</span>';
     }
+    mpDedup();   // a megszakítás-üzenet különbözik a fejléctől -> látszania kell
     try {
       await api().cancel_task();
     } catch (e) {

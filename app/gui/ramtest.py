@@ -252,7 +252,7 @@ class GuiRamTestMixin:
             el = int(time.monotonic() - t0)
             tail = '\n'.join(seen['screen'].splitlines()[-6:])
             logging.info(f"[RAMTEST] y-cruncher {el} mp, képernyő vége:\n{tail}")
-            self.emit('task_progress', {'task': 'ramtest', 'current': min(el, mode['yc_seconds']), 'total': mode['yc_seconds'],
+            self.emit('task_progress', {'task': 'ramtest', 'current': min(el, mode['yc_seconds']), 'total': mode['yc_seconds'], 'unit': 'seconds',
                                         'status': f"🧪 y-cruncher fut - {el // 60} / {mode['yc_seconds'] // 60} perc"})
 
         try:
@@ -429,7 +429,7 @@ class GuiRamTestMixin:
             def progress():
                 mins = int((time.monotonic() - t0) / 60)
                 logging.info(f"[RAMTEST] HCI állapot ({mins} perc): {' | '.join(last['rows'])}")
-                self.emit('task_progress', {'task': 'ramtest', 'current': min(last['cov'], target), 'total': target,
+                self.emit('task_progress', {'task': 'ramtest', 'current': min(last['cov'], target), 'total': target, 'unit': 'percent',
                                             'status': f"🧪 HCI MemTest - {last['cov']:.1f}% / {target}% ({mins} perc)"})
 
             deadline = t0 + HCI_MAX_HOURS_PER_100 * 3600 * target / 100

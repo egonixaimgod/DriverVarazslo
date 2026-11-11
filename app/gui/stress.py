@@ -518,7 +518,8 @@ class GuiStressMixin:
             dl_state['last'] = now
             if phase == 'download':
                 if total:
-                    self.emit('task_progress', {'task': task, 'current': done, 'total': total,
+                    # `unit`: a folyamat-ablak ebből tudja, hogy bájt, nem "lépés" (ui.html).
+                    self.emit('task_progress', {'task': task, 'current': done, 'total': total, 'unit': 'bytes',
                                                 'status': f'🌐 Letöltés: {done / 1048576:.0f} / {total / 1048576:.0f} MB'})
                 else:
                     self.emit('task_progress', {'task': task, 'indeterminate': True,

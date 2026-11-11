@@ -193,7 +193,7 @@ class GuiLogsMixin:
 
                 def progress(i, total, name):
                     self.emit('task_progress', {'task': task, 'log': f'   ⬇️ [{i}/{total}] {name}',
-                                                'progress': int(i * 100 / max(1, total))})
+                                                'current': i, 'total': total})
 
                 done, skipped, errors = logupload_core.download_logs(
                     self._run, url, password, rows, dest_dir=dest,

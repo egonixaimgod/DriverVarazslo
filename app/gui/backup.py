@@ -26,8 +26,7 @@ class GuiBackupMixin:
             msg = str(msg)
             pct = backup_core.progress_percent(msg)
             if pct is not None:
-                self.emit('task_progress', {'task': task, 'current': int(pct), 'total': 100,
-                                            'counter': f'{pct:.0f}%'})
+                self.emit('task_progress', {'task': task, 'current': int(pct), 'total': 100, 'unit': 'percent'})
                 return
             ev = {'task': task, 'log': msg}
             m = _COUNT_RE.search(msg)

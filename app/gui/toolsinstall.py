@@ -315,23 +315,7 @@ class GuiToolsInstallMixin:
                 self.emit('task_start', {'task': 'toolsinstall', 'title': 'Szervíz Programok Telepítése'})
                 self.emit('task_progress', {'task': 'toolsinstall', 'log': '🌐 Programok előkészítése (első alkalommal letöltés)...', 'indeterminate': True})
 
-                dl_state = {'last': 0.0}
-
-                def dl_progress(phase, done, total):
-                    now = time.monotonic()
-                    if now - dl_state['last'] < 0.4 and not (total and done >= total):
-                        return
-                    dl_state['last'] = now
-                    if phase == 'download':
-                        if total:
-                            self.emit('task_progress', {'task': 'toolsinstall', 'current': done, 'total': total,
-                                                        'status': f'🌐 Letöltés: {done / 1048576:.0f} / {total / 1048576:.0f} MB'})
-                        else:
-                            self.emit('task_progress', {'task': 'toolsinstall', 'indeterminate': True,
-                                                        'status': f'🌐 Letöltés: {done / 1048576:.0f} MB'})
-                    else:
-                        self.emit('task_progress', {'task': 'toolsinstall', 'current': done, 'total': total,
-                                                    'status': f'📦 Kicsomagolás: {done}/{total} fájl'})
+                dl_progress = self._task_dl_progress('toolsinstall')   # közös a stresszel/RAM TEST-tel
 
                 install_root = self._tools_install_root()
                 records = self._load_tool_install_records()

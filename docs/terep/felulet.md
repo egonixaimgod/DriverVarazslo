@@ -427,6 +427,22 @@ A találati sor `.wu` cellája `white-space:nowrap` + `text-overflow:ellipsis` v
 
 **A próba-oldal csapdája (saját, a mérés közben):** a Python heredocban írt csonkban a `'D:\\'` és `'C:\\'` egy `\`-re rövidült, a JS-ben lezáratlan sztring lett, és a csonk/futtató blokk némán nem futott le (a kép a kezdőlapot mutatta). Windows-útvonalat a próba-JS-be `String.fromCharCode(92)`-vel vagy perjellel tegyél.
 
+### 2026-11-11: a folyamatablak kiírásai (felhasználói bejelentés, Build 413, képernyőfotóval)
+
+**A bejelentés:** HD Sentinel letöltése közben a fejlécben `lépés: 12582912 / 32272456` állt (bájtok), alatta a `🌐 Letöltés: 12 / 31 MB` kétszer (fejléc + `mp-status`) és az eltelt idő kétszer (chip + `mp-time`); egy korábbi fotón `100%` a körben az `❌ Egyetlen program telepítése sem sikerült.` mellett. A felhasználó: *„mindenhol ahol ez az ablak jön elő … pl az 1 katt fixes ablaknál … tiszta bug az egész”*.
+
+**Amit a kódból kiolvastam (a küldők végigolvasva: `stress`, `toolsinstall`, `backup`, `ramtest`, `logs`, `drivers`, `ghost`, `rebind`, `hwscan`, `autofix`):**
+- a `current`/`total` négyféle mennyiség volt megkülönböztetés nélkül: darab, bájt (letöltés), százalék (DISM-sáv, HCI-lefedettség), másodperc (y-cruncher) — a felület mindet „lépés: cur / total”-ként írta ki;
+- a `logs.py` `progress` mezőt küldött, amit a felület soha nem olvasott (a naplóletöltésnek nem volt százaléka);
+- a `toolsinstall` a `_task_dl_progress` szó szerinti másolatát hordta;
+- a `counter` („3/13”) a fejléc alsorába ÉS a nagy zöld `mp-counter` sorba is kiment, a „lépés” chip mellett; a kézi törlésnél a `counter` `i+1`, a `current` `i` volt (eggyel eltértek);
+- a `mp-status` „Inicializálás...” szövege végig kint maradt minden feladatnál, ami nem küld `status`-t (a fix egyáltalán nem küld) — ezt a DOM-csonkos meghajtás fogta meg, nem az olvasás;
+- a fejléc „mi fut most” sora naplóból csak a felsorolt jelű sorokat vette át: a fix szakasz-nyitó sorai (jel nélkül, `indeterminate`-tel) és a `🗑 Törlés (i/N)` sorok nem írták át;
+- egy lezárult számláló (58/58) után a kör 100%-on maradt, amíg a következő számlálós szakasz el nem indult;
+- a „hátra” becslés mindig a futó szakaszra szólt, a felirat ezt nem mondta.
+
+**A javítás:** `unit` mező a küldőkben; `mpDedup`; `MP_PLAIN_COUNT`; a fenti szabályok az `updateProgressModal`-ban (lásd CLAUDE.md 15. fejezet). **Mérve** a `tests/progress_modal_harness.js`-sel (a `ui.html` valódi függvényei DOM-csonkon), 12 állapot: bájtos letöltés → `39%`, `letöltve: 12 / 31 MB`, nincs dupla sor; kicsomagolás → `lépés: 80 / 157`; hibás zárás → `❌`; fix: szakasz-nyitó sor a fejlécben, `58/58` után `🔧 …` lépésre `•••`; WU `3/13` egyszer; `percent`/`seconds` chip nélkül. **NINCS mérve:** valódi ablakban (képernyőfotó), és élő láncon. A kész/hiba chipek szakaszonként újraindulnak (a WU-körök saját számlálót küldenek) — ehhez nem nyúltam.
+
 ### 2026-11-05: a felső „Jelenlegi rendszer / Másik lemez” sáv megszűnt — a nézetek saját rendszer-választója
 
 **A kérés (szó szerint):** *„A driverek kezelése menüpontban, illetve a mentés és visszaállítás menüpontban nem jó ez hogy ott van felül, hogy jelenlegi rendszer, meg masik rendszer … alig lehet észrevenni … ahol relevans ott legyen ott h tudok kulsorol is ezt azt, ahol meg nem relevans ott ne legyen ott … ha masik lemezrol akarok barmit menteni visszallitani stb azt ott helybven cisnaljam ne legfelul legyen egy masik lemez es akkor komplett minden masik lemezrol megy”*.
