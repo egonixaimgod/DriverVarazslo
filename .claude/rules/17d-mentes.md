@@ -1,0 +1,19 @@
+---
+paths:
+  - "app/backup_core.py"
+  - "app/gui/backup.py"
+  - "app/bcd_core.py"
+  - "app/gui/bcd.py"
+  - "app/bitlocker_core.py"
+  - "app/gui/bitlocker.py"
+  - "app/blockscript_core.py"
+  - "app/gui/blockscript.py"
+  - "tests/test_backup_truth.py"
+---
+
+*A CLAUDE.md 17. fejezete, 2026-11-13 óta külön fájlban, szó szerint. A Claude Code magától betölti, ha a fenti útvonalak egyikéhez nyúlsz. A CLAUDE.md (elvek, 1–11. és 18. fejezet) itt is érvényes; a bizonyíték: `docs/terep/funkciok.md`.*
+
+## 17. További funkciók
+
+- **BitLocker** (Hungarian state text → szín; a kikapcsolás `-ErrorAction Stop` + visszaolvasás: dekódolás folyamatban / nincs titkosítva, különben hiba — 2026-10-12-ig egy el sem indult dekódolásra is ✅ jött), **Net Blokkoló** (`block.bat` csak letöltve, soha nem futtatva), **BCD-gomb** = a `BootFixer.cmd` letöltése a `boot_javito_tool` repóból (soha nem futtatjuk; a beépített `bcd_core.repair_bcd` az offline visszaállításé és a CLI-é). A BootFixer v3–v8 története (és a v6.1 tábla-átalakítás egy éles lemezen okozott sérülése): `docs/terep/torles-hasznalat-gepterkep.md` (grep: `BootFixer`), plusz a `boot_javito_tool` repó saját CLAUDE.md-je.
+- **Mentés és Visszaállítás** (`backup_core.py`, `app/gui/backup.py`, CLI: Mentés menü; 2026-11-04-én újraírva, explicit user decision: *„teljesen alakítsd át … profi és átlátható … amit le tudsz menteni tudd is visszaállítani”*). **Mentés, három fajta:** third-party (`dism /English /Export-Driver`, élő vagy offline) / a Windows saját driverei (fájlmásolás: a `FileRepository` a third-partyk nélkül + a nem-`oemNN` INF-ek) / mindkettő; formátum: `DriverVarázsló_Mentés_<idő>_<fajta>\{ThirdParty,Windows\FileRepository,Windows\INF,mentes.json,INFO.txt}`. **Ami third-party, azt a hash dönti el** (`third_party_store_folders`): az `oemNN.inf` a csomag INF-jének bájtra azonos másolata (mérve: 58/58, 0 eltérés a `SetupGetInfDriverStoreLocationW`-hez képest); fájlolvasás, offline lemezen is megy. A nézet három, egymástól színben elváló szakasz (`.bk-sec`: 1 mentés kék, 2 visszaállítás zöld, 3 mentőeszközök narancs; keret + bal sáv + fejléc-sáv, 2026-11-05, explicit user decision: *„beleolvadnak a háttérbe”*). **A mentés forrása a panel saját „Honnan mentsen?” választója** (ez a gép / másik Windows; WinPE alatt csak a másik). **Visszaállítás** (`inspect_backup` → `restore_drivers`): A) melyik mentésből (tallózás vagy a B-ben választott lemez automatikus mentései: fix, kézi törlés), B) hova (erre a gépre: `pnputil`; nem induló Windowsra: `dism /Image /Add-Driver /ForceUnsigned`, utána választható BCD-javítás + első-bejelentkezési `scan-devices`), a csomagok driverenként pipálhatók. Minden régi formátumot felismer (régi teljes export `_Windows_Inbox_*`, régi WIM `FileRepository`+`INF`, `oemNN\` almappák, bármilyen .inf-es mappa); egy csomag belsejében lévő INF nem külön csomag. **A Windows saját részéből CSAK a hiányzó fájlok mennek vissza** (`robocopy /ZB /XC /XN /XO`, az INF-nél `oem*` nélkül; mérve: a meglévő, eltérő fájlt nem írja felül): a régi változat élő gépen a `_Windows_Inbox_Drivers`-t is `pnputil /subdirs`-zal rakta fel, offline a WIM-et DISM-mel regisztrálta, és felülírt. **Windows-driverek lemezképből** (`extract_windows_drivers`, 1. index, ESD → WIM, csak olvasható csatolás, `finally`-ben leválasztás) → ugyanilyen „Windows saját” mentés. **A verdikt a kilépési kódokból jön:** pnputil 0/259/3010, DISM 0/3010, robocopy <8, és a `bcd_core.repair_bcd` csak akkor `True`, ha a BCD bizonyítottan újraépült. **`_stream_cmd` megszakításkor is kiolvassa a kimenetet** (a régi `break` + `wait()` holtpontra futhatott). A gyors visszaállítási pont az `RPOK`/`RPFAIL` kimenetből dönt. Élőben mérve: a „Windows saját” mentés 663 csomag, 385 MB, 7 mp; NEM mérve: a DISM-export emelt jogon, a visszaállítás élő/offline gépen, a lemezkép-kinyerés, Sergei alatt. Bizonyíték: `docs/terep/funkciok.md` (grep: `Mentés és Visszaállítás (2026-11-04)`).

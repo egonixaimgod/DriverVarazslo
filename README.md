@@ -504,7 +504,7 @@ python -m PyInstaller --clean --noconfirm DriverVarazslo.spec   # -> dist/Driver
 > [!CAUTION]
 > A `main` ágra küldött exe a terepen futó példányok automatikus frissítésének forrása: egy push éles kiadásnak számít. A build-szám soha nem csökkenhet.
 
-**Hozzájárulás:** a projekt szabálykönyve a [`CLAUDE.md`](CLAUDE.md), a döntések bizonyítékai (mérések, terepi naplórészletek) a [`docs/terep/`](docs/terep) mappában vannak. Egy szabály megváltoztatása előtt olvasd el a hozzá tartozó bizonyítékot; egy új javításhoz új teszt jár.
+**Hozzájárulás:** a projekt szabálykönyve a [`CLAUDE.md`](CLAUDE.md) (a területi szabályok a [`.claude/rules/`](.claude/rules) mappában), a döntések bizonyítékai (mérések, terepi naplórészletek) a [`docs/terep/`](docs/terep) mappában vannak. Egy szabály megváltoztatása előtt olvasd el a hozzá tartozó bizonyítékot; egy új javításhoz új teszt jár.
 
 ---
 
