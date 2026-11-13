@@ -52,7 +52,7 @@ import re
 import logging
 import collections
 from app.wu_core import firmware_declared_port
-from app.driverusage_core import stale_binding
+from app.driverusage_core import stale_binding, extension_nodes
 # === /AUTO-IMPORTS ===
 
 
@@ -64,6 +64,7 @@ F_STORAGE, F_USB, F_CHIPSET, F_SECURITY, F_FIRMWARE = 'storage', 'usb', 'chipset
 F_INPUT, F_CAMERA, F_BIO, F_CARD, F_SENSOR = 'input', 'camera', 'biometric', 'cardreader', 'sensor'
 F_BATTERY, F_PRINTER, F_PHONE, F_MONITOR = 'battery', 'printer', 'phone', 'monitor'
 F_SOFTWARE, F_OTHER, F_INHERIT = 'software', 'other', 'inherit'
+F_LIGHT = 'lighting'   # 2026-11-13: RGB-vezérlő (csak külső container-kategóriaként)
 
 # (ikon, címke az alaplap-/beépített szekcióhoz, címke a "nincs hozzá eszköz" csoporthoz)
 FUNC_META = {
@@ -87,6 +88,7 @@ FUNC_META = {
     F_PHONE:    ('📱', 'Telefon / mobileszköz', 'Telefonhoz / mobileszközhöz'),
     F_MONITOR:  ('🖥️', 'Monitor', 'Monitorhoz'),
     F_SOFTWARE: ('🧰', 'Szoftveres driver', 'Szoftveres / virtuális driver'),
+    F_LIGHT:    ('💡', 'RGB-világítás', 'RGB-világításhoz'),
     F_OTHER:    ('🧩', 'Egyéb', 'Nem azonosítható'),
 }
 
@@ -97,17 +99,21 @@ EXT_LABEL = {
     F_MONITOR: 'Monitor', F_PRINTER: 'Nyomtató / szkenner', F_INPUT: 'Beviteli eszköz',
     F_AUDIO: 'Hangeszköz (fejhallgató, hangszóró)', F_CAMERA: 'Kamera / webkamera',
     F_STORAGE: 'Külső tároló', F_NET: 'Hálózati adapter', F_BT: 'Bluetooth-eszköz',
-    F_PHONE: 'Telefon / mobileszköz', F_OTHER: 'Külső eszköz',
+    F_PHONE: 'Telefon / mobileszköz', F_OTHER: 'Külső eszköz', F_LIGHT: 'RGB-világítás vezérlő',
 }
 
 # Az alaplap-alcsoportok sorrendje - a technikus így gondolkodik a gépről.
 BOARD_ORDER = [F_MONITOR, F_AUDIO, F_NET, F_BT, F_STORAGE, F_USB, F_CHIPSET, F_SECURITY, F_FIRMWARE,
                F_INPUT, F_CAMERA, F_BIO, F_CARD, F_SENSOR, F_BATTERY, F_OTHER]
 # A külső eszközök sorrendje.
-EXT_ORDER = [F_MONITOR, F_PRINTER, F_INPUT, F_AUDIO, F_CAMERA, F_STORAGE, F_NET, F_BT, F_PHONE, F_OTHER]
+EXT_ORDER = [F_MONITOR, F_PRINTER, F_INPUT, F_LIGHT, F_AUDIO, F_CAMERA, F_STORAGE, F_NET, F_BT, F_PHONE,
+             F_OTHER]
 # A "nincs hozzá eszköz" csoportok sorrendje.
-NODEV_ORDER = [F_GPU, F_AUDIO, F_NET, F_BT, F_CHIPSET, F_STORAGE, F_USB, F_INPUT, F_CAMERA, F_BIO,
-               F_CARD, F_SECURITY, F_FIRMWARE, F_MONITOR, F_PRINTER, F_PHONE, F_OTHER]
+# A `package_purpose` MINDEN lehetséges funkciója kell ide (a CPU, a szenzor és az akku
+# 2026-11-13-ig hiányzott: terepen "Egyéb – nodev:sensor" / "nodev:battery" kártya lett).
+NODEV_ORDER = [F_GPU, F_CPU, F_AUDIO, F_NET, F_BT, F_CHIPSET, F_STORAGE, F_USB, F_INPUT, F_CAMERA,
+               F_BIO, F_CARD, F_SECURITY, F_FIRMWARE, F_SENSOR, F_BATTERY, F_MONITOR, F_PRINTER,
+               F_PHONE, F_OTHER]
 
 # Egy alaplap-alcsoport kártyája akkor is megjelenik, ha nincs hozzá gyári csomag -
 # ezekkel a funkciókkal a technikus/ügyfél a gép felépítését látja ("a hang a Windows
@@ -221,7 +227,10 @@ _NAME_KEYWORDS = [
     (re.compile(r'card reader|sd host|cardreader|memory card', re.I), F_CARD),
     (re.compile(r'camera|webcam|\buvc\b|scanner', re.I), F_CAMERA),
     (re.compile(r'sata|ahci|nvme|raid|rapid storage|storage|optane|\bdisk\b', re.I), F_STORAGE),
-    (re.compile(r'xhci|usb 3|host controller|thunderbolt|usb4', re.I), F_USB),
+    # A puszta "host controller" NEM elég: az Intel "Serial IO GPIO/I2C Host Controller"
+    # chipset (terep, 2026-11-13: a sunrisepoint-/cannonlake-LPSS INF-ek az USB alá kerültek).
+    (re.compile(r'xhci|ehci|usb 3|usb.*host controller|extensible host controller|thunderbolt|usb4',
+                re.I), F_USB),
     (re.compile(r'touchpad|touch pad|pointing|trackpad|keyboard|mouse|\bhid\b|precision touch|ultranav|'
                 r'gamepad|joystick|game ?controller', re.I), F_INPUT),
     (re.compile(r'firmware|\bbios\b|uefi', re.I), F_FIRMWARE),
@@ -241,6 +250,14 @@ _SOFTWARE_ID_PREFIXES = ('ROOT\\', 'SWD\\', 'SW\\', 'HTREE\\', 'UMB\\')
 # ami telefonnak látszott (2026-10-30, mérve: a SERGEI pendrive "Telefon" kártyát kapott).
 # Egy MTP-s telefon WPD-csomópontja `USB\VID_…`, azt ez nem érinti.
 _INHERIT_ID_PREFIXES = ('SWD\\DRIVERENUM\\', 'SWD\\MMDEVAPI\\', 'SWC\\', 'SWD\\WPDBUSENUM\\')
+_LIGHT_NAME_RE = re.compile(r'mystic light|led controller|rgb controller|argb|aura (?:led|light)|polychrome|'
+                            r'rgb fusion|lighting (?:node|controller)|light controller|led strip', re.IGNORECASE)
+_GAMEPAD_NAME_RE = re.compile(r'wireless controller|game ?pad|dualsense|dualshock|joystick|'
+                              r'xbox (?:wireless )?controller', re.IGNORECASE)
+_TOUCHPAD_NAME_RE = re.compile(r'touch ?pad|trackpad|clickpad|trackpoint|ultranav|pointing device',
+                               re.IGNORECASE)
+_MONITOR_WRAP_RE = re.compile(
+    r'^(?:generic(?: pnp)? monitor|általános pnp[- ](?:képernyő|monitor))\s*\((.+)\)\s*$', re.IGNORECASE)
 _GENERIC_NAME_RE = re.compile(
     r'^(usb (kompozit|composite|beviteli|input)|hid[- ]|általános|generic|usb (eszköz|device)$|'
     r'usb-hub|usb hub|szoftveres eszköz|software device)', re.IGNORECASE)
@@ -255,7 +272,19 @@ def _upper_list(v):
 
 
 def node_name(node):
-    return (node.get('friendly') or node.get('desc') or node.get('id') or '').strip()
+    nm = (node.get('friendly') or node.get('desc') or '').strip()
+    if nm:
+        return nm
+    # Driver nélküli eszköznek nincs Windows-neve. A hardver saját neve (busdesc) jön, és
+    # ha az sincs, a példány-sorszám NÉLKÜLI azonosító - a terepen a Bluetooth-kártya címe
+    # a nyers "USB\VID_8087&PID_0A2B\5&1683e25f&0&6" volt (2026-11-13, 4 gépen).
+    bd = (node.get('busdesc') or '').strip()
+    if bd and '\n' not in bd and len(bd) <= 80:
+        return bd
+    dev_id = (node.get('id') or '').strip()
+    if dev_id.count('\\') >= 2:
+        dev_id = dev_id.rsplit('\\', 1)[0]
+    return f"Ismeretlen eszköz ({dev_id})" if dev_id else ''
 
 
 def _pci_vendor(node):
@@ -299,6 +328,10 @@ def node_function(node):
         return F_MONITOR, 'monitor-busz (EDID)'
     if dev_id.startswith(('SWD\\PRINTENUM\\', 'USBPRINT\\', 'WSDPRINT\\', 'LPTENUM\\', 'DOT4\\')):
         return F_PRINTER, 'nyomtató-busz'
+    if dev_id.startswith('ROOT\\') and cls in ('image', 'printer'):
+        # Hálózati szkenner / MFP: a gyártó drivere gyökér-eszközként hozza létre (terep:
+        # "HP CLJM477 Scan Driver", "Brother MFC-6490CW LAN"). Webkamera soha nem ROOT\.
+        return F_PRINTER, 'hálózati nyomtató / szkenner gyökér-eszköze'
     if dev_id.startswith(_INHERIT_ID_PREFIXES):
         return F_INHERIT, 'a szülő eszközéhez tartozó szoftver-komponens'
     if dev_id.startswith('BTH\\'):
@@ -316,9 +349,11 @@ def node_function(node):
     if SETUP_CLASS_FUNC.get(cls) == F_PHONE:
         return F_PHONE, f"Windows-osztály: {node.get('cls')}"
     m = _USB_VID_RE.search(dev_id)
+    # A Bluetooth-rádió NEM telefon: a MediaTek (0E8D) és a Qualcomm (05C6) laptopok BT-
+    # moduljait is gyártja (terep, 2026-11-03: "MediaTek RZ616 Bluetooth Adapter" -> Egyéb).
     if (m and m.group(1) in PHONE_USB_VIDS and dev_id.startswith('USB\\')
-            and usb_func not in (F_PRINTER, F_STORAGE, F_INPUT, F_AUDIO)
-            and SETUP_CLASS_FUNC.get(cls) not in (F_PRINTER, F_MONITOR, F_INPUT, F_STORAGE)):
+            and usb_func not in (F_PRINTER, F_STORAGE, F_INPUT, F_AUDIO, F_BT)
+            and SETUP_CLASS_FUNC.get(cls) not in (F_PRINTER, F_MONITOR, F_INPUT, F_STORAGE, F_BT)):
         return F_PHONE, f"USB-gyártókód VID_{m.group(1)} ({PHONE_USB_VIDS[m.group(1)]})"
 
     if usb_func:
@@ -482,12 +517,32 @@ def assign_node_slots(nodes, form='desktop'):
                 if ven in ('1002', '10DE') and ven in igpu_by_vendor:
                     res = (igpu_by_vendor[ven], 'a beépített grafika HDMI/DP-hangvezérlője')
             if res is None:
-                if func == F_INHERIT:
+                own = SETUP_CLASS_FUNC.get((n.get('cls') or '').strip().lower())
+                if (func == F_INHERIT and own == F_AUDIO and parent is not None
+                        and parent['id'].upper().startswith(('SWD\\COMPUTER\\', 'HTREE\\'))):
+                    # A gép EGÉSZÉRE telepített hangeffekt (Microsoft "Voice Clarity" APO, a
+                    # SWD\COMPUTER alatt): nincs eszköz, amitől örökölhetne, a saját osztálya
+                    # (AudioProcessingObject) mondja meg - mérve a fejlesztői gépen, 2026-11-13.
+                    res = (('board:' if n.get('present') else 'absent:') + F_AUDIO,
+                           f"Windows-osztály: {n.get('cls')} (az egész gépre telepített hang-komponens)")
+                elif func == F_INHERIT:
                     if parent is not None:
                         ps, _pw = _slot(parent, depth + 1)
                         res = (ps, 'a szülő eszközéhez tartozó komponens')
                     else:
                         res = ('software', 'szoftveres komponens, szülő nélkül')
+                elif func == F_PRINTER and dev_id.startswith('ROOT\\'):
+                    # Saját "külső" kártya: VAN eszköz, ami használja, tehát nem kerülhet a
+                    # "nincs hozzá eszköz" nyomtatók közé - és nem is alkalmazás-driver.
+                    res = ('ext:scanner-' + nid, why)
+                elif (func == F_INPUT and dev_id.startswith('ROOT\\')
+                      and _TOUCHPAD_NAME_RE.search(node_name(n))
+                      and 'virtual' not in node_name(n).lower()):
+                    # A Synaptics a touchpad HID-felületét gyökér-eszközként hozza létre
+                    # (ROOT\SYNHIDMINI, HWID ROOT\VID_06CB&PID_000F - mérve 5 terepi gépen):
+                    # ez a beépített touchpad drivere, nem egy alkalmazásé.
+                    res = ('board:' + F_INPUT, 'a beépített touchpad gyártói HID-felülete '
+                                               '(a driver gyökér-eszközként hozza létre)')
                 elif dev_id.startswith(_SOFTWARE_ID_PREFIXES):
                     res = ('software', 'szoftveres / virtuális eszköz (nem fizikai buszon ül)')
                 elif func == F_CPU:
@@ -507,7 +562,13 @@ def assign_node_slots(nodes, form='desktop'):
         # (terepen: GT 730, RTX 5060, HD Graphics 620).
         if not n.get('present') and not res[0].startswith('ext:') and res[0] != 'software':
             func = node_function(n)[0]
-            if func != F_INHERIT or parent is None or not parent.get('present'):
+            if func == F_INHERIT and parent is not None and not parent.get('present') \
+                    and res[0].startswith('absent:'):
+                # A NEM JELENLÉVŐ szülő komponense a szülő "nincs jelen" csoportjába kerül
+                # (2026-11-13, terep: az Intel Graphics Control Panel, a MEI-komponensek, a
+                # Realtek/Fortemedia hangeffektek "Egyéb – Nem azonosítható" lettek).
+                pass
+            elif func != F_INHERIT or parent is None or not parent.get('present'):
                 if func == F_INHERIT:
                     func = F_OTHER
                 res = ('absent:' + func, 'a gép részeként van nyilvántartva, de most nincs jelen')
@@ -523,11 +584,23 @@ def assign_node_slots(nodes, form='desktop'):
 def container_category(members):
     """Egy külső eszköz (container) kategóriája a tagjai funkciójából. TISZTA.
 
-    Elsőbbség: nyomtató > telefon > monitor > kamera > hang > tároló > hálózat >
-    Bluetooth > beviteli. (Egy fejhallgató hang + HID -> hang; egy telefon MTP +
-    hálózat + modem -> telefon; egy webkamera kép + mikrofon -> kamera.)"""
+    Elsőbbség: nyomtató > telefon > monitor > [RGB-vezérlő, játékvezérlő - név alapján] >
+    kamera > hang > tároló > hálózat > Bluetooth > beviteli. (Egy fejhallgató hang + HID ->
+    hang; egy telefon MTP + hálózat + modem -> telefon; egy webkamera kép + mikrofon -> kamera.)"""
     funcs = {node_function(m)[0] for m in members}
-    for f in (F_PRINTER, F_PHONE, F_MONITOR, F_CAMERA, F_AUDIO, F_STORAGE, F_NET, F_BT, F_INPUT):
+    for f in (F_PRINTER, F_PHONE, F_MONITOR):
+        if f in funcs:
+            return f
+    names = ' | '.join(f"{node_name(m)} {m.get('busdesc') or ''}" for m in members)
+    # Az alaplapi/házbeli RGB-vezérlő HID-eszköz, ezért "Beviteli eszköz" lett (terep,
+    # 2026-11-13: MSI "MYSTIC LIGHT", "LED Controller"). Csak egyértelmű vezérlő-nevekre:
+    # egy "K70 RGB" billentyűzet beviteli eszköz marad.
+    if _LIGHT_NAME_RE.search(names):
+        return F_LIGHT
+    # A PlayStation-kontroller hang + HID: a hang-elsőbbség miatt "Hangeszköz" lett (terep).
+    if F_INPUT in funcs and _GAMEPAD_NAME_RE.search(names):
+        return F_INPUT
+    for f in (F_CAMERA, F_AUDIO, F_STORAGE, F_NET, F_BT, F_INPUT):
         if f in funcs:
             return f
     return F_OTHER
@@ -545,7 +618,12 @@ def container_name(members):
         if bd and '\n' not in bd and not bd.startswith('#') and len(bd) <= 80 and not _GENERIC_NAME_RE.match(bd):
             cands.append(bd)
         nm = node_name(m)
-        if nm and not _GENERIC_NAME_RE.match(nm) and '\n' not in nm:
+        # "Generic Monitor (AG276QZD2)": a zárójeles rész a monitor EDID-neve. Generikusként
+        # eldobva a hangszóró-végpont neve nyert: "AG276QZD2 (NVIDIA High Definition Audio)".
+        w = _MONITOR_WRAP_RE.match(nm or '')
+        if w:
+            cands.append(w.group(1).strip())
+        elif nm and not _GENERIC_NAME_RE.match(nm) and '\n' not in nm:
             cands.append(nm)
     return cands[0] if cands else (node_name(tops[0]) if tops else 'Külső eszköz')
 
@@ -574,7 +652,11 @@ def _headline_nodes(func, members):
     if func == F_STORAGE:
         return [m for m in pres if not m['id'].upper().startswith(('STORAGE\\', 'ROOT\\'))]
     if func == F_NET:
-        return [m for m in pres if not m['id'].upper().startswith(_SOFTWARE_ID_PREFIXES)]
+        # A fizikai kártya (PCI / USB / SDIO) a cím; a Windows virtuális adapterei (Wi-Fi
+        # Direct, BT-PAN, WAN Miniport) csak, ha más nincs. Terepen a cím "Microsoft Wi-Fi
+        # Direct Virtual Adapter #3, … #15" volt a valódi Wi-Fi kártya helyett (2026-11-13).
+        phys = [m for m in pres if m['id'].upper().startswith(('PCI\\', 'USB\\', 'SDIO\\', 'SD\\'))]
+        return phys or [m for m in pres if not m['id'].upper().startswith(_SOFTWARE_ID_PREFIXES)]
     if func == F_FIRMWARE:
         fw = [m for m in pres if (m.get('cls') or '').lower() == 'firmware']
         return fw or pres
@@ -639,16 +721,21 @@ def package_purpose(facts, pkg=None, printer=False):
         return F_PHONE, f"a modell-leírás mobileszközre utal: {shown}"
     if not facts.get('hwid_count'):
         return F_SOFTWARE, f"az INF nem nevez meg hardvert (szoftveres driver), osztály: {facts.get('inf_class') or pkg.get('class') or '?'}"
+    # Hálózati szolgáltatás / protokoll, vírusirtó, szoftver-eszköz: az osztály maga mondja
+    # ki, hogy alkalmazáshoz tartozik (terep: a FortiClient NDIS-szűrője "Egyéb" lett).
+    if SETUP_CLASS_FUNC.get(cls) == F_SOFTWARE:
+        return F_SOFTWARE, f"szoftveres driver (Windows-osztály: {facts.get('inf_class') or pkg.get('class')}), INF: {shown}"
 
     if cls == 'display':
         if 'PCI' in buses:
             return F_GPU, f"PCI-s grafikus driver, INF: {shown}"
         return F_SOFTWARE, f"virtuális kijelző (nem PCI-hardver), INF: {shown}"
     if cls in ('media', 'audioprocessingobject'):
+        # A gyártókód az Intel SST-busz (INTELAUDIO\FUNC_01) kodekjeiből is jön. A régi
+        # "INTELAUDIO-busz, nincs más gyártó -> kijelző-hang" szabály 2026-11-13-án kikerült:
+        # a Realtek SST-hangkártyát és az SST-mikrofont is a grafikához tette (terep).
         if hda_vens and hda_vens <= {'8086', '1002', '10DE'}:
             return F_GPU, f"a grafika HDMI/DP-hangja (HD Audio gyártókód {', '.join(sorted(hda_vens))}), INF: {shown}"
-        if 'INTELAUDIO' in buses and not (hda_vens - {'8086'}):
-            return F_GPU, f"Intel kijelző-hang, INF: {shown}"
         return F_AUDIO, f"Windows-osztály: {facts.get('inf_class')}, INF: {shown}"
     strong = {
         'net': F_NET, 'bluetooth': F_BT, 'hdc': F_STORAGE, 'scsiadapter': F_STORAGE,
@@ -668,6 +755,14 @@ def package_purpose(facts, pkg=None, printer=False):
         for rx, f in _NAME_KEYWORDS:
             if rx.search(d):
                 return f, f"a modell-leírás alapján: '{d}'"
+    # Csak gyökér- (ROOT\ / SWD\) vagy GUID-azonosító: a driver a SAJÁT telepítőjével hozza
+    # létre az eszközt, hardver nincs mögötte (terep: Dell "DellInstrumentation" -> Egyéb).
+    hwids = [str(h).upper() for h in (facts.get('hwids') or [])]
+    if hwids and all(h.startswith(('ROOT\\', 'SWD\\', 'SW\\', '{')) for h in hwids):
+        return F_SOFTWARE, f"az INF csak szoftveres (gyökér-) eszközt hoz létre, INF: {shown}"
+    if cls == 'hidclass':
+        # HID-eszköz kulcsszó nélkül (terep: "Logitech Unifying USB receiver" -> Egyéb).
+        return F_INPUT, f"Windows-osztály: HIDClass, INF: {shown}"
     if 'PCI' in buses or 'ACPI' in buses:
         return F_CHIPSET, f"alaplapi (PCI/ACPI) eszköz driverje, INF: {shown}"
     if cls in ('system', 'extension', 'softwarecomponent'):
@@ -756,13 +851,15 @@ def build_machine_map(nodes, packages, facts, usage=None, identity=None, role=No
     for n in nodes:
         inf = (n.get('inf') or '').lower()
         if inf.startswith('oem'):
-            if stale_binding(n.get('cls'), pkg_cls.get(inf)):
+            if stale_binding(n.get('cls'), pkg_cls.get(inf),
+                             list(n.get('hwids') or []) + list(n.get('compat') or []),
+                             (facts.get(inf) or {}).get('hwids'), bool(n.get('present'))):
                 stale.append(f"{inf}: {node_name(n)} [{n.get('cls')}]")
                 continue
             pkg_nodes[inf].append(n)
     if stale:
-        logging.info(f"[MACHINEMAP] {len(stale)} elavult eszköz-kötés kihagyva (eszköz-osztály ≠ "
-                     f"csomag-osztály): {stale[:10]}")
+        logging.info(f"[MACHINEMAP] {len(stale)} elavult eszköz-kötés kihagyva (az eszköz osztálya "
+                     f"vagy azonosítója nem illik a csomagra): {stale[:10]}")
     pkg_info = {}
     slot_pkgs = collections.defaultdict(list)
     for p in packages or []:
@@ -773,7 +870,27 @@ def build_machine_map(nodes, packages, facts, usage=None, identity=None, role=No
         present = [n for n in bound if n.get('present')]
         cand = present or bound
         u = usage.get(pub) or {}
-        if cand:
+        ext_on = []
+        if not cand and ((facts.get(pub) or {}).get('inf_class') or '').strip().lower() == 'extension':
+            # Kiegészítő INF: a jelenlévő eszköznél a helye, amelyre a Windows betölti
+            # (ugyanaz a párosító, mint a használat-oszlopé - lásd `extension_nodes`).
+            ext_on = [n for n in extension_nodes((facts.get(pub) or {}).get('hwids'), nodes)
+                      if n.get('present') and (n.get('id') or '').lower() in node_slots]
+        if ext_on:
+            counter = collections.Counter(node_slots[n['id'].lower()][0] for n in ext_on)
+            slot = counter.most_common(1)[0][0]
+            names = []
+            for n in ext_on:
+                if node_name(n) not in names:
+                    names.append(node_name(n))
+            first = next(n for n in ext_on if node_slots[n['id'].lower()][0] == slot)
+            why = (f"Kiegészítő (Extension) INF - a Windows a fő driver mellé tölti be ennél a "
+                   f"JELENLÉVŐ eszköznél: {', '.join(names[:3])}"
+                   f"{' (+' + str(len(names) - 3) + ')' if len(names) > 3 else ''}. "
+                   f"Hely: {node_slots[first['id'].lower()][1]}.")
+            kind = 'extension'
+            what = ', '.join(names[:2]) + (f' (+{len(names) - 2})' if len(names) > 2 else '')
+        elif cand:
             counter = collections.Counter(node_slots[n['id'].lower()][0] for n in cand)
             slot = counter.most_common(1)[0][0]
             names = []
@@ -892,7 +1009,7 @@ def build_machine_map(nodes, packages, facts, usage=None, identity=None, role=No
         cat = container_category(members) if members else F_OTHER
         # Hálózaton látott eszközök (TV-k, más gépek) és csak-nyomtatósor "nyomtatók":
         # gyári csomag nélkül zaj, a gép felépítéséhez semmit nem adnak.
-        if not pk and not (hardware and cat in (F_MONITOR, F_INPUT, F_AUDIO, F_CAMERA, F_STORAGE,
+        if not pk and not (hardware and cat in (F_MONITOR, F_INPUT, F_LIGHT, F_AUDIO, F_CAMERA, F_STORAGE,
                                                   F_PHONE, F_NET, F_BT, F_PRINTER)):
             continue
         icon = FUNC_META.get(cat, FUNC_META[F_OTHER])[0]
@@ -914,12 +1031,12 @@ def build_machine_map(nodes, packages, facts, usage=None, identity=None, role=No
                     if m.get('present') and (m.get('inf') or '').lower().startswith('oem')]
     if slot_pkgs.get('software') or soft_members:
         _add('software', 'software', '🧰', 'Szoftveres driverek',
-             'vírusirtó, VPN, virtuális eszközök', 'software', soft_members)
+             'alkalmazások driverei: vírusirtó, VPN, távelérés, virtuális eszközök', 'software', soft_members)
     # Nincs jelen / nincs hozzá eszköz
     # A kártya címe a rendeltetés RÖVID címkéje (a szekció címe már kimondja, hogy nincs
     # hozzá eszköz - kártyánként megismételve zaj volt), a `name` a táblázat
     # csoport-fejlécének teljes mondata ("Telefonhoz / mobileszközhöz").
-    for f in NODEV_ORDER + [F_CPU, F_SOFTWARE]:
+    for f in NODEV_ORDER + [F_SOFTWARE]:
         key = 'absent:' + f
         if slot_pkgs.get(key):
             icon, short, nl = FUNC_META.get(f, FUNC_META[F_OTHER])

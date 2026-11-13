@@ -677,3 +677,8 @@ A felhasználó fotója: „WU driver-engedélyezés + teljes reset”, 28:29 pe
 - **A gép Windows 10, a csomag Windows 11 24H2-é** (`26100`): a WU egy funkciófrissítést töltött le és bontott ki.
 
 Mérve a fejlesztői gépen (scratchpad, 618 karakteres útvonal, 200 fájl): `os.rename` a felső mappán 0,015 s; `cmd /c rd /s /q "\\?\<mappa>"` rc=0, 0,08 s, semmi nem maradt. (A fejlesztői gépen `LongPathsEnabled=1`, ezért ott a Python `os.remove` is ment; az ASUS-on láthatóan nem.) Ebből lett a félretevős megoldás. Hogy az `rd` a 735 ezer fájlt az ASUS-on mennyi idő alatt törli, NINCS mérve - a háttérben fut, a WU-t nem akadályozza.
+
+#### 2026-11-13: RAM-gyártó 12 jegyű JEDEC-kóddal; jelszó a naplóban
+
+- **Dell Latitude 5300 (Build 414), szó szerint:** `[REPORT] RAM: 2 modul, típus=DDR4, gyártó=80AD000080AD (Manufacturer='80AD000080AD', PartNumber='HMAA1GS6CJR6N-XN')`. A `ram_vendor` hexa-felismerése `<= 8` karakterre volt korlátozva, a 12 jegyű alak "valódi névnek" számított, és nyers kódként került a riportba. Most hossz-korlát nélkül JEDEC (`80AD` = SK Hynix). `tests/test_report_hw.py: RamVendorJedecTest` (a HEAD-kódon elbukik).
+- **Dell Latitude E5470 (Build 415), szó szerint:** `[UI-AKCIO] Mezőváltozás: input#mc-pw-input "1234"` - a kézi napló-feltöltés kódja (= a Drive-jelszó) nyíltan, és a napló utána felment a Drive-ra. Az API-hívás maszkolt volt (`upload_debug_log(***)`), a felületi naplózó nem. A CLI ugyanígy (`[CLI-INPUT] 'Jelszó' -> '...'`, három helyen). Javítva: `_uiElemDesc` a `type="password"` mezőre `(***)`, a CLI `ui.ask(..., secret=True)` (`questionary.password`, tartalékként `getpass`, ami nem a naplózott `builtins.input`-on megy). **A régi naplókban (Drive) a jelszó benne maradt** - azokat ez nem javítja.

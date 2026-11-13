@@ -171,7 +171,7 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 <br/>
 
 - **Használat szerinti besorolás, bizonyítékkal:** *Használatban / Nincs bedugva / Nem fut / Nem használt / Ismeretlen*. A program több független jelből dönt (jelen lévő eszköz, futó kernel-szolgáltatás, bejegyzett nyomtató, szűrő-regisztráció, Extension INF), így a vírusirtók és a távelérés-programok eszköz nélküli driverei sem tűnnek „feleslegesnek”. Ahol nincs elég adat, ott „Ismeretlen” a válasz, nem találgatás.
-- **A gép felépítése:** interaktív ábra (laptop vagy asztali gép) arról, melyik driver melyik alkatrészé: videokártya, alaplapi hang, hálózat, chipset, külső eszközök. A döntés a Windows eszközfájából és a PCI-topológiából jön, nem a driver nevéből.
+- **A gép felépítése:** interaktív ábra (laptop vagy asztali gép) arról, melyik driver melyik alkatrészé: videokártya, alaplapi hang, hálózat, chipset, külső eszközök, RGB-vezérlők, és külön az alkalmazások (szoftveres) driverei. A döntés a Windows eszközfájából és a PCI-topológiából jön, nem a driver nevéből; egy másik gépről maradt szellemeszköz kötését (azonos `oemNN` szám, de már más csomag) az azonosítók alapján kiszűri.
 - **Nyomtató-szűrő:** a nyomtató-drivereket az INF tartalmából ismeri fel, akkor is, ha a nyomtató épp nincs a géphez csatlakoztatva.
 - **Minden third-party driver törölhető**, offline módban is. Ha egy rossz driver miatt nem indul a gép, egy másik Windowsból indítva pont azt a csomagot lehet eltávolítani. A Windows saját (inbox) drivereihez a program szándékosan nem nyúl.
 - **Karbantartás:** elavult duplikátumok takarítása a DriverStore-ból (a legfrissebb kiadás marad, a használatban lévő soha nem törlődik), szellemeszközök eltávolítása, eszközök újrakötése a gyári driverre.
@@ -263,6 +263,7 @@ flowchart LR
 |---|---|
 | **Törlési előnézet** | Minden törlendő csomag látszik, azzal együtt, *mire való* és *használja-e most a gép*; csomagonként kivehető |
 | **Nyomtató-driverek megtartása** | A gép nyomtatói a szerviz után is működnek, akkor is, ha épp nincsenek csatlakoztatva |
+| **Szoftveres driverek megtartása** | Az alkalmazásokhoz tartozó driverek (távelérés, VPN, vírusirtó, virtuális eszközök, RGB-programok) egy kapcsolóval megmaradnak: ezeket a Windows Update nem hozza vissza |
 | **Wi-Fi mód** | Kábel nélküli gépen a hálózat végig megmarad: a Wi-Fi driver nem törlődik, a mentett hálózatok (titkosítva) visszaállnak, a gép automatikusan visszacsatlakozik |
 | **Wi-Fi driver újraépítése** | A Wi-Fi adapter beállításai tiszta lapról épülnek fel, a mentett hálózat automatikus visszaállításával |
 | **Teljes / gyors keresés** | A Microsoft Update Catalog bevonása vagy kihagyása |

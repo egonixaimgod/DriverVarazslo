@@ -3053,6 +3053,16 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
         <span class="toggle-track"></span>
         Meglévő nyomtató/szkenner driverek megtartása (ajánlott)
       </label>
+      <!-- SZOFTVERES DRIVEREK MEGTARTÁSA (2026-11-13, explicit user decision): a gép-térkép
+           "Szoftveres driverek" kategóriája (alkalmazásokhoz tartozó driverek: távelérés, VPN,
+           vírusirtó, virtuális eszközök, RGB-/periféria-szoftver) egy kattintással megmarad.
+           Alapból KI, és minden nyitáskor visszaáll: a fix alapelve, hogy mindent töröl. A
+           kivétel a keep_packages-ben utazik (reason='software'), mint a kézi kivétel. -->
+      <label class="toggle" id="mc-keep-software-row" style="display:none;margin-top:10px" title="Bekapcsolva a „Szoftveres driverek” kategória minden csomagja MEGMARAD (a jobb oldali listán zárolva, MEGMARAD címkével). Ezek egy-egy alkalmazáshoz tartoznak: távelérés (pl. TeamViewer), VPN, vírusirtó, virtuális eszközök, RGB- és periféria-vezérlő programok. Nincs mögöttük a gépbe épített hardver, ezért a Windows Update és a katalógus nem hozza vissza őket – törlés után csak az alkalmazás újratelepítése pótolja. Nyomtatóhoz tartozó csomagról továbbra is a nyomtató-kapcsoló dönt.">
+        <input type="checkbox" id="mc-keep-software">
+        <span class="toggle-track"></span>
+        🧰 Szoftveres driverek megtartása (TeamViewer, VPN, vírusirtó, RGB-programok…)
+      </label>
       <!-- TÁROLÓ ÉS FIRMWARE: itt korábban két kapcsoló volt, mindkettő alapból KI.
            2026-09-02, explicit user decision: teljesen eltűntek, mert a bekapcsolásukból
            csak baj lehet (rossz tároló-driver = el sem induló Windows; firmware-írás =
@@ -3304,6 +3314,9 @@ function _uiElemDesc(el, phase) {
     d += (phase === 'change') ? '(VEGLEGES checked=' + el.checked + ')'
                               : '(kattintas_utan checked=' + el.checked + ')';
   }
+  // Jelszómező értéke SOHA nem kerül a naplóba: a napló a Drive-ra is feltöltődik
+  // (terep, 2026-11-13: `input#mc-pw-input "1234"` - a Drive-jelszó nyíltan).
+  if (el.type === 'password') return d + (el.value ? ' (***)' : '');
   const txt = ((el.innerText || el.value || '') + '').trim().replace(/\s+/g, ' ').slice(0, 60);
   if (txt) d += ' "' + txt + '"';
   return d;
@@ -5226,6 +5239,7 @@ function drvSortVal(d, key) {
 const WHAT_KIND = {
   'device': '🔗 ezt az eszközt hajtja',
   'absent-device': '🔌 nem csatlakoztatott eszközé',
+  'extension': '🧩 kiegészítő ehhez az eszközhöz',
   'inf': '📄 a driver-fájl szerint',
   'service': '⚙️ szoftveres driver'
 };
@@ -5318,7 +5332,7 @@ function mmGroupMeta(s, n) {
   let hint = '';
   if (s.section === 'nodev') hint = 'a gépben nincs hozzá tartozó eszköz — ezek a mazsolázható csomagok';
   else if (s.section === 'absent') hint = 'a gép nyilvántartja, de most nincs benne';
-  else if (s.section === 'software') hint = 'nincs fizikai eszközük (vírusirtó, VPN, virtuális eszköz)';
+  else if (s.section === 'software') hint = 'alkalmazásokhoz tartoznak, nincs mögöttük beépített hardver – az 1 kattintásos fixnél egy kapcsolóval megtarthatók';
   else if (s.badge === 'nincs csatlakoztatva') hint = 'most nincs csatlakoztatva';
   const title = s.section === 'nodev' ? 'Nincs hozzá eszköz'
     : s.section === 'absent' ? 'Már nincs a gépben'
@@ -8844,6 +8858,14 @@ function delRowForce(d) {
   }
   if (d.group === 'printer' && document.getElementById('mc-skip-printers').checked)
     return { on: false, why: 'Nyomtató-megtartás bekapcsolva – ez a nyomtatóhoz/szkennerhez tartozik' };
+  // Szoftveres driverek megtartása: CSAK a 'normal' csoportra (a nyomtatóról a nyomtató-
+  // kapcsoló dönt). A `keep` jelzi, hogy ezt a Python nem védi magától: a keep_packages-ben
+  // kell átadni (lásd showAutoFixConfirm).
+  if (d.group === 'normal' && document.getElementById('mc-keep-software').checked) {
+    const mi = delMachineInfo(d);
+    if (mi && mi.slot === 'software')
+      return { on: false, keep: true, why: 'Szoftveres driverek megtartása bekapcsolva – alkalmazáshoz tartozó driver, a fix nem törli' };
+  }
   return null;
 }
 
@@ -8861,6 +8883,19 @@ function delGroupKeyOf(d) {
 function delRowOn(d) {
   const f = delRowForce(d);
   return f ? f.on : !delUnchecked.has((d.published || '').toLowerCase());
+}
+// A Pythonnak átadott kivételek (keep_packages). Amit a tech kézzel kivett: csak a NEM
+// zárolt sorok számítanak (a zároltakat úgyis a Python védi, és a kettőt nem szabad
+// összekeverni). KIVÉTEL a szoftver-megtartás zárolása (`keep`): azt a Python nem
+// ismeri, ezért kivételként megy át, reason='software'-rel (a napló így különbözteti meg).
+function delKeepPackages() {
+  const keep = [];
+  delPreview.forEach(d => {
+    const f = delRowForce(d);
+    if (f ? f.keep : delUnchecked.has((d.published || '').toLowerCase()))
+      keep.push({ published: d.published, original: d.original, reason: (f && f.keep) ? 'software' : 'manual' });
+  });
+  return keep;
 }
 // A keresésre illeszkedő sorok (fül-szűrés ELŐTT - a fülek számai ebből jönnek, hogy a
 // fül és a lista ugyanarról a halmazról beszéljen; lásd getDriverIndicesBeforeTab).
@@ -9065,6 +9100,21 @@ function renderDeletePreview() {
   } else {
     hint.innerHTML = 'Minden csomag törölhető. A kipipálás nélkül hagyottakat a fix meghagyja.';
   }
+  // A szoftver-megtartás be van kapcsolva, de nincs mit megtartania - ezt ki kell mondani,
+  // különben a technikus azt hiszi, a kapcsoló véd valamit.
+  if (!delLoading && document.getElementById('mc-keep-software').checked) {
+    const softN = delPreview.filter(d => { const f = delRowForce(d); return f && f.keep; }).length;
+    if (!delMachine) {
+      hint.innerHTML += '<br><span style="color:var(--yellow)">⚠ A gép felépítése nem készült el, ezért a '
+        + 'szoftveres drivereket nem lehet felismerni – a megtartandókat vedd ki kézzel a listából.</span>';
+    } else if (!softN) {
+      hint.innerHTML += '<br><span style="color:var(--text3)">🧰 Ezen a gépen nincs törlendő szoftveres '
+        + 'driver – a megtartás-kapcsolónak nincs mire hatnia.</span>';
+    } else {
+      hint.innerHTML += '<br><span style="color:var(--text2)">🧰 ' + softN + ' szoftveres driver megmarad '
+        + '(a „Szoftveres driverek” kategória).</span>';
+    }
+  }
   // A Wi-Fi-s mód be van kapcsolva, de egyetlen csomag sem tartozik a Wi-Fi kártyához:
   // ilyenkor a kapcsoló tényleg nem zárol semmit, és ezt jobb kimondani, mint hagyni,
   // hogy hibának tűnjön (terepi visszajelzés, 2026-08-07).
@@ -9083,7 +9133,7 @@ function delSetLoading(on) {
   // A WU-szüneteltetés kapcsolója is ide tartozik. Nem a törlési előnézetre hat (arra
   // semmilyen hatása nincs), de amíg az elemzés fut, az Igen gomb úgyis tiltott - egyetlen
   // aktív kapcsoló a kiszürkült oszlopban hibának látszana.
-  const ids = ['mc-wifi-mode', 'mc-rebuild-wifi', 'mc-skip-printers',
+  const ids = ['mc-wifi-mode', 'mc-rebuild-wifi', 'mc-skip-printers', 'mc-keep-software',
                'mc-wu-pause', 'mc-use-catalog', 'mc-del-search', 'mc-del-all', 'mc-del-none'];
   ids.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = on; });
   // A Wi-Fi újraépítés kapcsolója vezetékes gépen amúgy is tiltott marad - a
@@ -9169,17 +9219,14 @@ function showAutoFixConfirm(title, message) {
       const wuPause = document.getElementById('mc-wu-pause').checked;
       // GYORS MOD: kikapcsolva a lanc csak a WU Agentbol telepit (--no-catalog).
       const useCatalog = document.getElementById('mc-use-catalog').checked;
-      // Amit a tech kézzel kivett: csak a NEM zárolt sorok számítanak (a zároltakat
-      // úgyis a Python védi, és a kettőt nem szabad összekeverni).
-      const keep = delPreview
-        .filter(d => !delRowForce(d) && delUnchecked.has((d.published || '').toLowerCase()))
-        .map(d => ({ published: d.published, original: d.original }));
+      const keep = delKeepPackages();
       document.getElementById('mc-wu-pause-row').style.display = 'none';
       document.getElementById('mc-use-catalog-row').style.display = 'none';
       document.getElementById('mc-wifi-mode-row').style.display = 'none';
       document.getElementById('mc-rebuild-wifi-row').style.display = 'none';
       document.getElementById('mc-rebuild-wifi-info').style.display = 'none';
       document.getElementById('mc-skip-printers-row').style.display = 'none';
+      document.getElementById('mc-keep-software-row').style.display = 'none';
       document.getElementById('mc-del-panel').style.display = 'none';
       document.getElementById('mc-box').style.maxWidth = '480px';
       document.getElementById('mc-box').style.maxHeight = '';
@@ -9192,6 +9239,10 @@ function showAutoFixConfirm(title, message) {
     document.getElementById('mc-cancel').textContent = 'Mégse';
     document.getElementById('mc-yes').textContent = 'Igen';
     document.getElementById('mc-skip-printers-row').style.display = 'flex';
+    // SZOFTVERES DRIVEREK MEGTARTÁSA: alapból KI, minden nyitáskor vissza (az előző ügyfél
+    // döntése nem viheti át csendben a következő gépre).
+    document.getElementById('mc-keep-software').checked = false;
+    document.getElementById('mc-keep-software-row').style.display = 'flex';
     // (A tároló- és firmware-kapcsoló 2026-09-02-én eltűnt: soha nem kapcsolható be.)
     // WU-SZÜNETELTETÉS: a tároló/firmware kapcsolókkal ellentétben ez ALAPÉRTELMEZÉSBEN BE
     // van kapcsolva, és minden nyitáskor vissza is áll bekapcsolt állapotba. Ez a bolt
@@ -9315,6 +9366,7 @@ function showAutoFixConfirm(title, message) {
     // bepipálva (törlődik, majd visszakerül), kikapcsolva zárolt, pipa nélkül.
     rebuildBox.onchange = () => { syncRebuildWifi(); renderDeletePreview(); };
     document.getElementById('mc-skip-printers').onchange = renderDeletePreview;
+    document.getElementById('mc-keep-software').onchange = renderDeletePreview;
     api().get_autofix_net_state().then(st => {
       st = st || {};
       if (st.suggest) {

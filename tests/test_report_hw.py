@@ -97,5 +97,21 @@ class BatteryCyclesTest(unittest.TestCase):
             '[{"Name":"A","Design":"50000","Full":"41000"}]')))
 
 
+class RamVendorJedecTest(unittest.TestCase):
+    """Terep, 2026-11-13, Dell Latitude 5300 (Build 414): a napló szó szerint
+    `gyártó=80AD000080AD (Manufacturer='80AD000080AD', PartNumber='HMAA1GS6CJR6N-XN')`.
+    A 12 jegyű JEDEC-alak a régi `<= 8` hossz-korlát miatt nyers kódként gyártónév lett."""
+
+    def test_dell_12_jegyu_jedec(self):
+        self.assertEqual(rc.ram_vendor('80AD000080AD', 'HMAA1GS6CJR6N-XN'), 'SK Hynix')
+
+    def test_ismeretlen_hosszu_hexa_a_cikkszamra_esik(self):
+        self.assertEqual(rc.ram_vendor('859A000000000000', 'M471A1K43DB1-CWE'), 'Samsung')
+        self.assertIsNone(rc.ram_vendor('859A00000000', 'XYZ123'))
+
+    def test_valodi_nev_marad(self):
+        self.assertEqual(rc.ram_vendor('SK Hynix', 'HMA82GS6DJR8N-VK'), 'SK Hynix')
+
+
 if __name__ == '__main__':
     unittest.main()

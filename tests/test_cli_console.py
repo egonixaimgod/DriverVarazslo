@@ -149,8 +149,24 @@ class AutofixKeepTest(unittest.TestCase):
 
     def test_only_free_rows_are_offered_and_kept(self):
         # szabad sorok: ninja, gpu (boot/nyomtató/Wi-Fi zárolt) -> az elsőt pipáljuk
-        self.assertEqual(self.run_keep(SPACE + ENTER), [{'published': 'oem4.inf', 'original': 'ninja.inf'}])
+        self.assertEqual(self.run_keep(SPACE + ENTER),
+                         [{'published': 'oem4.inf', 'original': 'ninja.inf', 'reason': 'manual'}])
         self.assertEqual(self.run_keep(ENTER), [])
+
+    def _soft_preview(self):
+        # A gép-térkép szerint a ninja (távoli asztal) a "Szoftveres driverek" kategória.
+        return {'drivers': self.ROWS, 'boot_detected': True,
+                'machine': {'packages': {'oem4.inf': {'slot': 'software', 'what': 'NinjaOne Remote'},
+                                         'oem5.inf': {'slot': 'gpu:pci\\x', 'what': 'GPU'}}}}
+
+    def test_szoftveres_driverek_megtartasa_igen(self):
+        # "Megmaradjanak a szoftveres driverek?" -> i, utána a listán (már csak a gpu) semmi
+        got = self.run_keep('i' + ENTER + ENTER, preview=self._soft_preview())
+        self.assertEqual(got, [{'published': 'oem4.inf', 'original': 'ninja.inf', 'reason': 'software'}])
+
+    def test_szoftveres_driverek_megtartasa_alapbol_nem(self):
+        # ENTER = alapértelmezés (Nem) -> a ninja törlődik, a listán pipálható marad
+        self.assertEqual(self.run_keep(ENTER + ENTER, preview=self._soft_preview()), [])
 
     def test_switches_free_rows(self):
         # nyomtató-megtartás KI, Wi-Fi mód KI: a nyomtató és a Wi-Fi sor is szabad, pipálható

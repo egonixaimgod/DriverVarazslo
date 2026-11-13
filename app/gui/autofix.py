@@ -498,9 +498,16 @@ class GuiAutofixMixin:
             if kept:
                 kept_keys = {id(d) for d in kept}
                 drivers = [d for d in drivers if id(d) not in kept_keys]
-                self.emit('task_progress', {'task': task_id, 'log': f'🔒 {len(kept)} db driver kihagyva a törlésből (kézi választás a fix indításakor).\n'})
+                reasons = {(k.get('published') or '').lower(): k.get('reason') for k in keep_list}
+                n_soft = sum(1 for d in kept if reasons.get((d.get('published') or '').lower()) == 'software')
+                self.emit('task_progress', {'task': task_id, 'log':
+                          f'🔒 {len(kept)} db driver kihagyva a törlésből (a fix indításakor választva'
+                          + (f'; ebből {n_soft} szoftveres driver a megtartás-kapcsoló szerint' if n_soft else '')
+                          + ').\n'})
                 for d in kept:
-                    logging.info(f"[AUTOFIX-DELETE] Kézi kivétel - törlésből kizárva: {d.get('published', '?')} "
+                    why = ('Szoftver-megtartás (kapcsoló)'
+                           if reasons.get((d.get('published') or '').lower()) == 'software' else 'Kézi kivétel')
+                    logging.info(f"[AUTOFIX-DELETE] {why} - törlésből kizárva: {d.get('published', '?')} "
                                  f"({d.get('original', '?')}) - {d.get('provider', '?')} [{d.get('class', '?')}]")
 
         wifi_protected_pkgs = []
@@ -1829,7 +1836,8 @@ class GuiAutofixMixin:
         self.emit('task_progress', {'task': task_id, 'log': '🔄 Újraindítás, utána az óra ellenőrzése - ha rendben van, a fix magától ELÖLRŐL indul.'})
         # A dialógus kézi kivételei a következő (külön) folyamatnak: az A láb onnan olvassa vissza.
         self._autofix_stats_set('clock_keep_packages', [
-            {'published': k.get('published') or '', 'original': k.get('original') or ''}
+            {'published': k.get('published') or '', 'original': k.get('original') or '',
+             'reason': k.get('reason') or 'manual'}
             for k in (keep_packages or []) if k.get('published')])
         self._schedule_autofix_resume('--resume-clockfix', task_id)
         self._reboot_or_cancel('Újraindulás az óra beállítása után...', task_id)
@@ -3431,14 +3439,22 @@ class GuiAutofixMixin:
                         # A _autofix_stats_clear() UTÁN: a záró jelentés mondja ki (clock_fixed).
                         self._autofix_stats_set('clock_fixed', clock_note)
                     if keep_pkgs:
+                        # `reason`: 'software' = a "Szoftveres driverek megtartása" kapcsoló
+                        # (2026-11-13), 'manual' = soronkénti/csoportos kézi kivétel.
                         keep_clean = [{'published': (k.get('published') or ''),
-                                       'original': (k.get('original') or '')}
+                                       'original': (k.get('original') or ''),
+                                       'reason': ('software' if k.get('reason') == 'software' else 'manual')}
                                       for k in keep_pkgs if k.get('published')]
                         if keep_clean:
                             self._autofix_stats_set('keep_packages', keep_clean)
-                            logging.info(f"[AUTOFIX] A technikus {len(keep_clean)} csomagot vett ki a törlésből: "
-                                         f"{[k['original'] or k['published'] for k in keep_clean]}")
-                            self.emit('task_progress', {'task': 'autofix', 'log': f'🔒 {len(keep_clean)} db drivert kézzel kivettél a törlésből - ezek megmaradnak.'})
+                            soft = [k['original'] or k['published'] for k in keep_clean if k['reason'] == 'software']
+                            manual = [k['original'] or k['published'] for k in keep_clean if k['reason'] != 'software']
+                            logging.info(f"[AUTOFIX] A technikus {len(keep_clean)} csomagot vett ki a törlésből - "
+                                         f"szoftver-megtartás kapcsolóval {len(soft)}: {soft}; kézzel {len(manual)}: {manual}")
+                            if soft:
+                                self.emit('task_progress', {'task': 'autofix', 'log': f'🧰 {len(soft)} szoftveres driver (alkalmazásokhoz) megmarad - a "Szoftveres driverek megtartása" kapcsoló szerint.'})
+                            if manual:
+                                self.emit('task_progress', {'task': 'autofix', 'log': f'🔒 {len(manual)} db drivert kézzel kivettél a törlésből - ezek megmaradnak.'})
 
                     self._disable_sleep_sync()
                     

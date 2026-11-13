@@ -814,6 +814,27 @@ def _autofix_keep_packages(api, skip_printer, wifi_mode, rebuild_wifi):
         ui.panel(f"ZÁROLT CSOMAGOK  [{len(locked)} db] - ezekről a kapcsolók / a boot-védelem dönt",
                  [f"{'törlődik' if f[0] else 'MARAD   '}  {d.get('original') or d.get('published')}  —  {f[1]}"
                   for d, f in locked], color=ui.YELLOW)
+    # SZOFTVERES DRIVEREK MEGTARTÁSA (2026-11-13, a GUI `mc-keep-software` kapcsolójának
+    # párja): a gép-térkép "Szoftveres driverek" kategóriája egy kérdéssel megtartható.
+    # Alapból NEM (a fix mindent töröl); a kivétel `reason='software'`-rel utazik.
+    keep_soft = []
+    mm_pk = (prev.get('machine') or {}).get('packages') or {}
+    soft = [(d, f) for d, f in free
+            if (mm_pk.get((d.get('published') or '').lower()) or {}).get('slot') == 'software']
+    if soft:
+        ui.panel(f"SZOFTVERES DRIVEREK  [{len(soft)} db] - alkalmazásokhoz (távelérés, VPN, vírusirtó, "
+                 f"virtuális eszközök, RGB-programok); a Windows Update NEM hozza vissza őket",
+                 [f"{d.get('original') or d.get('published')}  ·  "
+                  f"{(mm_pk.get((d.get('published') or '').lower()) or {}).get('what') or d.get('provider') or '?'}"
+                  for d, _f in soft], color=ui.CYAN)
+        if ui.confirm('Megmaradjanak a szoftveres driverek?', default=False):
+            keep_soft = [{'published': d.get('published'), 'original': d.get('original'), 'reason': 'software'}
+                         for d, _f in soft]
+            soft_ids = {id(d) for d, _f in soft}
+            free = [(d, f) for d, f in free if id(d) not in soft_ids]
+    elif not prev.get('machine'):
+        ui.dim('A gép felépítése nem készült el, ezért a szoftveres drivereket nem lehet felismerni - '
+               'a megtartandókat lent pipáld ki kézzel.')
     labels = []
     for d, _f in free:
         st = d.get('usage') or 'unknown'
@@ -823,11 +844,13 @@ def _autofix_keep_packages(api, skip_printer, wifi_mode, rebuild_wifi):
     ui.write('')
     ui.dim(f"{len(free)} csomag törlődik. Amit itt BEPIPÁLSZ, az MEGMARAD (pl. egy távoli asztali program drivere).")
     picked = ui.pick_indices('Mit hagyjon meg a fix?', len(free), labels=labels) if free else []
-    keep = [{'published': free[i][0].get('published'), 'original': free[i][0].get('original')} for i in picked]
-    n_del = len(free) - len(keep) + sum(1 for _d, f in locked if f[0])
+    manual = [{'published': free[i][0].get('published'), 'original': free[i][0].get('original'),
+               'reason': 'manual'} for i in picked]
+    n_del = len(free) - len(manual) + sum(1 for _d, f in locked if f[0])
     ui.info(f"Törlődik: {n_del} csomag · marad: {len(rows) - n_del}"
-            + (f" (ebből kézzel kivéve: {len(keep)})" if keep else ''))
-    return keep
+            + (f" (ebből szoftveres driver: {len(keep_soft)})" if keep_soft else '')
+            + (f" (ebből kézzel kivéve: {len(manual)})" if manual else ''))
+    return keep_soft + manual
 
 
 def _autofix_resume(api):
@@ -1319,7 +1342,7 @@ def _toollib_password(api, keys, launch=False):
         return ''
     ui.dim('Ezek a bolt Google Drive-járól jönnek, jelszó kell (egyszer, a gép megjegyzi): ' + ', '.join(need))
     while True:
-        pw = (ui.ask('Jelszó (ugyanaz, mint a naplók letöltésénél; üresen = mégse)') or '').strip()
+        pw = (ui.ask('Jelszó (ugyanaz, mint a naplók letöltésénél; üresen = mégse)', secret=True) or '').strip()
         if not pw:
             return ''
         res = api.toollib_verify_password(pw, keys, launch) or {}
@@ -1454,7 +1477,7 @@ def _menu_maintenance(api):
             _run_screen(api, 'block.bat', lambda: api.download_block_script())
         elif c == '7':
             _run_screen(api, 'Naplók letöltése', lambda: api.download_uploaded_logs(
-                ui.ask('Jelszó'), True, _ask_log_period()))
+                ui.ask('Jelszó', secret=True), True, _ask_log_period()))
         elif c == '8':
             _shoplabel_flow(api)
         elif c == '9':
@@ -1464,7 +1487,7 @@ def _menu_maintenance(api):
             if ui.confirm('Beállítsam a teljesítmény módot? (laptopon rövidebb akkus üzemidő)', True):
                 _run_screen(api, 'Teljesítmény mód', lambda: api.apply_performance_mode())
         elif c == '11':
-            _run_screen(api, 'Napló feltöltése', lambda: api.upload_debug_log(ui.ask('Kód')))
+            _run_screen(api, 'Napló feltöltése', lambda: api.upload_debug_log(ui.ask('Kód', secret=True)))
         elif c == '10':
             if ui.confirm('Törlöd a lemez debug-naplóit (a korábban erre a lemezre kötött gépekéit is)? '
                           '(a Drive-ról letöltött naplók maradnak)', False):

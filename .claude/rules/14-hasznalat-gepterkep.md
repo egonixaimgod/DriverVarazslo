@@ -8,6 +8,7 @@ paths:
   - "app/wu_core.py"
   - "tests/test_cleanup_usage.py"
   - "tests/test_usage_labels_mapclass.py"
+  - "tests/test_machinemap_field_1113.py"
 ---
 
 *A CLAUDE.md 14. fejezete, 2026-11-13 óta külön fájlban, szó szerint. A Claude Code magától betölti, ha a fenti útvonalak egyikéhez nyúlsz. A CLAUDE.md (elvek, 1–11. és 18. fejezet) itt is érvényes; a bizonyíték: `docs/terep/torles-hasznalat-gepterkep.md`.*
@@ -27,6 +28,12 @@ paths:
 ### A gép felépítése (`app/machinemap_core.py`)
 
 A **Class oszlop félrevezető** (a `Camera` egy telefon kameramódja volt, a `Display` egy virtuális monitor). Erősorrend: **kötés (eszközfa) → container ID** (`{…FFFF-FFFFFFFFFFFF}` = a gép része) → hardver-osztálykód → **PCI-topológia** a GPU-hoz (dedikált = olyan híd alatt van, ahol minden funkció az ő gyártójáé; a név csak holtversenynél számít) → Windows-osztály → név (leírásonként, sorrendben). A nem jelenlévő belső eszköz sosem kerül egy létező alkatrész alá (`absent:`); a jelen lévő szülőnél csak az öröklő szoftver-komponens marad (2026-11-03: egy kiszerelt GPU szelleme a PCIe-port alatt „Egyéb – board:gpu” lett). Az eszköz nélküli csomagok rendeltetése az INF-ből jön (`package_purpose`, telefon: `PHONE_USB_VIDS` **Lenovo nélkül**). Ahol az eszközfa kötést mutat, nincs felülbírálás. **Kivétel: az elavult kötés** (`driverusage_core.stale_binding`, 2026-10-12): ha az eszköz Windows-osztálya ≠ a csomag osztálya, az `oemNN` számot azóta egy másik csomag kapta (a vándorló teszt-SSD egy ASRock-os „AMD SMBus” szellemeszköze a Lenovón a „Print to PDF” `oem2.inf`-jére mutatott) → a kötést kihagyjuk a térképben, a használat-besorolásban és a `find_superseded_packages` bizonyítékai közül; üres vagy `%…%` osztálynévre nem dönt. Géptípus: `PowerDeterminePlatformRoleEx`, ennek híján `ACPI\PNP0C0A`. A térkép hibája nem viheti el a táblázatot (tartalék: használat szerinti csoportosítás).
+
+**2026-11-13, 25 terepi gépfutás + élő mérés (bizonyíték: `docs/terep/torles-hasznalat-gepterkep.md`, grep: `2026-11-13`):**
+- **Azonos osztályon belül az azonosító dönt** (`stale_binding(..., node_ids, pkg_hwids, present)`): egy NEM jelenlévő eszköz kötése elavult, ha a hardver- és kompatibilis azonosítói közül egyik sincs az INF modell-listájában (a Windows csak pontos egyezésre köt). Jelenlévőre nem dönt; üres lista vagy `%token%` az INF-ben = nem tudjuk. A teszt-SSD 90 csomagjából ~15 idegen gép szellemén ült (Cannon Lake Northpeak → Hang, `appleusbvhci.inf` → Thunderbolt). Élőben: 26 jelenlévő kötésből 0 téves.
+- **Extension INF a térképben is** a jelenlévő eszköznél áll (`driverusage_core.extension_nodes`, közös a használat-oszloppal; `what_kind='extension'`).
+- **„Szoftveres driverek” = alkalmazáshoz tartozó driver** (erre épül a fix megtartás-kapcsolója, 13. fejezet): ROOT/SWD-eszköz, HWID nélküli INF, szoftver-osztály (`NetService`, `AntiVirus`…), csak ROOT/SWD/GUID-azonosítós INF. **Nem szoftveres:** a ROOT-ként létrehozott touchpad (`ROOT\SYNHIDMINI` → beépített beviteli), a ROOT-os hálózati szkenner (`ROOT\IMAGE` → saját „Nyomtató / szkenner” külső kártya), a gép egészére telepített hang-APO (Voice Clarity → Hang).
+- A nem jelenlévő szoftver-komponens a nem jelenlévő szülője csoportjába kerül (nem „Egyéb”). A Bluetooth-rádió sosem telefon (MediaTek/Qualcomm a `PHONE_USB_VIDS`-ben). A puszta „host controller” nem USB (Serial IO GPIO/I2C = chipset). Az `INTELAUDIO` gyártókódja CSAK a `(SUB|SGPC_)FUNC_01&VEN_` után számít (a DMIC-ben is van `VEN_8086`). A `NODEV_ORDER` minden `package_purpose`-kimenetet tartalmaz (CPU, szenzor, akku). Külső **💡 RGB-világítás** kategória (csak egyértelmű vezérlő-nevekre; az „RGB” szavas billentyűzet beviteli marad), a „Wireless Controller” gamepad beviteli. Név nélküli eszköz: busdesc → „Ismeretlen eszköz (<HWID>)”, sosem a nyers példány-azonosító; a hálózat-kártya címe a fizikai kártya; „Generic Monitor (X)” → X.
 
 ### Duplikátumok és kiváltott csomagok (`dupdrivers_core`)
 

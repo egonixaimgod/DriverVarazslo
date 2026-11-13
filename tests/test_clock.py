@@ -192,7 +192,7 @@ class ClockInChainTest(_ChainCase):
         c.run_autofix(keep_packages=KEEP)
         self.assertEqual(c.scheduled, ['--resume-step1'])
         self.assertEqual(len(c.reboots), 1)
-        self.assertEqual(c._autofix_stats_get('keep_packages'), [{'published': 'oem7.inf', 'original': 'ninja.inf'}])
+        self.assertEqual(c._autofix_stats_get('keep_packages'), [{'published': 'oem7.inf', 'original': 'ninja.inf', 'reason': 'manual'}])
         self.assertIsNone(c._autofix_stats_get('clock_fixed'))
         self.assertNotIn('hibás', c.text())                             # jó óránál nincs óra-szöveg
 
@@ -203,7 +203,7 @@ class ClockInChainTest(_ChainCase):
         self.assertEqual(len(c.reboots), 1)
         self.pause.assert_not_called()                                 # a WU-szünet az új A lábé
         self.assertEqual(c._autofix_stats_get('clock_keep_packages'),
-                         [{'published': 'oem7.inf', 'original': 'ninja.inf'}])
+                         [{'published': 'oem7.inf', 'original': 'ninja.inf', 'reason': 'manual'}])
         self.assertIn('723 napot késett', c.text())
         self.assertIn('ELÖLRŐL', c.text())
 
@@ -218,8 +218,18 @@ class ClockInChainTest(_ChainCase):
         self.pause.assert_called_once()
         self.assertTrue(c._autofix_skip_printers)                      # argv-ből, nem a JS-alapértékből
         self.assertEqual(c._autofix_stats_get('keep_packages'),
-                         [{'published': 'oem7.inf', 'original': 'ninja.inf'}])
+                         [{'published': 'oem7.inf', 'original': 'ninja.inf', 'reason': 'manual'}])
         self.assertEqual(c._autofix_stats_get('clock_fixed'), '723 napot késett')   # a záró jelentésnek
+
+    def test_szoftver_megtartas_oka_atmegy_az_ora_javitason(self):
+        # 2026-11-13: a "Szoftveres driverek megtartása" kapcsoló kivétele (reason='software')
+        # az óra-javítás utáni ELÖLRŐL induló A lábon is ugyanazzal az okkal marad meg.
+        first = self.chain(('fixed', DRIFT))
+        first.run_autofix(keep_packages=[dict(KEEP[0], reason='software')])
+        c = self.chain(('ok', 1.0), resume_clockfix=True, skip_printer_drivers=True)
+        c.run_autofix()
+        self.assertEqual(c._autofix_stats_get('keep_packages'),
+                         [{'published': 'oem7.inf', 'original': 'ninja.inf', 'reason': 'software'}])
         self.assertIsNone(c._autofix_stats_get('clock_keep_packages'))  # az új lánc tiszta lappal indul
         self.assertIn('az újraindítás után is pontos', c.text())
 

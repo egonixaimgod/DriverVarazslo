@@ -97,7 +97,9 @@ def ram_vendor(manufacturer, part_number):
     # A '0x' prefixet le kell venni a hexa-vizsgálat ELŐTT is: enélkül a '0x80CE' nem
     # számít hexának (az 'x' miatt), és nyers kódként íródna ki gyártónévnek.
     hx = man[2:] if man[:2].lower() == "0x" else man
-    hexish = 0 < len(hx) <= 8 and all(c in "0123456789ABCDEFabcdef" for c in hx)
+    # Hossz-korlát NINCS: a Dell a 12 jegyű '80AD000080AD' alakot adja (terep, 2026-11-13,
+    # Latitude 5300) - a régi `<= 8` miatt ez nyers kódként gyártónév lett.
+    hexish = len(hx) > 0 and all(c in "0123456789ABCDEFabcdef" for c in hx)
 
     # 1) Valódi gyártónév? (nem placeholder és nem csak hexa/számjegy)
     if man.lower() not in RAM_VENDOR_PLACEHOLDERS and not hexish:

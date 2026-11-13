@@ -299,7 +299,7 @@ SERVICES_PS = ("$ErrorActionPreference = 'SilentlyContinue'\n"
 """)
 
 
-def stale_binding(node_cls, pkg_cls):
+def stale_binding(node_cls, pkg_cls, node_ids=None, pkg_hwids=None, present=True):
     """Igaz, ha egy eszköz `oemNN.inf`-kötése bizonyíthatóan ELAVULT (2026-10-12).
 
     A Windows a törölt csomag `oemNN` számát újra kiosztja, a nem jelenlévő (és a
@@ -308,9 +308,47 @@ def stale_binding(node_cls, pkg_cls):
     mutatott, amit egy Lenovón már a "Microsoft Print to PDF" csomag kapott - és a
     gép-térkép a nyomtató-drivert a Chipset alá tette. Az eszköz osztálya az elsődleges
     kötésnél MINDIG a csomag `[Version] Class`-a, tehát eltérés = nem ez a csomag.
-    Csak két tiszta osztálynévre dönt: üres vagy fel nem oldott (`%...%`) név = nem tudjuk."""
+    Csak két tiszta osztálynévre dönt: üres vagy fel nem oldott (`%...%`) név = nem tudjuk.
+
+    AZONOS OSZTÁLYON BELÜL AZ AZONOSÍTÓ DÖNT (2026-11-13, terep: Dell Latitude 5300 /
+    E5470, a vándorló teszt-SSD 90 csomagjából ~15): a `System` osztályú Cannon Lake
+    Northpeak-INF egy másik gép "Intel Smart Sound OED" + "AMD SMBUS" szellemén ült, ezért
+    a Hang alá került; az `appleusbvhci.inf` (USB) egy "Thunderbolt Controller" szellemén.
+    A Windows egy eszközt csak olyan INF-re köt, amelynek modell-szekciója az eszköz
+    hardver- vagy kompatibilis azonosítóinak EGYIKÉT pontosan felsorolja - ha egyik sincs
+    benne, a kötés egy korábbi csomagé. CSAK NEM JELENLÉVŐ eszközre (minden terepi eset
+    ilyen volt; a jelenlévő kötést a Windows minden induláskor újraértékeli), és csak ha
+    mindkét lista ismert és az INF-é feloldott (`%...%` nélküli)."""
     a, b = (node_cls or '').strip().lower(), (pkg_cls or '').strip().lower()
-    return bool(a and b and '%' not in a + b and a != b)
+    if a and b and '%' not in a + b and a != b:
+        return True
+    if present or not node_ids or not pkg_hwids:
+        return False
+    inf_ids = {str(h).strip().upper() for h in pkg_hwids if h}
+    if not inf_ids or any('%' in h for h in inf_ids):
+        return False
+    return not ({str(x).strip().upper() for x in node_ids if x} & inf_ids)
+
+
+def extension_nodes(inf_hwids, nodes):
+    """Egy kiegészítő (Extension) INF-re illő eszköz-csomópontok. TISZTA függvény.
+
+    A Windows az Extension INF-et minden olyan eszköz mellé betölti, amelyre az azonosítója
+    illik, de ezt az eszköz `DriverInfPath`-ja nem mutatja. EGY párosító a használat-
+    besorolásnak és a gép-térképnek (2026-11-13: a térkép nem párosított, így az Intel
+    grafika-kiegészítő a jelenlévő iGPU helyett az "eszköz nélküli" részbe került, miközben
+    a használat-oszlop szerint az iGPU tölti be). Az osztálykódos (`&CC_`) azonosító
+    kimarad: az egy egész eszközcsaládra illene."""
+    ids = [h for h in (inf_hwids or []) if '&CC_' not in str(h).upper()]
+    if not ids:
+        return []
+    from app.wu_core import _hwid_matches
+    out = []
+    for n in nodes or []:
+        dev_ids = list(n.get('hwids') or []) + list(n.get('compat') or [])
+        if dev_ids and any(_hwid_matches(i, x) for i in ids for x in dev_ids):
+            out.append(n)
+    return out
 
 
 def devices_from_nodes(nodes):
@@ -326,7 +364,8 @@ def devices_from_nodes(nodes):
         if not inf:
             continue
         out.append({'inf': inf.lower(), 'name': n.get('friendly') or n.get('desc') or '',
-                    'present': bool(n.get('present')), 'cls': n.get('cls') or ''})
+                    'present': bool(n.get('present')), 'cls': n.get('cls') or '',
+                    'ids': list(n.get('hwids') or []) + list(n.get('compat') or [])})
     return out
 
 
@@ -358,6 +397,12 @@ _QUOTED_RE = re.compile(r'"([^"]*)"')
 _USB_VID_RE = re.compile(r'\bVID_([0-9A-F]{4})', re.IGNORECASE)
 _PCI_VEN_RE = re.compile(r'^PCI\\VEN_([0-9A-F]{4})', re.IGNORECASE)
 _HDAUDIO_VEN_RE = re.compile(r'^HDAUDIO\\.*?VEN_([0-9A-F]{4})', re.IGNORECASE)
+# Az Intel SST-busz kodekjei: CSAK a hang-funkció (FUNC_01 / SUBFUNC_01 / SGPC_FUNC_01)
+# gyártókódja számít. A mikrofon (DMIC) és a DSP vezérlő-azonosítójában is VEN_8086 áll
+# ("INTELAUDIO\CTLR_DEV_9D71&LINKTYPE_02&…&VEN_8086&DEV_AE20" - terepi naplókból), az
+# nem kijelző-hang. 2026-11-13-ig az INTELAUDIO-azonosítókból semmit nem olvastunk ki,
+# és minden SST-busz INF "Intel kijelző-hang" lett (a Realtek SST-hangkártya is).
+_INTELAUDIO_VEN_RE = re.compile(r'^INTELAUDIO\\(?:SUB|SGPC_)?FUNC_01&VEN_([0-9A-F]{4})', re.IGNORECASE)
 
 # Ennyi modell-leírást viszünk tovább csomagonként. Egy HP Universal Printing INF-ben
 # 2970 hardver-azonosító van - a leírásokból a technikusnak az első néhány is elég, a
@@ -527,7 +572,7 @@ def parse_inf_facts(text):
         m = _PCI_VEN_RE.match(h)
         if m:
             pci_vens.add(m.group(1).upper())
-        m = _HDAUDIO_VEN_RE.match(h)
+        m = _HDAUDIO_VEN_RE.match(h) or _INTELAUDIO_VEN_RE.match(h)
         if m:
             hda_vens.add(m.group(1).upper())
     out.update({
@@ -587,7 +632,9 @@ def build_usage(raw, inf_facts, published_names=None, originals=None, folders=No
         inf = _norm_inf(d.get('inf'))
         if not inf:
             continue
-        if stale_binding(d.get('cls'), (inf_facts.get(inf) or {}).get('inf_class')):
+        f_inf = inf_facts.get(inf) or {}
+        if stale_binding(d.get('cls'), f_inf.get('inf_class'), d.get('ids'), f_inf.get('hwids'),
+                         d.get('present', True)):
             stale.append(f"{inf}: {d.get('name') or '?'} [{d.get('cls')}]")
             continue
         name = (d.get('name') or '').strip()
@@ -602,8 +649,8 @@ def build_usage(raw, inf_facts, published_names=None, originals=None, folders=No
         if name not in names:
             names.append(name)
     if stale:
-        logging.info(f"[USAGE] {len(stale)} elavult eszköz-kötés kihagyva (az eszköz osztálya nem "
-                     f"egyezik a csomagéval - az oemNN szám azóta másik csomagé): {stale[:10]}")
+        logging.info(f"[USAGE] {len(stale)} elavult eszköz-kötés kihagyva (az eszköz osztálya vagy "
+                     f"azonosítója nem illik a csomagra - az oemNN szám azóta másik csomagé): {stale[:10]}")
 
     # szolgáltatás-index: név, .sys fájlnév és DriverStore-mappa szerint is
     svc_by_name, svc_by_file, svc_by_repo = {}, {}, {}
@@ -639,15 +686,8 @@ def build_usage(raw, inf_facts, published_names=None, originals=None, folders=No
                 if ((inf_facts.get(_norm_inf(p)) or {}).get('inf_class') or '').strip().lower() == 'extension']
     if nodes and ext_pubs:
         try:
-            from app.wu_core import _hwid_matches
             for pub in ext_pubs:
-                ids = [h for h in ((inf_facts.get(pub) or {}).get('hwids') or []) if '&CC_' not in h.upper()]
-                if not ids:
-                    continue
-                for n in nodes:
-                    dev_ids = list(n.get('hwids') or []) + list(n.get('compat') or [])
-                    if not dev_ids or not any(_hwid_matches(i, x) for i in ids for x in dev_ids):
-                        continue
+                for n in extension_nodes((inf_facts.get(pub) or {}).get('hwids'), nodes):
                     nm = (n.get('friendly') or n.get('desc') or n.get('id') or '').strip()
                     bucket = ext_present if n.get('present') else ext_absent
                     lst = bucket.setdefault(pub, [])

@@ -398,20 +398,37 @@ def _plain_input(prompt, on_eof=''):
         return ''
 
 
-def ask(prompt, default=''):
-    """Szöveg bekérése. Üres válasz = `default`."""
+def ask(prompt, default='', secret=False):
+    """Szöveg bekérése. Üres válasz = `default`.
+
+    `secret=True` (jelszó, napló-feltöltés kódja): nem látszik gépelés közben, és a
+    naplóba csak `***` kerül - a napló a Drive-ra is feltöltődik (2026-11-13)."""
+    def _build():
+        if secret:
+            return questionary.password(str(prompt), qmark='›', style=_qstyle())
+        return questionary.text(str(prompt), default=str(default or ''), qmark='›', style=_qstyle())
     try:
-        r = _q(lambda: questionary.text(str(prompt), default=str(default or ''), qmark='›',
-                                        style=_qstyle()))
+        r = _q(_build)
     except KeyboardInterrupt:
         write('')
         _log_input(prompt, '<Ctrl+C>')
         return default
     if r is None:
+        if secret:
+            # A getpass nem a naplózott builtins.input-on megy (menu._install_input_logging).
+            import getpass
+            progress_done()
+            try:
+                val = (getpass.getpass(f"  › {Text.from_ansi(str(prompt)).plain}: ") or '').strip()
+            except (EOFError, KeyboardInterrupt):
+                write('')
+                val = ''
+            _log_input(prompt, '***' if val else '')
+            return val or default
         suffix = f" {GREY}[{default}]{RESET}" if default else ''
         return (_plain_input(f"{prompt}{suffix}").strip() or default)
     val = (r[1] or '').strip()
-    _log_input(prompt, val)
+    _log_input(prompt, '***' if (secret and val) else val)
     return val or default
 
 
