@@ -282,6 +282,13 @@ def _collect_smart_data(run, smartctl_exe, system_disk=None, excluded=None):
                     if info_attempt < 2:
                         time.sleep(2)
 
+                if not info_data.get("model_name") and not info_data.get("user_capacity"):
+                    # 2026-11-13, Dell Latitude 5300: RAID módú (Intel RST) vezérlő mögötti NVMe,
+                    # rc=2, üres JSON -> régen "Ismeretlen Meghajtó ?" sor lett. A Windows-pótlás
+                    # (windows_disk_rows) adja meg helyette a lemezt.
+                    logging.warning(f"[REPORT] smartctl nem tud adatot olvasni: {dev_name} (type={dev_scan_type or '?'}) "
+                                    f"- RAID/RST vezérlő mögött? A Windows lemezadataiból pótoljuk.")
+                    continue
                 serial = info_data.get("serial_number", "")
                 why = is_system_disk(system_disk, None, serial)
                 if why:
@@ -317,22 +324,7 @@ def _collect_smart_data(run, smartctl_exe, system_disk=None, excluded=None):
                 else:
                     dev_type_str = dev_type.upper()
 
-                hours = "?"
-                power_on = info_data.get("power_on_time", {}).get("hours")
-                if power_on is not None:
-                    try:
-                        p_hours = int(power_on)
-                        d = p_hours // 24
-                        h = p_hours % 24
-                        if d > 0:
-                            if h > 0:
-                                hours = f"{d} nap {h} óra"
-                            else:
-                                hours = f"{d} nap"
-                        else:
-                            hours = f"{h} óra"
-                    except Exception:
-                        hours = f"{power_on} óra"
+                hours = _fmt_hours(info_data.get("power_on_time", {}).get("hours"))
 
                 temp = "?"
                 temperature = info_data.get("temperature", {}).get("current")
@@ -383,11 +375,135 @@ def _collect_smart_data(run, smartctl_exe, system_disk=None, excluded=None):
                     "Hours": str(hours),
                     "Temp": str(temp),
                     "Type": dev_type_str,
-                    "RawHealth": health.replace('%', '').strip() if health != "-1" else "-1"
+                    "RawHealth": health.replace('%', '').strip() if health != "-1" else "-1",
+                    "Serial": serial,
                 })
     except Exception as e:
         logging.error(f"smartctl futtatási hiba: {e}")
     return smart_data
+
+
+def _fmt_hours(power_on):
+    if power_on is None:
+        return "?"
+    try:
+        d, h = divmod(int(power_on), 24)
+    except (TypeError, ValueError):
+        return f"{power_on} óra"
+    if d > 0:
+        return f"{d} nap {h} óra" if h > 0 else f"{d} nap"
+    return f"{h} óra"
+
+
+# A Windows saját lemezlistája (Storage-modul): a RAID/RST vezérlő mögötti lemezt is látja,
+# amit a smartctl nem. A megbízhatósági számláló (kopás/hő/üzemidő) nem minden vezérlőn van.
+WINDOWS_DISKS_PS = r"""
+$out = @(Get-PhysicalDisk -ErrorAction Stop | ForEach-Object {
+    $rc = $null
+    try { $rc = $_ | Get-StorageReliabilityCounter -ErrorAction Stop } catch {}
+    [PSCustomObject]@{ Number = $_.DeviceId; Model = $_.FriendlyName; Serial = $_.SerialNumber;
+        Media = "$($_.MediaType)"; Bus = "$($_.BusType)"; Size = $_.Size; Health = "$($_.HealthStatus)";
+        Wear = $(if ($rc) { $rc.Wear } else { $null });
+        Temp = $(if ($rc) { $rc.Temperature } else { $null });
+        Hours = $(if ($rc) { $rc.PowerOnHours } else { $null }) }
+})
+ConvertTo-Json -InputObject $out -Compress
+"""
+
+
+def query_windows_disks(run):
+    """A Windows fizikai lemezei (lista), vagy None, ha a lekérdezés elbukott (3. elv)."""
+    try:
+        res = run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_DISKS_PS],
+                  encoding='utf-8')
+        out = (res.stdout or '').strip()
+        data = json.loads(out) if out else None
+    except Exception as ex:
+        logging.warning(f"[REPORT] A Windows lemezlista lekérdezése elbukott: {ex}")
+        return None
+    if isinstance(data, dict):
+        data = [data]
+    if not isinstance(data, list):
+        logging.warning(f"[REPORT] A Windows lemezlista nem értelmezhető: {out[:200]!r}")
+        return None
+    return data
+
+
+def windows_disk_rows(win_disks, smart_data, system_disk=None, excluded=None):
+    """A smartctl által NEM lefedett belső lemezek riport-sorai a Windows adataiból.
+
+    Kihagyja: a futó Windows lemezét (ha a technikus kérte, `system_disk`), az USB-s lemezeket
+    (pendrive/külső doboz, nem a gép része), és amit a smartctl már leírt (sorozatszám
+    vagy modellnév egyezik)."""
+    rows = []
+    have_serial = {_norm_serial(s.get('Serial')) for s in smart_data if _norm_serial(s.get('Serial'))}
+    have_model = {str(s.get('Name') or '').strip().lower() for s in smart_data}
+    for d in win_disks or []:
+        if not isinstance(d, dict):
+            continue
+        model = str(d.get('Model') or '').strip() or 'Ismeretlen meghajtó'
+        serial = str(d.get('Serial') or '').strip()
+        bus = str(d.get('Bus') or '').strip()
+        num = _int_or_none(d.get('Number'))
+        if system_disk and num is not None and num == system_disk.get('number'):
+            logging.info(f"[REPORT] Windows-lemez kihagyva: {model} - a futó Windows lemeze (PhysicalDrive{num})")
+            if excluded is not None and not excluded:
+                excluded.append(f"{model} (PhysicalDrive{num})")
+            continue
+        if bus.upper() == 'USB':
+            logging.info(f"[REPORT] Windows-lemez kihagyva: {model} - USB-s (külső) lemez")
+            continue
+        if (_norm_serial(serial) and _norm_serial(serial) in have_serial) or model.lower() in have_model:
+            continue
+        size = _int_or_none(d.get('Size'))
+        media = str(d.get('Media') or '').strip()
+        if bus.upper() == 'NVME' or 'nvme' in model.lower():
+            typ = "NVMe SSD"
+        elif media.upper() in ('SSD', 'HDD'):
+            typ = f"{'SATA ' if bus.upper() == 'SATA' else ''}{media.upper()}"
+        else:
+            typ = bus or "?"
+        wear = _int_or_none(d.get('Wear'))
+        health_state = str(d.get('Health') or '').strip()
+        if wear is not None and 0 <= wear <= 100:
+            health_txt, raw = f"{100 - wear}%", str(100 - wear)
+        elif health_state.lower() == 'unhealthy':
+            health_txt, raw = "Hibás (Windows)", "0"
+        elif health_state.lower() == 'healthy':
+            health_txt, raw = "Rendben (Windows)", "-1"
+        else:
+            health_txt, raw = "Ismeretlen", "-1"
+        temp = _int_or_none(d.get('Temp'))
+        row = {"Name": model, "Size": f"{round(size / (1024**3), 1)} GB" if size else "?",
+               "Health": health_txt, "Performance": "100%" if raw != "0" else "0%",
+               "Hours": _fmt_hours(_int_or_none(d.get('Hours'))),
+               "Temp": f"{temp} °C" if temp else "?", "Type": typ, "RawHealth": raw, "Serial": serial}
+        logging.info(f"[REPORT] Lemez (Windows-adatból, smartctl nem olvasta): {model} | {row['Size']} | "
+                     f"{typ} | busz={bus or '?'} | Health: {health_txt} | Temp: {row['Temp']}")
+        rows.append(row)
+    return rows
+
+
+def physical_gpus(gpu_list):
+    """Csak a gépben valóban jelen lévő videókártyák (2026-11-13, Dell Latitude 5300: a riport
+    két "USB Mobile Monitor Virtual Display" szoftveres kijelzőt is videókártyának írt).
+
+    Valódi = PCI-buszon (ARM-gépen ACPI-n) ülő eszköz, ami nincs "nincs csatlakoztatva" (45-ös
+    kód) állapotban. A virtuális kijelzők (ROOT\\, SWD\\, USB\\ IddCx) kimaradnak. Ha egy sem
+    marad (ismeretlen platform / hiányzó PNPDeviceID), a teljes listát adjuk - a nemtudás nem
+    "nincs videókártya"."""
+    keep, dropped = [], []
+    for gd in gpu_list:
+        pnp = str(gd.get('PNPDeviceID') or '').upper()
+        present = _int_or_none(gd.get('ConfigManagerErrorCode')) != 45
+        (keep if present and pnp.startswith(('PCI\\', 'ACPI\\')) else dropped).append(gd)
+    if dropped:
+        logging.info("[REPORT] Videókártya-listából kihagyva (virtuális vagy nem csatlakoztatott): " +
+                     "; ".join(f"{d.get('Name')} [{d.get('PNPDeviceID') or '-'}]" for d in dropped))
+    if not keep and gpu_list:
+        logging.warning("[REPORT] Egy valódi (PCI) videókártya sem azonosítható - a teljes lista marad.")
+        return list(gpu_list)
+    return keep
 
 
 def _int_or_none(v):
@@ -415,11 +531,12 @@ def parse_batteries(stdout):
     out = [{'name': str(b.get('Name') or '').strip(),
             'manufacturer': str(b.get('Manufacturer') or '').strip(),
             'design': _int_or_none(b.get('Design')),
-            'full': _int_or_none(b.get('Full'))}
+            'full': _int_or_none(b.get('Full')),
+            'cycles': _int_or_none(b.get('Cycles'))}
            for b in data if isinstance(b, dict)]
     logging.info(f"[REPORT] Akkumulátorok: {len(out)} db - " +
                  ("; ".join(f"{b['manufacturer']} {b['name']}: gyári={b['design']} "
-                            f"jelenlegi={b['full']} mWh" for b in out) or "nincs"))
+                            f"jelenlegi={b['full']} mWh, ciklus={b['cycles']}" for b in out) or "nincs"))
     return out
 
 
@@ -436,6 +553,10 @@ def battery_section_html(batteries):
         icon = "🔋" if pct >= 20 else "🪫"
         return (f'<span style="font-size:18px; vertical-align:middle;">{icon}</span> '
                 f'<span class="badge {cls}" style="font-size:13px; padding:4px 8px;">{pct}%</span>')
+
+    def cycles(b):
+        c = b.get('cycles')
+        return "nem jelenti" if c is None else "0 (vagy a firmware nem számolja)" if c == 0 else str(c)
 
     def mwh(v):
         return f"{v} mWh" if v is not None else "?"
@@ -456,6 +577,7 @@ def battery_section_html(batteries):
                 {head}
                 {row('Gyári kapacitás', [mwh(b['design']) for b in batteries])}
                 {row('Jelenlegi max.', [mwh(b['full']) for b in batteries])}
+                {row('Töltési ciklusok', [cycles(b) for b in batteries])}
                 {row('Egészség', [health(b) for b in batteries])}
             </table>
         </div>"""
@@ -499,6 +621,7 @@ def generate_system_report(run, smartctl_exe=None, note=None, skip_system_disk=F
         system_disk = find_system_disk(run)
         report['system_disk_unknown'] = system_disk is None
     smart_data = _collect_smart_data(run, smartctl_exe, system_disk, report['excluded_disks'])
+    smart_data += windows_disk_rows(query_windows_disks(run), smart_data, system_disk, report['excluded_disks'])
     if system_disk and not report['excluded_disks'] and smartctl_exe:
         logging.warning(f"[REPORT] A rendszerlemez (PhysicalDrive{system_disk['number']}, "
                         f"{system_disk['model']!r}) egyik smartctl-eszközzel sem párosítható - "
@@ -515,7 +638,7 @@ try {
     [xml]$batt = Get-Content $tempXML -ErrorAction Stop
     # MINDEN akku kell (a ThinkPad T440s-ben kettő van: belső + cserélhető)
     $list = @(foreach ($b in @($batt.BatteryReport.Batteries.Battery)) {
-        if ($b) { @{Name=$b.Id; Manufacturer=$b.Manufacturer; Design=$b.DesignCapacity; Full=$b.FullChargeCapacity} }
+        if ($b) { @{Name=$b.Id; Manufacturer=$b.Manufacturer; Design=$b.DesignCapacity; Full=$b.FullChargeCapacity; Cycles=$b.CycleCount} }
     })
     ConvertTo-Json -InputObject $list -Compress
 } catch { [Console]::Error.WriteLine("BATTERR|$_") }
@@ -547,7 +670,7 @@ try {
     # kiolvassa: a video-adapter osztaly (Class GUID) alatti szamozott almappak
     # HardwareInformation.qwMemorySize erteke - a megfelelo almappat a MatchingDeviceId
     # (PNPDeviceID elotag) alapjan azonositjuk.
-    $gpus = Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM, PNPDeviceID
+    $gpus = Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM, PNPDeviceID, ConfigManagerErrorCode
     $result = @()
     $regBase = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
     foreach ($gpu in $gpus) {
@@ -567,7 +690,7 @@ try {
             }
             if ($matched -and $matched -gt 0) { $vram = $matched }
         }
-        $result += [PSCustomObject]@{ Name = $gpu.Name; AdapterRAM = $vram }
+        $result += [PSCustomObject]@{ Name = $gpu.Name; AdapterRAM = $vram; PNPDeviceID = $gpu.PNPDeviceID; ConfigManagerErrorCode = $gpu.ConfigManagerErrorCode }
     }
     $data.GPU = (@($result) | ConvertTo-Json -Compress)
 } catch {}
@@ -609,7 +732,7 @@ ConvertTo-Json $data
     if isinstance(cpu, list) and len(cpu) > 0:
         cpu = cpu[0]
     ram_list = safe_json_list("RAM")
-    gpu_list = safe_json_list("GPU")
+    gpu_list = physical_gpus(safe_json_list("GPU"))
     os_info = safe_json("OS")
 
     # HTML Generator (Kompakt A4 méretre optimalizálva, 2 oszlopos grid)
