@@ -2709,6 +2709,28 @@ class GuiAutofixMixin:
                              f"a csomag már fent van a gépen ({hit.get('published')} / "
                              f"{hit.get('original')} {hit.get('version')}), csak egy másik "
                              f"eszközcsomópontra nem volt alkalmazható.")
+            # 1/b) AHOL A WINDOWS SAJÁT DRIVERE A HELYES, OTT NINCS TEENDŐ (2026-11-17, MSI
+            # MS-7B61): a HD Audio hangbusz-vezérlő (`hdaudbus.inf`) 6 idegen Intel SST-csomagja
+            # "📎 más gépre készült ... 👉 TEENDŐ: a gyártó oldala" alatt állt, miközben az
+            # egészségjelentés ugyanezt az eszközt - helyesen - nem sorolta fel. Ugyanaz a
+            # feltétel, mint ott (HEALTH_REPORT_SKIP_INFS), hogy a két lista ne mondjon mást.
+            try:
+                inst = self._get_installed_driver_info() or {}
+            except Exception as e:
+                # Lekérdezés nélkül nem dönthető el - ilyenkor minden tétel marad (a régi viselkedés).
+                logging.warning(f"[AUTOFIX] A no-bind jelentéshez a telepített driverek nem kérdezhetők le: {e}")
+                inst = {}
+
+            def _inbox_is_right(nb):
+                info = inst.get((nb.get('pnp') or '').upper()) or {}
+                return (bool(info) and _is_inbox_driver(info)
+                        and (info.get('inf') or '').strip().lower() in HEALTH_REPORT_SKIP_INFS)
+            right = [(nb, h) for nb, h in fresh if _inbox_is_right(nb)]
+            if right:
+                logging.info(f"[AUTOFIX] NEM jelentjük teendőnek (a Windows saját drivere a helyes): "
+                             f"{sorted({nb.get('name') or '?' for nb, _h in right})} - "
+                             f"{len(right)} kipróbált, idegen csomag.")
+                fresh = [p for p in fresh if p not in right]
             if not fresh:
                 return
 

@@ -13,6 +13,11 @@ class GuiUpdaterMixin:
     def check_for_updates(self):
         """Update-ellenőrzés (források, sorrend és a CDN-cache magyarázat:
         update_core.check_for_updates)."""
+        # FRISS BOOT UTÁN A DNS MÉG NEM ÁLL (2026-11-17, MSI MS-7B61): a 3 próba 6 mp alatt
+        # elfogyott, a hálózat ~66 mp múlva állt fel (a fix saját várakozása mérte), a gép
+        # a régi Build 415-ön maradt. A keret a lánc Wi-Fi-kerete; ha van net, azonnal
+        # visszatér. Háttérhívás, a felületet nem fogja meg.
+        self._wait_for_internet(120, None, 'frissítés-ellenőrzés')
         info = update_core.check_for_updates()
         # A letöltendő exe címét ÉS a build-számát eltesszük: így a rákövetkező
         # perform_update nem kérdezi le újra az API-t (ami óránként 60 kérést enged

@@ -463,6 +463,15 @@ class GuiRebindMixin:
             orig = (pkg.get('original') or '').strip()
             if not orig:
                 continue
+            # KIEGÉSZÍTŐ (Extension) INF SOSEM LESZ AZ ESZKÖZ DRIVERE (2026-11-17, terepen
+            # mérve, Dell OptiPlex 5050 + MSI MS-7B61): a Windows a fő driver MELLÉ tölti
+            # be, tehát az eszköz a `hdaudbus.inf`/`input.inf`-en marad, bármennyiszer
+            # derítjük fel. A `hdbusext.inf` (Intel HD Audio) és az `unifying_receiver.inf`
+            # (Logitech) miatt a kör mindkét gépen eltávolította a HD Audio vezérlőt és a
+            # USB beviteli eszközt, majd egy újraindítást kényszerített - eredmény nélkül
+            # (a pnputil már előtte "up-to-date"-et írt rájuk).
+            if (pkg.get('class') or '').strip().lower() == 'extension':
+                continue
             path, ids = self._rebind_pkg_ids(orig)
             if not path:
                 continue

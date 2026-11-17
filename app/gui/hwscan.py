@@ -4146,6 +4146,24 @@ try {
                         self.emit('task_progress', {'task': task_id, 'log':
                                   f'  ↷ {name}: mind a(z) {len(candidates)} katalógus-jelöltet végigpróbáltuk, '
                                   f'egyik INF-je sem ismeri ezt az eszközt - nincs telepíthető csomag.'})
+                    # A záró összegzés nevesíti őket: egy eltűnő "kihagyva" sor a
+                    # görgethető naplóban nem visszakereshető információ. A pnp_id és az
+                    # "alapdriveren fut-e" azért utazik együtt a névvel, mert a záró blokk
+                    # CSAK a valódi teendőt jelentheti be (lásd ott).
+                    entry = {'name': name, 'pnp_id': drv.get('pnp_id') or '',
+                             'hwid': drv.get('hwid') or '',
+                             'inbox_now': not on_vendor and not no_driver,
+                             'no_driver': no_driver,
+                             'installed_inf': drv.get('installed_inf') or '',
+                             'installed': inst_txt}
+                    # A WINDOWS SAJÁT DRIVERE A HELYES (2026-11-17, Dell OptiPlex 5050 + MSI
+                    # MS-7B61, Build 415/417): a HD Audio hangbusz-vezérlő (`hdaudbus.inf`)
+                    # mindkét gépen "a gyártó oldaláról kell pótolni" teendőt kapott, pedig
+                    # ehhez gyári funkció-driver nem létezik (az Intel csak kiegészítő INF-et
+                    # ad, és az fent volt), a záró összegzés (`no_source_is_actionable`) pedig
+                    # helyesen nem sorolta a teendők közé. A két képernyő ne mondjon mást.
+                    inbox_ok = (not on_vendor and not no_driver
+                                and not no_source_is_actionable(entry))
                     if no_driver:
                         self.emit('task_progress', {'task': task_id, 'log':
                                   f'     → Az eszköznek jelenleg NINCS drivere. Ha a Windows Update ad hozzá '
@@ -4156,6 +4174,11 @@ try {
                                   f'     ✅ Ez NEM hiányosság: az eszközön MÁR GYÁRI DRIVER FUT'
                                   f'{" (" + inst_txt + ")" if inst_txt else ""}, csak újabb, ehhez a '
                                   f'géphez való csomag nincs a katalógusban. Nincs teendő.'})
+                    elif inbox_ok:
+                        self.emit('task_progress', {'task': task_id, 'log':
+                                  f'     ✅ Ez NEM hiányosság: az eszköz a Windows saját driverén fut'
+                                  f'{" (" + entry["installed_inf"] + ")" if entry["installed_inf"] else ""}, '
+                                  f'és ez a helyes drivere - gyári csere ehhez nem létezik. Nincs teendő.'})
                     else:
                         self.emit('task_progress', {'task': task_id, 'log':
                                   f'     → Ehhez az eszközhöz a Microsoft katalógusában nincs való csomag, '
@@ -4163,20 +4186,12 @@ try {
                                   f'(alaplap/laptop) saját driver-oldaláról kell pótolni.'})
                     with counter_lock:
                         skipped += 1
-                        # A záró összegzés nevesíti őket: egy eltűnő "kihagyva" sor a
-                        # görgethető naplóban nem visszakereshető információ. A pnp_id és az
-                        # "alapdriveren fut-e" azért utazik együtt a névvel, mert a záró blokk
-                        # CSAK a valódi teendőt jelentheti be (lásd ott).
-                        no_source.append({'name': name, 'pnp_id': drv.get('pnp_id') or '',
-                                          'hwid': drv.get('hwid') or '',
-                                          'inbox_now': not on_vendor and not no_driver,
-                                          'no_driver': no_driver,
-                                          'installed_inf': drv.get('installed_inf') or '',
-                                          'installed': inst_txt})
+                        no_source.append(entry)
                         _mark('nosource', name, '; '.join(x for x in (
                             'csak újabb Windowsra készült csomag van' if os_only else '',
                             'az eszköznek nincs drivere' if no_driver else '',
-                            'már gyári driveren fut, nincs teendő' if on_vendor else '') if x))
+                            'már gyári driveren fut, nincs teendő' if on_vendor else '',
+                            'a Windows saját drivere a helyes, nincs teendő' if inbox_ok else '') if x))
                     return
                 if chosen[1] != (drv.get('wu_title') or ''):
                     # Ez a sor a bizonyíték, hogy a tartalék-logika dolgozott: enélkül a

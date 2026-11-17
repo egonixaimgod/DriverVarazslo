@@ -87,6 +87,17 @@ class GuiLogsMixin:
             task = 'logupload'
             self.emit('task_start', {'task': task, 'title': 'Napló feltöltése a Drive-ra'})
             try:
+                # A HÁLÓZATOT MEG KELL VÁRNI (2026-11-17, Dell OptiPlex 5050, Build 417): a
+                # technikus 7 mp-cel az indulás után kattintott, a DNS még nem állt, és a
+                # felület a nyers "<urlopen error [Errno 11001] getaddrinfo failed>"-et írta
+                # ki; 15 mp múlva ugyanaz a kattintás sikerült.
+                if not self._wait_for_internet(45, task, 'a napló feltöltéséhez'):
+                    logging.warning("[LOGUP] Kézi feltöltés: 45 mp alatt sem lett internet - nem töltöttem fel.")
+                    self.emit('task_progress', {'task': task, 'log':
+                              '❌ Nincs internetkapcsolat (45 mp-et vártam rá) - nem töltöttem fel semmit. '
+                              'Ha a hálózat feláll, kattints újra.'})
+                    self.emit('task_complete', {'task': task, 'status': '❌ Nincs internet'})
+                    return
                 # shortcut: a jelszó próbája a `toolfile` akción megy (wlu.zip, a legkisebb
                 # csomag); ha a szkript kap saját jelszó-ellenőrző akciót, arra kell cserélni.
                 ok, err = self._toollib_check_password(password, 'wlu')

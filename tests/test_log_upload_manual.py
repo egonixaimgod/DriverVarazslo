@@ -16,6 +16,7 @@ class ManualLogUploadTest(unittest.TestCase):
                 self.events, self.uploads, self.checked = [], [], []
             def emit(self, ev, data=None): self.events.append((ev, data))
             def _safe_thread(self, name, fn): fn()
+            def _wait_for_internet(self, *a, **k): return True
             def _toollib_check_password(self, pw, key):
                 self.checked.append(pw)
                 return check
