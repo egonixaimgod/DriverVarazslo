@@ -96,8 +96,10 @@ class GuiWuMixin:
             return True
         return False
 
-    def _wu_action(self, task, title, apply_fn, full_reset=False):
-        """apply_fn(log) -> (ok, szöveg): a kért beállítás beírása, visszaolvasva."""
+    def _wu_action(self, task, title, apply_fn, full_reset=False, after_fn=None):
+        """apply_fn(log) -> (ok, szöveg): a kért beállítás beírása, visszaolvasva.
+        after_fn(log) -> [problémák]: plusz lépések a javítás UTÁN (Win 11 gomb); a hibáik az
+        újraindítás utáni jelentésbe is átkerülnek (különben a visszaszámlálás alatt elvesznének)."""
         def worker():
             log = lambda m: self.emit('task_progress', {'task': task, 'log': m})
             self.emit('task_start', {'task': task, 'title': title})
@@ -110,6 +112,9 @@ class GuiWuMixin:
                 return
             log(text)
             rep = wusettings_core.repair_wu(self._run, log, full_reset=full_reset)
+            if after_fn:
+                carry = after_fn(log)
+                rep = dict(rep, carry=carry, problems=list(rep['problems']) + carry)
             self._wu_conclude(task, title, rep, finishing=False)
         self._safe_thread(task, worker)
 
@@ -151,7 +156,7 @@ class GuiWuMixin:
         for r in reasons:
             log(f'🔁 Újraindítás kell: {r}')
         try:
-            wusettings_core.save_pending(title, desired)
+            wusettings_core.save_pending(title, desired, carry=rep.get('carry'))
             registered = self._wu_register_finish()
         except Exception as e:
             logging.error(f"[WU] A befejezés nem ütemezhető: {e}", exc_info=True)
@@ -246,6 +251,10 @@ class GuiWuMixin:
             if not wusettings_core.reassert_pending(self._run, pending, log):
                 log('⚠️ A kért beállítás nem írható vissza (lásd a naplót).')
             rep = wusettings_core.repair_wu(self._run, log)
+            carry = [f'újraindítás előtt: {c}' for c in pending.get('carry') or []]
+            for c in carry:
+                log(f'⚠️ {c[0].upper() + c[1:]}')
+            rep = dict(rep, problems=carry + list(rep['problems']))
             self._wu_conclude(task, title, rep, finishing=True)
         self._safe_thread(task, worker)
         return True
@@ -306,6 +315,29 @@ class GuiWuMixin:
             st = wusettings_core.describe_state(wusettings_core.desired_state())
             return True, f'ℹ️ A driver- és a szünet-beállítás változatlan marad ({st}); frissítés-keresés NEM indul.'
         self._wu_action('restart_wu', 'WU teljes reset (a driverekhez nem nyúl)', apply, full_reset=True)
+
+    def fix_win11_upgrade(self, deep=False):
+        """„Win 11 frissítés javítása” (2026-11-23, explicit user decision; terep: ThinkPad T14,
+        a Win 10 -> 11 funkciófrissítés 0x80070002-vel bukott). 10 év WU-szünet (a frissítést a
+        technikus a Telepítési segéddel csinálja, közben a WU ne kezdjen bele a sajátjába) ->
+        teljes WU-reset -> telepítő-maradék (+ ha `deep`: DISM, sfc) -> újraindítás. A
+        driver-beállításhoz és a személyes fájlokhoz nem nyúl."""
+        deep = bool(deep)
+        logging.info(f"[API] fix_win11_upgrade(deep={deep})")
+        if self._wu_offline_refused():
+            return
+
+        def apply(log):
+            end = wusettings_core.pause_for_days(wusettings_core.WU_PAUSE_MAX_DAYS, False)
+            return (end is not None,
+                    f'✅ WU-szünet beírva {end[:10]}-ig (közben a Windows Update nem kezd bele a saját '
+                    f'frissítésébe); a driver-beállítás változatlan.' if end
+                    else 'A WU-szünet NEM íródott be (lásd a naplót).')
+
+        def after(log):
+            return wusettings_core.repair_feature_update(
+                self._run, log, check_cancel=lambda: getattr(self, '_cancel_flag', False), deep=deep)
+        self._wu_action('fix_win11_upgrade', 'Win 11 frissítés javítása', apply, full_reset=True, after_fn=after)
 
     def pause_wu(self, days, extend=None):
         """days: 1..3650. extend=None: a 7 napos gomb a meglévő szünethez ad (halmozható),

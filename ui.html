@@ -70,6 +70,7 @@ body::after{content:'';position:fixed;width:700px;height:700px;background:radial
    menüpontban teljesen kifehéredik, mint a szöveg. */
 .nav-btn .winlogo{display:block;margin:0 auto;fill:#4cb2ff;transition:fill var(--t)}
 .nav-btn:hover .winlogo,.nav-btn.active .winlogo{fill:#7fd0ff}
+.wu-q .winlogo{display:inline-block;vertical-align:-2px;fill:currentColor}
 .sidebar-bottom{margin-top:auto;padding:10px 12px 4px;text-align:center;color:var(--green);font-size:11px;font-weight:600}
 .sidebar-datadir{padding:0 12px 12px;text-align:center;color:var(--text3);font-size:10.5px;cursor:pointer;transition:color var(--t)}
 .sidebar-datadir:hover{color:var(--accent)}
@@ -2225,7 +2226,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
         <div class="panel glass bk-sec">
           <div class="bk-sec-head"><span class="bk-sec-n">1</span><div>
             <div class="bk-sec-t">🔄 Windows Update</div>
-            <div class="bk-sec-d">A driver-frissítések tiltása vagy engedélyezése, a beragadt WU teljes resetje és a szüneteltetés. Frissítés-keresést egyik gomb sem indít.</div></div>
+            <div class="bk-sec-d">A driver-frissítések tiltása vagy engedélyezése, a beragadt WU teljes resetje, a szüneteltetés és a beragadt Win 11 frissítés javítása. Frissítés-keresést egyik gomb sem indít.</div></div>
             <div class="bk-sec-actions"><button class="btn btn-sm" onclick="checkWuStatus()">🔄 Állapot Frissítése</button></div>
           </div>
           <div class="wu-status unknown" id="wu-status">Állapot: Ismeretlen</div>
@@ -2255,6 +2256,16 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                 <button class="btn btn-danger" onclick="pauseWu(3650)">🛑 10 Év Szünet</button>
                 <button class="btn btn-success" onclick="resumeWu()">▶️ Szünetelés Feloldása</button>
               </div>
+            </div>
+            <!-- WIN 11 FRISSÍTÉS JAVÍTÁSA (2026-11-23, explicit user decision; terep: ThinkPad T14,
+                 a Win 10 -> 11 frissítés 0x80070002-vel bukott). fix_win11_upgrade. -->
+            <div class="bk-step">
+              <div class="bk-step-t"><span class="bk-num">C</span> Beragadt Windows 11 frissítés</div>
+              <div class="wu-quick">
+                <button class="btn btn-primary wu-q" onclick="fixWin11Upgrade()"><b><svg class="winlogo" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1"/><rect x="13" y="1" width="10" height="10" rx="1"/><rect x="1" y="13" width="10" height="10" rx="1"/><rect x="13" y="13" width="10" height="10" rx="1"/></svg> Win 11 frissítés javítása</b><span>Ha a Win 10 → 11 frissítés hibával megáll (pl. 0x80070002). Utána a Telepítési segéddel frissíts.</span></button>
+              </div>
+              <label class="toggle"><input type="checkbox" id="w11-deep"><span class="toggle-track"></span>🩺 Rendszerfájl-javítás is (DISM /RestoreHealth + sfc /scannow, +15–45 perc)</label>
+              <p class="bk-p">Sorban: 10 évre szünetelteti a Windows Update-et (újraindítás után így nem kezd bele magától a saját frissítésébe, és nem fut párhuzamosan a Telepítési segéddel), teljes reset, törli a félbemaradt telepítő maradékát (<b>$WINDOWS.~BT</b>, <b>$WINDOWS.~WS</b>), majd újraindul — <b>pár perc</b>. Bepipálva előtte a Windows komponenstárát is megjavítja (DISM) és ellenőrzi a rendszerfájlokat (sfc); erre ritkán van szükség, mert a Telepítési segéd a rendszerfájlokat amúgy is lecseréli. <b>A személyes fájlok, a programok és a beállítások megmaradnak, semmi nem formázódik</b>; a driver-beállítás sem változik. Utána: a <b>frissen letöltött Windows 11 Telepítési segéd</b>. Ha elakad, vagy a Windows Update-ből frissítenél: előbb oldd fel a szünetet (B rész, vagy Beállítások &gt; Windows Update &gt; Frissítések folytatása). Végső út: a Win 11 ISO setup.exe-je („fájlok és alkalmazások megtartása”).</p>
             </div>
           </div>
         </div>
@@ -6983,6 +6994,20 @@ async function disablePauseWu() {
     toast('WU letiltás + 10 év szünet hiba: ' + e, 'error');
   }
 }
+async function fixWin11Upgrade() {
+  const deep = document.getElementById('w11-deep').checked;
+  const ok = await showConfirm('Win 11 frissítés javítása',
+    '10 évre szünetelteti a Windows Update-et (hogy ne fusson párhuzamosan a Telepítési segéddel), teljes WU-resetet csinál, törli a félbemaradt frissítés telepítő-maradékát ($WINDOWS.~BT, $WINDOWS.~WS), '
+    + (deep ? 'lefuttatja a DISM /RestoreHealth-et és az sfc /scannow-t, ' : '')
+    + 'végül a gép újraindul.\n\n' + (deep ? '20–60 perc.' : 'Pár perc.')
+    + ' A személyes fájlok, programok és beállítások megmaradnak, semmi nem formázódik. Utána a Telepítési segéddel frissíts.');
+  if (!ok) return;
+  try {
+    await api().fix_win11_upgrade(deep);
+  } catch (e) {
+    toast('Win 11 frissítés javítása hiba: ' + e, 'error');
+  }
+}
 
 // Az állapot a feladat VÉGÉN frissül (onTaskComplete), nem indításkor - a régi 1,5 mp-es
 // frissítés a művelet előtti állapotot mutatta.
@@ -8750,7 +8775,7 @@ function onTaskComplete(data) {
   if (data.task === 'delete' || data.task === 'restore') setTimeout(loadDrivers, 500);
   // A Mentés nézet méretei és automatikus mentés-listája is elavul (új mentés, törlés előtti mentés).
   if (['backup', 'restore', 'wim', 'delete'].includes(data.task) && currentView === 'backup') setTimeout(loadBackupView, 300);
-  if (['disable_wu', 'enable_wu', 'restart_wu', 'disable_pause_wu', 'pause_wu', 'resume_wu', 'wu_finish'].includes(data.task)) setTimeout(checkWuStatus, 500);
+  if (['disable_wu', 'enable_wu', 'restart_wu', 'disable_pause_wu', 'fix_win11_upgrade', 'pause_wu', 'resume_wu', 'wu_finish'].includes(data.task)) setTimeout(checkWuStatus, 500);
   if (data.task === 'toolsinstall') {
     refreshServiceTools();
     // A telepítés-pipák törlése: enélkül egy ottfelejtett pipa a KÖVETKEZŐ telepítéskor

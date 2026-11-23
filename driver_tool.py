@@ -17,7 +17,7 @@ import threading
 import time
 import logging
 
-BUILD_NUMBER = 419
+BUILD_NUMBER = 420
 
 from app import common
 common.BUILD_NUMBER = BUILD_NUMBER
@@ -33,7 +33,9 @@ from app.common import (
     gui_attempt_failed_cleanly,
     gui_crash_check,
     gui_env_signature,
+    GUI_RETRY_DELAY,
     is_admin,
+    logon_gui_retry_args,
     relaunch_detached,
     resource_path,
     _app_data_dir,
@@ -702,6 +704,18 @@ if __name__ == "__main__":
         gui_attempt_failed_cleanly(f'kivétel: {e}')
 
     if gui_failed:
+        # Bejelentkezéskori indítás (fix-lánc / WU-befejezés): a felület még egy esélyt kap
+        # egy késleltetett, önálló újraindítással; csak a második bukás után jön a CLI.
+        retry_args = logon_gui_retry_args(sys.argv[1:])
+        if retry_args:
+            logging.warning(f"[MAIN] A bejelentkezéskori indítás felülete nem jött fel - "
+                            f"{GUI_RETRY_DELAY} mp múlva még egyszer próbálom ({retry_args}).")
+            time.sleep(GUI_RETRY_DELAY)
+            if relaunch_detached(retry_args, 'a felület újrapróbálása bejelentkezés után'):
+                cleanup_zombies()
+                os._exit(0)
+            logging.error("[MAIN] Az újrapróbálás nem indult el - CLI mód következik.")
+
         # Konzol ablak létrehozása ha nincs (windowed exe-nél) - a közös helperrel,
         # ami a sys.stdout=None esetet is kezeli (lásd common.ensure_console).
         ensure_console()

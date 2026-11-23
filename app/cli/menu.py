@@ -1002,7 +1002,7 @@ def _menu_wu(api):
         except Exception as e:
             logging.warning(f"[CLI] WU állapot nem olvasható: {e}", exc_info=True)
         ui.info('Minden pont takarít is (beragadt letöltések, gyorsítótár, szolgáltatások), keresést nem indít; '
-                'ha kell, 10 mp múlva újraindít, és bejelentkezés után befejezi. Az 1–4. pont TELJES reset '
+                'ha kell, 10 mp múlva újraindít, és bejelentkezés után befejezi. Az 1–4. és a 9. pont TELJES reset '
                 '(catroot2, WU DLL-ek, winsock) - utána a gép mindig újraindul.')
         c = ui.menu([
             ('1', 'Driver-letiltás + teljes reset', 'A WU ne írja felül a most felrakott drivereket'),
@@ -1013,6 +1013,7 @@ def _menu_wu(api):
             ('6', 'Szünet N napra', 'Mostantól számítva, 1–3650 nap'),
             ('7', '10 év szünet', 'Csak a szünet, a driver-beállítás változatlan'),
             ('8', 'Szüneteltetés feloldása', 'A driver-letiltás változatlan marad'),
+            ('9', 'Win 11 frissítés javítása', 'Beragadt Win 10 → 11 (pl. 0x80070002); WU-szünet, utána Telepítési segéd'),
         ], back_label='Vissza a főmenübe')
         if c == '0' or not c:
             return
@@ -1041,6 +1042,16 @@ def _menu_wu(api):
             _run_screen(api, 'WU szüneteltetés (10 év)', lambda: api.pause_wu(AUTOFIX_WU_PAUSE_DAYS, False))
         elif c == '8':
             _run_screen(api, 'WU folytatás', lambda: api.resume_wu())
+        elif c == '9':
+            deep = ui.confirm('Rendszerfájl-javítás is (DISM /RestoreHealth + sfc /scannow, +15–45 perc)? '
+                              'Ritkán kell: a Telepítési segéd a rendszerfájlokat amúgy is lecseréli.', False)
+            if ui.confirm('Win 11 frissítés javítása: 10 év WU-szünet (ne fusson párhuzamosan a Telepítési segéddel), '
+                          'teljes reset, a félbemaradt telepítő maradékának ($WINDOWS.~BT, $WINDOWS.~WS) törlése, '
+                          + ('DISM /RestoreHealth, sfc /scannow, ' if deep else '')
+                          + f"majd újraindítás ({'20–60 perc' if deep else 'pár perc'}). A személyes fájlok, "
+                          'programok és beállítások megmaradnak, semmi nem formázódik. Utána a Telepítési segéddel '
+                          'frissíts. Indulhat?', True):
+                _run_screen(api, 'Win 11 frissítés javítása', lambda: api.fix_win11_upgrade(deep))
 
 
 def _menu_winact(api):

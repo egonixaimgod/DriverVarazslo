@@ -624,6 +624,143 @@ def _repair_start_services(run, log, deps):
     return problems
 
 
+# --- Win 11 frissítés javítása (2026-11-23, explicit user decision) ---
+# Terep: ThinkPad T14, a Win 10 -> 11 funkciófrissítés „Hiba történt … 0x80070002” (fájl nem
+# található) egy félbeszakadt Installation Assistant után. A gomb 10 év WU-szünetet ír (a
+# technikus a Telepítési segéddel frissít, közben a WU ne kezdjen bele a sajátjába - explicit
+# user decision), majd a teljes WU-reset UTÁN sorban: a félbemaradt telepítő maradékának törlése,
+# a komponenstár javítása (DISM), a rendszerfájlok ellenőrzése (sfc). A személyes fájlokhoz,
+# programokhoz, beállításokhoz egyik sem nyúl; formázás, újratelepítés nincs.
+UPGRADE_LEFTOVER_DIRS = ('$WINDOWS.~BT', '$WINDOWS.~WS')
+UPGRADE_DELETE_TIMEOUT = 900      # mp parancsonként (rd / takeown / icacls)
+DISM_RESTORE_TIMEOUT = 7200       # szokásosan 10-30 perc; lassú HDD-n is bőven
+SFC_TIMEOUT = 7200
+
+
+def _rd_tree(run, path):
+    # \\?\: a 260 karakternél hosszabb útvonal is törlődik (mint a WU-gyorsítótárnál).
+    run(f'rd /s /q "\\\\?\\{path}"', shell=True, timeout=UPGRADE_DELETE_TIMEOUT, ok_codes=(0, 2, 5, 32, 145))
+
+
+def remove_upgrade_leftovers(run, log, sys_drive=None):
+    """A félbemaradt funkciófrissítés telepítőjének maradéka (a rendszermeghajtó gyökerén
+    a `$WINDOWS.~BT` és a `$WINDOWS.~WS`, MÁS NEM) törlése. Ami a sima `rd` után megmaradt
+    (a telepítő más tulajdonossal hagyja), azon a Rendszergazdák csoport átveszi a tulajdont
+    és a jogot, majd újra `rd`. A `takeown` `/D` nélkül fut: a válaszbetű nyelvfüggő, és
+    zárt stdin-nel a kérdésnél nem áll meg (mérve 2026-11-23). A verdikt a visszaolvasás.
+    Visszatérés: a problémák listája (üres = nincs maradék)."""
+    root = (sys_drive or os.environ.get('SystemDrive') or 'C:').rstrip('\\/') + '\\'
+    problems = []
+    for name in UPGRADE_LEFTOVER_DIRS:
+        path = os.path.join(root, name)
+        if not os.path.exists(path):
+            logging.info(f"[WU_UPGRADE] {path} nincs a gépen - nincs mit törölni.")
+            continue
+        logging.warning(f"[WU_UPGRADE] Törlés: {path} (a félbemaradt frissítés telepítőjének maradéka)")
+        log(f'🧹 {name} törlése (a félbemaradt frissítés telepítőjének maradéka)...')
+        _rd_tree(run, path)
+        if os.path.exists(path):
+            logging.warning(f"[WU_UPGRADE] {path} a törlés után is megvan - tulajdonjog és jog átvétele, újra.")
+            run(['takeown', '/F', path, '/R', '/A'], timeout=UPGRADE_DELETE_TIMEOUT, ok_codes=(0, 1))
+            run(['icacls', path, '/grant', '*S-1-5-32-544:F', '/T', '/C', '/Q'],
+                timeout=UPGRADE_DELETE_TIMEOUT, ok_codes=(0, 1))
+            _rd_tree(run, path)
+        if os.path.exists(path):
+            msg = (f'a {name} nem törölhető teljesen (zárolva - fut a Windows telepítője?); '
+                   f'újraindítás után nyomd meg újra a gombot')
+            logging.error(f"[WU_UPGRADE] {path} a jog-átvétel után is megmaradt.")
+            log(f'  ⚠️ {msg[0].upper() + msg[1:]}.')
+            problems.append(msg)
+        else:
+            logging.info(f"[WU_UPGRADE] {path} törölve (visszaolvasva).")
+            log(f'  ✅ {name} törölve.')
+    return problems
+
+
+def _output_lines(out):
+    """A kimenet értelmes sorai, a %-os folyamatjelző töredékek nélkül (a DISM és az sfc
+    a haladást \\r-rel írja egy sorba)."""
+    return [ln.strip() for ln in (out or '').replace('\r', '\n').split('\n')
+            if ln.strip() and '%' not in ln]
+
+
+def dism_restore_health(run, log):
+    """A Windows komponenstár javítása (`DISM /Online /Cleanup-Image /RestoreHealth`): a
+    sérült rendszer-komponenseket a Windows Update-ről tölti le újra. A verdikt a kilépési
+    kód ÉS a DISM sikerüzenete. Visszatérés: a problémák listája."""
+    from app.common import CMD_TIMEOUT_RETURNCODE
+    log('🩺 A Windows komponenstár javítása (DISM /RestoreHealth, 10-30 perc; '
+        'a hiányzó részeket a Windows Update-ről tölti le)...')
+    logging.warning("[WU_UPGRADE] DISM /Online /Cleanup-Image /RestoreHealth INDUL")
+    res = run(['dism', '/English', '/Online', '/Cleanup-Image', '/RestoreHealth'], timeout=DISM_RESTORE_TIMEOUT)
+    rc = getattr(res, 'returncode', -1)
+    lines = _output_lines(getattr(res, 'stdout', ''))
+    ok = rc == 0 and any('completed successfully' in ln.lower() for ln in lines)
+    err = next((i for i, ln in enumerate(lines) if ln.lower().startswith('error')), None)
+    detail = ' '.join(lines[err:err + 2] if err is not None else lines[-2:])[:300]
+    logging.info(f"[WU_UPGRADE] DISM /RestoreHealth vége: rc={rc}, ok={ok}, kimenet: {detail}")
+    if ok:
+        log('  ✅ A komponenstár javítása sikeresen lefutott (DISM).')
+        return []
+    why = 'időtúllépés' if rc == CMD_TIMEOUT_RETURNCODE else (detail or f'kód {rc}')
+    msg = f'a DISM /RestoreHealth nem sikerült: {why}'
+    log(f'  ⚠️ {msg[0].upper() + msg[1:]}')
+    return [msg]
+
+
+def run_sfc(run, log):
+    """Rendszerfájl-ellenőrzés (`sfc /scannow`): a sérült Windows-fájlokat a komponenstárból
+    cseréli. Az sfc a csőbe UTF-16-ban ír (mérve 2026-11-23). A kilépési kódjainak nincs
+    hivatalos táblája, ezért saját ✅-t nem adunk: az sfc SAJÁT záró mondatát írjuk ki;
+    hibának csak a nem nulla kód, az időtúllépés és a néma futás számít.
+    Visszatérés: a problémák listája."""
+    from app.common import CMD_TIMEOUT_RETURNCODE
+    log('🩺 Rendszerfájlok ellenőrzése (sfc /scannow, 10-20 perc; csak a Windows saját fájljait nézi)...')
+    logging.warning("[WU_UPGRADE] sfc /scannow INDUL")
+    res = run(['sfc', '/scannow'], timeout=SFC_TIMEOUT, encoding='utf-16-le')
+    rc = getattr(res, 'returncode', -1)
+    raw = (getattr(res, 'stdout', '') or '').replace('\r', '\n').split('\n')
+    last_pct = max((i for i, ln in enumerate(raw) if '%' in ln), default=-1)
+    said = ' '.join(ln.strip() for ln in raw[last_pct + 1:] if ln.strip())[:300]
+    logging.info(f"[WU_UPGRADE] sfc vége: rc={rc}, üzenete: {said or '(nincs)'}")
+    if rc == 0 and said:
+        log(f'  ℹ️ Az sfc eredménye: {said}')
+        return []
+    why = 'időtúllépés' if rc == CMD_TIMEOUT_RETURNCODE else f"{said or 'nem adott kimenetet'} (kód {rc})"
+    msg = f'sfc: {why}'
+    log(f'  ⚠️ {msg}')
+    return [msg]
+
+
+def repair_feature_update(run, log, check_cancel=None, deep=False):
+    """A „Win 11 frissítés javítása” gomb lépései a teljes WU-reset UTÁN, sorban:
+    telepítő-maradék, és ha `deep` (jelölőnégyzet, alapból KI - explicit user decision,
+    2026-11-23: *„önmagában az első 2 lépés ami pár perc lenne nem lenne elég?”*) DISM + sfc
+    (+15-45 perc; a Telepítési segéd a rendszerfájlokat amúgy is lecseréli).
+    Megszakításkor a még el nem kezdett lépések kimaradnak (a futót nem lőjük le: egy
+    félbehagyott DISM sérült Windowst hagyhat).
+    Visszatérés: a problémák listája (az újraindítás utáni jelentésbe is átkerül)."""
+    problems = []
+    steps = [('a telepítő-maradék törlése', lambda: remove_upgrade_leftovers(run, log))]
+    if deep:
+        steps += [('a DISM /RestoreHealth', lambda: dism_restore_health(run, log)),
+                  ('az sfc /scannow', lambda: run_sfc(run, log))]
+    else:
+        logging.info("[WU_UPGRADE] DISM /RestoreHealth és sfc /scannow kihagyva (a jelölőnégyzet nincs bepipálva).")
+        log('ℹ️ DISM és sfc kihagyva (nincs bepipálva a „Rendszerfájl-javítás is”).')
+    for step, fn in steps:
+        if check_cancel and check_cancel():
+            logging.warning(f"[WU_UPGRADE] Megszakítás kérve - kimarad: {step}")
+            log(f'⏹️ Megszakítva - kimarad: {step}.')
+            problems.append(f'megszakítva, kimaradt: {step}')
+            continue
+        problems.extend(fn())
+    log('ℹ️ Újraindítás után: a frissen letöltött Windows 11 Telepítési segéd. Ha elakad, vagy a Windows '
+        'Update-ből frissítenél: előbb a szünet feloldása (Beállítások > Windows Update > „Frissítések '
+        'folytatása”). Végső út: a Win 11 ISO setup.exe-je („fájlok és alkalmazások megtartása”).')
+    return problems
+
+
 def _parse_iso(val):
     try:
         return datetime.strptime(val, _ISO_FMT)
@@ -737,12 +874,14 @@ def _pending_path():
     return os.path.join(_app_data_dir(), WU_PENDING_FILE)
 
 
-def save_pending(action, desired):
+def save_pending(action, desired, carry=None):
     """A befejezésre váró művelet: mit kért a technikus, és mikor (a falióra-idő az
-    újraindulás felismeréséhez kell: bootidő = most - uptime)."""
+    újraindulás felismeréséhez kell: bootidő = most - uptime). carry: az újraindítás előtti
+    plusz lépések (Win 11 gomb: DISM, sfc) hibái - a befejező jelentés is kiírja őket."""
     import json
     data = {'action': action, 'paused_until': desired.get('paused_until'),
-            'exclude_drivers': bool(desired.get('exclude_drivers')), 'saved_at': time.time()}
+            'exclude_drivers': bool(desired.get('exclude_drivers')), 'saved_at': time.time(),
+            'carry': list(carry or [])}
     p = _pending_path()
     tmp = p + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:

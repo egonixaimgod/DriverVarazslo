@@ -144,6 +144,81 @@ def check_webview2_runtime():
     return (True, version)
 
 
+# A bejelentkezéskor induló ütemezett feladatok kapcsolói (fix-lánc lábai, WU-befejezés).
+LOGON_LAUNCH_FLAGS = ('--resume-autofix', '--resume-step1', '--resume-clockfix', '--wu-finish')
+GUI_RETRY_FLAG = '--gui-retry'
+GUI_RETRY_DELAY = 20   # mp; terepen a 35 mp-cel későbbi kézi indítás már hibátlan volt
+
+
+def logon_gui_retry_args(argv):
+    """Ha egy bejelentkezéskori indítás felülete nem jött fel: az újrapróbálás argumentumai
+    (egyszer, `--gui-retry`-vel jelölve), különben None (kézi indítás, vagy már a második
+    próba -> CLI-tartalék). Terep 2026-11-23 (Lenovo T14, Build 419): a `--wu-finish`
+    indítás felülete 2 mp alatt, hibaüzenet nélkül bezárult; a 35 mp-cel későbbi kézi
+    indítás hibátlan volt. Az ok NEM ismert."""
+    if GUI_RETRY_FLAG in argv or not any(f in argv for f in LOGON_LAUNCH_FLAGS):
+        return None
+    return list(argv) + [GUI_RETRY_FLAG]
+
+
+class TolerantConsoleWriter:
+    """A konzol kimenete (sys.stdout/stderr), amibe írni SOSEM dob kivételt.
+
+    Terep 2026-11-23 (Lenovo T14, Build 419): a WU-befejező feladat bejelentkezéskori
+    indításánál a felület nem jött fel, a CLI-tartalék első nem-ASCII sora
+    (`⚠️  GUI nem elérhető…`) `PermissionError: [WinError 31]`-gyel bukott, és a kezeletlen
+    kivétel a programot is vitte (PyInstaller hibaablak). Helyben (Win10 19045, raszteres
+    betűvel is) nem jött elő, az ok NEM ismert. Ezért: egy bukott írás ASCII-ra cserélve
+    újra; ha az is bukik, a sor elvész (egyszer naplózva), a program fut tovább.
+    Nem pufferel: egy bukott írás így nem ragad bent egy pufferben."""
+
+    encoding = 'utf-8'
+    errors = 'replace'
+
+    def __init__(self, raw):
+        self._raw = raw
+        self._ascii = False
+        self._dead = False
+
+    def _put(self, data):
+        while data:
+            n = self._raw.write(data)
+            if not n:
+                return
+            data = data[n:]
+
+    def write(self, s):
+        # A jelzőt a naplózás ELŐTT állítjuk: egy konzolra is író naplókezelő különben
+        # ugyanide hívna vissza, végtelen rekurzióban.
+        if self._dead:
+            return len(s)
+        try:
+            self._put(s.encode('ascii' if self._ascii else 'utf-8', 'replace'))
+        except OSError as e:
+            if not self._ascii:
+                self._ascii = True
+                logging.warning(f"[CONSOLE] A konzol nem fogadta a kiírást ({e}) - innentől ékezet nélkül (ASCII).")
+                return self.write(s)
+            self._dead = True
+            logging.error(f"[CONSOLE] A konzolra írás ASCII-val is bukik ({e}) - a kiírás elvész, a program fut tovább.")
+        return len(s)
+
+    def flush(self):
+        pass
+
+    def writable(self):
+        return True
+
+    def isatty(self):
+        try:
+            return self._raw.isatty()
+        except (OSError, ValueError):
+            return False
+
+    def fileno(self):
+        return self._raw.fileno()
+
+
 def ensure_console():
     """Konzolablak biztosítása, és a sys.stdout/stderr/stdin ráirányítása.
 
@@ -174,11 +249,13 @@ def ensure_console():
             # UTF-8 KÓDOLÁSSAL: az alapértelmezett locale a magyar Windowson cp852, amin a
             # keretrajzoló karakterek nincsenek meg. `errors='replace'`, hogy egy hiányzó
             # jel se dobhasson kivételt a kiírás közben.
-            for name, mode, attr in (('CONIN$', 'r', 'stdin'), ('CONOUT$', 'w', 'stdout'),
-                                     ('CONOUT$', 'w', 'stderr')):
+            # A kimenet hibatűrő írón megy (TolerantConsoleWriter, terep 2026-11-23).
+            for name, attr in (('CONIN$', 'stdin'), ('CONOUT$', 'stdout'), ('CONOUT$', 'stderr')):
                 try:
-                    setattr(sys, attr, open(name, mode, buffering=1,
-                                            encoding='utf-8', errors='replace'))
+                    if attr == 'stdin':
+                        setattr(sys, attr, open(name, 'r', buffering=1, encoding='utf-8', errors='replace'))
+                    else:
+                        setattr(sys, attr, TolerantConsoleWriter(open(name, 'wb', buffering=0)))
                 except OSError as e:
                     logging.debug(f"[CONSOLE] A(z) {attr} nem nyitható ({name}): {e}")
             # A konzol kódlapját is UTF-8-ra állítjuk (65001), különben a fenti utf-8

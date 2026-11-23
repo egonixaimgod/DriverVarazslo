@@ -170,3 +170,28 @@ Kódolvasásból, a felhasználó kérésére; terepen NEM reprodukálva. Teszt:
 - **A `--cli` indítás kilépése** `sys.exit(0)` volt, nem `cleanup_zombies()` + `os._exit(0)` (8. fejezet); a `cleanup_zombies` ezért feljebb került. Két indítási kivételág `exc_info`-t kapott.
 - **Friss boot után a frissítés-ellenőrzés feladta (2026-11-17, MSI MS-7B61, terepi napló):** 17:44:11 indulás, 17:44:14–20 a Releases API és a raw út 3 próbája mind `getaddrinfo failed`, utána csend; a hálózat a fix saját várakozása szerint 17:45:20-ra állt fel. A gép így a Build 415-ön futtatta végig a fixet, pedig a 417 kint volt (a Dell 11:33-as indulásánál ugyanez). Javítás: a GUI `check_for_updates` előbb `_wait_for_internet(120)` (háttérhívás; ha van net, azonnal visszatér). Amit ez NEM old meg: ha a technikus a frissítés-ablak előtt elindítja a fixet (az MSI-n 9 mp-cel az indulás után), a lánc a régi builden fut; a futó feladat alatt a `perform_update` a `_task_busy` kapun elutasítódik. `tests/test_field_1116.py: UpdateCheckWaitsForNetTest`.
 
+### 2026-11-23: a bejelentkezéskori indítás felülete nem jött fel, a CLI-tartalék elszállt (Lenovo T14, Build 419)
+
+**Terepi bejelentés (a felhasználó szavaival):** *„az elso inditasnal valamiert nem volt karikazas … utána vmi errort dobott … piros x ablakkal vmi call mittomen error”*, majd: *„masodik inditasnal jo volt a karika meg az animacio az elso inditasnal amikor dobta az errort az hianyzott megijedtem”*. Gép: LENOVO 20W1S6240A (ThinkPad T14), Win10 19045, WebView2 157.0.4341.60, .NET 4.8.1. Előtte: „Driver-letiltás + teljes reset + 10 év szünet” (winsock reset → újraindítás → `DriverVarazsloWuFinish` feladat).
+
+**A napló, szó szerint (rövidítve):**
+```
+17:12:49 [WU] ... újraindítás (shutdown /r /t 0 /f), ok: ['a winsock reset csak újraindítás után lép életbe']
+17:21:02 Parancssor: ['C:\\Users\\user\\Desktop\\DriverVarazslo.exe', '--wu-finish']   Futtatasi konyvtar: C:\Windows\system32
+17:21:02 [MAIN] webview.start() hívása...
+17:21:03 [WINDOW] WebView ablak beállítása...
+17:21:05 [WARNING] [Dummy-6] Failed to delete user data folder: [WinError 5] ... tmpah7_tvrx\EBWebView\CrashpadMetrics-active.pma
+17:21:05 [MAIN] GUI nem indult el sikeresen, CLI mód következik...
+17:21:05 FATÁLIS HIBA: File "driver_tool.py", line 710 ... PermissionError: [WinError 31] Egy rendszerhez csatlakoztatott eszköz nem működik
+17:21:37 (kézi indítás) ... 17:21:45 WebView2 DOM kész ... 17:23:20 ✅ Kész · szüneteltetve 2036-11-20-ig · driver-frissítés LETILTVA
+```
+A 710. sor a CLI-tartalék második `print`-je (`"  ⚠️  GUI nem elérhető - CLI mód automatikusan aktiválva"`); az előtte lévő, csak ASCII-t író sor kiment. A „piros X-es ablak” a PyInstaller windowed bootloaderének kezeletlen-kivétel ablaka. A WU-művelet NEM veszett el: a `wu_pending.json` megmaradt, a kézi indítás befejezte és visszaolvasta. A hálózat újraindítás után működött (17:24:22 `_check_internet -> True`).
+
+**Amit NEM tudunk (nemtudás, nem tény):** miért zárult be a felület 2 mp alatt. Nincs WebView2-hiba a naplóban, a watchdog nem lépett (sem hiba-jelző, sem időtúllépés), a `set_window` lefutott, a DOM soha nem lett kész. Hipotézisek, egyik sem mérve: (a) a bejelentkezés legelején a WebView2 még nem indítható; (b) az első indulás a winsock reset után (a teljes reset 2026-11-23 óta mind a 4 WU-gyorsgombban és a fix láncában is ott van); (c) idegen DLL / overlay (a 2026-09-18-i RTSS-esetnél viszont az ablak üresen ÁLLT, nem zárult be). **A dumpot nem néztük meg:** a `tmpah7_tvrx` mappa a törlés bukása miatt a gépen maradt (`%TEMP%\tmpah7_tvrx\EBWebView\Crashpad\reports`). A WinError 31 helyben nem jött elő (pythonw + `ensure_console`, Win10 19045; raszteres „Terminal” betűvel és 65001-es kódlappal sem), az oka sem ismert.
+
+**Javítás (az okoktól függetlenül):**
+- `common.TolerantConsoleWriter`: az `ensure_console` a stdout/stderr-t erre köti (nem pufferelt `CONOUT$` fölött, hogy egy bukott írás ne ragadjon pufferben). Bukott írás → ASCII-val újra → ha az is bukik, a kiírás elvész, egyszer naplózva. A jelző a naplózás ELŐTT áll be (egy konzolra író naplókezelő különben végtelen rekurziót okozna). Élőben mérve: pythonw + `ensure_console` → `TolerantConsoleWriter`, `isatty=True`, a rich `ANSI=True`, ékezet és emoji kirajzolva.
+- `common.logon_gui_retry_args` + `driver_tool.py`: egy `--resume-autofix`/`--resume-step1`/`--resume-clockfix`/`--wu-finish` indítás bukott felülete után 20 mp várás, majd egy önálló újraindítás `--gui-retry`-vel (`relaunch_detached`); csak a második bukás után jön a CLI. Kézi indításnál nincs újrapróbálás.
+- **A fix lánca miatt fontos:** a lábak ugyanígy, bejelentkezéskor indulnak; egy ilyen bukás eddig egy elszálló CLI-t jelentett, vagyis megállt láncot.
+
+**Tesztek:** `tests/test_field_1123.py` (7 eset, mind elbukik a HEAD-kódon, eldobható worktree-ben mérve). **NEM mérve:** élő bejelentkezéskori bukás és újrapróbálás egy valódi gépen (a hibát nem tudjuk előidézni).

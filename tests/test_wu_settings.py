@@ -11,6 +11,7 @@
   újraindítás, csak őszinte jelentés. A Windows saját újraindítás-jelzője csak tájékoztatás.
 """
 import os
+import shutil
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -450,6 +451,173 @@ class TempCleanLongPathTest(unittest.TestCase):
         finally:
             import subprocess
             subprocess.run(['cmd', '/c', 'rd', '/s', '/q', '\\\\?\\' + base], capture_output=True)
+
+
+class Win11UpgradeTest(unittest.TestCase):
+    """2026-11-23 (explicit user decision): „Win 11 frissítés javítása” gomb (terep: ThinkPad
+    T14, Win 10 -> 11, 0x80070002). 10 év WU-szünet (*„ha megint ráindítok … telepítési
+    segédből is akkor megint 2 helyen fog menni párhuzamosan”*) -> teljes reset ->
+    telepítő-maradék, DISM, sfc -> újraindítás. Csak a két telepítő-mappát törli (*„nehogy
+    leformazzuk a gépet”*), és egy újraindítás előtti hiba nem tűnhet el a befejező jelentésből."""
+
+    def setUp(self):
+        quiet()
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def _press(self, pause_end='2036-11-21T10:00:00Z', *args):
+        calls = []
+        w = _Wu()
+        with mock.patch.object(wc, 'remove_pause', lambda: calls.append('unpause')), \
+                mock.patch.object(wc, 'set_wu_driver_policy', lambda *a, **k: calls.append('policy')), \
+                mock.patch.object(wc, 'pause_for_days', lambda *a, **k: (calls.append(('pause',) + a), pause_end)[1]), \
+                mock.patch.object(wc, 'repair_wu', lambda run, log, full_reset=False: (calls.append(('repair', full_reset)), OK_REP)[1]), \
+                mock.patch.object(wc, 'repair_feature_update',
+                                  lambda run, log, check_cancel=None, deep=False: (calls.append(('feature', deep)), [])[1]), \
+                mock.patch.object(guiwu.GuiWuMixin, '_wu_conclude', lambda *a, **k: None):
+            w.fix_win11_upgrade(*args)
+        return calls, w
+
+    def test_elobb_10_ev_szunet_aztan_reset_driverhez_nem_nyul(self):
+        calls, _w = self._press()
+        self.assertEqual(calls, [('pause', wc.WU_PAUSE_MAX_DAYS, False), ('repair', True), ('feature', False)])
+
+    def test_dism_sfc_csak_keresre(self):
+        # 2026-11-23 (explicit user decision): alapból csak szünet + reset + maradék (pár perc).
+        self.assertEqual(self._press('2036-11-21T10:00:00Z', True)[0][-1], ('feature', True))
+        ran = []
+        with mock.patch.object(wc, 'remove_upgrade_leftovers', lambda run, log: (ran.append('left'), [])[1]), \
+                mock.patch.object(wc, 'dism_restore_health', lambda run, log: (ran.append('dism'), [])[1]), \
+                mock.patch.object(wc, 'run_sfc', lambda run, log: (ran.append('sfc'), [])[1]):
+            wc.repair_feature_update(None, lambda m: None)
+            self.assertEqual(ran, ['left'])
+            ran.clear()
+            wc.repair_feature_update(None, lambda m: None, deep=True)
+            self.assertEqual(ran, ['left', 'dism', 'sfc'])
+
+    def test_bukott_szunet_utan_semmi_nem_fut(self):
+        calls, w = self._press(pause_end=None)
+        self.assertEqual(calls, [('pause', wc.WU_PAUSE_MAX_DAYS, False)])
+        self.assertTrue(w.statuses()[-1].startswith('❌'))
+
+    def _leftover_run(self, deletes=True):
+        cmds = []
+
+        def run(cmd, **k):
+            cmds.append(cmd)
+            if deletes and isinstance(cmd, str) and cmd.startswith('rd '):
+                shutil.rmtree(cmd.split('"')[1][4:], ignore_errors=True)
+            return _res()
+        return run, cmds
+
+    def _make(self, *names):
+        for n in names:
+            os.makedirs(os.path.join(self.root, n, 'Sources'))
+            with open(os.path.join(self.root, n, 'Sources', 'install.esd'), 'w') as f:
+                f.write('x')
+
+    def test_csak_a_ket_telepito_mappat_torli_visszaolvasva(self):
+        self._make('$WINDOWS.~BT', '$WINDOWS.~WS', 'Users', 'Windows.old')
+        run, cmds = self._leftover_run()
+        logs = []
+        self.assertEqual(wc.remove_upgrade_leftovers(run, logs.append, sys_drive=self.root), [])
+        self.assertEqual(sorted(os.listdir(self.root)), ['Users', 'Windows.old'])
+        targets = {c.split('"')[1] for c in cmds if isinstance(c, str)}
+        self.assertEqual(targets, {'\\\\?\\' + os.path.join(self.root, n) for n in wc.UPGRADE_LEFTOVER_DIRS})
+        self.assertEqual(sum('✅' in m for m in logs), 2)
+
+    def test_megmaradt_mappa_jog_atvetel_utan_sem_hamis_siker(self):
+        self._make('$WINDOWS.~BT')
+        run, cmds = self._leftover_run(deletes=False)
+        logs = []
+        problems = wc.remove_upgrade_leftovers(run, logs.append, sys_drive=self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertNotIn('✅', ' '.join(logs))
+        lists = [c for c in cmds if isinstance(c, list)]
+        self.assertEqual([c[0] for c in lists], ['takeown', 'icacls'])
+        self.assertNotIn('/D', lists[0])   # a válaszbetű nyelvfüggő
+
+    def test_nincs_maradek_nincs_parancs(self):
+        run, cmds = self._leftover_run()
+        self.assertEqual(wc.remove_upgrade_leftovers(run, lambda m: None, sys_drive=self.root), [])
+        self.assertEqual(cmds, [])
+
+    def test_dism_verdikt(self):
+        from app.common import CMD_TIMEOUT_RETURNCODE
+        ok_out = '[==========================100.0%==========================]\r\nThe restore operation completed successfully.\r\nThe operation completed successfully.\r\n'
+        bad_out = ('[===   5.0%   ]\r\n\r\nError: 0x800f081f\r\n\r\nThe source files could not be found.\r\n'
+                   'Use the "Source" option to specify the location of the files.\r\n'
+                   'The DISM log file can be found at C:\\Windows\\Logs\\DISM\\dism.log\r\n')
+        for out, rc, want in ((ok_out, 0, None), ('', 0, 'kód 0'), (bad_out, 2, '0x800f081f'),
+                              ('', CMD_TIMEOUT_RETURNCODE, 'időtúllépés')):
+            seen = []
+            p = wc.dism_restore_health(lambda cmd, **k: (seen.append(cmd), _res(out, rc))[1], lambda m: None)
+            self.assertIn('/RestoreHealth', seen[0])
+            if want is None:
+                self.assertEqual(p, [])
+            else:
+                self.assertEqual(len(p), 1)
+                self.assertIn(want, p[0])
+        self.assertIn('could not be found', wc.dism_restore_health(lambda c, **k: _res(bad_out, 2), lambda m: None)[0])
+
+    def test_sfc_utf16_es_nincs_sajat_pipa(self):
+        said = 'A Windows Erőforrásvédelem nem talált integritássértést.'
+        out = f'\r\r\nRendszervizsgálat indítása.\r\r\nEllenőrzés: 37% kész.\rEllenőrzés: 100% kész.\r\r\n\r\r\n{said}\r\r\n'
+        kw, logs = {}, []
+        p = wc.run_sfc(lambda cmd, **k: (kw.update(k), _res(out, 0))[1], logs.append)
+        self.assertEqual(kw.get('encoding'), 'utf-16-le')
+        self.assertEqual(p, [])
+        self.assertIn(said, logs[-1])
+        self.assertNotIn('✅', ' '.join(logs))
+        p = wc.run_sfc(lambda cmd, **k: _res(out, 1), lambda m: None)
+        self.assertEqual(len(p), 1)
+        self.assertIn(said, p[0])
+        self.assertEqual(len(wc.run_sfc(lambda cmd, **k: _res('', 0), lambda m: None)), 1)
+
+    def test_megszakitas_utan_a_hatralevo_lepes_kimarad(self):
+        flags = iter([False, True, True])
+        ran = []
+        with mock.patch.object(wc, 'remove_upgrade_leftovers', lambda run, log: (ran.append('left'), [])[1]), \
+                mock.patch.object(wc, 'dism_restore_health', lambda run, log: (ran.append('dism'), [])[1]), \
+                mock.patch.object(wc, 'run_sfc', lambda run, log: (ran.append('sfc'), [])[1]):
+            p = wc.repair_feature_update(None, lambda m: None, check_cancel=lambda: next(flags), deep=True)
+        self.assertEqual(ran, ['left'])
+        self.assertEqual(len(p), 2)
+
+    def test_ujrainditas_elotti_hiba_a_befejezo_jelentesben(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        w = _Wu()
+        with mock.patch.object(wc, '_pending_path', return_value=os.path.join(tmp, 'wu_pending.json')), \
+                mock.patch.object(wc, 'wu_reboot_flags', return_value=[]), \
+                mock.patch.object(wc, 'desired_state', return_value={'paused_until': '2036-11-21T10:00:00Z', 'exclude_drivers': True}), \
+                mock.patch.object(wc, 'read_effective_state', return_value={}), \
+                mock.patch.object(wc, 'pause_for_days', return_value='2036-11-21T10:00:00Z'), \
+                mock.patch.object(wc, 'reassert_pending', return_value=True), \
+                mock.patch.object(wc, 'repair_feature_update',
+                                  lambda run, log, check_cancel=None, deep=False: ['a DISM /RestoreHealth nem sikerült: Error: 0x800f081f']), \
+                mock.patch.object(guiwu.time, 'sleep', lambda s: None):
+            with mock.patch.object(wc, 'repair_wu', return_value=LOCKED_REP):
+                w.fix_win11_upgrade(True)
+            self.assertEqual(len(w.shutdowns()), 1)
+            self.assertEqual(wc.load_pending()['carry'], ['a DISM /RestoreHealth nem sikerült: Error: 0x800f081f'])
+            # a befejező lépés ezt a szünetet írja vissza, ha újraindítás után elveszett
+            self.assertEqual(wc.load_pending()['paused_until'], '2036-11-21T10:00:00Z')
+            with mock.patch.object(wc, 'repair_wu', return_value=OK_REP):
+                w.finish_wu_after_reboot()
+        self.assertEqual(len(w.shutdowns()), 1)
+        self.assertTrue(w.statuses()[-1].startswith('⚠️'), w.statuses()[-1])
+        self.assertIn('0x800f081f', w.statuses()[-1])
+        self.assertIn('szüneteltetve 2036-11-21-ig', w.statuses()[-1])
+        self.assertEqual(OK_REP['problems'], [])   # a közös csonk nem szennyeződött
+
+    def test_gui_es_cli_is_hivja(self):
+        html = open(os.path.join(tests.ROOT, 'ui.html'), encoding='utf-8').read()
+        self.assertIn('onclick="fixWin11Upgrade()"', html)
+        self.assertIn('api().fix_win11_upgrade(deep)', html)
+        self.assertIn('<input type="checkbox" id="w11-deep">', html)    # alapból NINCS bepipálva
+        cli = open(os.path.join(tests.ROOT, 'app', 'cli', 'menu.py'), encoding='utf-8').read()
+        self.assertIn('api.fix_win11_upgrade(deep)', cli)
 
 
 if __name__ == '__main__':
