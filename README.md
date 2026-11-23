@@ -140,11 +140,11 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 | Modul | Mire való |
 |---|---|
 | 🚀 **1 kattintásos driver fix** | A teljes újradriverezés felügyelet nélkül, újraindításokon át ([részletek lent](#-az-1-kattintásos-fix)) |
-| 🖥️ **Driver keresés és telepítés** | Kézi szken: minden eszközre megmutatja, van-e újabb gyári driver, és kijelölés után feltelepíti |
+| 🔍 **Driver keresés és telepítés** | Kézi szken: minden eszközre megmutatja, van-e újabb gyári driver, és kijelölés után feltelepíti |
 | 💿 **Driverek kezelése** | A telepített third-party driverek listája használat szerint, a gép alkatrész-térképével, törléssel és karbantartó eszközökkel |
 | 💾 **Mentés és visszaállítás** | Driverek mentése, visszaállítása élő vagy **nem induló** Windowsba, WIM/ESD-kinyerés, rendszerindítás-javítás |
 | 🪟 **Operációs rendszer** | Windows Update driverkezelése, Windows és Office aktiválás, BitLocker, teljesítmény-mód, hálózat-blokkoló |
-| 🎨 **Kijelző és színkezelés** | HDR, automatikus színkezelés (ACM), ICC-profilok SDR/HDR módra, gamma, panel-adatok, gyári visszaállítás |
+| 🖥️ **Kijelző és színkezelés** | HDR, automatikus színkezelés (ACM), ICC-profilok SDR/HDR módra, gamma, panel-adatok, gyári visszaállítás |
 | 🧹 **Rendszer karbantartás** | Ideiglenes fájlok, gyorsítótárak és komponenstár takarítása, előre megmutatott méretekkel |
 | 🏷️ **Bolti tábla** | A5-ös árlapok a szerviz Word-sablonjából, akciós árral és Windows-telepítés opcióval |
 | 🔥 **Stresszteszt** | CPU + memória + GPU teszt (FurMark, Prime95 Small FFTs, Linpack, HWiNFO) egy gombbal, automatizált indítással és ablak-elrendezéssel; **RAM TEST** (TestMem5 → y-cruncher → HCI MemTest felügyelet nélkül, WHEA-figyeléssel és verdikttel) |
@@ -153,7 +153,7 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 | 📊 **Rendszer riport** | Egyoldalas, nyomtatható hardverriport S.M.A.R.T.-adatokkal |
 
 <details>
-<summary><b>🖥️ Driver keresés és telepítés</b></summary>
+<summary><b>🔍 Driver keresés és telepítés</b></summary>
 <br/>
 
 - **Minden jelen lévő eszközre keres.** Kizárva csak az marad, ami nem hardver (kötetek, hangvégpontok, nyomtatósorok), illetve a tároló- és firmware-eszközök.
@@ -198,7 +198,7 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 <summary><b>🪟 Operációs rendszer</b></summary>
 <br/>
 
-- **Windows Update:** automatikus driverfrissítés tiltása és visszaállítása, szüneteltetés (+1 hét, tetszőleges napszám, 10 év), javítás. Minden gomb kitakarítja a beragadt letöltéseket és rendbe teszi a szolgáltatásokat, frissítés-keresést soha nem indít; az eredményt visszaolvassa, és ha a takarításhoz újraindítás kell (zárolt fájl, beragadt szolgáltatás), 10 mp múlva újraindít, majd bejelentkezés után magától befejezi és ellenőrzi.
+- **Windows Update:** négy gyorsgomb, mindegyik **teljes resettel** (catroot2, WU DLL-ek, winsock, utána újraindítás): driver-letiltás, driver-engedélyezés, csak reset, driver-letiltás + 10 év szünet. Alatta a szüneteltetés (+1 hét, tetszőleges napszám, 10 év, feloldás). Minden gomb kitakarítja a beragadt letöltéseket és rendbe teszi a szolgáltatásokat, frissítés-keresést soha nem indít; az eredményt visszaolvassa, és ha a takarításhoz újraindítás kell (zárolt fájl, beragadt szolgáltatás), 10 mp múlva újraindít, majd bejelentkezés után magától befejezi és ellenőrzi.
 - **Windows és Office aktiválás:** licencállapot közvetlenül WMI-ből, a **BIOS-ba égetett gyári kulcs** kiolvasása és használata, KMS-tartalék a szerviz saját kiszolgálójával. A végeredményt a program a rendszertől kérdezi vissza.
 - **BitLocker:** a rendszermeghajtó állapota és a titkosítás kikapcsolása.
 - **⚡ Teljesítmény-mód:** a beépített „Nagy teljesítményű” energiaséma hangolt értékekkel (hálózatról és akkumulátorról is), a régi séma megnevezésével és a visszaállítás parancsával.
@@ -207,7 +207,7 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 </details>
 
 <details>
-<summary><b>🎨 Kijelző és színkezelés</b></summary>
+<summary><b>🖥️ Kijelző és színkezelés</b></summary>
 <br/>
 
 - HDR és automatikus színkezelés (ACM) kapcsolása kijelzőnként, a Windows DisplayConfig API-ján át.
@@ -238,7 +238,7 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 
 - **Rendszer riport:** CPU, RAM (a gyártót a modul cikkszámából is felismeri), videokártya valódi VRAM-mérettel, alaplap, háttértárak S.M.A.R.T.-adatokkal. Mindig egy oldalra fér, és egy kattintással a szerviz nyomtatójára küldhető. A teszt-SSD-ről futtatott programnál a rendszerlemez kihagyható.
 - **Bolti tábla:** két gép A5-ös árlapja a szerviz saját Word-sablonjából, előre kitöltött mezőkkel. Ha egy mező túl hosszú a laphoz, a felület megmutatja, melyik, és mennyi fér ki.
-- **Rendszer karbantartás:** ideiglenes fájlok, Windows Update- és kézbesítés-optimalizálási gyorsítótár, hibajelentések, böngésző-gyorsítótárak (csak a gyorsítótár: süti, jelszó, előzmény nem), Lomtár, komponenstár. Kategóriánkénti méret előre, a felszabadult hely utólag mérve.
+- **Rendszer karbantartás:** ideiglenes fájlok, Windows Update- és kézbesítés-optimalizálási gyorsítótár, hibajelentések, böngésző-gyorsítótárak (csak a gyorsítótár: süti, jelszó, előzmény nem), Lomtár, komponenstár. Alapból a két TEMP mappa, a WU-gyorsítótár és a Lomtár van bepipálva, a többi opcionális. Kategóriánkénti méret előre, a felszabadult hely utólag mérve.
 
 </details>
 

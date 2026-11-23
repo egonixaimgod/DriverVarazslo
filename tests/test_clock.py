@@ -344,6 +344,72 @@ class HonestClosingTest(_ChainCase):
         self.assertIn('a keresés nem volt teljes', c.text())
 
 
+class _WuFailLeg(_LastLeg):
+    """Telepítő láb, amelyben a WU-keresés elbukott (a jelzőt a valódi keresés állítja)."""
+
+    wu_failed = True
+
+    def _scan_and_install_wu_sync(self, task_id='autofix'):
+        self._autofix_wu_search_failed = self.wu_failed
+        self._autofix_search_gaps = ['a Windows Update keresése elbukott (0x80240438)'] if self.wu_failed else []
+        return 0
+
+
+class WuResetInChainTest(_ChainCase):
+    """2026-11-23 (explicit user decision „A”): bukott WU-keresés -> a láncban EGYSZER teljes
+    WU-reset + újraindítás + új telepítő kör; egészséges WU-hoz nem nyúl."""
+
+    def run_leg(self, wu_failed, reset_done=False, closing=False):
+        c = self.chain(('ok', 0.0), cls=_WuFailLeg, resume_mode=True)
+        c.wu_failed = wu_failed
+        c.gaps = []
+        if reset_done:
+            c._autofix_stats_set('wu_full_reset_done', True)
+        if closing:
+            c._autofix_stats_set('settle_done', True)
+            c._autofix_stats_set('rebind_done', True)
+        rep = {'services_ok': True, 'problems': [], 'cache': {}, 'reboot_reasons': ['winsock']}
+        with mock.patch.object(af.wusettings_core, 'repair_wu', return_value=rep) as repair, \
+                mock.patch.object(af.dupdrivers_core, 'auto_cleanup_duplicates'):
+            c.run_autofix()
+        return c, repair
+
+    def test_bukott_wu_utan_teljes_reset_es_uj_kor(self):
+        c, repair = self.run_leg(True, closing=True)
+        self.assertEqual(repair.call_count, 1)
+        self.assertTrue(repair.call_args.kwargs.get('full_reset'))
+        self.assertEqual(c.scheduled[-1], '--resume-autofix')          # (az első a láb eleji biztosítás)
+        self.assertEqual(len(c.reboots), 1)
+        self.assertTrue(c._autofix_stats_get('wu_full_reset_done'))
+        self.assertIn('TELJES WU-reset', c.text())
+        self.assertNotIn('SIKERESEN BEFEJEZŐDÖTT', c.text())
+
+    def test_masodszor_nincs_reset_a_lanc_oszintén_zarul(self):
+        c, repair = self.run_leg(True, reset_done=True, closing=True)
+        repair.assert_not_called()
+        self.assertEqual(c.reboots, [])
+        self.assertIn('NEM TELJES', c.text())
+
+    def test_egeszseges_wu_hoz_nem_nyul(self):
+        c, repair = self.run_leg(False, closing=True)
+        repair.assert_not_called()
+        self.assertIn('A FOLYAMAT SIKERESEN BEFEJEZŐDÖTT!', c.text())
+
+    def test_a_valodi_kereses_allitja_a_jelzot(self):
+        # A VALÓDI _scan_and_install_wu_sync (gyors mód: a katalógus-kör kimarad).
+        for raw, failed in ((None, True), ([], False)):
+            c = self.chain(('ok', 0.0))
+            c._autofix_use_catalog = False
+            c._query_pnp_devices = lambda: []
+            c._search_wu_api = lambda raw=raw: raw
+            c._wu_search_error = ('0x80240438', '')
+            c._get_installed_driver_info = lambda: {}
+            c._defer_wu_to_newer_catalog = lambda m, *a: (m, [])
+            with mock.patch.object(af.time, 'sleep'):
+                self.assertEqual(c._scan_and_install_wu_sync(), 0)
+            self.assertIs(c._autofix_wu_search_failed, failed, raw)
+
+
 class ReportWordingTest(_ChainCase):
     def test_mas_windowsra_keszult_csomag_nem_feltelepult(self):
         # ASUS E1504FA (Build 404): az OS-vétós AMD SMBUS csomagok a "feltelepült, de az

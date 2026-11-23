@@ -301,6 +301,30 @@ class GuiAutofixMixin:
         else:
             self.emit('task_progress', {'task': task_id, 'log': '⚠️ A WU driver-tiltás NEM íródott be a registrybe (részletek a naplóban) - a Windows a lánc alatt magától is telepíthet drivert.\n'})
 
+    def _autofix_wu_reset_if_failed(self, task_id='autofix'):
+        """TELJES WU-RESET, HA A WU-KERESÉS ELBUKOTT (2026-11-23, explicit user decision: „A”).
+        A láncban EGYSZER: catroot2, WU DLL-ek, winsock (közös `repair_wu`, mint a WU-
+        gyorsgomboké), utána a hívó újraindít, és a következő telepítő láb újra keres.
+        Egészséges WU-hoz nem nyúl. True = újraindítás kell (a winsock csak utána él)."""
+        if not getattr(self, '_autofix_wu_search_failed', False) or getattr(self, '_cancel_flag', False):
+            return False
+        if self._autofix_stats_get('wu_full_reset_done'):
+            logging.warning("[AUTOFIX-WU] A WU-keresés a teljes reset után is elbukott - újabb reset nincs, "
+                            "a záró jelentés kimondja.")
+            return False
+        # A reset ELŐTT írjuk: egy közbeni összeomlás után se fusson körbe.
+        self._autofix_stats_set('wu_full_reset_done', True)
+        log = lambda m: self.emit('task_progress', {'task': task_id, 'log': m})
+        log('\n🛠️ A Windows Update keresése elbukott - TELJES WU-reset (catroot2, WU DLL-ek, winsock), '
+            'utána újraindítás, és a következő kör újra keres.')
+        logging.warning("[AUTOFIX-WU] Teljes WU-reset a bukott keresés miatt (egyszer a láncban).")
+        rep = wusettings_core.repair_wu(self._run, log, full_reset=True)
+        logging.info(f"[AUTOFIX-WU] A teljes reset eredménye: problémák={rep['problems']}, "
+                     f"újraindítás oka={rep['reboot_reasons']}")
+        if rep['problems']:
+            log(f"⚠️ A reset nem volt hibátlan ({'; '.join(rep['problems'])}) - a következő kör ettől még újra keres.")
+        return True
+
     def _query_pnp_devices(self):
         """Lásd wu_core.query_pnp_devices (None = a lekérdezés elbukott)."""
         return query_pnp_devices(self._run)
@@ -978,6 +1002,7 @@ class GuiAutofixMixin:
         # katalógus). A láb zárása ebből dönti el, hogy mondhatja-e: "minden driver fent van"
         # (2026-11-09, HP ProDesk: 0 driver + bukott keresés után "SIKERESEN BEFEJEZŐDÖTT" jött).
         self._autofix_search_gaps = []
+        self._autofix_wu_search_failed = False   # -> _autofix_wu_reset_if_failed
 
         # Kísérlet-számláló UpdateID-nként. A SIKERESEN telepített csomagot a következő
         # körben maga a WU szerver szűri ki (IsInstalled=0), ezért itt csak loop-védelem
@@ -1082,6 +1107,7 @@ class GuiAutofixMixin:
                     f"korábban letiltotta, ezért nem telepítjük): "
                     + ', '.join(h['title'] for h in _hid[:5]) + (', …' if len(_hid) > 5 else '')})
             if wu_search_failed:
+                self._autofix_wu_search_failed = True
                 # A KONKRÉT HIBAKÓD A KÉPERNYŐRE IS KIMEGY (2026-09-07): eddig minden
                 # WU-bukás ugyanazt az "időtúllépés vagy WUA hiba" mondatot kapta, pedig
                 # a kettő teljesen más teendőt jelent, és a kód a stderr-ben ott volt.
@@ -3740,7 +3766,9 @@ class GuiAutofixMixin:
                 # (a friss driverek új eszközöket hozhatnak elő), VAGY (b) a kört pending-reboot
                 # / sorozatos hiba miatt vágtuk el - ilyenkor a maradék csomag CSAK újraindítás
                 # után tud rendesen felmenni (ez volt a ~20 perces, 8 hamis hibás terepi eset).
-                reboot_needed = getattr(self, '_autofix_reboot_pending', False)
+                # (c) a WU-keresés elbukott -> egyszer teljes WU-reset + újraindítás + új kör.
+                wu_reset = self._autofix_wu_reset_if_failed()
+                reboot_needed = getattr(self, '_autofix_reboot_pending', False) or wu_reset
                 should_chain = installed_count > 0 or reboot_needed
 
                 # ================================================================
@@ -3851,7 +3879,9 @@ class GuiAutofixMixin:
                             self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ A rendszer még újraindítást igényel: a maradék driver a következő kézi újraindítás után lép életbe.'})
 
                 if should_chain:
-                    if reboot_needed and installed_count == 0:
+                    if wu_reset and installed_count == 0:
+                        self.emit('task_progress', {'task': 'autofix', 'log': '\n🔄 Újraindítás a Windows Update resetje miatt - utána a következő kör újra keres.'})
+                    elif reboot_needed and installed_count == 0:
                         self.emit('task_progress', {'task': 'autofix', 'log': '\n🔄 A rendszer újraindítást igényel a hátralévő driverek telepítéséhez!\nA folyamat az újraindulás után automatikusan folytatódik!'})
                     else:
                         self.emit('task_progress', {'task': 'autofix', 'log': f'\n🔄 EBBEN A KÖRBEN {installed_count} DRIVER TELEPÜLT!\nTovább láncolt hardverek aktiválásához újabb automatikus újraindítás szükséges!\nA rendszer az újraindulás után folytatja a szkennelést!'})

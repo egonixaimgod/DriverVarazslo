@@ -1022,19 +1022,38 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .bk-opt-d{display:block;font-size:11.5px;color:var(--text3);margin-top:2px}
 .bk-cards .card .btn{align-self:flex-start;margin-top:auto}
 /* SZAKASZOK (2026-11-05): színes keret + bal oldali sáv + színezett fejléc, hogy látszódjon,
-   mettől meddig tart egy rész. 1 = kék (mentés), 2 = zöld (visszaállítás), 3 = narancs (eszközök). */
-#view-backup .bk-sec{--sec:76,178,255;padding:0 20px 20px 24px;margin-bottom:24px;overflow:hidden;
+   mettől meddig tart egy rész. 1 = kék (mentés), 2 = zöld (visszaállítás), 3 = narancs (eszközök).
+   2026-11-23 óta KÖZÖS minta (explicit user decision: a Mentés nézet stílusa legyen az Operációs
+   rendszer és a Kijelző nézeté is): a szín a `--sec`, a `sec-*` osztály csak ezt váltja. */
+.bk-sec{--sec:76,178,255;padding:0 20px 20px 24px;margin-bottom:24px;overflow:hidden;
   background:rgba(20,11,38,0.78);border:1.5px solid rgba(var(--sec),0.5);box-shadow:0 8px 28px rgba(0,0,0,0.35)}
-#view-backup .bk-sec::before{content:'';position:absolute;left:0;top:0;bottom:0;width:5px;background:rgb(var(--sec))}
-#view-backup .bk-sec-restore{--sec:102,230,160}
-#view-backup .bk-sec-tools{--sec:255,179,71}
+.bk-sec::before{content:'';position:absolute;left:0;top:0;bottom:0;width:5px;background:rgb(var(--sec))}
+.bk-sec-restore,.sec-green{--sec:102,230,160}
+.bk-sec-tools,.sec-orange{--sec:255,179,71}
+.sec-purple{--sec:196,130,255}
+.sec-red{--sec:255,110,100}
 .bk-sec-head{display:flex;align-items:center;gap:14px;margin:0 -20px 18px -24px;padding:14px 20px 14px 24px;
   background:linear-gradient(90deg,rgba(var(--sec),0.24),rgba(var(--sec),0.05) 70%);border-bottom:1px solid rgba(var(--sec),0.4)}
 .bk-sec-n{flex:0 0 auto;display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:rgb(var(--sec));color:#14091f;font-size:18px;font-weight:900}
 .bk-sec-t{font-size:17px;font-weight:800;color:var(--text)}
 .bk-sec-d{font-size:12.5px;color:var(--text2);margin-top:2px}
-#view-backup .bk-sec .card{background:rgba(45,27,78,0.5)}
-#view-backup .bk-sec .cards{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.bk-sec-actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.bk-sec .card{background:rgba(45,27,78,0.5)}
+.bk-sec .cards{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.bk-p{margin:0;font-size:12.5px;color:var(--text3);line-height:1.65}
+.bk-p b{color:var(--text2)}
+.bk-step .wu-actions{justify-content:flex-start}
+.bk-step .winact-btnrow,.bk-cards .winact-btnrow{margin-top:auto;align-items:center}
+.bk-cards .card .winact-btnrow .btn{margin-top:0}
+.bk-cards .wu-status{margin:0;padding:12px;font-size:14px}
+.os-act-grid{grid-template-columns:repeat(auto-fit,minmax(420px,1fr))}
+.os-stack{display:grid;gap:14px}
+/* A WU négy gyorsgombja (2026-11-23): nagy, kétsoros gomb-kártyák */
+.wu-quick{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.bk-sec-actions .btn{white-space:nowrap}
+.wu-q{flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:6px;padding:14px 16px;border-radius:var(--r);text-align:left}
+.wu-q b{font-size:14px;font-weight:800}
+.wu-q span{font-size:11.5px;line-height:1.5;font-weight:500;opacity:.85}
 /* A rendszerlemez láncán lévő csomag jelzése (2026-11-04): piros = nélküle nem indul, zöld = törölhető */
 .boot-note{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:8px;font-size:10.5px;font-weight:700;line-height:1.35;white-space:normal}
 .boot-note.crit{background:rgba(255,100,90,0.18);border:1px solid rgba(255,100,90,0.5);color:#ff9d93}
@@ -1058,17 +1077,16 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .stress-dl-label{font-size:12.5px;color:var(--text2);font-weight:600}
 .tool-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:12px}
 /* --- Rendszer karbantartás (2026-09-22): kategória-sor mérettel, összesítő sáv --- */
-.tc-refresh{margin-left:auto}
-.tc-group-t{font-size:11px;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.6px;margin:6px 0 8px}
-.tc-list{display:flex;flex-direction:column;gap:6px;margin-bottom:18px}
-.tc-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 14px;border-radius:10px;
+/* 2026-11-23: szakaszokban (`.bk-sec`), a sorok két hasábban */
+.tc-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:8px}
+.tc-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 14px;border-radius:10px;
   border:1px solid rgba(180,100,255,0.16);background:rgba(38,22,66,0.4);transition:border-color var(--t),background var(--t)}
 .tc-row:hover{border-color:var(--glass-border-hover);background:rgba(50,30,85,0.5)}
 .tc-row .toggle{flex:1;min-width:0}
 .tc-size{flex:0 0 auto;font-size:12.5px;font-weight:700;color:#ecd6ff;font-family:var(--mono);white-space:nowrap}
 .tc-size.big{color:#ffc978}
 .tc-size.dim{color:var(--muted);font-weight:500}
-.tc-foot{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--glass-border)}
+.tc-foot{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap}
 .tc-sum{display:flex;gap:28px;flex-wrap:wrap}
 .tc-sum>div{display:flex;flex-direction:column}
 .tc-sum-l{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
@@ -1082,13 +1100,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
    ===================================================================== */
 .empty-state{padding:26px 18px;text-align:center;color:var(--muted);font-size:13px;border:1px dashed var(--glass-border);border-radius:var(--r);background:rgba(0,0,0,0.14)}
 #view-display.cm-busy .cm-panel{opacity:.62;pointer-events:none;transition:opacity var(--t)}
-.cm-panel{padding:18px 20px}
-.cm-sec-head{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
-.cm-num{flex:0 0 30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;
-  background:rgba(180,100,255,0.18);border:1px solid rgba(180,100,255,0.5);color:#ecd6ff}
-.cm-sec-title{font-size:16px;font-weight:800;color:#fff;line-height:1.2}
-.cm-sec-sub{font-size:12px;color:var(--muted);margin-top:2px}
-.cm-sec-actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+/* A szakasz-fejléc 2026-11-23 óta a közös `.bk-sec-head` (a régi `.cm-sec-head`/`.cm-num` törölve). */
 /* figyelmeztető sávok - csak ha tényleg van mit mondani */
 .cm-alert{display:flex;gap:12px;align-items:flex-start;padding:12px 16px;border-radius:12px;margin-bottom:12px;font-size:12.5px;line-height:1.55}
 .cm-alert.bad{background:rgba(255,90,90,0.10);border:1px solid rgba(255,90,90,0.38);color:#ffd0d0}
@@ -1216,12 +1228,10 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .cm-lib .used{color:#8ff5c2;font-weight:600;font-size:12px}
 .cm-lib .orph{color:#ffc978;font-size:11.5px}
 /* gyári visszaállítás */
-.cm-reset{border-color:rgba(255,100,90,0.45);background:linear-gradient(135deg,rgba(255,90,90,0.08),var(--glass))}
-.cm-reset .cm-num{background:rgba(255,90,90,0.18);border-color:rgba(255,100,90,0.55);color:#ffd0cc}
 .cm-reset-grid{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
 .cm-reset-items{flex:1 1 420px;display:flex;flex-wrap:wrap;gap:6px}
 .cm-reset-items span{font-size:11.5px;padding:4px 10px;border-radius:999px;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.08);color:var(--text2)}
-.cm-links{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 8px}
+.cm-links{display:flex;gap:8px;flex-wrap:wrap}
 /* visszaállítás-modál */
 .cm-rs{border:1px solid var(--glass-border);border-radius:10px;padding:10px 13px;background:rgba(38,22,66,0.45)}
 .cm-rs-h{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#fff}
@@ -1612,7 +1622,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
          A "Temp Fájlok Törlése" pedig "Rendszer karbantartás" lett, mert a lemez-
          takarításon túl már nem csak temp fájlokról szól. -->
     <button class="nav-btn" onclick="switchView('drivers')" data-view="drivers"><span class="icon">💿</span>Driverek kezelése</button>
-    <button class="nav-btn" onclick="switchView('hw')" data-view="hw"><span class="icon">🖥️</span>Driver Keresés és Telepítés</button>
+    <button class="nav-btn" onclick="switchView('hw')" data-view="hw"><span class="icon">🔍</span>Driver Keresés és Telepítés</button>
     <!-- A SORREND (2026-09-27, explicit user decision): Driverek kezelése, Driver Keresés,
          Mentés és Visszaállítás, 1 katt fix, Operációs rendszer, Kijelző, Rendszer
          karbantartás, Bolti tábla, Stress teszt, Benchmark (MINDIG a legalja). -->
@@ -1628,7 +1638,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
          (valódi WebView2-ben MŰKÖDIK - mérve -, de nem a kért logó).
          A 17px a `.nav-btn .icon` betűméretével egyezik, így a sor magassága nem változik. -->
     <button class="nav-btn" onclick="switchView('os')" data-view="os"><span class="icon"><svg class="winlogo" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1"/><rect x="13" y="1" width="10" height="10" rx="1"/><rect x="1" y="13" width="10" height="10" rx="1"/><rect x="13" y="13" width="10" height="10" rx="1"/></svg></span>Operációs rendszer</button>
-    <button class="nav-btn" onclick="switchView('display')" data-view="display"><span class="icon">🎨</span>Kijelző &amp; Színkezelés</button>
+    <button class="nav-btn" onclick="switchView('display')" data-view="display"><span class="icon">🖥️</span>Kijelző &amp; Színkezelés</button>
     <button class="nav-btn" onclick="switchView('tempclean')" data-view="tempclean"><span class="icon">🧹</span>Rendszer karbantartás</button>
     <button class="nav-btn" onclick="switchView('shoplabel')" data-view="shoplabel"><span class="icon">🏷️</span>Bolti tábla nyomtatás</button>
     <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stress Teszt</button>
@@ -1680,7 +1690,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           <div class="welcome-features" style="flex-basis:100%">
             <div class="welcome-feature"><span class="fi">💿</span><span><b>Driverkezelés</b> — listázás, erőszakos törlés, mentés/visszaállítás, offline (WinPE) módban is</span></div>
             <div class="welcome-feature"><span class="fi">🚀</span><span><b>1 Kattintásos Driver Fix</b> — teljes driver-csere WU + Catalog forrásból, újraindítás-lánccal</span></div>
-            <div class="welcome-feature"><span class="fi">🖥️</span><span><b>Driver Keresés</b> — WU + Microsoft Update Catalog, telepített verziókkal összevetve</span></div>
+            <div class="welcome-feature"><span class="fi">🔍</span><span><b>Driver Keresés</b> — WU + Microsoft Update Catalog, telepített verziókkal összevetve</span></div>
             <div class="welcome-feature"><span class="fi">🔄</span><span><b>Windows Update felügyelet</b> — driver-frissítések letiltása, teljes WU-szünet akár 10 évre</span></div>
             <div class="welcome-feature"><span class="fi">👻</span><span><b>Szellemeszközök</b>, <b>Temp fájlok</b> és <b>DriverStore</b> takarítása egy kattintással</span></div>
             <div class="welcome-feature"><span class="fi">🔥</span><span><b>Stress Teszt & Szervíz Programok</b> — automata 4-in-1 teszt, portable vagy telepíthető eszközök</span></div>
@@ -2208,42 +2218,58 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           </div>
         </div>
 
-        <div class="panel glass">
-          <div class="panel-header-row">
-            <div class="panel-title"><span class="emoji">🔄</span> Windows Update — állapot és driver-frissítések</div>
-            <button class="btn btn-sm" onclick="checkWuStatus()">🔄 Állapot Frissítése</button>
+        <!-- SZAKASZOK (2026-11-23, explicit user decision: *„legyen hasonló stílusa az egésznek,
+             mint a mentés és visszaállítás tabon”*): a Mentés nézet `.bk-sec` mintája, 3 rész:
+             1 = Windows Update (kék), 2 = aktiválás (zöld), 3 = további eszközök (narancs).
+             Minden elem-azonosító a régi. -->
+        <div class="panel glass bk-sec">
+          <div class="bk-sec-head"><span class="bk-sec-n">1</span><div>
+            <div class="bk-sec-t">🔄 Windows Update</div>
+            <div class="bk-sec-d">A driver-frissítések tiltása vagy engedélyezése, a beragadt WU teljes resetje és a szüneteltetés. Frissítés-keresést egyik gomb sem indít.</div></div>
+            <div class="bk-sec-actions"><button class="btn btn-sm" onclick="checkWuStatus()">🔄 Állapot Frissítése</button></div>
           </div>
           <div class="wu-status unknown" id="wu-status">Állapot: Ismeretlen</div>
           <div class="wu-lines" id="wu-status-lines"></div>
-          <p style="margin-bottom: 16px; color: var(--text3);">Az állapot azt mutatja, amit a Windows Update ténylegesen használ (ugyanezt látod a Beállítások &gt; Windows Update oldalon is). <b style="color:var(--text2)">Minden gomb</b> rendbe is teszi a Windows Update-et: leállítja a szolgáltatásait, kiüríti a beragadt letöltéseket és a WU-gyorsítótárat, majd visszaindítja a szolgáltatásokat — <b style="color:var(--text2)">frissítés-keresést soha nem indít</b>. Ha a takarításhoz újraindítás kell (zárolt fájl, beragadt szolgáltatás), a program kiírja, és <b style="color:var(--text2)">10 mp múlva újraindítja a gépet</b>; bejelentkezés után magától befejezi és ellenőrzi.</p>
-          <div class="wu-actions">
-            <button class="btn btn-danger" onclick="disableWu()">⛔ WU Driver Letiltás</button>
-            <button class="btn btn-success" onclick="enableWu()">✅ WU Driver Engedélyezés + Teljes Reset</button>
-            <button class="btn btn-warning" onclick="restartWu()">⚡ WU Javítás (Szolgáltatások Újraindítása)</button>
-          </div>
-        </div>
-
-        <div class="panel glass" style="margin-top: 16px;">
-          <div class="panel-title"><span class="emoji">⏸️</span> Windows Update Frissítések Szüneteltetése</div>
-          <p style="margin-bottom: 16px; color: var(--text3);">A teljes Windows Update (a biztonsági frissítések is) szüneteltetése. Az 1 hetet többször is megnyomhatod a hetek halmozásához; a megadott napok és a 10 év mostantól számít. A driver-letiltás beállítása egyik gombtól sem változik.</p>
-          <div class="wu-actions">
-            <button class="btn btn-primary" onclick="pauseWu(7)">⏳ +1 Hét Szünet</button>
-            <span class="wu-days">
-              <input type="number" id="wu-pause-days" min="1" max="3650" step="1" value="30" aria-label="Szünet napokban">
-              <button class="btn btn-primary" onclick="pauseWuCustom()">⏸️ Szünet ennyi napra</button>
-            </span>
-            <button class="btn btn-danger" onclick="pauseWu(3650)">🛑 10 Év Szünet</button>
-            <button class="btn btn-success" onclick="resumeWu()">▶️ Szünetelés Feloldása</button>
+          <div class="os-stack">
+            <!-- A NÉGY GYORSGOMB (2026-11-23, explicit user decision: *„ezeket használom sokat”*):
+                 mind a négy TELJES resetet csinál (repair_wu full_reset=True). -->
+            <div class="bk-step">
+              <div class="bk-step-t"><span class="bk-num">A</span> Gyorsgombok — mind a négy teljes resetet is csinál</div>
+              <div class="wu-quick">
+                <button class="btn btn-danger wu-q" onclick="disableWu()"><b>⛔ Driver-letiltás + teljes reset</b><span>A WU nem írja felül a most felrakott drivereket.</span></button>
+                <button class="btn btn-success wu-q" onclick="enableWu()"><b>✅ Driver-engedélyezés + teljes reset</b><span>A driverek újra jöhetnek a WU-ról; a szünetet is feloldja.</span></button>
+                <button class="btn btn-warning wu-q" onclick="restartWu()"><b>⚡ Csak teljes reset</b><span>A driver- és a szünet-beállítás marad, csak javít.</span></button>
+                <button class="btn btn-primary wu-q" onclick="disablePauseWu()"><b>🛑 Driver-letiltás + teljes reset + 10 év szünet</b><span>Így megy vissza a gép a vevőhöz.</span></button>
+              </div>
+              <p class="bk-p">A <b>teljes reset</b> leállítja a WU szolgáltatásait, kiüríti a beragadt letöltéseket és a WU-gyorsítótárat, átnevezi a catroot2-t, újraregisztrálja a WU DLL-jeit és alaphelyzetbe állítja a winsockot, majd visszaindítja a szolgáltatásokat. A winsock miatt a gép utána <b>10 mp múlva újraindul</b> (a folyamatablakban megállítható); bejelentkezés után a program magától befejezi és ellenőrzi. A fenti állapot azt mutatja, amit a Windows Update ténylegesen használ (ugyanezt látod a Beállítások &gt; Windows Update oldalon is).</p>
+            </div>
+            <div class="bk-step">
+              <div class="bk-step-t"><span class="bk-num">B</span> Szüneteltetés tetszőleges időre</div>
+              <p class="bk-p">A teljes Windows Update (a biztonsági frissítések is) szüneteltetése. Az 1 hetet többször is megnyomhatod a hetek halmozásához; a megadott napok és a 10 év mostantól számít. A driver-beállítás egyik gombtól sem változik. Ezek a gombok is kiürítik a beragadt letöltéseket és újraindítják a szolgáltatásokat, de teljes reset nélkül: <b>a gép csak akkor indul újra</b>, ha egy zárolt fájl vagy beragadt szolgáltatás miatt kell.</p>
+              <div class="wu-actions">
+                <button class="btn btn-primary" onclick="pauseWu(7)">⏳ +1 Hét Szünet</button>
+                <span class="wu-days">
+                  <input type="number" id="wu-pause-days" min="1" max="3650" step="1" value="30" aria-label="Szünet napokban">
+                  <button class="btn btn-primary" onclick="pauseWuCustom()">⏸️ Szünet ennyi napra</button>
+                </span>
+                <button class="btn btn-danger" onclick="pauseWu(3650)">🛑 10 Év Szünet</button>
+                <button class="btn btn-success" onclick="resumeWu()">▶️ Szünetelés Feloldása</button>
+              </div>
+            </div>
           </div>
         </div>
 
         <!-- ===== AKTIVÁLÁS (a korábbi `view-winact` tartalma) ===================== -->
-        <div class="panel glass" style="margin-top:16px">
-          <div class="panel-header-row">
-            <div class="panel-title"><span class="emoji">💻</span> Windows aktiválás állapota</div>
-            <button class="btn btn-sm" onclick="loadWinActView()">🔄 Állapot Frissítése</button>
+        <div class="panel glass bk-sec sec-green">
+          <div class="bk-sec-head"><span class="bk-sec-n">2</span><div>
+            <div class="bk-sec-t">🔑 Windows és Office aktiválás</div>
+            <div class="bk-sec-d">A licenc-állapot, a BIOS-ból kiolvasott gyári kulcs, és az aktiválás egy gombbal — a végén visszaellenőrizve.</div></div>
+            <div class="bk-sec-actions"><button class="btn btn-sm" onclick="loadWinActView()">🔄 Állapot Frissítése</button></div>
           </div>
-          <p style="margin-bottom:14px;color:var(--text3)">Megmutatja, aktiválva van-e a gép, milyen licenccel (OEM / Retail / Volume), és kiolvassa a <b style="color:var(--text2)">gyári kulcsot a BIOS-ból</b> — újratelepítés után jellemzően ez a válasz arra, hogy miért nem aktivált magától. Az aktiválás három lépése (kulcs telepítése → KMS-kiszolgáló → aktiválás) egy gombbal lefut, a végén pedig a program <b style="color:var(--text2)">leellenőrzi a rendszer licenc-állapotát</b>, és csak akkor írja ki, hogy kész, ha tényleg aktív.</p>
+          <div class="bk-restore-grid os-act-grid">
+          <div class="bk-step">
+          <div class="bk-step-t"><span class="bk-num">A</span> 💻 Windows</div>
+          <p class="bk-p">Megmutatja, aktiválva van-e a gép, milyen licenccel (OEM / Retail / Volume), és kiolvassa a <b>gyári kulcsot a BIOS-ból</b> — újratelepítés után jellemzően ez a válasz arra, hogy miért nem aktivált magától. Az aktiválás három lépése (kulcs telepítése → KMS-kiszolgáló → aktiválás) egy gombbal lefut, a végén pedig a program <b>leellenőrzi a rendszer licenc-állapotát</b>, és csak akkor írja ki, hogy kész, ha tényleg aktív.</p>
           <div id="winact-windows">Állapot lekérdezése...</div>
           <!-- A "Mit fog csinálni a gomb" kártya TÖRÖLVE (2026-09-07, explicit user
                decision: "kurva felesleges az egész"). A `winact-plan` doboz csak AKADÁLY
@@ -2255,16 +2281,16 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                ÉLNEK: a `clear_kms_server`-t a CLI aktiválás-menüje továbbra is kínálja,
                az `open_activation_tool` 'phone' kulcsa pedig egy lookup-tábla sora -
                egyik sem holt kód, ne töröld. -->
-          <div class="winact-btnrow" style="margin-top:14px">
+          <div class="winact-btnrow">
             <button class="btn btn-big btn-primary" onclick="activateWindows()" id="btn-winact">🔓 Windows Aktiválása</button>
             <button class="btn btn-sm" onclick="api().open_activation_tool('settings')">⚙️ Windows aktiválás-beállítások</button>
           </div>
-        </div>
+          </div>
 
-        <div class="panel glass" style="margin-top:16px">
-          <div class="panel-title"><span class="emoji">📄</span> Office állapota</div>
+          <div class="bk-step">
+          <div class="bk-step-t"><span class="bk-num">B</span> 📄 Office</div>
           <div id="winact-office">Állapot lekérdezése...</div>
-          <div class="winact-btnrow" style="margin-top:16px">
+          <div class="winact-btnrow">
             <button class="btn btn-big btn-primary" onclick="activateOffice()" id="btn-officeact">📄 Office Aktiválása</button>
           </div>
           <!-- Letöltési folyamat-sáv. Ugyanaz a `stress_dl_progress` esemény hajtja, mint
@@ -2278,46 +2304,47 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                nincs beállítva a csomag linkje (ilyenkor a gomb le is van tiltva), vagy
                nincs beállítva az indítandó .bat neve. Beállított csomagnál csend. -->
           <div id="officeact-plan"></div>
-        </div>
-
-        <!-- ===== BITLOCKER (a korábbi `view-bitlocker` tartalma) =================
-             2026-09-18, explicit user decision: *"bele mehet ebbe a menüpontba is a
-             bitlocker kezelő is"*. Ez is a Windows saját szolgáltatása, nem driver. -->
-        <div class="panel glass" style="margin-top:16px">
-          <div class="panel-header-row">
-            <div class="panel-title"><span class="emoji">🔒</span> BitLocker (rendszermeghajtó titkosítás)</div>
-            <button class="btn btn-sm" onclick="checkBitlockerStatus()">🔄 Állapot Frissítése</button>
           </div>
-          <p style="margin-bottom:14px;color:var(--text3)">A rendszermeghajtó BitLocker-titkosításának állapota és végleges kikapcsolása (dekódolás). A dekódolás a meghajtó méretétől és sebességétől függően akár <b style="color:var(--text2)">órákig</b> is eltarthat a háttérben — a gép közben használható, csak lassabb lehet.</p>
-          <div class="wu-status unknown" id="bl-status">Állapot lekérdezése...</div>
-          <div class="winact-btnrow" style="margin-top:14px">
-            <button class="btn btn-big btn-danger" onclick="disableBitlocker()" id="btn-bitlocker">🔓 BitLocker Kikapcsolása</button>
           </div>
         </div>
 
-        <!-- ===== TELJESÍTMÉNY MÓD (2026-10-01, explicit user decision) ================
-             *"amit az 1 katt fix végén applyol a program azt a energia profilt ... azt
-             akarom h ezt egy külön gombbal is tudja a program"*. A gomb UGYANAZT a Python-
-             függvényt hívja, amit a fix a lánc végén (`_apply_performance_power_plan`,
-             app/gui/powerplan.py) - két külön beállítás előbb-utóbb eltérne egymástól. -->
-        <div class="panel glass" style="margin-top:16px">
-          <div class="panel-header-row">
-            <div class="panel-title"><span class="emoji">⚡</span> Teljesítmény mód (energiaséma)</div>
-            <button class="btn btn-sm" onclick="checkPowerPlanStatus()">🔄 Állapot Frissítése</button>
-          </div>
-          <p style="margin-bottom:14px;color:var(--text3)">Ugyanazt állítja be, mint az <b style="color:var(--text2)">1 kattintásos fix a végén</b>: a <b style="color:var(--text2)">Teljesítménycentrikus</b> energiasémát a ReviOS értékeivel (a processzor minimuma 100%, nincs magparkolás és mély energiatakarékos állapot, a PCIe/USB energiagazdálkodás ki, a lemez nem áll le) — hálózaton és akkumulátoron is. Az alvás és a kijelző kikapcsolásának idejéhez nem nyúl. Laptopon ezzel rövidebb lesz az akkus üzemidő és többet szólhat a ventilátor. Visszaállítás: Gépház › Rendszer › Energiaellátás.</p>
-          <div class="wu-status unknown" id="pp-status">Állapot lekérdezése...</div>
-          <div class="winact-btnrow" style="margin-top:14px">
-            <button class="btn btn-big btn-primary" onclick="applyPerformanceMode()" id="btn-perfmode">⚡ Teljesítmény Mód Beállítása</button>
-          </div>
-        </div>
-
-        <!-- ===== NET BLOKKOLO SCRIPT (a korabbi `view-blockscript`) ================ -->
-        <div class="panel glass" style="margin-top:16px">
-          <div class="panel-title"><span class="emoji">🚫</span> Net Blokkoló Script (block.bat)</div>
-          <p style="margin-bottom:12px;color:var(--text3)">Letölti a <code>block.bat</code> scriptet a <code>C:\DriverVarazslo</code> mappába. A script — ha később futtatod — a saját mappájában (és az összes almappájában) található minden <code>.exe</code> kimenő internet-elérését letiltja a Windows tűzfalban. A gomb <b>csak letölti</b> a fájlt, nem futtatja: másold abba a mappába, amit blokkolni akarsz, és dupla kattintással indítsd — az admin jogot magától kéri (UAC).</p>
-          <div class="toolbar">
-            <button class="btn btn-big btn-primary" onclick="downloadBlockScript()" id="btn-blockscript">⬇️ block.bat Letöltése</button>
+        <!-- ===== 3. TOVÁBBI ESZKÖZÖK: BitLocker (a korábbi `view-bitlocker`, 2026-09-18,
+             explicit user decision: *"bele mehet ebbe a menüpontba is a bitlocker kezelő is"*),
+             Teljesítmény mód (2026-10-01, explicit user decision: *"amit az 1 katt fix végén
+             applyol a program azt a energia profilt ... azt akarom h ezt egy külön gombbal is
+             tudja a program"*; a gomb UGYANAZT a Python-függvényt hívja, amit a fix a lánc végén:
+             `_apply_performance_power_plan`, app/gui/powerplan.py), Net Blokkoló (a korábbi
+             `view-blockscript`). -->
+        <div class="panel glass bk-sec sec-orange">
+          <div class="bk-sec-head"><span class="bk-sec-n">3</span><div>
+            <div class="bk-sec-t">🧰 További rendszer-eszközök</div>
+            <div class="bk-sec-d">A BitLocker kikapcsolása, a teljesítmény-mód energiaséma és a Net Blokkoló script.</div></div></div>
+          <div class="cards bk-cards">
+            <div class="card glass">
+              <div class="card-title">🔒 BitLocker (rendszermeghajtó titkosítás)</div>
+              <div class="card-desc">A rendszermeghajtó BitLocker-titkosításának állapota és végleges kikapcsolása (dekódolás). A dekódolás a meghajtó méretétől és sebességétől függően akár <b>órákig</b> is eltarthat a háttérben — a gép közben használható, csak lassabb lehet.</div>
+              <div class="wu-status unknown" id="bl-status">Állapot lekérdezése...</div>
+              <div class="winact-btnrow">
+                <button class="btn btn-danger" onclick="disableBitlocker()" id="btn-bitlocker">🔓 BitLocker Kikapcsolása</button>
+                <button class="btn btn-sm" onclick="checkBitlockerStatus()">🔄 Állapot</button>
+              </div>
+            </div>
+            <div class="card glass">
+              <div class="card-title">⚡ Teljesítmény mód (energiaséma)</div>
+              <div class="card-desc">Ugyanazt állítja be, mint az <b>1 kattintásos fix a végén</b>: a <b>Teljesítménycentrikus</b> energiasémát a ReviOS értékeivel (a processzor minimuma 100%, nincs magparkolás és mély energiatakarékos állapot, a PCIe/USB energiagazdálkodás ki, a lemez nem áll le) — hálózaton és akkumulátoron is. Az alvás és a kijelző kikapcsolásának idejéhez nem nyúl. Laptopon ezzel rövidebb lesz az akkus üzemidő és többet szólhat a ventilátor. Visszaállítás: Gépház › Rendszer › Energiaellátás.</div>
+              <div class="wu-status unknown" id="pp-status">Állapot lekérdezése...</div>
+              <div class="winact-btnrow">
+                <button class="btn btn-primary" onclick="applyPerformanceMode()" id="btn-perfmode">⚡ Teljesítmény Mód Beállítása</button>
+                <button class="btn btn-sm" onclick="checkPowerPlanStatus()">🔄 Állapot</button>
+              </div>
+            </div>
+            <div class="card glass">
+              <div class="card-title">🚫 Net Blokkoló Script (block.bat)</div>
+              <div class="card-desc">Letölti a <code>block.bat</code> scriptet a <code>C:\DriverVarazslo</code> mappába. A script — ha később futtatod — a saját mappájában (és az összes almappájában) található minden <code>.exe</code> kimenő internet-elérését letiltja a Windows tűzfalban. A gomb <b>csak letölti</b> a fájlt, nem futtatja: másold abba a mappába, amit blokkolni akarsz, és dupla kattintással indítsd — az admin jogot magától kéri (UAC).</div>
+              <div class="winact-btnrow">
+                <button class="btn btn-primary" onclick="downloadBlockScript()" id="btn-blockscript">⬇️ block.bat Letöltése</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -2329,9 +2356,9 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
              (cím/leírás/chipek balra, akció jobbra) - eddig ez volt az egyetlen view,
              ami kilógott belőle. A leírásból kikerült a "kiírja, mi maradt a Windows
              beépített driverén" mondat: az a doboz törölve (lásd a #hw-result panelt). -->
-        <div class="view-hero vh-blue" data-emoji="🖥️">
+        <div class="view-hero vh-blue" data-emoji="🔍">
           <div class="vh-text">
-            <div class="vh-title">🖥️ Driver Keresés és Telepítés</div>
+            <div class="vh-title">🔍 Driver Keresés és Telepítés</div>
             <div class="vh-sub">Végigszkenneli a gép összes hardverét, és a Windows Update-ről + a Microsoft Update Catalogból megkeresi hozzájuk a legfrissebb drivereket — a telepített verziókkal összevetve, hogy csak a tényleges frissítés látszódjon. A végén egyetlen listát kapsz: mi frissíthető, mi hibás, és mi van most feltelepítve.</div>
             <div class="vh-chips">
               <span class="hero-chip">🌐 WU + Catalog keresés</span>
@@ -2460,7 +2487,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
         <!-- Szken előtti / hibaüzenet-sáv. Külön az eredmény-paneltől, hogy egy
              "Nincs internet" ne egy üres, fülekkel teli panelben landoljon. -->
         <div class="panel glass hw-empty" id="hw-empty">
-          <div class="hw-empty-icon">🖥️</div>
+          <div class="hw-empty-icon">🔍</div>
           <div class="hw-empty-text" id="hw-status">Nyomd meg a <b>Hardverek Szkennelése</b> gombot — a program végigméri a gép összes eszközét, és megmutatja, mihez van újabb driver.</div>
         </div>
       </div>
@@ -2495,11 +2522,14 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
              alul a kiválasztott összeg és a meghajtó szabad helye. A színprofil-kategória
              kikerült (a Kijelző nézet gyári visszaállítása csinálja tisztábban); új: a
              böngésző-gyorsítótárak és a komponenstár-takarítás. Az azonosítók (tc-*) a régiek. -->
-        <div class="panel glass">
-          <div class="panel-title"><span class="emoji">☑️</span> Válaszd ki, mit takarítson ki
-            <span class="tc-refresh"><button class="btn btn-sm" onclick="scanTempSizes()" id="btn-tc-scan">🔄 Méretek frissítése</button></span></div>
-
-          <div class="tc-group-t">Alap takarítás — biztonságos, alapból bekapcsolva</div>
+        <!-- 2026-11-23: a Mentés nézet `.bk-sec` szakasz-stílusa (explicit user decision);
+             1 = alap (alapból BE, a Lomtár is), 2 = extra (opcionális), 3 = összesítés + indítás. -->
+        <div class="panel glass bk-sec sec-green">
+          <div class="bk-sec-head"><span class="bk-sec-n">1</span><div>
+            <div class="bk-sec-t">🧹 Alap takarítás</div>
+            <div class="bk-sec-d">Alapból bepipálva. A TEMP mappák és a WU-gyorsítótár biztonságosan törölhető; <b>a Lomtár ürítése végleges</b> — ha kell belőle valami, vedd ki a pipát.</div></div>
+            <div class="bk-sec-actions"><button class="btn btn-sm" onclick="scanTempSizes()" id="btn-tc-scan">🔄 Méretek frissítése</button></div>
+          </div>
           <div class="tc-list">
             <div class="tc-row" title="A jelenlegi felhasználó ideiglenes fájljai (%TEMP% mappa) - böngésző/telepítő/egyéb programok által hátrahagyott törmelék. A zárolt (épp használt) fájlok kimaradnak.">
               <label class="toggle"><input type="checkbox" id="tc-user-temp" checked onchange="tcUpdateTotal()"><span class="toggle-track"></span>👤 Felhasználói TEMP mappa (%TEMP%)</label>
@@ -2510,9 +2540,16 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             <div class="tc-row" title="A Windows Update letöltött (de már telepített/felesleges) frissítés-csomagjai. Biztonságos: a Windows Update magától újraépíti, ha kell.">
               <label class="toggle"><input type="checkbox" id="tc-wu-cache" checked onchange="tcUpdateTotal()"><span class="toggle-track"></span>🔄 Windows Update letöltési gyorsítótár</label>
               <span class="tc-size" id="tcs-wu_cache">…</span></div>
+            <div class="tc-row" title="FIGYELEM: ez véglegesen kiüríti a Lomtárat - a benne lévő fájlok utólag NEM állíthatók vissza!">
+              <label class="toggle"><input type="checkbox" id="tc-recycle-bin" checked onchange="tcUpdateTotal()"><span class="toggle-track"></span>🗑️ Lomtár ürítése</label>
+              <span class="tc-size" id="tcs-recycle_bin">…</span></div>
           </div>
+        </div>
 
-          <div class="tc-group-t">Extra — alapból kikapcsolva, csak ha tudod, hogy kell</div>
+        <div class="panel glass bk-sec sec-orange">
+          <div class="bk-sec-head"><span class="bk-sec-n">2</span><div>
+            <div class="bk-sec-t">➕ Extra takarítás — opcionális</div>
+            <div class="bk-sec-d">Alapból kikapcsolva, csak ha tudod, hogy kell. A sorok fölé víve az egeret kiírja, mi törlődik pontosan.</div></div></div>
           <div class="tc-list">
             <div class="tc-row" title="A Chrome, Edge, Brave és Firefox GYORSÍTÓTÁRA minden profilban (Cache, Code Cache, GPUCache, cache2). Sütik, előzmények, jelszavak, könyvjelzők NEM törlődnek. Ha a böngésző épp fut, a zárolt fájlok kimaradnak - érdemes előtte bezárni.">
               <label class="toggle"><input type="checkbox" id="tc-browser-cache" onchange="tcUpdateTotal()"><span class="toggle-track"></span>🌐 Böngésző-gyorsítótárak (Chrome, Edge, Brave, Firefox)</label>
@@ -2520,9 +2557,6 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             <div class="tc-row" title="Fájl-/mappaikonok és előnézeti képek gyorsítótára - a Windows Intéző újra legenerálja. Az épp használt fájlokat az Intéző zárolja, azok kijelentkezés után törölhetők.">
               <label class="toggle"><input type="checkbox" id="tc-thumbnail-cache" onchange="tcUpdateTotal()"><span class="toggle-track"></span>🖼️ Miniatűr (thumbnail) gyorsítótár</label>
               <span class="tc-size" id="tcs-thumbnail_cache">…</span></div>
-            <div class="tc-row" title="FIGYELEM: ez véglegesen kiüríti a Lomtárat - a benne lévő fájlok utólag NEM állíthatók vissza!">
-              <label class="toggle"><input type="checkbox" id="tc-recycle-bin" onchange="tcUpdateTotal()"><span class="toggle-track"></span>🗑️ Lomtár ürítése</label>
-              <span class="tc-size" id="tcs-recycle_bin">…</span></div>
             <div class="tc-row" title="A régi, már lecserélt Windows-frissítések maradéka a komponenstárban (DISM /StartComponentCleanup). 5-20 percig is tarthat. A mérete csak futtatáskor derül ki. A már telepített frissítések eltávolíthatósága megmarad (nem /ResetBase).">
               <label class="toggle"><input type="checkbox" id="tc-component-cleanup" onchange="tcUpdateTotal()"><span class="toggle-track"></span>🧩 Régi Windows-frissítések maradéka (komponenstár)</label>
               <span class="tc-size" id="tcs-component_cleanup">…</span></div>
@@ -2545,7 +2579,12 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
               <label class="toggle"><input type="checkbox" id="tc-inet-cache" onchange="tcUpdateTotal()"><span class="toggle-track"></span>🌍 Internet Explorer / régi Edge gyorsítótár</label>
               <span class="tc-size" id="tcs-inet_cache">…</span></div>
           </div>
+        </div>
 
+        <div class="panel glass bk-sec sec-purple">
+          <div class="bk-sec-head"><span class="bk-sec-n">3</span><div>
+            <div class="bk-sec-t">🚀 Takarítás indítása</div>
+            <div class="bk-sec-d">A zárolt (épp használt) fájlokat kihagyja — egyetlen beragadt fájl miatt sem áll le a törlés.</div></div></div>
           <div class="tc-foot">
             <div class="tc-sum">
               <div><span class="tc-sum-l">Kiválasztva</span><span class="tc-sum-v" id="tc-total">…</span></div>
@@ -2831,9 +2870,9 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
            visszaállítás modálja a modal-confirm mellett van (a .view transformja miatt
            egy position:fixed elem a nézeten BELÜL a nézethez igazodna, nem az ablakhoz). -->
       <div class="view" id="view-display">
-        <div class="view-hero vh-blue" data-emoji="🎨">
+        <div class="view-hero vh-blue" data-emoji="🖥️">
           <div class="vh-text">
-            <div class="vh-title">🎨 Kijelző &amp; Színkezelés</div>
+            <div class="vh-title">🖥️ Kijelző &amp; Színkezelés</div>
             <div class="vh-sub">HDR, automatikus színkezelés, ICC-színprofilok és a teljes gyári visszaállítás — egy helyen, valós időben. Minden kapcsolás után a program visszaolvassa, mit mond a Windows, tehát amit itt látsz, az a gép tényleges állapota.</div>
             <div class="vh-chips">
               <span class="hero-chip">🌗 HDR ki/be</span>
@@ -2850,31 +2889,38 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 
         <div id="cm-alerts"></div>
 
-        <div class="panel glass cm-panel">
-          <div class="cm-sec-head">
-            <span class="cm-num">1</span>
-            <div><div class="cm-sec-title">Kijelző</div>
-              <div class="cm-sec-sub">Minden, ami ebben a dobozban van, a kiválasztott monitorra vonatkozik.</div></div>
-          </div>
+        <!-- 2026-11-23 óta a Mentés nézet `.bk-sec` szakasz-stílusa (explicit user decision):
+             1 kék, 2 lila, 3 zöld, 4 piros. A Windows saját ablakainak linkjei a 2. rész alján. -->
+        <div class="panel glass cm-panel bk-sec">
+          <div class="bk-sec-head"><span class="bk-sec-n">1</span><div>
+            <div class="bk-sec-t">🖥️ Kijelző</div>
+            <div class="bk-sec-d">Minden, ami ebben a dobozban van, a kiválasztott monitorra vonatkozik.</div></div></div>
           <div id="cm-mon-tabs" class="cm-mon-tabs"></div>
           <div id="cm-monitor"><div class="empty-state">Kijelzők beolvasása...</div></div>
         </div>
 
-        <div class="panel glass cm-panel">
-          <div class="cm-sec-head">
-            <span class="cm-num">2</span>
-            <div><div class="cm-sec-title">Rendszerszintű beállítások</div>
-              <div class="cm-sec-sub">Ezek a gép összes kijelzőjére hatnak, és újraindítás után is megmaradnak.</div></div>
-          </div>
+        <div class="panel glass cm-panel bk-sec sec-purple">
+          <div class="bk-sec-head"><span class="bk-sec-n">2</span><div>
+            <div class="bk-sec-t">⚙️ Rendszerszintű beállítások</div>
+            <div class="bk-sec-d">Ezek a gép összes kijelzőjére hatnak, és újraindítás után is megmaradnak.</div></div></div>
           <div id="cm-system"></div>
+          <div class="bk-foot">
+            <span class="bk-foot-hint">A Windows saját kijelző- és színkezelő ablakai:</span>
+            <div class="cm-links">
+              <button class="btn btn-sm" onclick="api().open_windows_color_tool('hdr_settings')">⚙️ Windows HDR-beállítások</button>
+              <button class="btn btn-sm" onclick="api().open_windows_color_tool('display_settings')">🖥️ Kijelző-beállítások</button>
+              <button class="btn btn-sm" onclick="api().open_windows_color_tool('colorcpl')">🎛️ Színkezelés (vezérlőpult)</button>
+              <button class="btn btn-sm" onclick="api().open_windows_color_tool('dccw')">🧙 Kijelzőkalibráló varázsló</button>
+              <button class="btn btn-sm" onclick="api().open_windows_color_tool('hdr_calibration')">📐 Windows HDR Calibration</button>
+            </div>
+          </div>
         </div>
 
-        <div class="panel glass cm-panel">
-          <div class="cm-sec-head">
-            <span class="cm-num">3</span>
-            <div><div class="cm-sec-title">Színprofilok a gépen</div>
-              <div class="cm-sec-sub" id="cm-libdir">A Windows színprofil-mappájának teljes tartalma.</div></div>
-            <div class="cm-sec-actions">
+        <div class="panel glass cm-panel bk-sec sec-green">
+          <div class="bk-sec-head"><span class="bk-sec-n">3</span><div>
+            <div class="bk-sec-t">🎨 Színprofilok a gépen</div>
+            <div class="bk-sec-d" id="cm-libdir">A Windows színprofil-mappájának teljes tartalma.</div></div>
+            <div class="bk-sec-actions">
               <button class="btn btn-sm btn-primary" onclick="cmInstall()">📥 Profil telepítése fájlból</button>
               <button class="btn btn-sm" onclick="api().open_color_profile_folder()">📁 Mappa megnyitása</button>
             </div>
@@ -2882,12 +2928,10 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           <div id="cm-library"><div class="empty-state">Még nincs beolvasva.</div></div>
         </div>
 
-        <div class="panel glass cm-panel cm-reset">
-          <div class="cm-sec-head">
-            <span class="cm-num">4</span>
-            <div><div class="cm-sec-title">Gyári visszaállítás</div>
-              <div class="cm-sec-sub">Minden, ami színnel kapcsolatos, olyan lesz, mint egy frissen telepített Windowson. Futtatás előtt pontos listát kapsz arról, mi változik.</div></div>
-          </div>
+        <div class="panel glass cm-panel bk-sec sec-red">
+          <div class="bk-sec-head"><span class="bk-sec-n">4</span><div>
+            <div class="bk-sec-t">♻️ Gyári visszaállítás</div>
+            <div class="bk-sec-d">Minden, ami színnel kapcsolatos, olyan lesz, mint egy frissen telepített Windowson. Futtatás előtt pontos listát kapsz arról, mi változik.</div></div></div>
           <div class="cm-reset-grid">
             <div class="cm-reset-items">
               <span>🎯 minden profil-társítás</span><span>🗑 minden hozzáadott színprofil</span>
@@ -2897,14 +2941,6 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             </div>
             <button class="btn btn-danger" style="padding:12px 20px;font-weight:700" onclick="openColorReset()">♻️ Minden színbeállítás visszaállítása gyárira…</button>
           </div>
-        </div>
-
-        <div class="cm-links">
-          <button class="btn btn-sm" onclick="api().open_windows_color_tool('hdr_settings')">⚙️ Windows HDR-beállítások</button>
-          <button class="btn btn-sm" onclick="api().open_windows_color_tool('display_settings')">🖥️ Kijelző-beállítások</button>
-          <button class="btn btn-sm" onclick="api().open_windows_color_tool('colorcpl')">🎛️ Színkezelés (vezérlőpult)</button>
-          <button class="btn btn-sm" onclick="api().open_windows_color_tool('dccw')">🧙 Kijelzőkalibráló varázsló</button>
-          <button class="btn btn-sm" onclick="api().open_windows_color_tool('hdr_calibration')">📐 Windows HDR Calibration</button>
         </div>
       </div>
 
@@ -6937,7 +6973,14 @@ async function restartWu() {
   try {
     await api().restart_wu();
   } catch (e) {
-    toast('WU újraindítás hiba: ' + e, 'error');
+    toast('WU reset hiba: ' + e, 'error');
+  }
+}
+async function disablePauseWu() {
+  try {
+    await api().disable_pause_wu();
+  } catch (e) {
+    toast('WU letiltás + 10 év szünet hiba: ' + e, 'error');
   }
 }
 
@@ -8707,7 +8750,7 @@ function onTaskComplete(data) {
   if (data.task === 'delete' || data.task === 'restore') setTimeout(loadDrivers, 500);
   // A Mentés nézet méretei és automatikus mentés-listája is elavul (új mentés, törlés előtti mentés).
   if (['backup', 'restore', 'wim', 'delete'].includes(data.task) && currentView === 'backup') setTimeout(loadBackupView, 300);
-  if (['disable_wu', 'enable_wu', 'restart_wu', 'pause_wu', 'resume_wu', 'wu_finish'].includes(data.task)) setTimeout(checkWuStatus, 500);
+  if (['disable_wu', 'enable_wu', 'restart_wu', 'disable_pause_wu', 'pause_wu', 'resume_wu', 'wu_finish'].includes(data.task)) setTimeout(checkWuStatus, 500);
   if (data.task === 'toolsinstall') {
     refreshServiceTools();
     // A telepítés-pipák törlése: enélkül egy ottfelejtett pipa a KÖVETKEZŐ telepítéskor

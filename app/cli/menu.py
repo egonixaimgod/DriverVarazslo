@@ -1002,25 +1002,31 @@ def _menu_wu(api):
         except Exception as e:
             logging.warning(f"[CLI] WU állapot nem olvasható: {e}", exc_info=True)
         ui.info('Minden pont takarít is (beragadt letöltések, gyorsítótár, szolgáltatások), keresést nem indít; '
-                'ha kell, 10 mp múlva újraindít, és bejelentkezés után befejezi.')
+                'ha kell, 10 mp múlva újraindít, és bejelentkezés után befejezi. Az 1–4. pont TELJES reset '
+                '(catroot2, WU DLL-ek, winsock) - utána a gép mindig újraindul.')
         c = ui.menu([
-            ('1', 'Driver-frissítések LETILTÁSA', 'A WU ne írja felül a most felrakott drivereket'),
-            ('2', 'Driver-frissítések engedélyezése + teljes reset', 'Szünet feloldása, driverek engedve, catroot2, winsock'),
-            ('3', '+1 hét szünet', 'Egy még érvényes szünethez adódik'),
-            ('4', 'Szünet N napra', 'Mostantól számítva, 1–3650 nap'),
-            ('5', '10 év szünet', 'A gép így megy vissza a vevőhöz'),
-            ('6', 'Szüneteltetés feloldása', 'A driver-letiltás változatlan marad'),
-            ('7', 'WU javítás (szolgáltatások újraindítása)', 'A szünet és a driver-beállítás megmarad'),
+            ('1', 'Driver-letiltás + teljes reset', 'A WU ne írja felül a most felrakott drivereket'),
+            ('2', 'Driver-engedélyezés + teljes reset', 'Szünet feloldása, driverek engedve'),
+            ('3', 'Teljes reset (a driverekhez nem nyúl)', 'A szünet és a driver-beállítás megmarad'),
+            ('4', 'Driver-letiltás + teljes reset + 10 év szünet', 'A gép így megy vissza a vevőhöz'),
+            ('5', '+1 hét szünet', 'Egy még érvényes szünethez adódik'),
+            ('6', 'Szünet N napra', 'Mostantól számítva, 1–3650 nap'),
+            ('7', '10 év szünet', 'Csak a szünet, a driver-beállítás változatlan'),
+            ('8', 'Szüneteltetés feloldása', 'A driver-letiltás változatlan marad'),
         ], back_label='Vissza a főmenübe')
         if c == '0' or not c:
             return
         if c == '1':
-            _run_screen(api, 'WU driver-tiltás', lambda: api.disable_wu())
+            _run_screen(api, 'WU driver-letiltás + teljes reset', lambda: api.disable_wu())
         elif c == '2':
-            _run_screen(api, 'WU driver-engedélyezés + reset', lambda: api.enable_wu())
+            _run_screen(api, 'WU driver-engedélyezés + teljes reset', lambda: api.enable_wu())
         elif c == '3':
-            _run_screen(api, 'WU szüneteltetés (+1 hét)', lambda: api.pause_wu(7, True))
+            _run_screen(api, 'WU teljes reset', lambda: api.restart_wu())
         elif c == '4':
+            _run_screen(api, 'WU driver-letiltás + teljes reset + 10 év szünet', lambda: api.disable_pause_wu())
+        elif c == '5':
+            _run_screen(api, 'WU szüneteltetés (+1 hét)', lambda: api.pause_wu(7, True))
+        elif c == '6':
             raw = ui.ask('Hány napra szüneteltessem? (1–3650)', '30')
             try:
                 days = int(raw)
@@ -1031,12 +1037,10 @@ def _menu_wu(api):
                 ui.pause()
                 continue
             _run_screen(api, f'WU szüneteltetés ({days} nap)', lambda: api.pause_wu(days, False))
-        elif c == '5':
-            _run_screen(api, 'WU szüneteltetés (10 év)', lambda: api.pause_wu(AUTOFIX_WU_PAUSE_DAYS, False))
-        elif c == '6':
-            _run_screen(api, 'WU folytatás', lambda: api.resume_wu())
         elif c == '7':
-            _run_screen(api, 'WU javítás', lambda: api.restart_wu())
+            _run_screen(api, 'WU szüneteltetés (10 év)', lambda: api.pause_wu(AUTOFIX_WU_PAUSE_DAYS, False))
+        elif c == '8':
+            _run_screen(api, 'WU folytatás', lambda: api.resume_wu())
 
 
 def _menu_winact(api):

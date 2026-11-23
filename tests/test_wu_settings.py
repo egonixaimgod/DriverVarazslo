@@ -363,6 +363,65 @@ class EgyFuggvenyTest(unittest.TestCase):
         self.assertEqual(end, written['PauseQualityUpdatesEndTime'])
 
 
+class QuickButtonsTest(unittest.TestCase):
+    """2026-11-23 (explicit user decision): a négy WU-gyorsgomb MIND teljes resetet csinál
+    (catroot2, DLL-ek, winsock), és csak a kért beállításhoz nyúl."""
+
+    def _press(self, method, policy_ok=True, pause_end='2036-11-21T10:00:00Z'):
+        quiet()
+        calls = []
+        rec = lambda name, ret: (lambda *a, **k: (calls.append((name, a[1:] if name == 'policy' else a, k)), ret)[1])
+        w = _Wu()
+        with mock.patch.object(wc, 'set_wu_driver_policy', rec('policy', policy_ok)), \
+                mock.patch.object(wc, 'pause_for_days', rec('pause', pause_end)), \
+                mock.patch.object(wc, 'remove_pause', rec('unpause', True)), \
+                mock.patch.object(wc, 'desired_state', return_value={}), \
+                mock.patch.object(wc, 'repair_wu', lambda run, log, full_reset=False: (calls.append(('repair', (), {'full_reset': full_reset})), OK_REP)[1]), \
+                mock.patch.object(guiwu.GuiWuMixin, '_wu_conclude', lambda *a, **k: None):
+            getattr(w, method)()
+        return calls, w
+
+    def test_mind_a_negy_teljes_reset(self):
+        for m in ('disable_wu', 'enable_wu', 'restart_wu', 'disable_pause_wu'):
+            calls, _w = self._press(m)
+            self.assertEqual([c for c in calls if c[0] == 'repair'], [('repair', (), {'full_reset': True})], m)
+
+    def test_csak_a_kert_beallitashoz_nyul(self):
+        names = lambda calls: [(c[0], c[2].get('disabled')) if c[0] == 'policy' else
+                               (c[0], c[1]) if c[0] == 'pause' else (c[0],) for c in calls if c[0] != 'repair']
+        self.assertEqual(names(self._press('disable_wu')[0]), [('policy', True)])
+        self.assertEqual(names(self._press('enable_wu')[0]), [('unpause',), ('policy', False)])
+        self.assertEqual(names(self._press('restart_wu')[0]), [])
+        self.assertEqual(names(self._press('disable_pause_wu')[0]),
+                         [('policy', True), ('pause', (wc.WU_PAUSE_MAX_DAYS, False))])
+
+    def test_bukott_driver_tiltas_utan_nincs_szunet_es_reset(self):
+        calls, w = self._press('disable_pause_wu', policy_ok=False)
+        self.assertEqual([c[0] for c in calls], ['policy'])
+        self.assertTrue(w.statuses()[-1].startswith('❌'))
+
+    def test_bukott_szunet_nem_hamis_siker(self):
+        calls, w = self._press('disable_pause_wu', pause_end=None)
+        self.assertNotIn('repair', [c[0] for c in calls])
+        self.assertTrue(w.statuses()[-1].startswith('❌'))
+
+
+class TempCleanDefaultsTest(unittest.TestCase):
+    """2026-11-23 (explicit user decision): alapból a két TEMP, a WU-gyorsítótár és a Lomtár
+    van bepipálva, minden más opcionális - a GUI és a CLI (közös definíció) ugyanígy."""
+
+    def test_alapbol_bepipalt_kategoriak(self):
+        import re
+        from app import tempclean_core as tc
+        defs = [(k, d) for k, _l, _p, _s, d in tc._temp_clean_category_defs('C:')] + \
+               [(k, d) for k, _l, d in tc.SPECIAL_CATEGORIES]
+        on = {k for k, d in defs if d}
+        self.assertEqual(on, {'user_temp', 'windows_temp', 'wu_cache', 'recycle_bin'})
+        html = open(os.path.join(os.path.dirname(__file__), '..', 'ui.html'), encoding='utf-8').read()
+        checked = set(re.findall(r'<input type="checkbox" id="tc-([a-z-]+)" checked', html))
+        self.assertEqual({c.replace('-', '_') for c in checked}, on)
+
+
 class TempCleanLongPathTest(unittest.TestCase):
     """A Rendszer karbantartás WU-gyorsítótár törlője ugyanabba a 260 karakteres falba futott
     volna (ASUS, LongPathsEnabled nélkül: WinError 3). Most `\\\\?\\` előtaggal töröl/mér."""

@@ -252,17 +252,37 @@ class GuiWuMixin:
 
     # ================================================================
     # GOMBOK
+    # A négy gyorsgomb (2026-11-23, explicit user decision: *„ezeket használom sokat”*) mind
+    # TELJES resetet csinál (full_reset: catroot2, DLL-ek, winsock -> újraindítás):
+    # disable_wu, enable_wu, restart_wu (a driverekhez nem nyúl), disable_pause_wu (+10 év).
     # ================================================================
+    def _wu_disable_drivers(self):
+        ok = wusettings_core.set_wu_driver_policy(self._run, disabled=True)
+        return ok, ('✅ Driver-frissítés letiltása beírva (ExcludeWUDriversInQualityUpdate=1, SearchOrderConfig=0).'
+                    if ok else 'A driver-letiltás NEM íródott be (visszaolvasva eltér) - fut a program rendszergazdaként?')
+
     def disable_wu(self):
         logging.info("[API] disable_wu()")
         if self._wu_offline_refused():
             return
+        self._wu_action('disable_wu', 'WU driver-letiltás + teljes reset',
+                        lambda log: self._wu_disable_drivers(), full_reset=True)
+
+    def disable_pause_wu(self):
+        logging.info("[API] disable_pause_wu()")
+        if self._wu_offline_refused():
+            return
+        days = wusettings_core.WU_PAUSE_MAX_DAYS
 
         def apply(log):
-            ok = wusettings_core.set_wu_driver_policy(self._run, disabled=True)
-            return ok, ('✅ Driver-frissítés letiltása beírva (ExcludeWUDriversInQualityUpdate=1, SearchOrderConfig=0).'
-                        if ok else 'A driver-letiltás NEM íródott be (visszaolvasva eltér) - fut a program rendszergazdaként?')
-        self._wu_action('disable_wu', 'WU driver-frissítés letiltása', apply)
+            ok, text = self._wu_disable_drivers()
+            if not ok:
+                return ok, text
+            log(text)
+            end = wusettings_core.pause_for_days(days, False)
+            return (end is not None,
+                    f'✅ Szünet beírva: {end[:10]}-ig' if end else 'A 10 éves szünet NEM íródott be (lásd a naplót).')
+        self._wu_action('disable_pause_wu', 'WU driver-letiltás + teljes reset + 10 év szünet', apply, full_reset=True)
 
     def enable_wu(self):
         logging.info("[API] enable_wu()")
@@ -284,8 +304,8 @@ class GuiWuMixin:
 
         def apply(log):
             st = wusettings_core.describe_state(wusettings_core.desired_state())
-            return True, f'ℹ️ A beállítások változatlanok maradnak ({st}); frissítés-keresés NEM indul.'
-        self._wu_action('restart_wu', 'WU javítás (szolgáltatások újraindítása + takarítás)', apply)
+            return True, f'ℹ️ A driver- és a szünet-beállítás változatlan marad ({st}); frissítés-keresés NEM indul.'
+        self._wu_action('restart_wu', 'WU teljes reset (a driverekhez nem nyúl)', apply, full_reset=True)
 
     def pause_wu(self, days, extend=None):
         """days: 1..3650. extend=None: a 7 napos gomb a meglévő szünethez ad (halmozható),

@@ -320,7 +320,8 @@ def _temp_clean_category_defs(sys_drive):
 # A NEM mappa-alapú (külön lépésként futó) kategóriák: (kulcs, címke, alapból).
 SPECIAL_CATEGORIES = [
     ('thumbnail_cache', '🖼️ Miniatűr (thumbnail) gyorsítótár', False),
-    ('recycle_bin', '🗑️ Lomtár ürítése', False),
+    # 2026-11-23 óta alapból BE (explicit user decision: a TEMP-ek és a WU-gyorsítótár mellé).
+    ('recycle_bin', '🗑️ Lomtár ürítése', True),
     ('component_cleanup', '🧩 Régi Windows-frissítések maradéka (komponenstár)', False),
 ]
 
