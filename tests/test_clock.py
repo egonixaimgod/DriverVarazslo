@@ -186,6 +186,33 @@ KEEP = [{'published': 'oem7.inf', 'original': 'ninja.inf', 'egyeb': 'x'}]
 DRIFT = 62_500_000.0        # ~723 nap
 
 
+class DriverBanFirstTest(_ChainCase):
+    """2026-11-24 (explicit user decision): a WU driver-tiltás a fix ELSŐ, gépet módosító
+    lépése (a WU-szünet előtt), az internet- és az óra-ellenőrzés után."""
+
+    def _run_a(self, clock=('ok', 3.0), net=True):
+        order = []
+        c = self.chain(clock)
+        c._wait_for_internet = lambda *a, **k: net
+        self.pause.side_effect = lambda *a, **k: (order.append('pause'), True)[1]
+        with mock.patch.object(wusettings_core, 'set_wu_driver_policy',
+                               side_effect=lambda run, disabled: (order.append(('ban', disabled)), True)[1]):
+            c.run_autofix(keep_packages=KEEP)
+        return order, c
+
+    def test_tiltas_a_szunet_elott(self):
+        order, c = self._run_a()
+        self.assertEqual(order[:2], [('ban', True), 'pause'])
+        self.assertNotIn(('ban', False), order)
+        self.assertEqual(c.scheduled, ['--resume-step1'])
+
+    def test_el_sem_indulo_fix_nem_ir_at_semmit(self):
+        for kw in ({'net': False}, {'clock': ('failed', DRIFT)}):
+            order, c = self._run_a(**kw)
+            self.assertEqual(order, [], kw)
+            self.assertEqual(c.reboots, [], kw)
+
+
 class ClockInChainTest(_ChainCase):
     def test_jo_oranal_a_lanc_valtozatlanul_indul(self):
         c = self.chain(('ok', 3.0))

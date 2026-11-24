@@ -135,11 +135,14 @@ def set_wu_driver_policy(run, disabled):
 
 
 def set_wu_pause(run, pause=True, days=AUTOFIX_WU_PAUSE_DAYS):
-    """Szünet be/ki a driver-tiltással együtt (a fix telepítő lába használja, a saját
-    WU-keresése köré): pause=True fix (nem hosszabbító) szünet mostantól + driver-tiltás;
-    pause=False a szünet feloldása + wuauserv-újraindítás + driver-engedélyezés.
-    2026-11-03 óta a közös `pause_for_days` / `remove_pause` / `set_wu_driver_policy`
-    megy alatta (eddig saját PowerShell). Visszatérés: minden lépés visszaolvasva rendben-e.
+    """A fix telepítő lábának saját WU-keresése köré: pause=True fix (nem hosszabbító)
+    szünet mostantól + driver-tiltás; pause=False CSAK a szünet feloldása +
+    wuauserv-újraindítás - a DRIVER-TILTÁS BENT MARAD (2026-11-24, explicit user decision):
+    az ablak perceiben a Windows eszköztelepítője se hozhasson magától drivert a WU-ról. A
+    tiltás a program saját WU-keresését (mérve, 2026-09-27) és -telepítését sem zavarja
+    (terep: 3 gépen 8 WU-driver ment fel kézi szkennel `ExcludeWUDriversInQualityUpdate=1`,
+    `SearchOrderConfig=0` mellett; bizonyíték: docs/terep/lanc-autofix.md, grep: 2026-11-24).
+    Visszatérés: minden lépés visszaolvasva rendben-e.
 
     A `days` alapértéke AUTOFIX_WU_PAUSE_DAYS (~10 év) - lásd a konstans indoklását."""
     if pause:
@@ -147,7 +150,8 @@ def set_wu_pause(run, pause=True, days=AUTOFIX_WU_PAUSE_DAYS):
         return set_wu_driver_policy(run, disabled=True) and ok
     ok = remove_pause()
     run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WU_RESTART_WUAUSERV_PS])
-    return set_wu_driver_policy(run, disabled=False) and ok
+    logging.info("[WU_SETTINGS] Szünet feloldva a fix saját WU-köréhez - a driver-tiltás bent marad.")
+    return ok
 
 
 # =====================================================================

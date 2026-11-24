@@ -3446,7 +3446,13 @@ class GuiAutofixMixin:
 
                 # ÚJ LÉPÉS (-1. LÉPÉS)
                 if not is_resume_mode and not is_resume_step1:
-                    self.emit('task_progress', {'task': 'autofix', 'log': '-1. LÉPÉS: Windows Update szüneteltetése és újraindítás...'})
+                    self.emit('task_progress', {'task': 'autofix', 'log': '-1. LÉPÉS: WU driver-tiltás, Windows Update szüneteltetése és újraindítás...'})
+                    # A WU DRIVER-TILTÁS A LEGELSŐ, AMIT A GÉPEN ÁTÍRUNK (2026-11-24, explicit user
+                    # decision: *„mindenek előtt az 1 katt fix első lépése legyen az, hogy driver
+                    # letiltás”*) - a két ellenőrzés (internet, óra) után, hogy egy el sem induló fix
+                    # ne írjon át semmit. Innentől a lánc végéig semmi nem oldja fel; a B láb
+                    # törlés előtti hívása csak megerősít.
+                    self._disable_wu_sync()
                     # Friss lánc indul - egy esetleges korábbi (félbehagyott) lánc
                     # statisztikája ne számítson bele az összefoglalóba.
                     #
@@ -3743,8 +3749,10 @@ class GuiAutofixMixin:
                         # minden telepítő láb elején újra be kell állítani.
                         self._autofix_clock_gate('leg')
 
-                # 4. Átmenetileg engedélyezzük a WU-t és unpause a driverkereséshez
-                self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update ideiglenes felébresztése a szükséges driverek lekéréséhez...', 'indeterminate': True})
+                # 4. A szünet átmeneti feloldása a saját WU-keresésünkhöz (szüneteltetve a WU
+                # nekünk sem ad semmit). A driver-tiltás 2026-11-24 óta BENT MARAD (set_wu_pause):
+                # így az ablak perceiben az eszköztelepítő sem hozhat magától drivert a WU-ról.
+                self.emit('task_progress', {'task': 'autofix', 'log': 'Windows Update ideiglenes felébresztése a szükséges driverek lekéréséhez (a WU magától továbbra sem telepít drivert)...', 'indeterminate': True})
                 # BIZTOSÍTÉK: Teljesen letiltjuk a háttérben futó Automatikus Frissítéseket (Group Policy)
                 self._run(['reg', 'add', r'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU', '/v', 'NoAutoUpdate', '/t', 'REG_DWORD', '/d', '1', '/f'])
                 self._set_wu_pause(pause=False)

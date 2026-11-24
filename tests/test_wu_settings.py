@@ -347,9 +347,18 @@ class EgyFuggvenyTest(unittest.TestCase):
         p.assert_called_once_with(wc.AUTOFIX_WU_PAUSE_DAYS, extend=False)
         pol.assert_called_once_with(run, disabled=True)
         with mock.patch.object(wc, 'remove_pause', return_value=True) as rp, \
-                mock.patch.object(wc, 'set_wu_driver_policy', return_value=True):
+                mock.patch.object(wc, 'set_wu_driver_policy', return_value=True) as pol:
             self.assertTrue(wc.set_wu_pause(run, False))
         rp.assert_called_once()
+        # 2026-11-24 (explicit user decision, terep: 8 WU-driver tiltás mellett is felment):
+        # a fix keresési ablakában a driver-tiltás BENT marad - engedélyezés nincs.
+        pol.assert_not_called()
+        import inspect
+        from app.gui import autofix
+        self.assertNotIn('disabled=False', inspect.getsource(autofix))   # a lánc soha nem engedélyez drivert
+        with mock.patch.object(wc, 'remove_pause', return_value=False), \
+                mock.patch.object(wc, 'set_wu_driver_policy', return_value=True):
+            self.assertFalse(wc.set_wu_pause(run, False))
         # Bukott beírás nem hamis siker.
         with mock.patch.object(wc, 'pause_for_days', return_value=None), \
                 mock.patch.object(wc, 'set_wu_driver_policy', return_value=True):
