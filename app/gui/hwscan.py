@@ -44,6 +44,7 @@ from app.wu_core import driver_model_rank
 from app.wu_core import catalog_title_family
 from app.wu_core import package_family
 from app.wu_core import package_bound_to_device_family
+from app.wu_core import _pnputil_device_lines
 from app.wu_core import device_risk_marker
 from app.wu_core import mark_device_risk
 from app.wu_core import is_firmware_update
@@ -3687,6 +3688,11 @@ try {
             import concurrent.futures
 
             counter_lock = threading.Lock()
+            # Példányok, amelyekre ebben a körben BÁRMELYIK tétel pnputil-ja "installed on
+            # device"-t írt (2026-11-24, Dell G15: a chipset-INF egy másik tétellel már
+            # rákerült az SMBus-ra, a saját tétele "Already exists" lett -> hamis
+            # "a Windows NEM rakta fel" + hamis no-bind bejegyzés).
+            bound_now = set()
 
             def process_catalog_driver(idx, drv):
                 nonlocal success, fail, skipped
@@ -4290,6 +4296,9 @@ try {
                 # számolni: az AutoFix katalógus-záróköre soha be nem bind-elő eszközön
                 # (pl. kód-28 Ismeretlen Eszköz) minden körben "1 települt"-et jelentene, és a
                 # lánc végtelen reboot-loopba kerülne (field-seen: AMDIF031 amdgpio3.inf).
+                with counter_lock:
+                    bound_now.update(inst for st, inst in _pnputil_device_lines(res.stdout or '')
+                                     if st == 'installed')
                 added_m = re.search(r'Added driver packages?\s*:\s*(\d+)', res.stdout or '', re.IGNORECASE)
                 added_zero = added_m is not None and int(added_m.group(1)) == 0
                 # "(Already exists in the system)": a csomag MÁR a DriverStore-ban van egy
@@ -4352,7 +4361,21 @@ try {
                     # HIBAKÓDOS eszköznél is ez a helyes olvasat (2026-09-26): a csomag
                     # fent van, az eszköz mégis hibás -> a KÖTÉS a gond, nem a telepítés.
                     # Eddig ilyenkor "↷ már naprakész" jelent meg egy hibás eszköz mellett.
-                    if drv.get('no_driver'):
+                    with counter_lock:
+                        bound_earlier = (drv.get('pnp_id') or '').strip().upper() in bound_now
+                    if drv.get('no_driver') and bound_earlier:
+                        # A keresés-kori "nincs drivere" elavult: ugyanebben a körben egy másik
+                        # tétel pnputil-ja kiírta, hogy erre a példányra telepített (az
+                        # "installed" tény, nem az "up-to-date": az utóbbit a Windows egy
+                        # driver nélküli eszközre is írhatja, 2026-09-28, AMD SMBus).
+                        logging.info(f"[CATALOG_INSTALL] {name}: ugyanebben a körben egy másik tétel már "
+                                     f"rátette a csomagot ({drv.get('pnp_id')}) - nem no-bind.")
+                        _mark('uptodate', name, 'ugyanebben a körben egy másik tétel már feltette')
+                        item_states[id(drv)] = 'already'
+                        self.emit('task_progress', {'task': task_id, 'log':
+                                  f'  ↷ {name}: ugyanebben a körben egy másik tétel már feltette rá ezt a '
+                                  f'csomagot - kihagyva.'})
+                    elif drv.get('no_driver'):
                         # DRIVER NÉLKÜLI ESZKÖZ + NO-OP = A WINDOWS NEM VÁLASZTOTTA KI A CSOMAGOT
                         # (2026-09-28, terepen, Build 344). Egy driver nélküli eszközre a
                         # pnputil "up-to-date on device"-t / "Added: 0"-t csak akkor ad, ha a
@@ -4781,9 +4804,21 @@ try {
             name = drv.get('name') or '?'
             pnp_id = (drv.get('pnp_id') or '').upper()
             code = codes.get(pnp_id)
+            if code is None and pnp_id.count('\\') >= 2:
+                # ÚJ PÉLDÁNY-AZONOSÍTÓ (2026-11-24, Dell G15 5530): a laptop beépített kijelzője
+                # (MONITOR\AUO5C9C\4&2b9e6141&0&UID0) a grafikus driver cseréje után új
+                # példánnyal jelent meg, a régi eltűnt -> "kihúzva?" hamis figyelmeztetés volt.
+                # Ha az eszköz-azonosító törzsén PONTOSAN egy jelenlévő példány van, az ő.
+                stem = '\\'.join(pnp_id.split('\\')[:2]) + '\\'
+                twins = [p for p in codes if p.startswith(stem)]
+                if len(twins) == 1:
+                    logging.info(f"[GENERIC] {name}: a régi példány ({pnp_id}) nincs jelen, új azonosítóval "
+                                 f"igen ({twins[0]}) - azt ellenőrizzük.")
+                    pnp_id = twins[0]
+                    code = codes[pnp_id]
             if code is None:
                 logging.warning(f"[GENERIC] {name}: az eszköz nincs a jelenlévők között, visszaállítás nélkül jelezzük.")
-                self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {name}: az eszköz eltűnt a listából (kihúzva?) - a gyári driver fent maradt.'})
+                self.emit('task_progress', {'task': task_id, 'log': f'  ⚠️ {name}: az eszköz most nincs jelen ezen az azonosítón (kihúzták, vagy egy driver-csere után új azonosítóval jelent meg) - a gyári driver fent maradt.'})
                 continue
             if code == 0:
                 cur = (inf_now.get(pnp_id) or {})

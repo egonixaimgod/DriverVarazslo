@@ -995,6 +995,13 @@ class GuiAutofixMixin:
                              f"ugyanabból újabb kiadás van (a zárókör telepíti): {halasztott}")
         return [m for m in matches if m['uid'] not in most], halasztott
 
+    def _autofix_remember_wu_ok(self, uid, ok_uids):
+        """Egy SIKERESEN felment WU-csomag a lánc-állapotba (`wu_ok_uids`) - hurok-védelem,
+        lásd _scan_and_install_wu_sync. Ismeretlen cím (nincs UpdateID) -> nincs teendő."""
+        if uid and uid not in ok_uids:
+            ok_uids.add(uid)
+            self._autofix_stats_set('wu_ok_uids', sorted(ok_uids))
+
     def _scan_and_install_wu_sync(self, task_id='autofix'):
         max_loops = 4
         total_installed_in_session = 0
@@ -1029,6 +1036,12 @@ class GuiAutofixMixin:
             logging.info(f"[AUTOFIX-WU] {len(install_failed_uids)} korábbi lábon bukott UpdateID kizárva "
                          f"ebből a lábból: {sorted(install_failed_uids)}")
             self.emit('task_progress', {'task': task_id, 'log': f'↷ {len(install_failed_uids)} csomag kihagyva: egy korábbi körben már megbukott a telepítése (nem próbáljuk újra).'})
+        # HUROK-VÉDELEM A SIKERES OLDALON (2026-11-24, Dell G15 5530, Build 421): a WU ugyanazt
+        # az Intel Display 31.0.101.5382-t minden körben újra felajánlotta, és minden körben
+        # "SIKERES"-en felment (a Windows a meglévő, azonos kiadást tartotta) -> "települt
+        # valami" -> új láb, elvileg a lábplafonig. Ami a láncban egyszer SIKERESEN felment,
+        # azt nem tesszük fel újra: a lánc-állapotban él, mint a bukottaké.
+        wu_ok_uids = set(self._autofix_stats_get('wu_ok_uids') or [])
         # Az attempt_counts SZÁNDÉKOSAN marad lábon belüli: az "egy retry" annak szól, ha
         # egy letöltés átmenetileg elhasal ugyanabban a sessionben. Lábak közt viszont pont
         # az újraindítás a gyógyír (a pending-reboot miatt bukott csomag a friss booton
@@ -1125,7 +1138,17 @@ class GuiAutofixMixin:
             else:
                 logging.info(f"[AUTOFIX-WU] A(z) {loop_idx}. kör WU keresése lefutott: {len(wu_results)} nyers találat.")
 
-            exclude_uids = {uid for uid, c in attempt_counts.items() if c >= 2} | install_failed_uids
+            repeat = [w.get('Title') or w.get('UpdateID') for w in (wu_results or [])
+                      if w.get('UpdateID') in wu_ok_uids]
+            if repeat:
+                logging.warning(f"[AUTOFIX-WU] {len(repeat)} WU-csomag ebben a láncban már SIKERESEN felment, a WU "
+                                f"mégis újra felajánlja - nem telepítjük újra (hurok-védelem): {repeat}")
+                self.emit('task_progress', {'task': task_id, 'log':
+                          f'↷ {len(repeat)} csomag kihagyva: ebben a láncban már sikeresen felment, a Windows Update '
+                          f'mégis újra felajánlja (újra feltéve sem változna semmi): ' + ', '.join(repeat[:3])
+                          + (', …' if len(repeat) > 3 else '')})
+            exclude_uids = ({uid for uid, c in attempt_counts.items() if c >= 2} | install_failed_uids
+                            | wu_ok_uids)
             matches = _match_wu_updates_to_devices(wu_results, devices_to_check, exclude_uids=exclude_uids)
 
             # DOWNGRADE-VÉDELEM (közös mag: wu_core._filter_wu_downgrades): a WU néha a
@@ -1142,7 +1165,7 @@ class GuiAutofixMixin:
             installed_info = self._get_installed_driver_info()
             matches, downgrades = _filter_wu_downgrades(matches, wu_by_uid, installed_info)
             for d in downgrades:
-                self.emit('task_progress', {'task': task_id, 'log': f'[KIHAGYVA] Downgrade-védelem: {d["title"]} - {d["reason"]}'})
+                self.emit('task_progress', {'task': task_id, 'log': f'[KIHAGYVA] {d.get("label", "Downgrade-védelem")}: {d["title"]} - {d["reason"]}'})
 
             # CSAK A LEGÚJABB VERZIÓ csomagcsaládonként (közös mag: _filter_wu_older_duplicates).
             # A WU a teljes csomag-történetet felajánlja (terepen 10 db iigd_ext Intel UHD 630
@@ -1251,10 +1274,12 @@ class GuiAutofixMixin:
                         # tovább; a megszakítás jele a HIBA (lásd a FAIL ágat), nem a reboot-igény.
                         total_installed_in_session += 1
                         consecutive_failures = 0
+                        self._autofix_remember_wu_ok(title_to_uid.get(line[5:].strip()), wu_ok_uids)
                         self.emit('task_progress', {'task': task_id, 'log': f'[OK] SIKERES (újraindítás után él): {line[5:].strip()}'})
                     elif line.startswith("OK:"):
                         total_installed_in_session += 1
                         consecutive_failures = 0
+                        self._autofix_remember_wu_ok(title_to_uid.get(line[3:].strip()), wu_ok_uids)
                         self.emit('task_progress', {'task': task_id, 'log': f'[OK] SIKERES: {line[3:].strip()}'})
                     elif line.startswith("FAIL:"):
                         fail_text = line[5:].strip()  # pl. "[kód=4] Intel..." vagy "[LETÖLTÉS HIBA] ..."
@@ -3407,7 +3432,7 @@ class GuiAutofixMixin:
             self._autofix_skip_printers = skip_printers
             self._autofix_allow_storage = allow_storage
             self._autofix_allow_firmware = allow_fw
-            logging.info(f"[AUTOFIX] Záró Windows Update-szüneteltetés (~10 év): {wu_pause} "
+            logging.info(f"[AUTOFIX] Záró Windows Update-szüneteltetés: {'~10 év' if wu_pause else '1 hét'} "
                          f"(forrás: {'sys.argv --no-wu-pause' if from_argv else 'GUI dialógus'})")
             logging.info(f"[AUTOFIX] Microsoft Update Catalog keresés: {use_cat} "
                          f"(forrás: {'sys.argv --no-catalog' if from_argv else 'GUI dialógus'})")
@@ -3981,9 +4006,10 @@ class GuiAutofixMixin:
                     # A lánc ALATT a WU mindenképp szüneteltetve van - enélkül a Windows a
                     # lábak között a hátunk mögött telepítene drivereket, és pont az általunk
                     # felrakott, koherens készletet írná felül. A kérdés csak az, hogy a gépet
-                    # MILYEN állapotban adjuk vissza. Bepipálva marad a ~10 éves szünet (ez a
-                    # bolt alapértelmezése); kipipálatlanul itt oldjuk fel, hogy az ügyfél a
-                    # megszokott, frissülő Windowst kapja vissza.
+                    # MILYEN állapotban adjuk vissza. Bepipálva ~10 év szünet (a bolt
+                    # alapértelmezése); kipipálatlanul 1 HÉT (2026-11-24, explicit user decision:
+                    # *„olyan ne legyen h instant folytassa a végén”* - eddig azonnal feloldotta).
+                    # Mindkét esetben MOSTANTÓL számolva, visszaolvasva.
                     # A DRIVER-TILTÁS ETTŐL FÜGGETLENÜL ÉRVÉNYBEN MARAD, és ezt ki KELL
                     # mondani. A _disable_wu_sync() minden lezáráskor lefut
                     # (SearchOrderConfig=0 + ExcludeWUDriversInQualityUpdate=1), tehát a
@@ -3991,26 +4017,29 @@ class GuiAutofixMixin:
                     # technikus a szüneteltetést kivette. E nélkül a sor nélkül a képernyő
                     # azt sugallná, hogy a pipa kivételével a gép "teljesen normál" WU-val
                     # megy vissza - pedig a driver-ág továbbra is zárva van.
-                    if getattr(self, '_autofix_wu_pause', True):
-                        self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ A Windows Update szüneteltetve marad (~10 év) - a Beállítások > Windows Update alatt egy kattintással folytatható.'})
-                        logging.info("[AUTOFIX] Záró WU-állapot: SZÜNETELTETVE marad (a dialóguson bepipálva).")
+                    long_pause = getattr(self, '_autofix_wu_pause', True)
+                    days = (wusettings_core.AUTOFIX_WU_PAUSE_DAYS if long_pause
+                            else wusettings_core.AUTOFIX_WU_PAUSE_SHORT_DAYS)
+                    try:
+                        end = wusettings_core.pause_for_days(days, extend=False)
+                    except Exception as e:
+                        logging.warning(f"[AUTOFIX] A záró WU-szünet beírása kivétellel bukott: {e}", exc_info=True)
+                        end = None
+                    if end:
+                        logging.info(f"[AUTOFIX] Záró WU-állapot: {days} nap szünet, {end}-ig "
+                                     f"(a dialóguson {'bepipálva' if long_pause else 'nem volt bepipálva'}).")
+                        self.emit('task_progress', {'task': 'autofix', 'log':
+                                  f'ℹ️ A Windows Update szüneteltetve ~10 évig ({end[:10]}-ig) - a Beállítások > Windows Update alatt egy kattintással folytatható.'
+                                  if long_pause else
+                                  f'⏸️ A Windows Update 1 hétig szünetel ({end[:10]}-ig), utána magától folytatódik - a frissen driverezett gép így nem kezd azonnal frissíteni.'})
                     else:
-                        self.emit('task_progress', {'task': 'autofix', 'log': '\n▶️ Windows Update szüneteltetésének feloldása (a fix indításakor így kérted)...'})
-                        try:
-                            # A ⚠️ sort bukáskor a resume_wu maga írja ki (visszaolvasás alapján).
-                            resumed = wusettings_core.resume_wu(
-                                self._run,
-                                lambda m: self.emit('task_progress', {'task': 'autofix', 'log': m}))
-                            logging.info(f"[AUTOFIX] Záró WU-állapot: "
-                                         f"{'FELOLDVA' if resumed else 'a feloldás NEM sikerült'} "
-                                         f"(a dialóguson nem volt bepipálva).")
-                        except Exception as e:
-                            # Nem kritikus: a driverek fent vannak. De ki KELL mondani, mert a
-                            # gép ilyenkor szüneteltetett WU-val megy vissza az ügyfélhez -
-                            # néma eltérés a felhasználó választásától nem maradhat.
-                            logging.warning(f"[AUTOFIX] A WU szüneteltetés feloldása nem sikerült: {e}")
-                            self.emit('task_progress', {'task': 'autofix', 'log': '⚠️ A Windows Update szüneteltetését nem sikerült feloldani - a Beállítások > Windows Update alatt kézzel folytatható.'})
-                        self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ A Windows Update fut, de DRIVERT továbbra sem telepít (ez a védelem a szüneteltetéstől függetlenül marad érvényben, hogy a most felrakott driverkészlet ne íródjon felül).'})
+                        # A driverek fent vannak, de a választástól eltérő állapotot ki KELL mondani.
+                        left = wusettings_core.wu_paused_until()
+                        logging.error(f"[AUTOFIX] A záró WU-szünet ({days} nap) NEM íródott be; visszaolvasva: {left}.")
+                        self.emit('task_progress', {'task': 'autofix', 'log':
+                                  f"⚠️ A záró WU-szünet ({'~10 év' if long_pause else '1 hét'}) NEM íródott be - a registry szerint "
+                                  f"{('szüneteltetve ' + left[:10] + '-ig') if left else 'NINCS szüneteltetve'}. A Beállítások > Windows Update alatt állítható."})
+                    self.emit('task_progress', {'task': 'autofix', 'log': 'ℹ️ A Windows Update DRIVERT a szünet után sem telepít (ez a védelem a szüneteltetéstől függetlenül marad érvényben, hogy a most felrakott driverkészlet ne íródjon felül).'})
 
                     try:
                         if search_gaps:

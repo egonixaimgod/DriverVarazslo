@@ -334,7 +334,7 @@ class EgyFuggvenyTest(unittest.TestCase):
         from app.gui import autofix, hwscan
         af_src = inspect.getsource(autofix)
         for fn in ('pause_for_days(', 'stop_wu_services(', 'purge_software_distribution(',
-                   'set_wu_driver_policy(', 'resume_wu('):
+                   'set_wu_driver_policy('):
             self.assertIn(fn, af_src)
         self.assertIn('restart_wu_services(', inspect.getsource(hwscan))
 

@@ -1806,6 +1806,11 @@ def _filter_wu_downgrades(matches, wu_by_uid, installed_info):
       körben kiszűrte a gyári csomagot. Lásd _is_inbox_driver;
     - csak akkor szűrünk, ha a WU DriverVerDate ÉS a telepített driver dátuma is
       értelmezhető, és a WU-é szigorúan korábbi;
+    - AZONOS VERZIÓ = UGYANAZ A KIADÁS, dátumtól függetlenül (a katalógus-kapu szabálya,
+      2026-11-24 óta itt is): a címből olvasott verzió-tuple egyezik a telepítettel ->
+      "már telepítve" (terep, Dell G15 5530: a katalógus feltette az Intel Display
+      31.0.101.5382-t, a WU minden körben ugyanazt ajánlotta, és minden körben "SIKERES"-en
+      újra felment);
     - egyenlő vagy újabb dátum, hiányzó adat -> marad a találat.
 
     matches: a _match_wu_updates_to_devices kimenete; wu_by_uid: UpdateID -> nyers
@@ -1825,6 +1830,12 @@ def _filter_wu_downgrades(matches, wu_by_uid, installed_info):
         inst_date = _iso_date_or_none(inst.get('date'))
         if _is_inbox_driver(inst):
             kept.append(m)
+            continue
+        wu_ver = _parse_driver_version(m.get('title') or wu.get('Title'))
+        inst_ver = _parse_driver_version(inst.get('version'))
+        if wu_ver and inst_ver and wu_ver == inst_ver:
+            skipped.append({'title': m.get('title', ''), 'label': 'Már telepítve',
+                            'reason': f"azonos kiadás fut az eszközön ({inst.get('version')})"})
             continue
         if wu_date and inst_date and wu_date < inst_date:
             skipped.append({'title': m.get('title', ''),

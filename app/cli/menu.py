@@ -746,7 +746,7 @@ def _menu_autofix(api):
     ui.write('')
     # (A tároló- és firmware-kérdés 2026-09-02-én kikerült: nem választás többé, hanem
     #  rögzített szabály - lásd app/gui/autofix.py: run_autofix.)
-    wu_pause = ui.confirm('A végén a Windows Update szüneteltetése ~10 évre?', True)
+    wu_pause = ui.confirm('A végén a Windows Update szüneteltetése ~10 évre? (nem = 1 hét)', True)
     # GYORS MÓD: nemmel a lánc csak a WU Agentből telepít. Alapból IGEN (teljes keresés).
     use_catalog = ui.confirm('Microsoft Update Catalog keresés is? (nem = GYORS MÓD, ~20-25 perccel rövidebb)', True)
 
@@ -757,7 +757,7 @@ def _menu_autofix(api):
         + (f" (driver újraépítés: {'igen' if rebuild_wifi else 'nem'})" if wifi_mode else ''),
         f"Tároló-driverek              : tiltva (nem kapcsolható)",
         f"Firmware-frissítések         : tiltva (nem kapcsolható)",
-        f"WU szüneteltetés a végén     : {'IGEN' if wu_pause else 'nem'}",
+        f"WU szüneteltetés a végén     : {'~10 év' if wu_pause else '1 hét'}",
         f"MS Update Catalog keresés    : {'IGEN' if use_catalog else 'NEM (gyors mód)'}",
     ], color=ui.YELLOW)
 

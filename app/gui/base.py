@@ -68,7 +68,8 @@ class GuiBaseMixin:
         # Csak Wi-Fi módban van értelme: vezetékesen az adapter drivere amúgy is a normál
         # törlési fázisban megy el, és a WU rakja vissza. Lásd wu_core.rebuild_wifi_driver.
         self.rebuild_wifi_driver = '--rebuild-wifi-driver' in sys.argv
-        # A ZÁRÓ Windows Update-szüneteltetés (~10 év) kérése. Az alapértelmezés BE, ezért
+        # A ZÁRÓ Windows Update-szüneteltetés hossza: ~10 év, a kapcsolóval 1 hét (2026-11-24 óta
+        # nincs azonnali feloldás). Az alapértelmezés a 10 év, ezért
         # - a többi kapcsolóval ellentétben - a TILTÁS utazik jelzőként: így egy régi
         # ütemezett feladat argumentuma (amiben még nincs ilyen kapcsoló) is a megszokott,
         # szüneteltető viselkedést adja. A lábak külön processzek, ezért ez is csak az

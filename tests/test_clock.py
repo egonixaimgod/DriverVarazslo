@@ -168,7 +168,7 @@ class _ChainCase(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp, True)
         for target, kw in ((af, {'_app_data_dir': mock.Mock(return_value=self.tmp)}),
-                           (wusettings_core, {'pause_for_days': mock.Mock(return_value=True)})):
+                           (wusettings_core, {'pause_for_days': mock.Mock(return_value='2036-11-21T10:00:00Z')})):
             p = mock.patch.multiple(target, **kw)
             p.start()
             self.addCleanup(p.stop)
@@ -327,6 +327,38 @@ class _LastLeg(_Chain):
 
     def _finish_pending_deletes(self):
         return 'ok', 0
+
+
+class ClosingWuPauseTest(_ChainCase):
+    """2026-11-24 (explicit user decision): a fix VÉGÉN mindig szünet - bepipálva ~10 év,
+    pipa nélkül 1 hét (*„olyan ne legyen h instant folytassa a végén”*), visszaolvasva."""
+
+    def close(self, no_wu_pause, end='2036-11-21T10:00:00Z'):
+        c = self.chain(('ok', 0.0), cls=_LastLeg, resume_mode=True, no_wu_pause=no_wu_pause)
+        c._autofix_stats_set('settle_done', True)
+        c._autofix_stats_set('rebind_done', True)
+        self.pause.return_value = end
+        with mock.patch.object(af.dupdrivers_core, 'auto_cleanup_duplicates'), \
+                mock.patch.object(wusettings_core, 'remove_pause', side_effect=AssertionError('nincs feloldás')), \
+                mock.patch.object(wusettings_core, 'wu_paused_until', return_value='2036-11-21T10:00:00Z'):
+            c.run_autofix()
+        return c
+
+    def test_bepipalva_10_ev(self):
+        c = self.close(False)
+        self.assertEqual(self.pause.call_args_list[-1], mock.call(wusettings_core.AUTOFIX_WU_PAUSE_DAYS, extend=False))
+        self.assertIn('~10 évig (2036-11-21-ig)', c.text())
+
+    def test_pipa_nelkul_1_het_nem_azonnali_feloldas(self):
+        c = self.close(True, end='2026-12-01T10:00:00Z')
+        self.assertEqual(self.pause.call_args_list[-1], mock.call(7, extend=False))
+        self.assertIn('1 hétig szünetel (2026-12-01-ig)', c.text())
+        self.assertIn('SIKERESEN BEFEJEZŐDÖTT', c.text())
+
+    def test_bukott_beiras_nem_hamis_siker(self):
+        c = self.close(True, end=None)
+        self.assertIn('NEM íródott be', c.text())
+        self.assertNotIn('1 hétig szünetel', c.text())
 
 
 class HonestClosingTest(_ChainCase):

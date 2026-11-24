@@ -267,7 +267,7 @@ flowchart LR
 | **Wi-Fi mód** | Kábel nélküli gépen a hálózat végig megmarad: a Wi-Fi driver nem törlődik, a mentett hálózatok (titkosítva) visszaállnak, a gép automatikusan visszacsatlakozik |
 | **Wi-Fi driver újraépítése** | A Wi-Fi adapter beállításai tiszta lapról épülnek fel, a mentett hálózat automatikus visszaállításával |
 | **Teljes / gyors keresés** | A Microsoft Update Catalog bevonása vagy kihagyása |
-| **Windows Update szüneteltetése** | A frissen felrakott, összehangolt driverkészletet a Windows ne írja felül napokkal később |
+| **Windows Update szüneteltetése** | A frissen felrakott, összehangolt driverkészletet a Windows ne írja felül napokkal később: a végén ~10 év szünet, a pipa nélkül 1 hét (azonnal sosem folytatódik); a WU-driverek tiltása mindkét esetben marad |
 
 **A lezáró lépések:** a régi, kiváltott driverek eltávolítása a DriverStore-ból · a driverekhez tartozó Store-alkalmazások telepítése · teljesítmény-centrikus energiaséma · zárójelentés arról, mi települt, mi maradt Windows-alapdriveren és miért, valamint mely korábbi csomagok nem kerültek vissza.
 

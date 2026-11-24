@@ -33,8 +33,8 @@ from datetime import datetime, timezone
 # `clear_software_distribution` TÖRÖLVE - ne éleszd újra (`tests/test_wu_settings.py:
 # EgyFuggvenyTest` őrzi).
 
-# A szünet feloldása utáni wuauserv-újraindítás (a fix telepítő lába és a záró feloldás
-# eddig is így csinálta; mérve a keresésnek nem kell, de terepen bevált, maradt).
+# A szünet feloldása utáni wuauserv-újraindítás (a fix telepítő lába így csinálja; mérve a
+# keresésnek nem kell, de terepen bevált, maradt).
 WU_RESTART_WUAUSERV_PS = """
 Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
 Start-Service wuauserv -ErrorAction SilentlyContinue
@@ -51,6 +51,10 @@ Start-Service wuauserv -ErrorAction SilentlyContinue
 # nem kell hozzá szerviz. A biztonsági frissítések tehát nincsenek véglegesen elvágva, csak
 # nem indulnak el maguktól.
 AUTOFIX_WU_PAUSE_DAYS = 3650
+# A záró szünet, ha a 10 év NINCS bepipálva (explicit user decision, 2026-11-24: *„olyan ne
+# legyen h instant folytassa a végén, legyen 1 hét mindig”*). Eddig a fix ilyenkor azonnal
+# feloldotta (`resume_wu`, azóta törölve), és a frissen driverezett gép rögtön frissíthetett.
+AUTOFIX_WU_PAUSE_SHORT_DAYS = 7
 
 
 def read_wu_status(run):
@@ -949,19 +953,3 @@ def reassert_pending(run, pending, log):
         log('  ↻ A driver-beállítás eltért - újra beírva.')
         ok = set_wu_driver_policy(run, disabled=bool(pending.get('exclude_drivers'))) and ok
     return ok
-
-
-def resume_wu(run, log):
-    """A WU szüneteltetés feloldása (a közös `remove_pause` + wuauserv-újraindítás + COM
-    Resume) - a fix lánca a végén ezt hívja, ha a technikus nem kért szünetet."""
-    remove_pause()
-    run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WU_RESTART_WUAUSERV_PS + """
-try { (New-Object -ComObject Microsoft.Update.AutoUpdate).Resume() | Out-Null } catch {}
-"""])
-    left = wu_paused_until()        # a verdikt a visszaolvasás
-    if left:
-        logging.error(f"[WU_SETTINGS] A szüneteltetés feloldása után a szünet még érvényes ({left}).")
-        log(f'⚠️ A szüneteltetés NEM oldódott fel (a registry szerint {left}-ig érvényes) - a Beállítások > Windows Update alatt kézzel folytatható.')
-        return False
-    log('✅ Szüneteltetés feloldva!')
-    return True
