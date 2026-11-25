@@ -263,6 +263,7 @@ flowchart LR
 | Beállítás | Hatása |
 |---|---|
 | **Törlési előnézet** | Minden törlendő csomag látszik, azzal együtt, *mire való* és *használja-e most a gép*; csomagonként kivehető |
+| **Előre megnyomható indítás** | Az elemzés alatt szürke „Igen” gomb is megnyomható: a program megjegyzi, és amint minden betöltött, az alapbeállításokkal magától elindul |
 | **Nyomtató-driverek megtartása** | A gép nyomtatói a szerviz után is működnek, akkor is, ha épp nincsenek csatlakoztatva |
 | **Szoftveres driverek megtartása** | Az alkalmazásokhoz tartozó driverek (távelérés, VPN, vírusirtó, virtuális eszközök, RGB-programok) egy kapcsolóval megmaradnak: ezeket a Windows Update nem hozza vissza |
 | **Wi-Fi mód** | Kábel nélküli gépen a hálózat végig megmarad: a Wi-Fi driver nem törlődik, a mentett hálózatok (titkosítva) visszaállnak, a gép automatikusan visszacsatlakozik |

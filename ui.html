@@ -3189,7 +3189,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
       <button class="btn" id="mc-cancel" onclick="resolveConfirm(null)">Mégse</button>
       <button class="btn btn-danger" id="mc-no" onclick="resolveConfirm(false)" style="display:none">Nem</button>
       <button class="btn btn-primary" id="mc-alt" onclick="resolveConfirm('alt')" style="display:none"></button>
-      <button class="btn btn-primary" id="mc-yes" onclick="resolveConfirm(true)">Igen</button>
+      <button class="btn btn-primary" id="mc-yes" onclick="mcYesClick()">Igen</button>
     </div>
   </div>
 </div>
@@ -8861,6 +8861,7 @@ function mcResetLayout() {
   yes.style.opacity = '';
   yes.style.cursor = '';
   delLoading = false;
+  mcFixActive = mcArmed = mcNetPending = false;
 }
 function showConfirm(title, message) {
   return new Promise(resolve => {
@@ -9230,12 +9231,45 @@ function delSetLoading(on) {
   ids.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = on; });
   // A Wi-Fi újraépítés kapcsolója vezetékes gépen amúgy is tiltott marad - a
   // syncRebuildWifi() dönt róla, ezért az elemzés végén ŐT kérdezzük újra, nem itt.
-  const yes = document.getElementById('mc-yes');
-  yes.disabled = on;
-  yes.style.opacity = on ? '0.5' : '';
-  yes.style.cursor = on ? 'not-allowed' : '';
-  yes.textContent = on ? '⏳ Elemzés folyamatban...' : 'Igen';
+  mcSyncYes();
   renderDeletePreview();
+}
+
+/* ELŐRE MEGNYOMHATÓ „IGEN” (2026-11-25, explicit user decision: *„amíg ki van szürkítve
+   előjáróban rá tudjak nyomni, és akkor ahogy betöltődött minden egyből indítja is”*). A
+   gomb az elemzés (`delLoading`) ÉS a hálózat-felismerés (`mcNetPending`: a Wi-Fi mód
+   pipája ebből jön) alatt szürke, de kattintható: a kattintás csak megjegyződik
+   (`mcArmed`), és amint mindkettő kész, a fix a dialógus akkori - alap - beállításaival
+   indul, pontosan úgy, mintha a technikus akkor nyomta volna meg. Újabb kattintás
+   visszavonja; a Mégse ugyanúgy kilép. Előbb NEM indulhat: a védelmek (boot, nyomtató,
+   Wi-Fi) a felismerés eredményéből jönnek. */
+let mcFixActive = false, mcArmed = false, mcNetPending = false;
+function mcFixReady() { return !delLoading && !mcNetPending; }
+function mcSyncYes() {
+  if (!mcFixActive) return;
+  const yes = document.getElementById('mc-yes');
+  const ready = mcFixReady();
+  yes.disabled = false;
+  yes.style.opacity = ready ? '' : (mcArmed ? '0.85' : '0.5');
+  yes.style.cursor = '';
+  yes.textContent = ready ? 'Igen'
+    : (mcArmed ? '✅ Megjegyezve: elindul, amint kész (katt = visszavonás)'
+               : '⏳ Elemzés folyamatban... (már rányomhatsz)');
+  if (ready && mcArmed) {
+    mcArmed = false;
+    api().js_log('INFO', '[UI-AKCIO] 1 kattintásos fix: az elemzés kész - indítás az előre megnyomott Igen alapján');
+    resolveConfirm(true);
+  }
+}
+function mcYesClick() {
+  if (mcFixActive && !mcFixReady()) {
+    mcArmed = !mcArmed;
+    api().js_log('INFO', '[UI-AKCIO] 1 kattintásos fix: Igen az elemzés alatt -> '
+      + (mcArmed ? 'megjegyezve, a betöltés végén magától indul' : 'visszavonva'));
+    mcSyncYes();
+    return;
+  }
+  resolveConfirm(true);
 }
 
 function toggleDeletePreview(i, on) {
@@ -9312,6 +9346,12 @@ function showAutoFixConfirm(title, message) {
       // GYORS MOD: kikapcsolva a lanc csak a WU Agentbol telepit (--no-catalog).
       const useCatalog = document.getElementById('mc-use-catalog').checked;
       const keep = delKeepPackages();
+      // A gomb szürkesége nem szivároghat át a következő dialógusra (nem mind hívja az mcResetLayout-ot).
+      mcFixActive = mcArmed = false;
+      const yb = document.getElementById('mc-yes');
+      yb.disabled = false;
+      yb.style.opacity = '';
+      yb.style.cursor = '';
       document.getElementById('mc-wu-pause-row').style.display = 'none';
       document.getElementById('mc-use-catalog-row').style.display = 'none';
       document.getElementById('mc-wifi-mode-row').style.display = 'none';
@@ -9387,6 +9427,9 @@ function showAutoFixConfirm(title, message) {
         usage_reasons: (e && e.reasons) || []
       };
     });
+    mcFixActive = true;
+    mcArmed = false;
+    mcNetPending = true;
     delSetLoading(true);
     const pvSeq = ++delPreviewSeq;
     // A MÁR BETÖLTÖTT driver-listát átadjuk: a Python így megspórolja a
@@ -9459,7 +9502,10 @@ function showAutoFixConfirm(title, message) {
     rebuildBox.onchange = () => { syncRebuildWifi(); renderDeletePreview(); };
     document.getElementById('mc-skip-printers').onchange = renderDeletePreview;
     document.getElementById('mc-keep-software').onchange = renderDeletePreview;
+    // A Wi-Fi mód pipája ebből jön: amíg nincs meg, az Igen csak megjegyezhető (mcSyncYes).
+    const netDone = () => { if (pvSeq === delPreviewSeq) { mcNetPending = false; mcSyncYes(); } };
     api().get_autofix_net_state().then(st => {
+      if (pvSeq !== delPreviewSeq) return;     // egy korábbi megnyitás válasza
       st = st || {};
       if (st.suggest) {
         wifiBox.checked = true;
@@ -9472,9 +9518,12 @@ function showAutoFixConfirm(title, message) {
       } else {
         wifiHint.textContent = 'Kapcsold be, ha a gép Wi-Fin csatlakozik: a fix megtartja a Wi-Fi drivert, és megvárja az újracsatlakozást minden újraindítás után.';
       }
+      netDone();
     }).catch(e => {
+      if (pvSeq !== delPreviewSeq) return;
       wifiHint.textContent = 'Kapcsold be, ha a gép Wi-Fin csatlakozik: a fix megtartja a Wi-Fi drivert, és megvárja az újracsatlakozást minden újraindítás után.';
       api().js_log('WARN', '[UI] Hálózat-felismerés sikertelen: ' + e);
+      netDone();
     });
     document.getElementById('modal-confirm').classList.add('active');
   });
