@@ -54,6 +54,9 @@ BACKUP_MODES = {
     'windows': ('Windows', 'a Windows saját driverei'),
     'all': ('Teljes', 'teljes mentés (third-party + a Windows saját driverei)'),
 }
+# A Driverek nézet „Kijelöltek mentése” gombja (2026-11-25): nem a Mentés nézet választható
+# fajtája (ezért nincs a BACKUP_MODES-ban), de a leírás és a felismerés ugyanígy nevezi meg.
+MODE_LABELS = dict(BACKUP_MODES, selected=('Kijeloltek', 'kijelölt third-party driverek (Driverek kezelése nézet)'))
 MANIFEST_NAME = 'mentes.json'
 INFO_NAME = 'INFO.txt'
 TP_DIR = 'ThirdParty'
@@ -310,7 +313,7 @@ def _write_manifest(folder, mode, source, tp_count, win_count, extra=''):
             'DriverVarázsló - driver-mentés',
             f'Készült: {created} (Build {common.BUILD_NUMBER})',
             f'Forrás: {source}',
-            f'Tartalom: {BACKUP_MODES[mode][1]}',
+            f'Tartalom: {MODE_LABELS[mode][1]}',
         ]
         if tp_count is not None:
             lines.append(f'   third-party csomagok: {tp_count} db  ->  {TP_DIR}\\')
@@ -344,6 +347,35 @@ def _write_manifest(folder, mode, source, tp_count, win_count, extra=''):
         logging.warning(f"[BACKUP] A mentés leírása nem írható ({folder}): {e}")
 
 
+def _new_backup_folder(dest_root, need, mode, res, log):
+    """Hely-ellenőrzés, utána egy új, dátumozott mentés-mappa a `dest_root` alatt.
+    None = nem jött létre (az ok a `res`-ben). Ha a név már foglalt (két mentés ugyanabban a
+    másodpercben), sorszámot kap: egy meglévő mentésbe soha nem írunk bele."""
+    try:
+        os.makedirs(dest_root, exist_ok=True)
+        free = shutil.disk_usage(dest_root).free
+    except OSError as e:
+        res['problems'].append(f'A cél nem írható ({dest_root}): {e}')
+        log(f'❌ {res["problems"][-1]}')
+        return None
+    log(f'Becsült méret: {_mb(need)} MB, szabad hely a célon: {_mb(free)} MB')
+    if need + FREE_SPACE_MARGIN > free:
+        res['status'] = 'no_space'
+        res['problems'].append(f'Nincs elég hely: kb. {_mb(need)} MB kellene, {_mb(free)} MB szabad.')
+        log(f'❌ {res["problems"][-1]}')
+        return None
+    stamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    folder = base = os.path.join(dest_root, f'DriverVarázsló_Mentés_{stamp}_{MODE_LABELS[mode][0]}')
+    n = 1
+    while os.path.exists(folder):
+        n += 1
+        folder = f'{base}_{n}'
+    os.makedirs(folder)
+    res['folder'] = folder
+    log(f'Célmappa: {folder}')
+    return folder
+
+
 def backup_drivers(run, log, check_cancel, dest_root, target_os_path, mode, si=None, nw=None):
     """Driver-mentés egy új, dátumozott mappába a `dest_root` alatt.
 
@@ -367,26 +399,10 @@ def backup_drivers(run, log, check_cancel, dest_root, target_os_path, mode, si=N
     repo = _store_dir(win)
     need = sum(dir_size(os.path.join(repo, n)) for n in os.listdir(_long_path(repo))
                if (n.lower() in tp_set and want_tp) or (n.lower() not in tp_set and want_win))
-    try:
-        os.makedirs(dest_root, exist_ok=True)
-        free = shutil.disk_usage(dest_root).free
-    except OSError as e:
-        res['problems'].append(f'A cél nem írható ({dest_root}): {e}')
-        log(f'❌ {res["problems"][-1]}')
+    folder = _new_backup_folder(dest_root, need, mode, res, log)
+    if not folder:
         return res
-    log(f'Becsült méret: {_mb(need)} MB, szabad hely a célon: {_mb(free)} MB')
-    if need + FREE_SPACE_MARGIN > free:
-        res['status'] = 'no_space'
-        res['problems'].append(f'Nincs elég hely: kb. {_mb(need)} MB kellene, {_mb(free)} MB szabad.')
-        log(f'❌ {res["problems"][-1]}')
-        return res
-
-    stamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    folder = os.path.join(dest_root, f'DriverVarázsló_Mentés_{stamp}_{BACKUP_MODES[mode][0]}')
-    os.makedirs(folder, exist_ok=True)
-    res['folder'] = folder
     logging.info(f"[BACKUP] Mentés ({mode}) ide: {folder} - forrás: {source}")
-    log(f'Célmappa: {folder}')
     try:
         if want_tp:
             if not tp_set:
@@ -424,6 +440,89 @@ def backup_drivers(run, log, check_cancel, dest_root, target_os_path, mode, si=N
     _write_manifest(folder, mode, source, res['tp_count'], res['win_count'])
     res['size_mb'] = _mb(dir_size(folder))
     res['status'] = 'partial' if res['problems'] else 'ok'
+    logging.info(f"[BACKUP] Kész: {res}")
+    return res
+
+
+def backup_selected_drivers(run, log, check_cancel, dest_root, target_os_path, published_names):
+    """A Driverek kezelése nézet KIJELÖLT third-party csomagjainak mentése (2026-11-25, explicit
+    user decision: *„1 et mentek egyet akarok visszarakni”*) egy új, dátumozott mappába a
+    `dest_root` alatt, a v1 formátumban (`ThirdParty\\<DriverStore-mappa>\\`): a Mentés nézet
+    visszaállítása ugyanúgy felismeri, és csomagonként visszarakja.
+
+    Élő gépen `pnputil /export-driver` (ugyanaz a hívás a beragadás-őrrel, amivel a fix és a
+    kézi törlés ment); offline célnál a csomag DriverStore-mappájának másolata, mert a pnputil
+    offline nem megy, a DISM pedig csak az ÖSSZES csomagot tudja exportálni.
+    Visszatérés: mint a `backup_drivers`-é."""
+    from app.wu_core import _export_one
+    names = list(dict.fromkeys(n.strip() for n in (published_names or []) if n and n.strip()))
+    win = windows_dir(target_os_path)
+    source = describe_source(target_os_path)
+    res = {'status': 'fail', 'folder': None, 'size_mb': 0, 'tp_count': None, 'win_count': None,
+           'problems': []}
+    log(f'Forrás: {source}')
+    folders = third_party_store_folders(win) if names else None
+    if folders is None:
+        res['problems'].append(f'A driver-tár nem olvasható: {_store_dir(win)}' if names
+                               else 'Nincs kijelölt driver.')
+        log(f'❌ {res["problems"][-1]}')
+        return res
+    repo = _store_dir(win)
+    need = sum(dir_size(os.path.join(repo, folders[n.lower()])) for n in names if n.lower() in folders)
+    folder = _new_backup_folder(dest_root, need, 'selected', res, log)
+    if not folder:
+        return res
+    logging.info(f"[BACKUP] Kijelölt csomagok mentése ({len(names)} db: {names}) ide: {folder} - "
+                 f"forrás: {source}")
+    guard, saved, failed = {}, [], []
+    for i, pub in enumerate(names, 1):
+        if check_cancel and check_cancel():
+            res['status'] = 'cancelled'
+            log('❗ Megszakítva - a félkész mentés-mappa megmaradt, nyugodtan törölheted.')
+            return res
+        store = folders.get(pub.lower())
+        sub = os.path.join(folder, TP_DIR, store or os.path.splitext(pub)[0])
+        log(f'💾 {i}/{len(names)} {pub}' + (f' ({store})' if store else ''))
+        try:
+            if target_os_path:
+                if not store:
+                    raise OSError('a csomag mappája nem található a cél Windows driver-tárában')
+                shutil.copytree(_long_path(os.path.join(repo, store)), _long_path(sub))
+                ok = True
+            else:
+                os.makedirs(sub, exist_ok=True)
+                r = _export_one(run, pub, sub, guard, 'BACKUP')
+                ok = r is not None and r.returncode == 0
+                if not ok:
+                    logging.warning(f"[BACKUP] {pub} exportja sikertelen "
+                                    f"(rc={getattr(r, 'returncode', 'kihagyva')}).")
+        except (OSError, shutil.Error) as e:
+            ok = False
+            logging.warning(f"[BACKUP] {pub} mentése sikertelen: {str(e)[:300]}")
+        if ok:
+            saved.append((pub, store or '?'))
+            continue
+        failed.append(pub)
+        log(f'   ❌ {pub} mentése nem sikerült (a napló tartalmazza az okát).')
+        # Egy félbemaradt csomag-mappát a visszaállítás csomagnak hinne: a saját, most
+        # létrehozott almappánkat töröljük.
+        logging.info(f"[BACKUP] A félbemaradt csomag-mappa törlése: {sub}")
+        shutil.rmtree(_long_path(sub), ignore_errors=True)
+    res['tp_count'] = len(saved)
+    if failed:
+        res['problems'].append(f'{len(failed)}/{len(names)} csomag mentése nem sikerült: '
+                               f'{", ".join(failed[:6])}')
+    if not saved:
+        logging.info(f"[BACKUP] Egy csomag sem mentődött - az üres mentés-mappa törlése: {folder}")
+        shutil.rmtree(_long_path(folder), ignore_errors=True)
+        res['folder'] = None
+        logging.info(f"[BACKUP] Kész: {res}")
+        return res
+    _write_manifest(folder, 'selected', source, len(saved), None,
+                    'Mentett csomagok (a mentéskori oemNN-név -> DriverStore-mappa):\n'
+                    + '\n'.join(f'   {p} -> {s}' for p, s in saved))
+    res['size_mb'] = _mb(dir_size(folder))
+    res['status'] = 'partial' if failed else 'ok'
     logging.info(f"[BACKUP] Kész: {res}")
     return res
 
@@ -532,8 +631,8 @@ def inspect_backup(path):
         out['error'] = 'Ebben a mappában nincs driver-mentés (egyetlen .inf fájl sincs benne).'
         return out
     mode = manifest.get('fajta')
-    if mode in BACKUP_MODES:
-        kind = BACKUP_MODES[mode][1][0].upper() + BACKUP_MODES[mode][1][1:]
+    if mode in MODE_LABELS:
+        kind = MODE_LABELS[mode][1][0].upper() + MODE_LABELS[mode][1][1:]
     elif out['windows'] and out['windows']['repo'].lower().endswith('_windows_inbox_drivers'):
         kind = 'Régi DriverVarázsló teljes mentés'
     elif out['windows']:

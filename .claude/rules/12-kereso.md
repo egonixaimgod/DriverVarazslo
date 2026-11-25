@@ -31,7 +31,7 @@ Minden más eszközt minden körben, minden forráson keresünk. **Ha egy kör l
 
 | forrás | lefedés |
 |---|---|
-| **WU-ügynök** (`_search_wu_api` + `_match_wu_updates_to_devices`) | minden jelenlévő eszköz, osztályszűrő nélkül |
+| **WU-ügynök** (`_search_wu_api` + `_match_wu_updates_to_devices`) | minden jelenlévő eszköz, osztályszűrő nélkül; **2026-11-24 óta a kompatibilis azonosítóra is párosít** (`CompatibleID` a `WU_PNP_QUERY_PS`-ben → `compat_ids`, CSAK pontos egyezés, az `all_hwids`-be nem kerül), és a párosítatlan ajánlatot `[WU-MATCH]` sor nevezi meg. Terep: a Dell G15 5530 szenzor-drivere (`{…436}\ish_miniport`) két láncon át minden körben felajánlva, némán kiesett → kód 28 (`docs/terep/lanc-autofix.md`, grep: `kompatibilis azonosító`) |
 | **katalógus, hibakódos eszközök** | `ConfigManagerErrorCode` ≠ 0 |
 | **katalógus, Windows-alapdriveres eszközök** (`mark_generic_replace_candidates`, `generic_ok`) | inbox driveren futó eszköz → gyári csere; a verzió-összevetés kimarad; telepítés után visszaolvasás és visszaállítás (`_verify_generic_replacements`; a 0-s hibakód önmagában nem siker, az INF-et is vissza kell olvasni) |
 | **katalógus, mély szken** (`deep_catalog_candidates`, paraméter: `deep`) | minden többi eszköz, ami már gyári driveren fut. **A felületen nem „mély"** a neve: „🔄 Meglévő driverekhez is keres újabbat" |

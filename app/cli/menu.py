@@ -345,6 +345,8 @@ def _menu_drivers(api):
              'Melyik csomag van használatban, és melyikre nem hivatkozik semmi'),
             ('8', 'Bluetooth tiszta lap',
              'MINDEN BT-párosítás és beragadt BT-eszköz törlése, a hibás adapter javítása'),
+            ('9', 'Driver(ek) mentése törlés nélkül',
+             'A kijelölt csomagok egy mappába - visszarakni: Mentés menü → Driverek visszaállítása'),
         ], back_label='Vissza a főmenübe')
         if c == '0':
             return
@@ -367,6 +369,25 @@ def _menu_drivers(api):
                           '-billentyűzet is - ezek azonnal lecsatlakoznak), utána újra kell párosítani '
                           'őket. Indulhat?', default=False):
                 _run_screen(api, 'Bluetooth tiszta lap', lambda: api.clear_bluetooth_devices())
+        elif c == '9':
+            _run_screen(api, 'Driver mentése', lambda: _backup_selected_flow(api))
+
+
+def _backup_selected_flow(api):
+    """A GUI „Kijelöltek mentése” gombjának párja (2026-11-25): mentés törlés nélkül."""
+    drivers = _drivers_list(api)
+    if not drivers:
+        ui.warn('Nincs megjeleníthető driver.')
+        return
+    labels = [f"{d.get('original') or d.get('published')}  ·  {d.get('provider') or '?'}  ·  "
+              f"{d.get('version') or '?'}  ({d.get('published')})  —  {d.get('class') or '?'}" for d in drivers]
+    idx = ui.pick_indices('Melyik csomagokat mentsem ki?', len(drivers), labels=labels)
+    if not idx:
+        ui.dim('Nincs kijelölve semmi.')
+        return
+    dest = api.select_directory('Hova mentsen? (egy létező mappa, pl. E:\\Mentesek)')
+    if dest:
+        api.backup_selected_drivers([drivers[i].get('published') for i in idx], dest=dest)
 
 
 def _rescan_hw(api):

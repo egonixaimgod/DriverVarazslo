@@ -13,6 +13,7 @@
 import concurrent.futures
 import io
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -206,6 +207,38 @@ class MonitorNewInstanceTest(unittest.TestCase):
         self.assertNotIn('nincs jelen', text)
         self.assertNotIn('kihúzva', text)
         self.assertIn('gyári driver működik', text)
+
+
+class CompatibleIdMatchTest(unittest.TestCase):
+    """Build 422-es lánc (13:18-13:26): a WU minden körben felajánlotta a „HID PCI Minidriver for
+    ISS”-t, a program nem párosította, a záró jelentés: „Intel_Sensor_00 - kód 28”. Az eszköz és
+    a WU-ajánlat a naplóból szó szerint; a kompatibilis azonosító a naplóban nincs (a program
+    nem kérdezte le): az az egyetlen eszköz a `{…436}` buszon, a WU erre az azonosítóra ajánlott."""
+    PNP = [{'Name': 'Intel_Sensor_00', 'PNPClass': None,
+            'PNPDeviceID': r'{DEA5AE2A-D1FD-438A-A091-CBD484788436}\VID_8087&PID_0AC2\5&2A8B386&0&0',
+            'HardwareID': [r'{DEA5AE2A-D1FD-438A-A091-CBD484788436}\Vid_8087&Pid_0AC2'],
+            'CompatibleID': r'{DEA5AE2A-D1FD-438A-A091-CBD484788436}\ISH_MINIPORT',
+            'ConfigManagerErrorCode': 28}]
+    WU = {'Title': 'Intel - HIDClass - 3.1.0.4586', 'DriverModel': 'HID PCI Minidriver for ISS',
+          'HardwareID': '{dea5ae2a-d1fd-438a-a091-cbd484788436}\\ish_miniport', 'DriverClass': 'OtherHardware',
+          'DriverProvider': 'Intel', 'UpdateID': 'c1f92bd4-1c1c-42ca-87ea-9159a576c919', 'DriverVerDate': '2022-09-02'}
+
+    def test_kompatibilis_azonositora_parosit(self):
+        self.assertIn('CompatibleID', wu_core.WU_PNP_QUERY_PS)
+        devs = wu_core._filter_wu_scan_devices(self.PNP)
+        m = wu_core._match_wu_updates_to_devices([self.WU], devs)
+        self.assertEqual([x['device']['name'] for x in m], ['Intel_Sensor_00'])
+        self.assertNotIn(r'{DEA5AE2A-D1FD-438A-A091-CBD484788436}\ISH_MINIPORT', devs[0]['all_hwids'])
+
+    def test_csak_pontos_egyezes_es_naplozza_a_kimaradot(self):
+        quiet()
+        logging.disable(logging.NOTSET)
+        self.addCleanup(logging.disable, logging.CRITICAL)
+        wu = dict(self.WU, HardwareID='{dea5ae2a-d1fd-438a-a091-cbd484788436}\\ish_miniport&rev_01')
+        with self.assertLogs(level='INFO') as cm:
+            m = wu_core._match_wu_updates_to_devices([wu], wu_core._filter_wu_scan_devices(self.PNP))
+        self.assertEqual(m, [])
+        self.assertIn('Intel - HIDClass - 3.1.0.4586', '\n'.join(cm.output))
 
 
 if __name__ == '__main__':

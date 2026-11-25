@@ -141,7 +141,7 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 |---|---|
 | 🚀 **1 kattintásos driver fix** | A teljes újradriverezés felügyelet nélkül, újraindításokon át ([részletek lent](#-az-1-kattintásos-fix)) |
 | 🔍 **Driver keresés és telepítés** | Kézi szken: minden eszközre megmutatja, van-e újabb gyári driver, és kijelölés után feltelepíti |
-| 💿 **Driverek kezelése** | A telepített third-party driverek listája használat szerint, a gép alkatrész-térképével, törléssel és karbantartó eszközökkel |
+| 💿 **Driverek kezelése** | A telepített third-party driverek listája használat szerint, a gép alkatrész-térképével, törléssel, a kijelöltek mentésével és karbantartó eszközökkel |
 | 💾 **Mentés és visszaállítás** | Driverek mentése, visszaállítása élő vagy **nem induló** Windowsba, WIM/ESD-kinyerés, rendszerindítás-javítás |
 | 🪟 **Operációs rendszer** | Windows Update driverkezelése, Win 11 frissítés javítása, Windows és Office aktiválás, BitLocker, teljesítmény-mód, hálózat-blokkoló |
 | 🖥️ **Kijelző és színkezelés** | HDR, automatikus színkezelés (ACM), ICC-profilok SDR/HDR módra, gamma, panel-adatok, gyári visszaállítás |
@@ -187,6 +187,7 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 - Driver-mentés három fajtában: csak a **third-party** driverek, csak a **Windows saját** driverei, vagy mindkettő.
 - Visszaállítás **erre a gépre** vagy egy **nem induló Windowsra**, driverenként kiválasztva, régi mentésekből is. A Windows saját drivereiből csak a hiányzó fájlok mennek vissza.
 - A **Driverek kezelése** nézet minden törlés előtt magától ment, és visszaállítási pontot készít.
+- **Kijelölt driverek mentése törlés nélkül:** a Driverek kezelése nézetben kipipált csomagok egy választott mappába (pl. pendrive-ra) menthetők, offline lemezről is; visszarakni ugyanitt, a mentés mappáját kiválasztva lehet.
 - **Offline mód:** a program egy másik Windowsból vagy WinPE-ből indítva a sérült telepítés driverein dolgozik (`dism /Image`). A driverlista mindig a saját lemezéhez kötött, így egy lemezváltás után sem törölhet rossz helyről.
 - Driverek kinyerése **WIM/ESD** telepítőképekből.
 - Rendszerindítás (BCD) automatikus javítása offline visszaállítás után.

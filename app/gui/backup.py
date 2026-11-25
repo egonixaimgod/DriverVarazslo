@@ -79,21 +79,51 @@ class GuiBackupMixin:
             self.emit('task_start', {'task': 'backup', 'title': f'Driver-mentés: {what}'})
             r = backup_core.backup_drivers(self._run, self._bk_logger('backup'), self._check_cancel,
                                            dest, target, mode, self._si, self._nw)
-            st = r['status']
-            if st == 'ok':
-                status = f'✅ Mentés kész ({r["size_mb"]:.0f} MB): {r["folder"]}'
-            elif st == 'partial':
-                status = f'⚠️ A mentés hiányos ({r["size_mb"]:.0f} MB): {r["folder"]}'
-            elif st == 'cancelled':
-                status = '❗ Megszakítva'
-            elif st == 'no_space':
-                status = '❌ Nincs elég hely a célmeghajtón'
-            else:
-                status = '❌ A mentés nem sikerült'
-            log = '\n' + ('\n'.join('⚠️ ' + p for p in r['problems']) if r['problems'] else '')
-            self.emit('task_complete', {'task': 'backup', 'status': status, 'log': log,
-                                        'folder': r.get('folder')})
+            self._bk_complete(r)
         self._safe_thread('backup', worker)
+
+    def backup_selected_drivers(self, published_names, list_target=None, dest=None):
+        """A Driverek kezelése nézet „Kijelöltek mentése” gombja (2026-11-25, explicit user
+        decision: ne kelljen az összeset kimenteni, ha egy kell). `list_target`: a lista
+        lemeze ('' = ez a gép; egy oemNN.inf szám lemezenként mást jelent, ezért a mentés
+        OTT fut, ahonnan a lista jött); a CLI nem küldi, ott a globális cél dönt.
+        `dest` None = mappaválasztó."""
+        names = [n for n in (published_names or []) if n]
+        target = self.target_os_path if list_target is None else (list_target or None)
+        logging.info(f"[API] backup_selected_drivers({names}, lemez: {target or 'élő rendszer'}, dest={dest!r})")
+        if not names:
+            self.emit('toast', {'message': 'Nincs kijelölt driver.', 'type': 'error'})
+            return
+        dest = dest or self.select_directory('Hova mentsem a kijelölt drivereket?')
+        if not dest:
+            logging.info("[BACKUP] Mégse - nincs célmappa")
+            return
+
+        def worker():
+            self.emit('task_start', {'task': 'backup', 'title': f'Driver-mentés: {len(names)} kijelölt driver'
+                                     + (f' – OFFLINE: {target}' if target else '')})
+            r = backup_core.backup_selected_drivers(self._run, self._bk_logger('backup'), self._check_cancel,
+                                                    dest, target, names)
+            self._bk_complete(r, '\nVisszarakni: Mentés és Visszaállítás → 2. Driverek visszaállítása → '
+                                 '„Mentés mappájának kiválasztása…” → ez a mappa.' if r.get('tp_count') else '')
+        self._safe_thread('backup', worker)
+
+    def _bk_complete(self, r, hint=''):
+        """Egy mentés (`backup_core.backup_drivers` / `backup_selected_drivers`) zárása a felületen."""
+        st = r['status']
+        if st == 'ok':
+            status = f'✅ Mentés kész ({r["size_mb"]:.0f} MB): {r["folder"]}'
+        elif st == 'partial':
+            status = f'⚠️ A mentés hiányos ({r["size_mb"]:.0f} MB): {r["folder"]}'
+        elif st == 'cancelled':
+            status = '❗ Megszakítva'
+        elif st == 'no_space':
+            status = '❌ Nincs elég hely a célmeghajtón'
+        else:
+            status = '❌ A mentés nem sikerült'
+        log = '\n' + ('\n'.join('⚠️ ' + p for p in r['problems']) if r['problems'] else '') + hint
+        self.emit('task_complete', {'task': 'backup', 'status': status, 'log': log,
+                                    'folder': r.get('folder')})
 
     # ---------------------------------------------------------------- visszaállítás
     def inspect_backup_folder(self, path=None):

@@ -462,6 +462,104 @@ class WimExtractTest(_Tmp):
         self.assertFalse(any('/Unmount-Image' in c for c in calls))
 
 
+class SelectedBackupTest(_Tmp):
+    """2026-11-25, explicit user decision: a Driverek nézetben kijelölt csomagok mentése TÖRLÉS
+    NÉLKÜL, egy választott mappába (*„1 et mentek egyet akarok visszarakni”*), és a Mentés
+    nézet visszaállítása ezt is felismeri."""
+    def _live(self, names, export_rc=None):
+        """Élő gép csonkkal: a „driver-tár” egy temp Windows, a pnputil export a mappájába ír."""
+        win = os.path.join(self.make_windows(), 'Windows')
+        dest = os.path.join(self.tmp, 'pendrive')
+        calls = []
+
+        def run(cmd, **k):
+            calls.append(cmd)
+            rc = (export_rc or {}).get(cmd[2], 0)
+            if rc == 0:
+                _w(os.path.join(cmd[3], 'mtinvme.inf'), INF_MICRON)
+            else:
+                _w(os.path.join(cmd[3], 'felbemaradt.inf'), 'x')     # egy félig kiírt csomag
+            return _res(rc=rc)
+        with mock.patch.object(backup_core, 'windows_dir', return_value=win):
+            r = backup_core.backup_selected_drivers(run, lambda m: None, None, dest, None, names)
+        return r, calls, dest
+
+    def test_live_exports_only_the_chosen_package_restorable(self):
+        r, calls, _dest = self._live(['oem5.inf'])
+        self.assertEqual(r['status'], 'ok')
+        self.assertEqual([c[:3] for c in calls], [['pnputil', '/export-driver', 'oem5.inf']])
+        self.assertTrue(calls[0][3].endswith(os.path.join('ThirdParty', 'mtinvme.inf_amd64_aaa')))
+        info = backup_core.inspect_backup(r['folder'])
+        self.assertTrue(info['ok'])
+        self.assertEqual([p['inf'] for p in info['packages']], ['mtinvme.inf'])
+        self.assertIsNone(info['windows'])
+        self.assertIn('Kijelölt', info['kind'])
+
+    def test_failed_package_leaves_no_half_folder(self):
+        r, _calls, _dest = self._live(['oem5.inf', 'oem9.inf'], export_rc={'oem9.inf': 1})
+        self.assertEqual(r['status'], 'partial')
+        self.assertEqual(r['tp_count'], 1)
+        self.assertEqual(os.listdir(os.path.join(r['folder'], 'ThirdParty')), ['mtinvme.inf_amd64_aaa'])
+        self.assertEqual(len(backup_core.inspect_backup(r['folder'])['packages']), 1)
+
+    def test_nothing_saved_is_fail_and_no_empty_backup(self):
+        r, _calls, dest = self._live(['oem5.inf'], export_rc={'oem5.inf': 1})
+        self.assertEqual(r['status'], 'fail')
+        self.assertIsNone(r['folder'])
+        self.assertEqual(os.listdir(dest), [])
+
+    def test_offline_copies_the_store_folder_without_pnputil(self):
+        root = self.make_windows('dead')
+
+        def run(cmd, **k):
+            raise AssertionError(f'offline célon nem futhat parancs: {cmd}')
+        r = backup_core.backup_selected_drivers(run, lambda m: None, None, os.path.join(self.tmp, 'd'),
+                                                root, ['oem5.inf'])
+        self.assertEqual(r['status'], 'ok')
+        pkg = os.path.join(r['folder'], 'ThirdParty', 'mtinvme.inf_amd64_aaa')
+        self.assertEqual(sorted(os.listdir(pkg)), ['mtinvme.inf', 'mtinvme.sys'])
+        self.assertEqual(os.listdir(os.path.join(r['folder'], 'ThirdParty')), ['mtinvme.inf_amd64_aaa'])
+
+    def test_same_second_never_writes_into_an_existing_backup(self):
+        res = {'problems': []}
+        a = backup_core._new_backup_folder(self.tmp, 0, 'selected', res, lambda m: None)
+        b = backup_core._new_backup_folder(self.tmp, 0, 'selected', res, lambda m: None)
+        self.assertNotEqual(a, b)
+
+    def test_gui_saves_from_the_lists_disk_and_ui_calls_it(self):
+        class H(gbackup.GuiBackupMixin):
+            target_os_path = None
+            _si = _nw = None
+
+            def __init__(self):
+                self.events = []
+
+            def emit(self, e, p=None):
+                self.events.append((e, p))
+
+            def _safe_thread(self, _n, fn):
+                fn()
+
+            def _check_cancel(self):
+                return False
+
+            def _run(self, *a, **k):
+                return _res()
+        h = H()
+        ok = {'status': 'ok', 'size_mb': 1, 'folder': 'E:\\m', 'problems': [], 'tp_count': 1}
+        with mock.patch.object(gbackup.backup_core, 'backup_selected_drivers', return_value=ok) as bs:
+            h.backup_selected_drivers(['oem5.inf'], 'D:\\', 'E:\\')
+            h.backup_selected_drivers(['oem5.inf'], '', 'E:\\')
+        self.assertEqual([c[0][3:] for c in bs.call_args_list],
+                         [('E:\\', 'D:\\', ['oem5.inf']), ('E:\\', None, ['oem5.inf'])])
+        done = [p for e, p in h.events if e == 'task_complete']
+        self.assertTrue(done[0]['status'].startswith('✅'))
+        self.assertIn('Mentés mappájának kiválasztása', done[0]['log'])
+        html = open(os.path.join(os.path.dirname(__file__), '..', 'ui.html'), encoding='utf-8').read()
+        self.assertIn('id="btn-backup-sel"', html)
+        self.assertRegex(html[html.index('<script>'):], r'api\(\)\.backup_selected_drivers\(names, driversTarget\)')
+
+
 class GuiGateTest(_Tmp):
     def test_restore_target_check(self):
         h = gbackup.GuiBackupMixin()

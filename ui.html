@@ -196,7 +196,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
 .count-badge{background:rgba(180,100,255,0.16);border:1px solid var(--glass-border);color:var(--green);font-size:12px;font-weight:700;padding:6px 14px;border-radius:999px;white-space:nowrap}
 .drv-busy-msg{display:none;align-items:center;gap:10px;margin:8px 0;padding:10px 14px;border-radius:10px;background:rgba(180,100,255,0.12);border:1px solid var(--glass-border);font-weight:700}
 #drv-machine.drv-busy .drv-busy-msg{display:flex}
-#drv-machine.drv-busy #driver-table-wrap,#drv-machine.drv-busy .drv-tabsrow,#drv-machine.drv-busy #btn-delete,#drv-machine.drv-busy #lbl-hide-printers,#drv-machine.drv-busy .mm-map,#drv-machine.drv-busy .drv-tools{opacity:.35;filter:grayscale(.7);pointer-events:none;transition:opacity .2s}
+#drv-machine.drv-busy #driver-table-wrap,#drv-machine.drv-busy .drv-tabsrow,#drv-machine.drv-busy #btn-delete,#drv-machine.drv-busy #btn-backup-sel,#drv-machine.drv-busy #lbl-hide-printers,#drv-machine.drv-busy .mm-map,#drv-machine.drv-busy .drv-tools{opacity:.35;filter:grayscale(.7);pointer-events:none;transition:opacity .2s}
 
 /* Live search box in toolbars */
 .search-box{position:relative;flex:1;min-width:160px;max-width:260px}
@@ -1881,6 +1881,11 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                 <div class="toolbar">
                 <button class="btn" onclick="loadDrivers()">🔄 Frissítés</button>
                 <button class="btn btn-danger" onclick="deleteSelected()" id="btn-delete" disabled>🗑 Kijelöltek Törlése</button>
+                <!-- MENTÉS TÖRLÉS NÉLKÜL (2026-11-25, explicit user decision: *„1 et mentek egyet
+                     akarok visszarakni”*): a kijelölt csomagok egy választott mappába, a Mentés nézet
+                     formátumában; visszarakni: Mentés és Visszaállítás → Mentés mappájának kiválasztása. -->
+                <button class="btn" onclick="backupSelected()" id="btn-backup-sel" disabled
+                  title="A kijelölt drivereket kimenti egy általad választott mappába (pl. pendrive-ra) — NEM töröl semmit. Visszarakni a Mentés és Visszaállítás → „Mentés mappájának kiválasztása…” gombbal lehet, driverenként választhatóan.">💾 Kijelöltek Mentése</button>
                 <!-- NYOMTATÓ-SZŰRŐ: ugyanaz a védelem kézzel, mint az AutoFix pipája. Alapból BE,
                 mert egy törölt nyomtató-driver a nyomtató nélkül nem telepíthető vissza. A
                 felismerés a wu_core._collect_printer_protection-ből jön (ugyanaz, amit a fix
@@ -4805,6 +4810,8 @@ function setDriversBusy(on, target) {
     : 'Driverek betöltése — várd meg, amíg elkészül!';
   const del = document.getElementById('btn-delete');
   if (del && on) del.disabled = true;
+  const bks = document.getElementById('btn-backup-sel');
+  if (bks && on) bks.disabled = true;
 }
 
 /* ========== DRIVER LIST ========== */
@@ -5863,6 +5870,23 @@ function updateDeleteBtn() {
   const btn = document.getElementById('btn-delete');
   btn.disabled = selectedDrivers.size === 0;
   btn.textContent = selectedDrivers.size > 0 ? '🗑 Törlés (' + selectedDrivers.size + ' db)' : '🗑 Kijelöltek Törlése';
+  const bks = document.getElementById('btn-backup-sel');
+  bks.disabled = btn.disabled;
+  bks.textContent = selectedDrivers.size > 0 ? '💾 Mentés (' + selectedDrivers.size + ' db)' : '💾 Kijelöltek Mentése';
+}
+/* Kijelöltek mentése TÖRLÉS NÉLKÜL (2026-11-25): a mappát a Python kérdezi meg, a lista
+   lemeze is megy (egy oemNN.inf szám lemezenként mást jelent, a mentés ott fut). */
+async function backupSelected() {
+  const names = [...selectedDrivers].map(i => drivers[i]?.published).filter(Boolean);
+  if (names.length === 0) {
+    toast('Nincs érvényes driver kijelölve!', 'error');
+    return;
+  }
+  try {
+    await api().backup_selected_drivers(names, driversTarget);
+  } catch (e) {
+    toast('Hiba a mentés során: ' + e, 'error');
+  }
 }
 async function deleteSelected() {
   if (selectedDrivers.size === 0) return;

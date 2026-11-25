@@ -369,7 +369,7 @@ _VIRTUAL_DEVICE_NAME_RE = re.compile(
 # kiegészítéshez kellenek.
 WU_PNP_QUERY_PS = ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
                    "Get-WmiObject Win32_PnPEntity | Where-Object { $_.Present -eq $true -and $_.ConfigManagerErrorCode -ne 45 } | "
-                   "Select-Object Name, PNPClass, PNPDeviceID, HardwareID, ConfigManagerErrorCode | ConvertTo-Json -Compress")
+                   "Select-Object Name, PNPClass, PNPDeviceID, HardwareID, CompatibleID, ConfigManagerErrorCode | ConvertTo-Json -Compress")
 
 
 def query_pnp_devices(run):
@@ -489,8 +489,12 @@ def _filter_wu_scan_devices(pnp_data):
         # pclass: a nyers PNPClass megőrzése - erre épül a "gyári driver a generikus
         # helyett" osztály-szűrése (is_generic_replace_candidate); a 'cat' emberi
         # felirat, azzal szűrni törékeny lenne.
+        # compat_ids: CSAK a WU-párosításhoz (_match_wu_updates_to_devices), az all_hwids-be
+        # nem kerül - a katalógus a típuskódos kompatibilis azonosítókra bármit adna.
+        compat = d.get("CompatibleID") or []
         dev = {"cat": cat, "name": n, "id": hwid_clean, "pnp_id": pid,
-               "all_hwids": hwids_list, "err_code": err_code, "pclass": pclass}
+               "all_hwids": hwids_list, "err_code": err_code, "pclass": pclass,
+               "compat_ids": [compat] if isinstance(compat, str) else list(compat)}
         seen_hwids[hwid_clean] = dev
         devices.append(dev)
     # A deduplikálás LISTÁT SZŰKÍT, tehát meg kell mondania, mit vont össze - különben egy
@@ -996,6 +1000,7 @@ def _match_wu_updates_to_devices(wu_results, devices, exclude_uids=None):
     """WU-találatok párosítása a jelenlévő eszközökhöz. A "legjobb mindkettőből" logika:
     - elsődlegesen HWID-egyezés (`_hwid_matches`: prefix VAGY azonos buszon token-részhalmaz;
       a substring-egyezés rövid HWID-knél - pl. "usbmmidd" - hamis találatot adhat),
+    - utána az eszköz kompatibilis azonosítója, CSAK pontos egyezéssel (`compat_ids`),
     - tartalékként cím<->eszköznév egyezés (az AutoFix módszere - e nélkül a SoftwareComponent
       típusú csomagok, pl. Realtek szolgáltatások, sosem párosulnak, mert nincs a jelenlévő
       eszközökhöz köthető HWID-jük).
@@ -1005,6 +1010,7 @@ def _match_wu_updates_to_devices(wu_results, devices, exclude_uids=None):
     exclude_uids = exclude_uids or set()
     matches = []
     seen_uids = set()
+    unmatched = []
     for wu in wu_results:
         uid = wu.get('UpdateID')
         if not uid or uid in exclude_uids or uid in seen_uids:
@@ -1028,6 +1034,17 @@ def _match_wu_updates_to_devices(wu_results, devices, exclude_uids=None):
                 break
 
         if matched_dev is None:
+            # KOMPATIBILIS AZONOSÍTÓ, PONTOS egyezéssel (2026-11-24, Dell G15 5530): a WU a
+            # "HID PCI Minidriver for ISS"-t `{dea5…436}\ish_miniport`-ra ajánlotta, ami az
+            # Intel_Sensor_00 (`{…436}\Vid_8087&Pid_0AC2`, kód 28) kompatibilis azonosítója -
+            # HardwareID-ként nincs meg, így 2 láncon át minden körben némán kiesett. A Windows
+            # is pontos egyezéssel köt kompatibilis azonosítóra, ezért itt nincs token-szabály.
+            for dev in devices:
+                if any(str(c).upper() in hwids_upper for c in dev.get('compat_ids') or []):
+                    matched_dev = dev
+                    break
+
+        if matched_dev is None:
             w_title = title.lower()
             for dev in devices:
                 n_lower = (dev.get('name') or '').lower()
@@ -1039,6 +1056,13 @@ def _match_wu_updates_to_devices(wu_results, devices, exclude_uids=None):
         if matched_dev is not None:
             seen_uids.add(uid)
             matches.append({'uid': uid, 'title': title, 'device': matched_dev})
+        else:
+            unmatched.append(f"{title} {hwids}")
+    if unmatched:
+        # Rule 0: a kiesett ajánlatot is meg kell nevezni (enélkül derült ki csak a
+        # forrásból, hogy a szenzor drivere minden körben felajánlva volt).
+        logging.info(f"[WU-MATCH] {len(unmatched)} WU-ajánlat nem párosítható jelenlévő eszközhöz, "
+                     f"kimarad: {unmatched}")
     return matches
 
 
