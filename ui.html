@@ -2365,7 +2365,11 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                  parancssori változata (GetHelpCmd, OfficeScrubScenario); remove_office (app/winact_core.py). -->
             <div class="card glass">
               <div class="card-title">🗑️ Office teljes eltávolítása</div>
-              <div class="card-desc">Letölti a <b>Microsoft saját Office-eltávolítóját</b> (Get Help parancssori változat), és vele <b>minden Office-verziót</b> leszed a gépről — kérdés nélkül, magától végigmegy (10–30 perc). A végén a program visszaellenőrzi a telepített programok listáját, és csak akkor írja ki, hogy kész, ha tényleg nincs fent Office. Előtte <b>zárd be a Word/Excel/Outlook/Teams ablakokat</b>. Internet kell hozzá.</div>
+              <div class="card-desc">Letölti a <b>Microsoft saját Office-eltávolítóját</b>, és vele <b>minden Office-verziót</b> leszed, utána a Microsoft kézi eltávolítási lépései szerint a <b>program maradékát is</b> (programmappák, registry, szolgáltatás, ütemezett feladatok, Office-ikonok az asztalon, tálcán, Start menüben). Kérdés nélkül megy végig (10–30 perc), a végén mindent visszaellenőriz. Előtte <b>zárd be a Word/Excel/Outlook/Teams ablakokat</b>. Internet kell hozzá.<br>🛡️ <b>Csak a programot törli. A felhasználó fájljaihoz SOHA nem nyúl:</b> Word-, Excel-, PowerPoint-dokumentumok (díjbekérők, számlák, táblázatok…), PDF-ek, saját sablonok, levélaláírások, makrók, Outlook-levelek (.pst/.ost), nem mentett és OneDrive-ra még fel nem töltött dokumentumok — mind megmaradnak.</div>
+              <label class="toggle"><input type="checkbox" id="officedel-backup-docs" checked><span class="toggle-track"></span>📦 Előtte mentse el a dokumentumokat ide: C:\DriverVarazslo\office_dokumentum_mentes (Word, Excel, PowerPoint, PDF, .pst…; ha nem sikerül, az Office-hoz nem nyúl)</label>
+              <label class="toggle"><input type="checkbox" id="officedel-keep-settings"><span class="toggle-track"></span>👤 Maradjanak a fiókok és beállítások (Outlook-fiókok, programbeállítások)</label>
+              <label class="toggle"><input type="checkbox" id="officedel-keep-activation"><span class="toggle-track"></span>🔑 Maradjon az aktiválás (termékkulcs, licenc, bejelentkezés)</label>
+              <label class="toggle"><input type="checkbox" id="officedel-remove-hub"><span class="toggle-track"></span>📱 A Windows „Microsoft 365 (Office)” alkalmazását is törölje (csak egy indító, az Office-t nem érinti)</label>
               <div class="winact-btnrow">
                 <button class="btn btn-danger" onclick="removeOffice()" id="btn-officedel">🗑️ Office Eltávolítása</button>
               </div>
@@ -7123,8 +7127,18 @@ async function generateSystemReport() {
 
 /* ========== NET BLOKKOLÓ SCRIPT (block.ps1) ========== */
 async function removeOffice() {
-  const ok = await showConfirm('Office eltávolítása', 'MINDEN Office-verzió lekerül erről a gépről (a licenc is).\n\nZárd be előtte a Word/Excel/Outlook/Teams ablakokat. Indulhat?');
-  if (ok) api().remove_office();
+  const keepSettings = document.getElementById('officedel-keep-settings').checked;
+  const keepActivation = document.getElementById('officedel-keep-activation').checked;
+  const removeHub = document.getElementById('officedel-remove-hub').checked;
+  const backupDocs = document.getElementById('officedel-backup-docs').checked;
+  const ok = await showConfirm('Office eltávolítása', 'MINDEN Office-verzió (a program) és a maradéka lekerül erről a gépről.\n\n'
+    + (backupDocs ? '📦 Előtte a dokumentumok mentése: C:\\DriverVarazslo\\office_dokumentum_mentes' : '📦 Dokumentum-mentés NINCS.') + '\n'
+    + (keepSettings ? '👤 A fiókok és beállítások MARADNAK.' : '👤 A fiókok és programbeállítások (Outlook-fiókok is) TÖRLŐDNEK.') + '\n'
+    + (keepActivation ? '🔑 Az aktiválás MARAD.' : '🔑 Az aktiválás (termékkulcs, licenc) TÖRLŐDIK.') + '\n'
+    + (removeHub ? '📱 A „Microsoft 365 (Office)” alkalmazás is TÖRLŐDIK.' : '📱 A „Microsoft 365 (Office)” alkalmazás MARAD.') + '\n\n'
+    + '🛡️ A felhasználó FÁJLJAI (Word-, Excel-dokumentumok, PDF-ek, sablonok, aláírások, levelek) MIND MEGMARADNAK — csak a programot törli.\n\n'
+    + 'Zárd be előtte az Office-ablakokat. Indulhat?');
+  if (ok) api().remove_office(keepSettings, keepActivation, removeHub, backupDocs);
 }
 
 async function downloadBlockScript() {

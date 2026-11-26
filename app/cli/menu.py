@@ -1185,8 +1185,14 @@ def _menu_winact(api):
     elif c == '4':
         api.open_activation_tool('settings')
     elif c == '5':
-        if ui.confirm('MINDEN Office-verzió lekerül erről a gépről. Zárd be az Office-ablakokat. Indulhat?', False):
-            _run_screen(api, 'Office eltávolítása', lambda: api.remove_office())
+        bd = ui.confirm('Előtte mentse el a dokumentumokat (C:\\DriverVarazslo\\office_dokumentum_mentes)?', True)
+        ks = ui.confirm('Maradjanak a fiókok és beállítások (Outlook-fiókok, programbeállítások)?', False)
+        ka = ui.confirm('Maradjon az aktiválás (termékkulcs, licenc, bejelentkezés)?', False)
+        rh = ui.confirm('A Windows „Microsoft 365 (Office)” alkalmazását is törölje (csak egy indító)?', False)
+        if ui.confirm('MINDEN Office-verzió (a program) és a maradéka lekerül erről a gépről. A felhasználó '
+                      'FÁJLJAI (dokumentumok, PDF, sablonok, aláírások, levelek) MIND MEGMARADNAK. '
+                      'Zárd be az Office-ablakokat. Indulhat?', False):
+            _run_screen(api, 'Office eltávolítása', lambda: api.remove_office(ks, ka, rh, bd))
 
 
 def _menu_display(api):

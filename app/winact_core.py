@@ -902,6 +902,10 @@ GETHELP_URL = 'https://aka.ms/SaRA_EnterpriseVersionFiles'
 GETHELP_ARGS = ['-S', 'OfficeScrubScenario', '-AcceptEula']
 GETHELP_TIMEOUT = 3600
 GETHELP_MAX_RUNS = 4
+# A GetHelpCmd a háttérben távolít el (terep, Build 427): ennyit várunk rá.
+BACKGROUND_POLL_SECS = 15
+BACKGROUND_IDLE_SECS = 300
+BACKGROUND_MAX_SECS = 1800
 # A Windows saját eltávolítója (tartalék kör): egy-egy termék, kérdés nélkül.
 NATIVE_UNINSTALL_TIMEOUT = 1800
 # A Learn-oldal kódjai (get-help-office-uninstall). Csak tájékoztat: a kilépési kód a terepen
@@ -967,11 +971,22 @@ def installed_office():
     return sorted(found.items(), key=lambda e: ('msiexec' in e[1], e[0]))
 
 
-def remove_office(run_fn, log, progress=None, installed=installed_office):
-    """Minden Office eltávolítása: 1) a Microsoft Get Help parancssori változata (letöltve),
-    2) ami utána még fent van, arra a Windows saját eltávolítója, termékenként, csendben.
-    Visszatérés: (ok, szöveg). A verdikt a VISSZAOLVASÁS (4. elv): ✅ csak akkor, ha utána
-    a Programok listájában nincs Office."""
+def remove_office(run_fn, log, progress=None, installed=installed_office, keep_settings=False,
+                  keep_activation=False, deep_clean=None, remove_hub=False, backup_docs=False,
+                  backup=None):
+    """Minden Office eltávolítása: 0) ha kérték, a felhasználók dokumentumainak mentése
+    (`officeclean_core.backup_documents`; ha nem sikerül, az Office-hoz NEM nyúlunk),
+    1) a Microsoft Get Help parancssori változata (letöltve),
+    2) ami utána még fent van, arra a Windows saját eltávolítója, termékenként, csendben,
+    3) a maradékok törlése (`officeclean_core.deep_clean`; a két jelölőnégyzet: fiókok/beállítások,
+    aktiválás). Visszatérés: (ok, szöveg). A verdikt a VISSZAOLVASÁS (4. elv): ✅ csak akkor, ha
+    utána a Programok listájában nincs Office, és a maradék-célok közül sem maradt semmi."""
+    if deep_clean is None:
+        from app.officeclean_core import deep_clean
+    if backup is None:
+        from app.officeclean_core import backup_documents, user_profiles
+        backup = lambda lg: backup_documents(lg, [p for _, p in user_profiles()], _app_data_dir())
+
     def say(msg):
         logging.info(f"[OFFICEDEL] {msg}")
         log(msg)
@@ -979,9 +994,57 @@ def remove_office(run_fn, log, progress=None, installed=installed_office):
     def names():
         return [n for n, _ in installed()]
 
+    backup_text = ''
+    if backup_docs:
+        ok, backup_text = backup(log)
+        if not ok:
+            return False, ('❌ A dokumentumok mentése nem sikerült, ezért az Office-hoz NEM nyúltam.\n'
+                           + backup_text)
+
     before = names()
     say('A gépen lévő Office: ' + (', '.join(before) if before else 'a Programok listájában nincs'))
+    code = 0
+    if before:
+        code = _uninstall_office(run_fn, say, progress, installed, names, before)
+    leftovers = deep_clean(run_fn, log, keep_settings=keep_settings, keep_activation=keep_activation,
+                           remove_hub=remove_hub)
+    left = [n for n, _ in installed()]
+    saved = f'\n📦 A dokumentumok mentése: {backup_text}' if backup_docs else ''
 
+    if left or leftovers:
+        return False, ('❌ Az Office NEM tűnt el teljesen. Még fent van:\n   • '
+                       + '\n   • '.join(left + leftovers)
+                       + ('\n' + GETHELP_CODES[6] if code == 6 else '')
+                       + '\nHa zárolt fájl maradt: indítsd újra a gépet, és nyomd meg újra.' + saved)
+    if not before:
+        return True, 'ℹ️ Ezen a gépen nem volt telepített Office; a maradékait (ha voltak) letöröltem.' + saved
+    return True, ('✅ Az Office eltávolítva, maradék nélkül (' + ', '.join(before) + ').'
+                  + (' A fiókok/beállítások megmaradtak.' if keep_settings else '')
+                  + (' Az aktiválás megmaradt.' if keep_activation else '')
+                  + ' Indítsd újra a gépet.' + saved)
+
+
+def _wait_background_uninstall(say, names, now, sleep=None, clock=None):
+    """A Microsoft háttérben futó eltávolításának kivárása: amíg fogy az Office, vagy
+    BACKGROUND_IDLE_SECS-ig nem változik a lista (legfeljebb BACKGROUND_MAX_SECS)."""
+    import time
+    sleep, clock = sleep or time.sleep, clock or time.monotonic
+    say('⏳ A Microsoft eltávolítója a háttérben dolgozik - megvárom...')
+    start = last_change = clock()
+    while now and clock() - start < BACKGROUND_MAX_SECS and clock() - last_change < BACKGROUND_IDLE_SECS:
+        sleep(BACKGROUND_POLL_SECS)
+        cur = names()
+        if cur != now:
+            last_change = clock()
+            say(f'   még fent: {len(cur)} tétel')
+        now = cur
+    logging.info(f"[OFFICEDEL] Háttér-várakozás vége {clock() - start:.0f} mp után, fent: {now}")
+    return now
+
+
+def _uninstall_office(run_fn, say, progress, installed, names, before):
+    """Az 1-2. lépés: a Microsoft eltávolítója (ismételve, amíg fogy), utána a Windows saját
+    eltávolítója a maradékra. Visszatérés: a Microsoft eszközének utolsó kódja."""
     root = os.path.join(_app_data_dir(), 'gethelpcmd')
     zip_path = os.path.join(_app_data_dir(), 'gethelpcmd.zip')
     logging.warning(f"[OFFICEDEL] A régi kibontás törlése, ha van: {root}")
@@ -1004,7 +1067,7 @@ def remove_office(run_fn, log, progress=None, installed=installed_office):
     for n in range(1, GETHELP_MAX_RUNS + 1):
         if not remaining:
             break
-        say(f'🗑️ 1/2: a Microsoft eltávolítója fut ({n}. kör, kérdés nélkül, akár 10-30 perc)...')
+        say(f'🗑️ 1/3: a Microsoft eltávolítója fut ({n}. kör, kérdés nélkül, akár 10-30 perc)...')
         res = run_fn([exe] + GETHELP_ARGS, timeout=GETHELP_TIMEOUT, cwd=os.path.dirname(exe),
                      ok_codes=(0, 68))
         code = res.returncode
@@ -1014,13 +1077,18 @@ def remove_office(run_fn, log, progress=None, installed=installed_office):
         now = names()
         say(f'A Microsoft eltávolítója végzett (kód: {code}, {GETHELP_CODES.get(code, "ismeretlen kód")})'
             + (f' - hibát írt: {err}' if err else '') + f'; még fent: {len(now)} tétel')
+        if 'background' in out.lower() and now:
+            # Terep, Build 427: 12 mp után kilépett ezzel: "Uninstall office is running in the
+            # background." - a munka utána fut. Megvárjuk, különben a tartalék kör párhuzamosan
+            # futna vele.
+            now = _wait_background_uninstall(say, names, now)
         if len(now) >= len(remaining):
             break  # nem haladt: a többi a tartalék körre marad
         remaining = now
 
     left = installed()
     if left:
-        say(f'🔁 2/2: még fent van {len(left)} Office-tétel - a Windows saját eltávolítója, egyenként...')
+        say(f'🔁 2/3: még fent van {len(left)} Office-tétel - a Windows saját eltávolítója, egyenként...')
         for name, cmd in left:
             if name not in names():
                 logging.info(f"[OFFICEDEL] {name}: már lekerült (egy korábbi tétel vitte)")
@@ -1029,12 +1097,4 @@ def remove_office(run_fn, log, progress=None, installed=installed_office):
             logging.warning(f"[OFFICEDEL] ELTÁVOLÍTÁS: {name} | {cmd}")
             r = run_fn(cmd, timeout=NATIVE_UNINSTALL_TIMEOUT, ok_codes=(0, 1605, 1641, 3010))
             logging.info(f"[OFFICEDEL] {name}: kód={r.returncode}")
-        left = installed()
-
-    if left:
-        return False, ('❌ Az Office NEM került le teljesen. Még fent van: '
-                       + ', '.join(n for n, _ in left)
-                       + ('\n' + GETHELP_CODES[6] if code == 6 else ''))
-    if not before:
-        return True, 'ℹ️ Ezen a gépen nincs Office, nem volt mit eltávolítani.'
-    return True, '✅ Az Office eltávolítva (' + ', '.join(before) + '). Indítsd újra a gépet.'
+    return code

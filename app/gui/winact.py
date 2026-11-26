@@ -295,10 +295,16 @@ class GuiWinActMixin:
                 f'tartalmaz - azt kézzel kell elindítani ebből a mappából:\n   {ext_dir}')
 
     # ------------------------------------------------------- Office eltávolítás
-    def remove_office(self):
-        """Minden Office-verzió eltávolítása a Microsoft Get Help parancssori változatával,
-        kérdés nélkül (2026-11-26, explicit user decision). A mag és az indoklás:
-        `winact_core.remove_office`. A verdikt a Programok listájának visszaolvasása."""
+    def remove_office(self, keep_settings=False, keep_activation=False, remove_hub=False, backup_docs=True):
+        """Minden Office-verzió eltávolítása, maradék nélkül, kérdés nélkül (2026-11-26, explicit
+        user decision). A három kapcsoló a kártya jelölőnégyzete (fiókok/beállítások, aktiválás,
+        a „Microsoft 365 (Office)” alkalmazás). Felhasználói fájlhoz nem nyúl.
+        A mag és az indoklás: `winact_core.remove_office` + `officeclean_core`."""
+        keep_settings, keep_activation, remove_hub = bool(keep_settings), bool(keep_activation), bool(remove_hub)
+        backup_docs = bool(backup_docs)
+        logging.info(f"[OFFICEDEL] Indítás: fiókok/beállítások megtartása={keep_settings}, "
+                     f"aktiválás megtartása={keep_activation}, M365-alkalmazás törlése={remove_hub}, "
+                     f"dokumentum-mentés={backup_docs}")
         if self.target_os_path:
             self.emit('toast', {'message': '❌ Offline módban nem elérhető!', 'type': 'error'})
             return
@@ -308,7 +314,9 @@ class GuiWinActMixin:
             self.emit('task_start', {'task': task, 'title': 'Office eltávolítása'})
             log = lambda m: self.emit('task_progress', {'task': task, 'log': m})
             try:
-                ok, text = winact_core.remove_office(self._run, log)
+                ok, text = winact_core.remove_office(self._run, log, keep_settings=keep_settings,
+                                                     keep_activation=keep_activation, remove_hub=remove_hub,
+                                                     backup_docs=backup_docs)
                 log(text)
                 self.emit('task_complete', {'task': task, 'status': '✅ Kész' if ok else '❌ Hiba'})
             except Exception as e:

@@ -59,11 +59,57 @@ class OfficeRemoveTest(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def _go(self, m):
+    def _go(self, m, leftovers=(), **kw):
         # A FakeMachine a natív parancsban a név alapján dönt: a név legyen a parancsban.
         orig = m.installed
         m.installed = lambda: [(n, f'{c} REM {n}') for n, c in orig()]
-        return wc.remove_office(m.run, lambda s: None, installed=m.installed)
+        self.clean_calls = []
+
+        def fake_clean(run, log, **k):
+            self.clean_calls.append(k)
+            return list(leftovers)
+        return wc.remove_office(m.run, lambda s: None, installed=m.installed, deep_clean=fake_clean, **kw)
+
+    def test_a_maradek_takaritas_a_kapcsolokkal_fut(self):
+        ok, text = self._go(FakeMachine(['Microsoft 365'], gethelp_removes=1),
+                            keep_settings=True, keep_activation=False)
+        self.assertTrue(ok)
+        self.assertEqual(self.clean_calls, [{'keep_settings': True, 'keep_activation': False, 'remove_hub': False}])
+        self.assertIn('fiókok/beállítások megmaradtak', text)
+
+    def test_maradek_nem_kesz(self):
+        ok, text = self._go(FakeMachine(['Microsoft 365'], gethelp_removes=1),
+                            leftovers=['mappa: C:\\Program Files\\Microsoft Office'])
+        self.assertFalse(ok)
+        self.assertIn('Microsoft Office', text)
+
+    def test_bukott_mentes_utan_az_office_hoz_nem_nyul(self):
+        m = FakeMachine(['Microsoft 365'], gethelp_removes=1)
+        orig = m.installed
+        m.installed = lambda: [(n, f'{c} REM {n}') for n, c in orig()]
+        cleaned = []
+        ok, text = wc.remove_office(m.run, lambda s: None, installed=m.installed,
+                                    deep_clean=lambda *a, **k: cleaned.append(1) or [],
+                                    backup_docs=True, backup=lambda lg: (False, 'Nincs elég hely'))
+        self.assertFalse(ok)
+        self.assertIn('NEM nyúltam', text)
+        self.assertEqual(m.calls, [])
+        self.assertEqual(cleaned, [])
+
+    def test_sikeres_mentes_utan_fut_es_kiirja_hova(self):
+        m = FakeMachine(['Microsoft 365'], gethelp_removes=1)
+        orig = m.installed
+        m.installed = lambda: [(n, f'{c} REM {n}') for n, c in orig()]
+        ok, text = wc.remove_office(m.run, lambda s: None, installed=m.installed,
+                                    deep_clean=lambda *a, **k: [], backup_docs=True,
+                                    backup=lambda lg: (True, r'C:\DriverVarazslo\office_dokumentum_mentes\x'))
+        self.assertTrue(ok)
+        self.assertIn('office_dokumentum_mentes', text)
+
+    def test_valodi_takarito_tesztbol_tiltva(self):
+        from app import officeclean_core
+        with self.assertRaises(RuntimeError):
+            officeclean_core.deep_clean(None, None)
 
     def test_csak_a_sugo_szerinti_kapcsolok(self):
         self.assertEqual(wc.GETHELP_ARGS, ['-S', 'OfficeScrubScenario', '-AcceptEula'])
@@ -97,8 +143,9 @@ class OfficeRemoveTest(unittest.TestCase):
         m = FakeMachine([])
         ok, text = self._go(m)
         self.assertTrue(ok)
-        self.assertIn('nincs Office', text)
+        self.assertIn('nem volt telepített Office', text)
         self.assertEqual(m.calls, [])
+        self.assertEqual(len(self.clean_calls), 1)  # a régi maradékot így is takarítja
 
     def test_nem_zip_letoltes_hiba(self):
         def bad_download(run_fn, url, dest, **k):
@@ -107,6 +154,53 @@ class OfficeRemoveTest(unittest.TestCase):
         with mock.patch.object(wc, 'download_with_cert_fallback', bad_download):
             with self.assertRaises(RuntimeError):
                 self._go(FakeMachine(['Microsoft 365']))
+
+
+class BackgroundWaitTest(unittest.TestCase):
+    """Terep, Build 427: "Uninstall office is running in the background." - meg kell várni."""
+
+    def _clock(self):
+        t = [0.0]
+        return t, (lambda: t[0]), (lambda s: t.__setitem__(0, t[0] + s))
+
+    def test_kivarja_amig_elfogy(self):
+        t, clock, sleep = self._clock()
+        states = iter([['A', 'B'], ['B'], []])
+        left = wc._wait_background_uninstall(lambda m: None, lambda: next(states), ['A', 'B'],
+                                             sleep=sleep, clock=clock)
+        self.assertEqual(left, [])
+
+    def test_ha_nem_valtozik_feladja(self):
+        t, clock, sleep = self._clock()
+        left = wc._wait_background_uninstall(lambda m: None, lambda: ['A'], ['A'], sleep=sleep, clock=clock)
+        self.assertEqual(left, ['A'])
+        self.assertLessEqual(t[0], wc.BACKGROUND_IDLE_SECS + wc.BACKGROUND_POLL_SECS)
+
+    def test_a_remove_office_hatter_uzenetre_var(self):
+        tmp = tempfile.mkdtemp(prefix='dv_officedel_')
+        self.addCleanup(shutil.rmtree, tmp, True)
+
+        def dl(run_fn, url, dest, **k):
+            with zipfile.ZipFile(dest, 'w') as z:
+                z.writestr('GetHelpCmd.exe', b'MZ')
+        items = ['Microsoft 365']
+        polls = []
+
+        def installed():
+            polls.append(1)
+            if len(polls) > 3:  # a háttérben pár lekérdezés után eltűnik
+                items.clear()
+            return [(n, 'x') for n in items]
+
+        def run(cmd, **k):
+            return CommandResult(0, 'Scenario completed successfully.\nExecutionResultDetails: '
+                                    'Uninstall office is running in the background.')
+        with mock.patch.object(wc, '_app_data_dir', lambda: tmp), \
+                mock.patch.object(wc, 'download_with_cert_fallback', dl), \
+                mock.patch.object(wc, 'BACKGROUND_POLL_SECS', 0):
+            ok, _ = wc.remove_office(run, lambda m: None, installed=installed,
+                                     deep_clean=lambda r, l, **k: [])
+        self.assertTrue(ok)
 
 
 class OfficeEntryTest(unittest.TestCase):

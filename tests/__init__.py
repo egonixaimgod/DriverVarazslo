@@ -56,6 +56,23 @@ def _no_real_process(cmd, *a, **k):
 REAL_STREAM_CMD = _bc._stream_cmd     # a saját tesztje (csonkolt Popen-nel) ezt hívja
 _bc._stream_cmd = _no_real_process
 
+# VÉDŐHÁLÓ (2026-11-26): az Office-maradék takarító (officeclean_core.deep_clean) a VALÓDI gépről
+# törölné az Office mappáit, registryjét, licencét. Teszt csak csonkkal hívhatja.
+from app import officeclean_core as _oc  # noqa: E402
+
+
+def _no_real_office_clean(*a, **k):
+    raise RuntimeError("Teszt NEM futtathatja a valódi officeclean_core.deep_clean-t")
+
+
+REAL_DEEP_CLEAN = _oc.deep_clean
+_oc.deep_clean = _no_real_office_clean
+# A dokumentum-mentés a valódi profilokat másolná a valódi C:\DriverVarazslo-ba: csak csonkkal,
+# vagy közvetlenül hívva eldobható mappákkal (a teszt maga adja a forrást és a célt).
+REAL_USER_PROFILES = _oc.user_profiles
+_oc.user_profiles = lambda: (_ for _ in ()).throw(
+    RuntimeError("Teszt NEM olvashatja a valódi felhasználói profilokat (officeclean_core.user_profiles)"))
+
 # VÉDŐHÁLÓ (2026-11-10): teszt NEM nyúlhat a Windows VALÓDI Hitelesítőadat-kezelőjéhez.
 # A `test_toollib` sikeres Drive-letöltései (`password='titok'`) a valódi tárba mentették a
 # 'titok'-ot, vagyis MINDEN tesztfuttatás felülírta a fejlesztői gép megjegyzett Drive-
