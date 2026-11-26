@@ -5,7 +5,7 @@ a = Analysis(
     ['driver_tool.py'],
     pathex=[],
     binaries=[],
-    datas=[('ui.html', '.'), ('bolti_tabla_sablon.docx', '.')],
+    datas=[('ui.html', '.'), ('bolti_tabla_sablon.docx', '.'), ('SetupProd_OffScrub.exe', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

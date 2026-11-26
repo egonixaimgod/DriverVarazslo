@@ -174,6 +174,14 @@ A throttlingolt sáv-emittert (`_stress_dl_progress_emitter`) **újrahasznosítj
 
 Offline tesztelve: **47 állítás** a magra (a három beállítási ág, a `.bat`-keresés kis/nagybetűvel, almappával, kiterjesztés nélküli névvel, a teljes letöltés→kicsomagolás út valódi ZIP-pel, a régi csomag törlése, a nem-ZIP és a közvetlen-`.bat` ág, a generált indítóparancs indítás nélkül, a `virus_blocked` mindkét nyelven, a `LICENSE_STATUS` színek) + **25 állítás az emit-sorozatra** (mind a hat ágon ellenőrizve, hogy **egyetlen modál-esemény sem megy ki**, és hogy a sáv hiba esetén is lezárul). Plusz `node --check` és headless render négy állapotra (beállítatlan/beállított gomb, futó letöltési sáv, hibaüzenet a dobozban).
 
+### Office teljes eltávolítása (2026-11-26, explicit user decision)
+
+A felhasználó szavaival: *„egy gomb csak rányomok letölti a toolt elindítja végigmegy vagy én végignyomkodom ahogy gyorsabban meg tudod csinálni”*; helye: *„a windows részre … lentre a többi ilyen szervizprogi mellé”*.
+
+- **Mért adat (2026-11-26):** a felhasználó által adott `SetupProd_OffScrub.exe`: 197 000 bájt, FileDescription „Microsoft Support and Recovery Assistant for Office 365”, FileVersion 1.0.0.0, Authenticode `Valid`, aláíró `CN=Microsoft Corporation`. A `https://aka.ms/SaRA-officeUninstallFromPC` (curl, Windows-UA nélkül) `301` → `ms-contact-support://smc-to-emerald/SARA-UninstallOffice`, vagyis a Get Help alkalmazás, nem exe. Ezért csomagoltuk be, nem töltjük le.
+- **NEM mért:** az eszközt nem futtattuk (a fejlesztői gépről is leszedné az Office-t). Hogy csak indító, ami a részeit a Microsofttól tölti le, az a 197 KB-os méretből és a SaRA-indítók ismert működéséből következik, nem mérés. Hogy a Microsoft háttere még kiszolgálja-e, és mely Office-verziókat kezeli, terepen kell kiderülnie. Parancssori (csendes) kapcsolóját nem ismerjük, ezért interaktív.
+- **Miért nincs „kész”:** az indító átadja a munkát egy másik folyamatnak, a kilépése nem a munka vége. A program csak azt mondja ki, hogy elindult; a végét és az újraindítást az eszköz maga kéri.
+
 ### Napló-szinkron a bolt Drive-jára (2026-08-27)
 
 **A projekt hibajelentése maga a napló** (ez a fájl ezzel kezdődik), és a gyakorlatban pont akkor maradt el, amikor a legfontosabb lett volna: a technikus otthon/ügyfélnél futtat egy fixet, lát valami furcsát, mire elemezni lehetne, a gép már az ügyfélnél van. Ezért a lánc legvégén (`app/gui/autofix.py`, közvetlenül a `chain_time` kiírása után) a napló magától felmegy a bolt **már meglévő** Benchmark-végpontjára (`benchmark_core.resolve_endpoint()`), `action="log"` megkülönböztetéssel — nincs új szolgáltatás, új fiók és új titok. A kiszolgáló oldal a repo `appscript.txt`-je (ez **nem** build-bemenet: a felhasználó illeszti be a Google Apps Scriptbe).

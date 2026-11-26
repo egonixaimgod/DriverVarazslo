@@ -27,9 +27,15 @@ KIÍRJA, milyen .bat/.cmd fájlok vannak a csomagban - futtatni olyankor semmit 
 # === AUTO-IMPORTS ===
 import os
 import logging
+import shutil
+import subprocess
 
 from app import winact_core
+from app.common import _app_data_dir, resource_path
 # === /AUTO-IMPORTS ===
+
+# A Microsoft Office-eltávolítója (SaRA-indító), az exébe csomagolva (DriverVarazslo.spec).
+OFFSCRUB_EXE = 'SetupProd_OffScrub.exe'
 
 
 class GuiWinActMixin:
@@ -293,6 +299,42 @@ class GuiWinActMixin:
                       f"   OFFICE_ACTIVATOR_BAT = '{os.path.basename(batches[0])}'")
         return ('⚠️ A csomagban EGYETLEN .bat/.cmd fájl sincs. Lehet, hogy .exe-t vagy .ps1-et '
                 f'tartalmaz - azt kézzel kell elindítani ebből a mappából:\n   {ext_dir}')
+
+    # ------------------------------------------------------- Office eltávolítás
+    def remove_office(self):
+        """Az Office teljes eltávolítása a Microsoft saját eszközével (2026-11-26, explicit
+        user decision: *„egy gomb csak rányomok letölti a toolt elindítja … én végignyomkodom”*).
+
+        Az exe a programba van csomagolva, mert az `aka.ms/SaRA-officeUninstallFromPC` link
+        2026-11-26-án már a Get Help alkalmazásra irányított (`ms-contact-support://`), exét
+        nem adott. Kimásoljuk a `C:\\DriverVarazslo`-ba (a `_MEI` mappa kilépéskor törlődik),
+        és `cmd /c start`-tal indítjuk, hogy a program bezárása se lője ki (8. fejezet).
+
+        "Kész"-t NEM írunk: az eszköz interaktív, a technikus nyomkodja végig, és a végén
+        maga mondja, hogy kész / újraindítást kér. Mi csak azt tudjuk, hogy elindult (4. elv).
+        Szinkron hívás: egy 197 KB-os másolás + egy azonnal kilépő `cmd`."""
+        logging.info("[API] remove_office()")
+        if self.target_os_path:
+            return {'success': False, 'error': 'Offline módban nem elérhető (a futó gépről törölné az Office-t).'}
+        try:
+            dst = os.path.join(_app_data_dir(), OFFSCRUB_EXE)
+            shutil.copy2(resource_path(OFFSCRUB_EXE), dst)
+            cmd = f'cmd /c start "" "{dst}"'
+            logging.warning(f"[OFFICEDEL] OFFICE-ELTÁVOLÍTÓ INDÍTÁSA (a Microsoft eszköze, "
+                            f"interaktív): {cmd}")
+            # Popen pipe nélkül, mint a `launch_activator_bat`: egy `_run`-féle elkapott
+            # stdout-ot az elindított eszköz örökölhetné, és akkor a hívás kivárná.
+            helper = subprocess.Popen(cmd, creationflags=subprocess.DETACHED_PROCESS, close_fds=True)
+            rc = helper.wait(timeout=15)
+            if rc != 0:
+                logging.warning(f"[OFFICEDEL] A start nem tudta elindítani az eszközt (kód={rc}).")
+                return {'success': False, 'error': f'Az eltávolító nem indult el (kód={rc}). '
+                        'Ha a vírusirtó blokkolta, engedélyezd: ' + dst}
+            logging.info(f"[OFFICEDEL] Az eltávolító elindult ({dst}).")
+            return {'success': True, 'path': dst}
+        except Exception as e:
+            logging.error(f"[OFFICEDEL] Az Office-eltávolító indítása hibára futott: {e}", exc_info=True)
+            return {'success': False, 'error': str(e)}
 
     def clear_kms_server(self):
         """A beállított KMS-kiszolgáló törlése (vissza a Microsoft alapértelmezettre).

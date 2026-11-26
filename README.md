@@ -143,7 +143,7 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 | 🔍 **Driver keresés és telepítés** | Kézi szken: minden eszközre megmutatja, van-e újabb gyári driver, és kijelölés után feltelepíti |
 | 💿 **Driverek kezelése** | A telepített third-party driverek listája használat szerint, a gép alkatrész-térképével, törléssel, a kijelöltek mentésével és karbantartó eszközökkel |
 | 💾 **Mentés és visszaállítás** | Driverek mentése, visszaállítása élő vagy **nem induló** Windowsba, WIM/ESD-kinyerés, rendszerindítás-javítás |
-| 🪟 **Operációs rendszer** | Windows Update driverkezelése, Win 11 frissítés javítása, Windows és Office aktiválás, BitLocker, teljesítmény-mód, hálózat-blokkoló |
+| 🪟 **Operációs rendszer** | Windows Update driverkezelése, Win 11 frissítés javítása, Windows és Office aktiválás, Office teljes eltávolítása, BitLocker, teljesítmény-mód, hálózat-blokkoló |
 | 🖥️ **Kijelző és színkezelés** | HDR, automatikus színkezelés (ACM), ICC-profilok SDR/HDR módra, gamma, panel-adatok, gyári visszaállítás |
 | 🧹 **Rendszer karbantartás** | Ideiglenes fájlok, gyorsítótárak és komponenstár takarítása, előre megmutatott méretekkel |
 | 🏷️ **Bolti tábla** | A5-ös árlapok a szerviz Word-sablonjából, akciós árral és Windows-telepítés opcióval |
@@ -201,6 +201,7 @@ Minden parancs, döntés és kattintás bekerül a diagnosztikai naplóba, így 
 
 - **Windows Update:** négy gyorsgomb, mindegyik **teljes resettel** (catroot2, WU DLL-ek, winsock, utána újraindítás): driver-letiltás, driver-engedélyezés, csak reset, driver-letiltás + 10 év szünet. Alatta a szüneteltetés (+1 hét, tetszőleges napszám, 10 év, feloldás), és a **Win 11 frissítés javítása** egy beragadt funkciófrissítéshez (pl. `0x80070002`): 10 év WU-szünet (hogy a Windows Update ne fusson párhuzamosan a Telepítési segéddel), teljes reset, a félbemaradt telepítő maradékának (`$WINDOWS.~BT`, `$WINDOWS.~WS`) törlése, újraindítás (pár perc; egy kapcsolóval DISM /RestoreHealth + sfc /scannow is, +15–45 perc); utána a frissítés a Windows 11 Telepítési segéddel megy — a személyes fájlok, programok és beállítások megmaradnak. Minden gomb kitakarítja a beragadt letöltéseket és rendbe teszi a szolgáltatásokat, frissítés-keresést soha nem indít; az eredményt visszaolvassa, és ha a takarításhoz újraindítás kell (zárolt fájl, beragadt szolgáltatás), 10 mp múlva újraindít, majd bejelentkezés után magától befejezi és ellenőrzi.
 - **Windows és Office aktiválás:** licencállapot közvetlenül WMI-ből, a **BIOS-ba égetett gyári kulcs** kiolvasása és használata, KMS-tartalék a szerviz saját kiszolgálójával. A végeredményt a program a rendszertől kérdezi vissza.
+- **Office teljes eltávolítása:** egy gomb elindítja a Microsoft saját Office-eltávolítóját (a programba csomagolva); a saját ablakában kell végignyomkodni.
 - **BitLocker:** a rendszermeghajtó állapota és a titkosítás kikapcsolása.
 - **⚡ Teljesítmény-mód:** a beépített „Nagy teljesítményű” energiaséma hangolt értékekkel (hálózatról és akkumulátorról is), a régi séma megnevezésével és a visszaállítás parancsával.
 - **Hálózat-blokkoló szkript** letöltése tűzfal-alapú internettiltáshoz.
