@@ -43,6 +43,44 @@ class Catalog(unittest.TestCase):
         self.assertEqual(set(keys), set(STRESS_TOOLS))
         self.assertEqual(drive_ui, {k for k in keys if tl.package_source(tl.package_for(k)) == tl.SOURCE_DRIVE})
 
+    def test_felulet_automatikus_jelolese_egyezik(self):
+        """2026-11-26: a kártyák „⚙️ automatikus beállítás” jele pontosan az egyenként is a
+        tömeges beállításokkal induló programokon (STRESS_SINGLE_AS_BULK) van."""
+        from app.stress_defs import STRESS_SINGLE_AS_BULK
+        with open(os.path.join(os.path.dirname(__file__), '..', 'ui.html'), encoding='utf-8') as f:
+            ui = f.read()
+        block = ui[ui.index('const SERVICE_TOOLS = ['):]
+        block = block[:block.index('];')]
+        self.assertEqual(set(re.findall(r"\{key:'(\w+)'[^\n]*auto:true", block)), set(STRESS_SINGLE_AS_BULK))
+
+    def test_kijeloles_szamlalo_es_gombok(self):
+        """2026-11-26: a kijelölés-sáv darabszáma és a Telepítés/Törlés gomb állapota a
+        pipákból jön (a ui.html VALÓDI `toolPickChanged`-je, DOM-csonkkal)."""
+        import json
+        import subprocess
+        with open(os.path.join(os.path.dirname(__file__), '..', 'ui.html'), encoding='utf-8') as f:
+            ui = f.read()
+        i = ui.index('function toolPickChanged(')
+        fn = ui[i:ui.index('\n}\n', i) + 2]
+        js = """
+const els = {}, cls = {};
+const el = id => els[id] || (els[id] = {id, checked: false, disabled: false, textContent: '',
+  classList: {toggle: (c, on) => { cls[id] = on; }}});
+const document = {getElementById: el};
+const SERVICE_TOOLS = [{key: 'a'}, {key: 'b'}, {key: 'c'}];
+%s
+const out = [];
+toolPickChanged();
+out.push([el('tool-pick-count').textContent, el('btn-tools-install').disabled, el('btn-tools-uninstall').disabled]);
+el('ti-a').checked = true; el('ti-c').checked = true; toolPickChanged();
+out.push([el('tool-pick-count').textContent, el('btn-tools-install').disabled, !!cls['tool-card-a'], !!cls['tool-card-b']]);
+console.log(JSON.stringify(out));
+""" % fn
+        r = subprocess.run(['node', '-e', js], capture_output=True, text=True, encoding='utf-8', timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), [['Nincs kijelölt program.', True, True],
+                                                ['2 program kijelölve', False, True, False]])
+
     def test_packages_for_sorrend_es_ismetles(self):
         self.assertEqual(tl.packages_for(['tm5', 'testmem5', 'furmark', 'nincsilyen']), ['testmem5', 'furmark'])
 

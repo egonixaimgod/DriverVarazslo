@@ -472,3 +472,49 @@ A WU-szakasz harmadik al-doboza (C), egyetlen gombbal és megerősítő ablakkal
 **Mit csináltam:** a `#view-backup`-ra szűkített `.bk-sec` szabályokat általánossá tettem (`.bk-sec`, színváltozatok `sec-green`/`sec-orange`/`sec-purple`/`sec-red`; a `bk-sec-restore`/`bk-sec-tools` ugyanazt a színt adja), plusz `.bk-sec-actions` (jobbra a fejlécben), `.bk-p` (szakasz-szöveg). Operációs rendszer: 7 külön panel → 3 szakasz (1 WU: állapot, A = 4 gyorsgomb, B = szünet; 2 aktiválás: A Windows, B Office egymás mellett; 3 BitLocker / Teljesítmény mód / Net Blokkoló kártyák, mint a Mentés „Mentőeszközök”-je). Kijelző: a meglévő 4 rész fejléce `.bk-sec-head`-re cserélve (1 kék, 2 lila, 3 zöld, 4 piros), a laza Windows-link sor a 2. rész `.bk-foot`-jába került; a `.cm-sec-head`/`.cm-num`/`.cm-sec-title`/`.cm-sec-sub`/`.cm-reset`-keret és a `.cm-panel` padding törölve (a `cm-panel` osztály marad: a `cm-busy` szürkítés erre épül). Karbantartás: 3 szakasz (1 alap, 2 extra, 3 összesítés + indítás), a sorok két (1920 px-en négy) hasábban. **Egy elem-azonosító sem változott**; a `cm-libdir` id a `.bk-sec-d`-re került.
 
 **Mérve:** headless Chrome, csonkolt API, 1920 és 1186 px. 1186-on a 4 gyorsgomb először 3+1-re tördelt (`minmax(220px)`), `minmax(300px)`-zel 2×2; a fejléc „Állapot Frissítése” gombja két sorba tört → `.bk-sec-actions .btn{white-space:nowrap}`. JS: `node --check` + undefined-name scan (895 név, 0 találat; mind a 125 `on*=` kezelő létezik, az új `disablePauseWu` is). **NEM mérve:** valódi pywebview-ablak, valós kijelző-/aktiválás-adat (csonkkal töltött mintával fotózva).
+
+
+## 2026-11-26 — Frontend-kör: oldalsáv, a fix záró jelentése, Driverek-lista tipográfia
+
+**Kérés:** a felhasználó három frontend-plugint telepíttetett (frontend-design, ui-ux-pro-max, hallmark), és azt kérte, hogy a három javasolt területet módosítsam. A Driverek nézet a szabályfájlban aznap még minta-oldal volt („ne nyúlj”); rákérdeztem, a válasz: *„Mehet a teljes átdolgozás”*. Az oldalsávra: *„Igen, finoman”*. A hallmark skill a saját leírása szerint meglévő dizájnra csak név szerinti kérésre fut, ezért nem futtattam; a frontend-design elveit követtem (nincs ritkított nagybetűs címke, nincs pontokkal összefűzött meta-sor, a szerkezet információt hordoz).
+
+**Saját hiba (a javaslatban):** a Driverek-listát a minta-oldal szabály ellenére ajánlottam átdolgozásra. A szabályfájl elolvasása fogta meg, a kódolás előtt. **Ellenőrzés:** egy nézet átalakításának felajánlása előtt nézd meg a 15. fejezet „minta-oldalak” listáját.
+
+**Mit változott:**
+- Oldalsáv: két `.nav-sep` (a Fix után, a Rendszer karbantartás után), az alsó blokk `.sidebar-foot`-ban (felső vonallal), az aktív pont `inset 3px` bal jelölő és halk árnyék a régi 25 px-es ragyogás helyett, `:focus-visible` körvonal, `transition:all` helyett felsorolt tulajdonságok. Sorrend, ikonok, logó változatlan.
+- Fix záró jelentés: `MP_KIND` új `title` (`📊`/`🎉`) és `todo` (`👉`) osztály; a `todo` sárga bal sávos doboz rendes betűvel, a „TEENDŐ:” félkövér; `mpShowReport` a `task_complete` után az utolsó ÖSSZEFOGLALÓ-ra gördít, és a dobozt 320 → `min(480px,52vh)`-ra növeli (`.has-report`, a `showProgressModal` leveszi). A `🎉` sor korábban `ok` volt.
+- Driverek-lista (csak `#driver-table-wrap`): mondatkezdő oszlopfejléc és kategória-címke, halkabb darabszám-címke; a `drvDriverCellHtml` alsora három külön darab (`.drv-pub` gépi betűs kis tokenben, `.drv-prov` rendes betűvel, `.drv-ver`) — ez a fix dialógusában is látszik (közös függvény); `drvPrinterTag`: `🖨️ nyomtató` címke, ha a `printerInfs` tartalmazza a csomagot (csak kikapcsolt nyomtató-szűrőnél látszik, mert különben a sor rejtve van).
+
+**Mérve (headless Chrome, csonkolt API, a fejlesztői gép VALÓDI, csak olvasott adatával: 23 third-party csomag pnputil-ból, `get_driver_usage` → használat + gép-térkép, `tests` sandbox, a `C:\DriverVarazslo`-ba nem írt):**
+- Oldalsáv tartalom-magasság (scrollHeight/clientHeight, 1186 px széles): előtte 773: 831/675, 900: 802/802. Az első változatom után 900-on 857/802 lett: a vonalaktól megjelent a görgetősáv, a 6 px-től 3 menüpont két sorba tört (+36 px). Tömörítve (`.nav-btn` 11 → 10 px függőleges padding, `.nav-sep` 8 → 5 px margó, a láb 6 px felső padding): 773: 819/675, 900: 802/802, 1040: 942/942 — sehol nem rosszabb az eredetinél.
+- Záró jelentés 120 naplósor után: az ÖSSZEFOGLALÓ a doboz tetején, mindkét TEENDŐ-doboz és a KÉSZ-fejléc látszik.
+- Driverek-lista 1920×1040, 1440×900, 1186×773: az alsor `…`-tal vág a keskeny oszlopban, nincs vízszintes kilógás.
+- JS: `node --check`, undefined-name scan (943 név, 0 találat; egy szándékos elírást megfog), `tests/progress_modal_harness.js` új 6. esete (a régi ui.html-en 4 eltéréssel elbukik), a teljes tesztkészlet 564/564.
+
+**NEM mérve:** valódi pywebview-ablak; boot-jelzéses (`boot-note`) sor (a gépen a boot-lánc nem volt azonosítható, fail-safe); a nyomtató-címke valódi nyomtató-csomagon (a harness egy hálókártya-csomagot jelölt meg nyomtatónak, csak a kinézet miatt).
+
+
+### 2026-11-26, második kör: ugyanez a betöltött pluginokkal (ui-ux-pro-max)
+
+A `claude -c` újraindítás után a `ui-ux-pro-max` skill keresőjével (`--domain ux`: „dark mode text contrast”, „status color alone meaning”, „sidebar navigation active state”, „data table dense rows”) néztem át a három területet. A skill legmagasabb prioritású szabályai: kontraszt ≥4,5:1, nem csak színnel kódolt jelentés, billentyűzetes navigáció, csökkentett mozgás.
+
+**Mérve:** saját kontraszt-szkript a renderelt oldalon (minden saját szöveggel bíró elem, a háttérrétegek alfa-kompozitálása a `--bg-primary` fölött). Előtte és utána ugyanaz: a `.sidebar` + `#view-drivers` + `#mp-log` alatt csak két elem 4,5 alatti: egy letiltott gomb (`📶 Bluetooth törlése`, 1,19:1; letiltott elemre a WCAG nem vonatkozik) és a `.sys-opt small` (4,47:1). A „csak szín” szabály a Használat oszlopban teljesül: a nem-használt állapotokat a szöveg is kimondja (`kihúzva:`, `nyomtató:`, `FUT:`; mérve a 23 valódi csomagon).
+
+**Változott:** globális `:focus-visible` (button, a, checkbox, [tabindex]) és `@media (prefers-reduced-motion: reduce)` (a `.view`, `.bench-result.show`, `.modal-overlay`, `.modal-box` animációja ki, minden átmenet 0,01 ms). Előtte a `ui.html`-ben 12 `@keyframes` volt, és egyetlen reduced-motion ág sem. **Ellenőrizve:** `--force-prefers-reduced-motion` mellett a folyamatablak és a nézet átlátszatlansága 1, animáció nincs (ha egy elem alapállapota láthatatlan lenne, az animáció kikapcsolása eltüntetné). `node --check`, undefined-name scan (943 név, 0), `test_progress_modal` + `test_claude_md` OK.
+
+**Nem változott, szándékosan:** emoji-ikonok (a skill SVG-t javasol, de a projekt mindenhol emojit használ, és a felhasználó ikon-döntései emojira épülnek); 44 px-es érintési célméret (egérrel használt asztali program); a `.sys-opt small` színe (közös a Mentés minta-oldallal).
+
+
+### 2026-11-26, harmadik kör: az egész program („varrd fel … bárhol a frontendet”)
+
+**Kérés:** *„Szerintem az egész projektet egy kicsikét varrd fel, legyen minden profi ezekkel az új skillekkel! nézd át, ahol szerinted profibbá tudnád tenni, bárhol a frontendet ott tedd!”*, közben egy képpel a Szervízprogramokról: *„nagyon unalmas és átláthatatlan … nem igazán tudom eldönteni hogy most ezt el tudnám ezeket indítani? … semmilyen mess az egész”*.
+
+**Átnézés (mérve):** mind a 12 nézet headless képe 1440×900-on, és kontraszt-mérés nézetenként. A 4,5 alatti valódi találatok: a `.btn-danger` (4,17:1, Defender-gomb a fix nézetben) és a stressz-nézet „Összes teszt bezárása” gombja (4,46:1). A többi 1,1–1,3:1-es találat a színátmenetes `.btn-primary`/`.btn-autofix-hero`/`.btn-bench` gomb: a szkript csak a `background-color`-t kompozitálja, a színátmenetet nem; ezeken fekete szöveg áll lila/sárga alapon (`.btn-primary{color:#000}`), ami átmegy. Utána: minden nézet átmegy (a színátmenetes fals pozitívokon kívül).
+
+**Változott:**
+- Szervízprogramok: a régi bekezdés helyett háromtételes jelmagyarázat (▶ Indítás / ⚙️ Automatikus beállítás / ☑ Kijelölés); a kártyán a kategória mondatkezdő színes szöveg, a licences jel „☁️ licences”, az állapot „Telepítés nélkül indul” (semleges) vagy „✓ Telepítve” (zöld), a három `STRESS_SINGLE_AS_BULK` programon „⚙️ automatikus beállítás”, a fő gomb teljes szélességű „▶ Indítás”, a kijelölés a jobb felső sarokban, a kijelölt kártya lila kerettel; alul rögzített sáv („N program kijelölve”, a két gomb kijelölés nélkül letiltva, a magyarázat a gombok buborékjában). A kártya hover-ugrása (`translateY`) és `transition:all`-ja kikerült (a Benchmark nézet három kártyáján is). Az elem-azonosítók (`tool-card-*`, `tool-state-*`, `tool-start-*`, `ti-*`, `btn-tools-*`) változatlanok; a telepítés utáni pipa-törlés a számlálót is frissíti.
+- Az egész programban: a ritkított nagybetűs kis címkék mondatkezdők (egy közös blokk a `</style>` előtt; a logó marad), `.btn-danger{color:#ff9488}`.
+
+**Ellenőrizve:** `node --check`, undefined-name scan (944 név, 0), mind a 125 inline `on*=` kezelő létezik, 2 új teszt a `tests/test_toollib.py`-ban (az automatikus jel = `STRESS_SINGLE_AS_BULK`; a `toolPickChanged` darabszáma és gombállapota DOM-csonkkal), a teljes készlet 566/566, a `C:\DriverVarazslo`-ba nem írt.
+
+**NEM mérve:** valódi pywebview-ablak; a Kijelző, a Mentés és a Benchmark nézet valódi adattal (a csonk nem ad kijelző-, mentés- vagy ranglista-adatot).

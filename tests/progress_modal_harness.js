@@ -22,7 +22,7 @@ function el(id) {
       get innerHTML() { return this._h || ''; },
       set innerHTML(v) { this._h = String(v); this._t = String(v).replace(/<[^>]*>/g, ''); this.children = []; },
       classList: { add: c => cls.add(c), remove: c => cls.delete(c), contains: c => cls.has(c), toggle: () => {} },
-      setAttribute() {}, appendChild(c) { this.children.push(c); },
+      setAttribute() {}, appendChild(c) { this.children.push(c); }, querySelectorAll: () => [],
       scrollHeight: 0, scrollTop: 0, clientHeight: 0, disabled: false,
     };
   }
@@ -30,7 +30,7 @@ function el(id) {
 }
 const document = { getElementById: el, createElement: () => el('tmp' + Math.random()) };
 const names = ['showProgressModal', 'updateProgressModal', 'mpDedup', 'mpClassify', 'appendLog', 'mpSetHead',
-               'mpEtaSecs', 'mpFmtSecs', 'onTaskComplete'];
+               'mpEtaSecs', 'mpFmtSecs', 'onTaskComplete', 'mpShowReport'];
 const consts = js.match(/const MP_KIND = \[[\s\S]*?\];/)[0] + '\n' + js.match(/const MP_PLAIN_COUNT = .*;/)[0];
 const src = `let progressStartTime = 0, progressTimer = null, mpProg = {}, currentView = '', SERVICE_TOOLS = [];
   const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
@@ -102,6 +102,21 @@ check('late-after-end', snap(), { pct: '100%', now: '✅ Kész' });
 api.showProgressModal('Új feladat', '');
 api.updateProgressModal({ log: '🔧 Indul...', indeterminate: true });
 check('new-task-live', snap(), { pct: '•••', now: '🔧 Indul...' });
+
+// 6) 2026-11-26: a fix záró jelentése - az ÖSSZEFOGLALÓ/KÉSZ fejléc, a TEENDŐ kiemelt doboz
+//    (a „TEENDŐ:” félkövér), a ✅ sor változatlanul „ok”.
+api.showProgressModal('1 Kattintásos Fix', '');
+const kinds = {};
+for (const l of ['\n📊 ÖSSZEFOGLALÓ: összesen 17 driver települt.', '👉 TEENDŐ: dugd be az eszközt',
+                 '✅ Minden törölt csomag helyére került driver.', '\n🎉 KÉSZ! a lánc lezárul.']) {
+  api.updateProgressModal({ log: l });
+  const kids = el('mp-log').children, last = kids[kids.length - 1];
+  kinds[[...l.trim()][0]] = { cls: last.className, html: last.innerHTML };
+}
+check('report-classes', {
+  title: kinds['📊'].cls, todo: kinds['👉'].cls, ok: kinds['✅'].cls, done: kinds['🎉'].cls,
+  bold: /<b>TEENDŐ:<\/b> dugd be/.test(kinds['👉'].html),
+}, { title: 'mp-line title', todo: 'mp-line todo', ok: 'mp-line ok', done: 'mp-line title', bold: true });
 
 console.log(bad ? ('HIBA: ' + bad) : 'MIND RENDBEN');
 process.exit(bad ? 1 : 0);

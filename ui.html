@@ -57,12 +57,33 @@ body::after{content:'';position:fixed;width:700px;height:700px;background:radial
 .sidebar-title span{display:block;font-size:14px;letter-spacing:0;text-transform:none;color:var(--text);margin-top:4px}
 
 .nav-btn{
-  display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;border:1px solid transparent;border-radius:10px;
+  display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:1px solid transparent;border-radius:10px;
   background:transparent;color:var(--text2);cursor:pointer;font-size:13px;font-family:var(--font);font-weight:500;
-  transition:all var(--t);text-align:left;margin-bottom:3px;
+  transition:background var(--t),color var(--t),border-color var(--t),box-shadow var(--t);text-align:left;margin-bottom:2px;
 }
 .nav-btn:hover{background:rgba(180,100,255,0.12);color:var(--text);border-color:rgba(180,100,255,0.2)}
-.nav-btn.active{background:linear-gradient(135deg,rgba(180,100,255,0.3),rgba(160,80,255,0.2));color:#fff;box-shadow:0 0 25px rgba(180,100,255,0.2);border-color:rgba(180,100,255,0.4)}
+/* 2026-11-26 (finom oldalsáv-frissítés, a felhasználó kérésére): az aktív pont bal szélén
+   egy 3 px-es lila jelölő, a régi nagy ragyogás helyett halk árnyék - egy pillantásra
+   látszik, hol állsz, és nem világít bele a mellette lévő pontokba. */
+.nav-btn.active{background:linear-gradient(135deg,rgba(180,100,255,0.28),rgba(160,80,255,0.14));color:#fff;
+  box-shadow:inset 3px 0 0 var(--accent),0 4px 14px rgba(0,0,0,0.22);border-color:rgba(180,100,255,0.38)}
+.nav-btn:focus-visible,.sidebar-cli:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* BILLENTYŰZETES FÓKUSZ MINDENHOL (2026-11-26, ui-ux-pro-max: „Keyboard nav”, CRITICAL):
+   Tabbal lépkedve eddig nem látszott, melyik gombon állsz. Egérkattintásra nem jelenik meg
+   (:focus-visible), a beviteli mezők saját :focus kerete marad. */
+button:focus-visible,a:focus-visible,input[type="checkbox"]:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px}
+/* CSÖKKENTETT MOZGÁS (2026-11-26, ui-ux-pro-max/frontend-design): ha a Windowsban ki van
+   kapcsolva az animáció, a nézet-, ablak- és eredmény-beúszás elmarad. A forgó betöltés-
+   jelzők és a toast eltűnése SZÁNDÉKOSAN maradnak: azok állapotot jeleznek, nem díszítenek. */
+@media (prefers-reduced-motion: reduce){
+  .view,.bench-result.show,.modal-overlay,.modal-box{animation:none!important}
+  *{transition-duration:0.01ms!important}
+}
+/* Témacsoportok közti hajszálvonal (driverek · rendszer · bolt és teszt); a sorrend változatlan. */
+.nav-sep{height:1px;margin:5px 14px;background:rgba(180,100,255,0.18)}
+/* Az alsó blokk (build, CLI, napló, mappa) egy egység: a menütől vonal választja el. */
+.sidebar-foot{margin-top:auto;padding-top:6px;border-top:1px solid rgba(180,100,255,0.16);display:flex;flex-direction:column}
 .nav-btn .icon{font-size:17px;width:24px;text-align:center;flex-shrink:0}
 /* WINDOWS 11 LOGÓ az "Operációs rendszer" menüponton (inline SVG, nem emoji - lásd az
    ottani kommentet). A szín a Windows-kék világosabb, dark-mode-ra szánt változata:
@@ -71,7 +92,7 @@ body::after{content:'';position:fixed;width:700px;height:700px;background:radial
 .nav-btn .winlogo{display:block;margin:0 auto;fill:#4cb2ff;transition:fill var(--t)}
 .nav-btn:hover .winlogo,.nav-btn.active .winlogo{fill:#7fd0ff}
 .wu-q .winlogo{display:inline-block;vertical-align:-2px;fill:currentColor}
-.sidebar-bottom{margin-top:auto;padding:10px 12px 4px;text-align:center;color:var(--green);font-size:11px;font-weight:600}
+.sidebar-bottom{padding:2px 12px 4px;text-align:center;color:var(--green);font-size:11px;font-weight:600}
 .sidebar-datadir{padding:0 12px 12px;text-align:center;color:var(--text3);font-size:10.5px;cursor:pointer;transition:color var(--t)}
 .sidebar-datadir:hover{color:var(--accent)}
 /* "Napló törlése": szándékosan halvány és apró - hasznos, de ROMBOLÓ művelet, nem
@@ -794,6 +815,23 @@ tr.drv-row.selected td{background:rgba(180,100,255,0.24)!important}
 #driver-table-wrap tr.drv-group .dg{min-height:40px}
 #driver-table-wrap tr.drv-group .dg-name{font-size:13px}
 #driver-table-wrap tr.drv-group .dg-title{font-size:10.5px}
+/* ===== A DRIVER-LISTA TIPOGRÁFIÁJA (2026-11-26, a felhasználó kérésére: „mehet a teljes
+   átdolgozás”). Az elrendezés, a 4 oszlop, a ragadós színes sávok és a színkód VÁLTOZATLAN
+   (korábbi explicit döntések, lásd 15. fejezet); csak az olvashatóság:
+   - oszlopfejléc és kategória-címke mondatkezdő betűvel, nem ritkított nagybetűvel;
+   - a csomag alsora tagolt (published · gyártó · verzió külön darabként, közös a fixszel);
+   - a darabszám-címke halkabb, hogy a kategória NEVE legyen a sáv fő eleme. */
+#driver-table-wrap th{text-transform:none;letter-spacing:0;font-size:12px;font-weight:600;color:var(--text2)}
+#driver-table-wrap tr.drv-group .dg-title{text-transform:none;letter-spacing:0;font-size:12px;font-weight:700}
+#driver-table-wrap tr.drv-group .dg-name{font-weight:600;color:var(--text2)}
+#driver-table-wrap tr.drv-group .dg-count{background:transparent;border-color:rgba(var(--gc),0.38);color:var(--text2);font-weight:600}
+#driver-table-wrap .drv-n{font-size:13px}
+.drv-s > span + span{margin-left:10px}
+.drv-s .drv-pub{color:var(--text2);background:rgba(255,255,255,0.06);border-radius:4px;padding:0 5px}
+.drv-s .drv-prov{font-family:var(--font)}
+.drv-tag{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:600;
+  vertical-align:1px;white-space:nowrap}
+.drv-tag.prn{color:#9fd0ff;background:rgba(96,170,255,0.14);border:1px solid rgba(96,170,255,0.4)}
 /* A fülek tömören (a fix dialógusával azonos méret); tördelnek, nem csonkolnak. */
 .mm-tablecol .hw-tabs{gap:6px}
 .mm-tablecol .hw-tab{padding:4px 10px;font-size:11px;gap:6px}
@@ -1290,6 +1328,42 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .tool-card.installed{border-color:rgba(120,255,160,0.55)}
 .tool-card.installed .tool-state{display:inline-block;background:rgba(120,255,160,0.15);border:1px solid rgba(120,255,160,0.4);color:#8dffb0}
 .tool-card.notinstalled .tool-state{display:inline-block;background:rgba(255,200,80,0.14);border:1px solid rgba(255,200,80,0.4);color:#ffd166}
+/* ===== SZERVÍZPROGRAMOK KÁRTYA (2026-11-26, felhasználói kép: „unalmas, átláthatatlan … nem
+   tudom eldönteni, el tudnám-e indítani”). A fenti régi szabályokat itt felülírjuk:
+   - a kategória mondatkezdő, színes szöveg (nem ritkított nagybetűs pirula);
+   - az állapot egy csendes sor a gomb fölött: „Telepítés nélkül indul” semleges, „✓ Telepítve”
+     zöld - a nem telepített állapot NEM figyelmeztetés;
+   - a fő művelet a teljes szélességű ▶ Indítás gomb; a kijelölés a jobb felső sarokban;
+   - kijelölt kártya: lila keret; hover: csak a keret világosodik (nincs ugrás). */
+.tool-groups .tool-card,.bench-tools .tool-card{transition:border-color var(--t),background var(--t)}
+.tool-groups .tool-card:hover,.bench-tools .tool-card:hover{transform:none;box-shadow:none}
+.tool-groups .tool-card{gap:10px;padding:14px 14px 12px}
+.tool-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:2px}
+.tool-groups .tool-cat,.bench-tools .tool-cat{background:none!important;border:0!important;padding:0;font-size:11.5px;
+  font-weight:600;letter-spacing:0;text-transform:none}
+.tool-lic{font-size:11.5px;color:var(--text2)}
+.tool-groups .tool-desc{font-size:12px;color:var(--text2)}
+.tool-how{display:flex;flex-wrap:wrap;gap:6px 10px;min-height:20px;align-items:center}
+.tool-how .tool-state{margin:0;font-size:11.5px;font-weight:600;letter-spacing:0;padding:2px 9px}
+.tool-card.notinstalled .tool-how .tool-state{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.14);color:var(--text2)}
+.tool-auto{font-size:11.5px;color:#ffc98a}
+.tool-start{width:100%;justify-content:center;font-weight:700;background:rgba(180,100,255,0.22);border-color:rgba(180,100,255,0.5)}
+.tool-start:hover{background:rgba(180,100,255,0.36)}
+.tool-pick{position:absolute;top:10px;right:10px;display:flex;padding:4px;border-radius:6px;cursor:pointer}
+.tool-pick:hover{background:rgba(180,100,255,0.16)}
+.tool-pick input{accent-color:var(--accent);width:16px;height:16px;margin:0;cursor:pointer}
+.tool-groups .tool-name{padding-right:26px}
+.tool-card.picked{border-color:var(--accent);background:rgba(120,60,190,0.32);box-shadow:inset 0 0 0 1px var(--accent)}
+.tool-legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin:2px 0 16px}
+.tool-legend > div{padding:10px 12px;border-radius:var(--r-sm);background:rgba(255,255,255,0.04);border:1px solid rgba(180,100,255,0.18);
+  font-size:12px;line-height:1.5;color:var(--text2)}
+.tool-legend b{display:block;color:var(--text);margin-bottom:2px}
+/* A kijelölés sávja a lista alján rögzítve: görgetés közben is látszik, hány program van
+   kijelölve, és a két gomb mindig kéznél van. */
+.tool-bar{position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px;
+  padding:10px 14px;border-radius:var(--r-sm);background:rgba(28,16,50,0.96);border:1px solid rgba(180,100,255,0.32);
+  box-shadow:0 -8px 24px rgba(0,0,0,0.35)}
+.tool-bar-n{flex:1;min-width:160px;font-size:12.5px;font-weight:600;color:var(--text2)}
 
 /* 1 Kattintásos Driver Fix gyorsindító kártya a Driverek nézetben */
 .autofix-hero{position:relative;overflow:hidden;padding:24px 26px;margin:16px 0;display:flex;align-items:center;gap:22px;flex-wrap:wrap;background:linear-gradient(135deg,rgba(140,80,255,0.22),rgba(80,40,180,0.16) 55%,var(--glass));border:1px solid rgba(180,100,255,0.45);border-radius:var(--r);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
@@ -1501,6 +1575,15 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .mp-line.mute .mp-txt{color:var(--text3)}
 .mp-line.head .mp-txt{color:var(--accent);font-weight:700}
 .mp-line.step .mp-txt{color:var(--text2)}
+/* A záró jelentés (2026-11-26): fejléc vonallal elválasztva, a teendő sárga bal sávos doboz,
+   rendes (nem gépi) betűvel - a napló többi része változatlan. */
+.modal-log.has-report{max-height:min(480px,52vh)}
+.mp-line.title{margin-top:10px;padding-top:10px;border-top:1px solid rgba(212,136,255,0.32)}
+.mp-line.title .mp-txt{font-family:var(--font);font-size:13px;font-weight:700;color:var(--text)}
+.mp-line.todo{margin:5px 0 7px;padding:7px 10px;border-radius:6px;background:rgba(255,224,102,0.08);
+  box-shadow:inset 3px 0 0 var(--yellow)}
+.mp-line.todo .mp-txt{font-family:var(--font);font-size:12px;line-height:1.5;color:var(--text)}
+.mp-line.todo .mp-txt b{color:var(--yellow)}
 .modal-log{flex:1;min-height:160px;max-height:320px;overflow-y:auto;background:rgba(5,15,12,0.8);border-radius:var(--r-sm);padding:12px;font-family:var(--mono);font-size:11px;color:var(--accent);line-height:1.7;white-space:pre-wrap;word-break:break-all;scrollbar-width:thin;scrollbar-color:rgba(180,100,255,0.3) transparent;border:1px solid rgba(180,100,255,0.2)}
 .modal-log::-webkit-scrollbar{width:5px}
 .modal-log::-webkit-scrollbar-thumb{background:rgba(180,100,255,0.3);border-radius:3px}
@@ -1621,6 +1704,17 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .sl-result.ok{background:rgba(46,224,138,0.10);border:1px solid rgba(46,224,138,0.45);color:#9dffcf}
 .sl-result.bad{background:rgba(255,77,94,0.10);border:1px solid rgba(255,77,94,0.45);color:#ffb3ba}
 .sl-warn{margin-bottom:14px;padding:12px 14px;border-radius:var(--r);background:rgba(255,179,71,0.10);border:1px solid rgba(255,179,71,0.45);color:#ffd9a0}
+/* ===== EGYSÉGES CÍMKÉK AZ EGÉSZ PROGRAMBAN (2026-11-26, explicit user decision: „az egész
+   projektet varrd fel … bárhol a frontendet”): a ritkított NAGYBETŰS kis címkék (táblázat-
+   fejlécek, összegző-címkék, kijelző- és benchmark-címkék) mondatkezdők - nehezebben olvashatók
+   voltak, és a skillek (frontend-design, hallmark) a generált felület tipikus jelének tartják.
+   A logó (.sidebar-title) szándékosan marad (explicit döntés, 2026-09-18). A szöveg maga
+   változatlan, csak a megjelenítés. */
+th,.mm-pop-sec,.bk-sub-t,.tc-sum-l,.cm-now-l,.cm-ctl-t,.cm-slot-t,.cm-det-t,.cm-lib th,.cm-lib tr.grp td,
+.br-tile .bt-label,.lb-score .lbs-label{text-transform:none;letter-spacing:0}
+/* A piros gombok szövege világosabb: a régi #ff6b5b a saját halvány-piros hátterén 4,17:1 volt
+   (mérve), a 4,5:1-es küszöb alatt. */
+.btn-danger{color:#ff9488}
 </style>
 </head>
 <body>
@@ -1652,6 +1746,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
          karbantartás, Bolti tábla, Stress teszt, Benchmark (MINDIG a legalja). -->
     <button class="nav-btn" onclick="switchView('backup')" data-view="backup"><span class="icon">💾</span>Mentés és Visszaállítás</button>
     <button class="nav-btn" onclick="switchView('autofix')" data-view="autofix"><span class="icon">🚀</span>1 Kattintásos Driver Fix</button>
+    <div class="nav-sep" aria-hidden="true"></div>
     <!-- AZ IKON A WINDOWS 11 LOGÓ, INLINE SVG-KÉNT (2026-09-18, explicit user decision
          képpel megjelölve: a négy kék négyzet). SZÁNDÉKOSAN NEM EMOJI, és ez a lényeg:
          egy SVG-nek nincs betűkészlet-függése, tehát a "tofu" (üres téglalap) kockázat
@@ -1664,6 +1759,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
     <button class="nav-btn" onclick="switchView('os')" data-view="os"><span class="icon"><svg class="winlogo" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1"/><rect x="13" y="1" width="10" height="10" rx="1"/><rect x="1" y="13" width="10" height="10" rx="1"/><rect x="13" y="13" width="10" height="10" rx="1"/></svg></span>Operációs rendszer</button>
     <button class="nav-btn" onclick="switchView('display')" data-view="display"><span class="icon">🖥️</span>Kijelző &amp; Színkezelés</button>
     <button class="nav-btn" onclick="switchView('tempclean')" data-view="tempclean"><span class="icon">🧹</span>Rendszer karbantartás</button>
+    <div class="nav-sep" aria-hidden="true"></div>
     <button class="nav-btn" onclick="switchView('shoplabel')" data-view="shoplabel"><span class="icon">🏷️</span>Bolti tábla nyomtatás</button>
     <button class="nav-btn" onclick="switchView('stress')" data-view="stress"><span class="icon">🔥</span>Stress Teszt</button>
     <button class="nav-btn" onclick="switchView('toollib')" data-view="toollib"><span class="icon">🧰</span>Szervízprogramok könyvtára</button>
@@ -1672,6 +1768,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
          *"a net blokkoló script is átmehetne az operációs rendszerbe, felesleges külön
          menüpont"*) - a kartya a "Operacios rendszer" nezet 4. szakasza. Ez is a
          Windows sajat szolgaltatasa (tuzfal-szabalyok), nem driver. -->
+    <div class="sidebar-foot">
     <div class="sidebar-bottom" id="build-label">Build ---</div>
     <!-- CLI MÓD (2026-10-13 óta itt, explicit user decision): a felső sávban csak a Driverek
          és a Mentés nézetben látszott, pedig bármikor át kell tudni váltani. A program új
@@ -1681,6 +1778,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
     <div class="sidebar-clearlog" id="clear-log-label" title="Törli a gép saját debug-naplóit (DriverVarázsló_debug.log és a rotált másai), hogy a következő futás tisztán olvasható legyen. A Naplók nézetbe letöltött, MÁS gépekről származó naplókat nem bántja." onclick="clearDebugLogs()">🧹 napló törlése</div>
     <div class="sidebar-clearlog sidebar-uploadlog" id="upload-log-label" title="Feltölti a gép debug-naplóját a szerviz Drive-jára. Kódot kér (ugyanaz, mint a naplók letöltésénél)." onclick="uploadDebugLog()">☁️ napló feltöltése</div>
     <div class="sidebar-datadir" id="data-dir-label" title="Ide menti a program a debug naplót és a Rendszer Riport HTML fájlokat - kattints a megnyitáshoz" onclick="openAppDataDir()">📁 ...</div>
+    </div>
   </nav>
 
   <div class="main">
@@ -2830,7 +2928,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
         <div class="view-hero vh-teal" data-emoji="🧰">
           <div class="vh-text">
             <div class="vh-title">🧰 Szervízprogramok könyvtára</div>
-            <div class="vh-sub">A szerviz programjai egy helyen. Minden program <b>külön töltődik le</b>, csak az, amelyiket elindítod vagy telepíted. A <b>▶ Indítás</b> portable módban, telepítés nélkül futtat; a <b>📥 Telepítés</b> a <code>Program Files (x86)</code> alá másolja, asztali parancsikonnal. A <b>☁️ Drive</b> jelű (licences) programok a bolt Google Drive-járól jönnek: az első letöltésükkor a program elkéri a jelszót (ugyanaz, mint a naplók letöltésénél), és ezen a gépen megjegyzi.</div>
+            <div class="vh-sub">A szerviz programjai egy helyen. <b>Mindegyik azonnal indítható, telepítés nélkül</b>; első alkalommal csak az az egy program töltődik le. A <b>☁️ licences</b> programok a bolt Google Drive-járól jönnek: az első letöltéskor jelszót kér (ugyanazt, mint a naplóknál), és ezen a gépen megjegyzi.</div>
             <div class="vh-chips">
               <span class="hero-chip">📦 Programonkénti letöltés</span>
               <span class="hero-chip">▶ Portable vagy telepítve</span>
@@ -2854,12 +2952,21 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             <div class="panel-title" style="margin-bottom:0"><span class="emoji">🧰</span> Programok</div>
             <span class="count-badge" id="svc-badge"></span>
           </div>
-          <p style="margin-bottom:14px;color:var(--text3)">A <b style="color:var(--text2)">FurMark, a Prime95 és a Linpack</b> egyenként is <b style="color:var(--text2)">pontosan a stressz-teszt beállításaival</b> indul (automatikusan, a portable csomagból). A többi programnál <b style="color:var(--text2)">nincs automatizálás</b>: a saját beállító képernyőjével nyílik meg, minden opciót te állítasz be. A <b style="color:var(--text2)">▶ Indítás</b> portable módban, a letöltött csomagból futtat (telepítés nélkül); ha egy program telepítve van, a telepített példány indul. Első használatkor csak az adott program töltődik le — a folyamatot a fenti sáv mutatja.</p>
+          <!-- 2026-11-26 (felhasználói kép: „nem igazán tudom eldönteni, hogy ezt el tudnám-e
+               indítani”): a régi bekezdés helyett egy háromtételes jelmagyarázat, a kártyákon
+               ugyanezek a jelek. A működés változatlan. -->
+          <div class="tool-legend">
+            <div><b>▶ Indítás</b><span>Azonnal fut, telepítés nélkül. Ha a program telepítve van, a telepített példány indul.</span></div>
+            <div><b>⚙️ Automatikus beállítás</b><span>A FurMark, a Prime95 és a Linpack pontosan a stressz-teszt beállításaival indul. A többi a saját beállító képernyőjével nyílik meg.</span></div>
+            <div><b>☑ Kijelölés</b><span>A kártya jobb felső sarkában. A kijelölt programokat lent telepítheted (Program Files + asztali ikon) vagy törölheted.</span></div>
+          </div>
           <div class="tool-groups" id="tool-grid"></div>
-          <div class="toolbar" style="margin-top:16px;margin-bottom:0">
-            <button class="btn btn-primary" onclick="installServiceTools()" id="btn-tools-install">📥 Kijelöltek telepítése</button>
-            <button class="btn btn-danger" onclick="uninstallServiceTools()" id="btn-tools-uninstall">🗑️ Kijelöltek törlése</button>
-            <span style="font-size:11.5px;color:var(--text3)">Telepítés: a bejelölt programok a <code>Program Files (x86)</code> alá kerülnek, asztali parancsikonnal. Törlés: a mappájuk és a parancsikonjuk törlődik, portable módban továbbra is indíthatók.</span>
+          <div class="tool-bar">
+            <span class="tool-bar-n" id="tool-pick-count">Nincs kijelölt program.</span>
+            <button class="btn btn-primary" onclick="installServiceTools()" id="btn-tools-install" disabled
+                    title="A kijelölt programok a Program Files (x86) alá kerülnek, asztali parancsikonnal">📥 Kijelöltek telepítése</button>
+            <button class="btn btn-danger" onclick="uninstallServiceTools()" id="btn-tools-uninstall" disabled
+                    title="A kijelölt programok mappája és parancsikonja törlődik; telepítés nélkül továbbra is indíthatók">🗑️ Kijelöltek törlése</button>
           </div>
         </div>
       </div>
@@ -5237,7 +5344,7 @@ function renderDriverTable() {
     // pipa / Használat / Driver (név + published · gyártó · verzió) / Mire való.
     tr.innerHTML = '<td><input type="checkbox" '+(selectedDrivers.has(i)?'checked':'')+' onclick="event.stopPropagation();toggleDriverSel('+i+')"></td>'
       + drvUsageCell(d)
-      + drvDriverCellHtml(d)
+      + drvDriverCellHtml(d, drvPrinterTag(d))
       + drvWhatCell(d);
     // A korábbi piros/sárga bal-szél csík (használat szerint) 2026-10-01-én KIKERÜLT
     // (explicit user decision: "fogalmam sincs h minek, azt vedd ki") - a használatot a
@@ -5452,6 +5559,13 @@ const WHAT_KIND = {
   'inf': '📄 a driver-fájl szerint',
   'service': '⚙️ szoftveres driver'
 };
+/* Nyomtató-címke (2026-11-26): ha a technikus kikapcsolja a nyomtató-szűrőt, a nyomtató-
+   csomagok a többi közé keverednek - a címke megmondja, melyik az (ugyanaz a halmaz, amit
+   a szűrő elrejtene). Nem szűr és nem tilt semmit. */
+function drvPrinterTag(d) {
+  return (printerInfs && printerInfs.has((d.published || '').toLowerCase()))
+    ? '<span class="drv-tag prn" title="Nyomtató-driver (a „Nyomtató-driverek elrejtése” kapcsoló ezt rejtené el)">🖨️ nyomtató</span>' : '';
+}
 function drvWhatCell(d) { return whatCellHtml(d, drvMachineInfo(d), bootNoteHtml(drvBootOf(d), driverBoot && driverBoot.mode)); }
 function drvBootOf(d) {
   return (driverBoot && driverBoot.packages && driverBoot.packages[(d.published || '').toLowerCase()]) || null;
@@ -5474,7 +5588,13 @@ function bootNoteHtml(v, mode) {
 function drvDriverCellHtml(d, tag) {
   return '<td class="c-drv" title="' + esc([d.original, d.published, d.provider, d.version].filter(Boolean).join(' · ')) + '">'
     + '<div class="drv-n">' + esc(d.original || d.published || '') + (tag || '') + '</div>'
-    + '<div class="drv-s">' + esc([d.published, d.provider, d.version].filter(Boolean).join(' · ')) + '</div></td>';
+    // Az alsor három külön darab (2026-11-26): a published név és a verzió gépi betűs, a
+    // gyártó rendes - így nem egy pontokkal összefűzött kódsor, hanem olvasható tagolás.
+    + '<div class="drv-s">'
+    + (d.published ? '<span class="drv-pub">' + esc(d.published) + '</span>' : '')
+    + (d.provider ? '<span class="drv-prov">' + esc(d.provider) + '</span>' : '')
+    + (d.version ? '<span class="drv-ver">' + esc(d.version) + '</span>' : '')
+    + '</div></td>';
 }
 /* A "Mire való" cella EGY helyen (Driverek nézet + a fix törlési előnézete). `info` a
    gép-térkép csomag-bejegyzése (vagy null); `extra` egy hívó-specifikus kiegészítés a
@@ -7957,9 +8077,9 @@ async function startStressTool(name) {
 // 2026-10-30: Szervízprogramok könyvtára. `drive: true` = licences program, a bolt Drive-járól
 // jön jelszóval (a forrás a backendben: app/toollib_core.py PACKAGES - a kettőnek egyeznie kell).
 const SERVICE_TOOLS = [
-  {key:'furmark',     icon:'🌡️', name:'FurMark',                   cat:'GPU teszt', cls:'gpu',  desc:'GPU stressz teszt — videokártya-terhelés és stabilitás-ellenőrzés.'},
-  {key:'prime95',     icon:'🧮', name:'Prime95',                   cat:'CPU teszt', cls:'cpu',  desc:'CPU stressz teszt — processzor-terhelés (torture test).'},
-  {key:'linpack',     icon:'📈', name:'Linpack Xtreme',            cat:'CPU+RAM',   cls:'cpu',  desc:'CPU + memória stressz teszt — instabil RAM/tuning kiszűrése.'},
+  {key:'furmark',     icon:'🌡️', name:'FurMark',                   cat:'GPU teszt', cls:'gpu',  auto:true, desc:'GPU stressz teszt — videokártya-terhelés és stabilitás-ellenőrzés.'},
+  {key:'prime95',     icon:'🧮', name:'Prime95',                   cat:'CPU teszt', cls:'cpu',  auto:true, desc:'CPU stressz teszt — processzor-terhelés (torture test).'},
+  {key:'linpack',     icon:'📈', name:'Linpack Xtreme',            cat:'CPU+RAM',   cls:'cpu',  auto:true, desc:'CPU + memória stressz teszt — instabil RAM/tuning kiszűrése.'},
   {key:'occt',        icon:'⚡', name:'OCCT',                      cat:'Stressz',   cls:'cpu',  drive:true, desc:'CPU-, GPU- és tápegység-stresszteszt egy programban, hibafigyeléssel.'},
   {key:'hwinfo',      icon:'📟', name:'HWiNFO64',                  cat:'Monitor',   cls:'mon',  desc:'Hőmérséklet- és szenzor-monitor — hőfokok, feszültségek, órajelek.'},
   {key:'hdsentinel',  icon:'💾', name:'HD Sentinel',               cat:'Monitor',   cls:'mon',  drive:true, desc:'Háttértár egészség-monitor — HDD/SSD állapot és S.M.A.R.T.'},
@@ -8024,20 +8144,23 @@ document.querySelectorAll('img[data-tool-icon]').forEach(img => {
 function renderToolGrid() {
   const grid = document.getElementById('tool-grid');
   if (!grid) return;
+  // A KÁRTYA (2026-11-26, felhasználói kép: „nem igazán tudom eldönteni, hogy el tudnám-e
+  // indítani”): fent a program, alatta egy sorban HOGYAN indul (telepítés nélkül / telepítve,
+  // automatikus beállítás), alul a fő gomb. A kijelölés a jobb felső sarokban, a gombjai a
+  // lista alján (`toolPickChanged`). Az elem-azonosítók változatlanok.
   const card = t => `
     <div class="tool-card" id="tool-card-${t.key}">
+      <label class="tool-pick" title="Kijelölés telepítéshez vagy törléshez (a gombok a lista alján)"><input type="checkbox" id="ti-${t.key}" onchange="toolPickChanged()" aria-label="${t.name} kijelölése"></label>
       <div class="tool-head">
         <div class="tool-icon">${TOOL_ICON_IMG[t.key] ? `<img src="${TOOL_ICON_IMG[t.key]}" width="32" height="32" alt="">` : t.icon}</div>
         <div class="tool-title">
           <div class="tool-name" title="${t.name}">${t.name}</div>
-          <span class="tool-cat ${t.cls}">${t.cat}</span>${t.drive ? '<span class="tool-cat" title="Licences program: a bolt Google Drive-járól jön, a fenti jelszóval">☁️ Drive</span>' : ''}<span class="tool-state" id="tool-state-${t.key}"></span>
+          <div class="tool-meta"><span class="tool-cat ${t.cls}">${t.cat}</span>${t.drive ? '<span class="tool-lic" title="Licences program: a bolt Google Drive-járól jön, az első letöltéskor jelszót kér">☁️ licences</span>' : ''}</div>
         </div>
       </div>
       <div class="tool-desc">${t.desc}</div>
-      <div class="tool-actions">
-        <button class="btn btn-sm" id="tool-start-${t.key}" onclick="startStressTool('${t.key}')" title="${t.name} indítása, automatizálás nélkül">▶ Indítás</button>
-        <label class="tool-install-pick" title="Jelöld be, majd nyomd meg lent a Telepítés vagy a Törlés gombot"><input type="checkbox" id="ti-${t.key}"> kijelöl</label>
-      </div>
+      <div class="tool-how"><span class="tool-state" id="tool-state-${t.key}"></span>${t.auto ? '<span class="tool-auto" title="Pontosan a stressz-teszt beállításaival indul (automatikusan)">⚙️ automatikus beállítás</span>' : ''}</div>
+      <button class="btn btn-sm tool-start" id="tool-start-${t.key}" onclick="startStressTool('${t.key}')" title="${t.name} indítása">▶ Indítás</button>
     </div>`;
   // Témánként csoportosítva; amit egy új program kulcsa egyik csoportba sem sorol, az a
   // végére kerül („Egyéb”), hogy SOHA ne tűnjön el a listából.
@@ -8050,6 +8173,25 @@ function renderToolGrid() {
       <div class="tool-grid">${g[1].map(card).join('')}</div></div>`).join('');
   const badge = document.getElementById('svc-badge');
   if (badge) badge.textContent = SERVICE_TOOLS.length + ' program';
+}
+
+/* A kijelölés visszajelzése (2026-11-26): a kijelölt kártya kiemelve, a lista alján a
+   darabszám, és a Telepítés/Törlés gomb csak kijelöléssel aktív. */
+function toolPickChanged() {
+  let n = 0;
+  for (const t of SERVICE_TOOLS) {
+    const cb = document.getElementById('ti-' + t.key);
+    const on = !!(cb && cb.checked);
+    if (on) n++;
+    const card = document.getElementById('tool-card-' + t.key);
+    if (card) card.classList.toggle('picked', on);
+  }
+  const lbl = document.getElementById('tool-pick-count');
+  if (lbl) lbl.textContent = n ? n + ' program kijelölve' : 'Nincs kijelölt program.';
+  ['btn-tools-install', 'btn-tools-uninstall'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.disabled = !n;
+  });
 }
 
 // A megjegyzett Drive-jelszó állapota (a jelszót magát a felület sosem kapja meg).
@@ -8087,9 +8229,11 @@ async function refreshServiceTools() {
       const inst = !!(info && info.installed);
       card.classList.toggle('installed', inst);
       card.classList.toggle('notinstalled', !inst);
-      document.getElementById('tool-state-' + t.key).textContent = inst ? '✓ TELEPÍTVE' : 'NINCS TELEPÍTVE';
+      // A nem telepített állapot NEM figyelmeztetés (2026-11-26): a sárga „NINCS TELEPÍTVE”
+      // azt sugallta, hogy a program nem indítható, pedig telepítés nélkül is fut.
+      document.getElementById('tool-state-' + t.key).textContent = inst ? '✓ Telepítve' : 'Telepítés nélkül indul';
       const sb = document.getElementById('tool-start-' + t.key);
-      sb.textContent = inst ? '▶ Indítás' : '▶ Indítás (portable)';
+      sb.textContent = '▶ Indítás';
       sb.title = inst ? (t.name + ' indítása a telepített mappából: ' + (info.path || '')) : (t.name + ' indítása portable módban (telepítés nélkül, a letöltött csomagból)');
     }
   } catch (e) {
@@ -8704,6 +8848,7 @@ function showProgressModal(title, phase) {
   document.getElementById('mp-status').style.display = 'none';
   document.getElementById('mp-time').textContent = '';
   document.getElementById('mp-log').innerHTML = '';
+  document.getElementById('mp-log').classList.remove('has-report');
   document.getElementById('mp-progress-fill').style.width = '0%';
   document.getElementById('mp-progress').classList.remove('progress-indeterminate');
   
@@ -8857,7 +9002,11 @@ function mpDedup() {
    mint a rutinsor. Itt a vezető jelet ikonná emeljük, a sort pedig típus szerint
    színezzük — a szöveg maga változatlan, tehát a napló és a képernyő nem csúszhat szét. */
 const MP_KIND = [
-  [/^\s*(✅|🎉)/,            'ok'],
+  // A ZÁRÓ JELENTÉS KÉT KULCSSORA (2026-11-26): a 📊 ÖSSZEFOGLALÓ / 🎉 KÉSZ fejléccé, a
+  // 👉 TEENDŐ kiemelt dobozzá válik - a hosszú napló végén ez az, amiért a technikus visszajön.
+  [/^\s*(📊|🎉)/,            'title'],
+  [/^\s*👉/,                 'todo'],
+  [/^\s*✅/,                 'ok'],
   [/^\s*(❌|🛑)/,            'bad'],
   [/^\s*(⚠️|⏱️|⏱)/,         'warn'],
   [/^\s*(↷|ℹ️|•)/,          'mute'],
@@ -8882,13 +9031,27 @@ function appendLog(line) {
     if (m && /\p{Extended_Pictographic}|[↷↻•—-]/u.test(m[2])) {
       ico = m[2]; txt = m[1] + m[3];
     }
+    let body = esc(txt);
+    if (cls === 'todo') body = body.replace(/^(\s*)(TEENDŐ:)/, '$1<b>$2</b>');
     div.innerHTML = '<span class="mp-ico">' + esc(ico) + '</span>'
-                  + '<span class="mp-txt">' + esc(txt) + '</span>';
+                  + '<span class="mp-txt">' + body + '</span>';
     el.appendChild(div);
   });
   // Csak akkor görgetünk, ha a felhasználó amúgy is az alján állt - különben
   // visszarántanánk a képet, miközben ő épp feljebb olvas valamit.
   if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) el.scrollTop = el.scrollHeight;
+}
+
+/* A fix végén a záró jelentés eleje (az utolsó 📊 ÖSSZEFOGLALÓ) a napló tetejére gördül, és
+   a doboz megnő (2026-11-26): a több száz soros lánc-napló alján a jelentés eleje különben
+   kigördült a 320 px-es dobozból. Jelentés nélküli feladatnál nem csinál semmit. */
+function mpShowReport() {
+  const el = document.getElementById('mp-log');
+  const h = [...el.querySelectorAll('.mp-line.title')].reverse()
+    .find(x => /ÖSSZEFOGLALÓ/.test(x.textContent));
+  if (!h) return;
+  el.classList.add('has-report');
+  el.scrollTop += h.getBoundingClientRect().top - el.getBoundingClientRect().top - 6;
 }
 
 /* A fejléc frissítése. Minden mező opcionális: amiről nincs adat, azt nem írjuk felül,
@@ -8975,7 +9138,8 @@ function onTaskComplete(data) {
   const endStatus = (data && data.status) ? String(data.status) : '✅ Kész';
   mpSetHead({pct: 100, pctText: /^\s*(❌|🛑)/.test(endStatus) ? '❌' : '', eta: '', step: '',
              now: endStatus, ok: mpProg.ok, bad: mpProg.bad});
-  
+  mpShowReport();
+
   // Show close button, hide cancel button
   document.getElementById('mp-close-btn').style.display = 'inline-flex';
   document.getElementById('mp-cancel-btn').style.display = 'none';
@@ -9003,6 +9167,7 @@ function onTaskComplete(data) {
       const cb = document.getElementById('ti-' + t.key);
       if (cb) cb.checked = false;
     }
+    toolPickChanged();
   }
   
   // Re-enable autofix button
