@@ -886,3 +886,112 @@ def launch_activator_bat(path):
                      f"aktiváló ablak innentől önálló folyamat.")
     except Exception as e:
         logging.warning(f"[OFFICEACT] A segéd cmd nem lépett ki 10 mp alatt ({e}).")
+
+
+# ======================================================================
+# OFFICE TELJES ELTÁVOLÍTÁSA (2026-11-26, explicit user decision: *„rányomok és minden
+# létező office verziót kinukeol … letölti mindent automatizálva”*). A Microsoft Get Help
+# parancssori változata (a 2026-03-10-én megszüntetett SaRA utódja, KB5086902), a
+# Learn-oldal „Office Uninstall” scenariója: kérdés nélkül fut, a végén kódot ír.
+# A letöltés a Microsoft közvetlen linkje (2026-11-26: 2,6 MB-os zip a download.microsoft.com-ról).
+# ======================================================================
+GETHELP_URL = 'https://aka.ms/SaRA_EnterpriseVersionFiles'
+GETHELP_ARGS = ['-S', 'OfficeScrubScenario', '-AcceptEula', '-OfficeVersion', 'All']
+GETHELP_TIMEOUT = 3600
+# A Learn-oldal kódjai (get-help-office-uninstall).
+GETHELP_CODES = {
+    0: 'sikeresen lefutott',
+    6: 'egy Office-program (Word, Excel, Outlook, Teams…) nyitva van: zárd be, és nyomd meg újra',
+    8: 'több Office-verziót talált',
+    9: 'nem sikerült eltávolítani az Office-t',
+    10: 'rendszergazdai jog kell hozzá',
+    66: 'a megadott Office-verzió nincs a gépen',
+    67: 'érvénytelen Office-verzió',
+    68: 'nem talált Office-t a gépen',
+}
+_UNINSTALL_ROOTS = (r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+                    r'SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')
+_OFFICE_MSI_KEY = re.compile(r'^\{9[0-9A-F]{7}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-0000000FF1CE\}$', re.I)
+
+
+def installed_office():
+    """A Programok listájában lévő Office-termékek nevei (rendezve). A visszaolvasás ebből
+    dönt: Click-to-Run (az eltávolítója az OfficeClickToRun.exe) és MSI (`{9…0FF1CE}` kulcs).
+    Ha a lista egyáltalán nem olvasható, kivételt dob (nemtudás nem „nincs Office”)."""
+    import winreg
+    names, opened = set(), 0
+    for root in _UNINSTALL_ROOTS:
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, root)
+        except OSError:
+            continue
+        opened += 1
+        with key:
+            i = 0
+            while True:
+                try:
+                    sub = winreg.EnumKey(key, i)
+                except OSError:
+                    break
+                i += 1
+                try:
+                    with winreg.OpenKey(key, sub) as k:
+                        def val(n):
+                            try:
+                                return str(winreg.QueryValueEx(k, n)[0])
+                            except OSError:
+                                return ''
+                        uninst, name = val('UninstallString'), val('DisplayName')
+                except OSError:
+                    continue
+                if 'officeclicktorun.exe' in uninst.lower() or (_OFFICE_MSI_KEY.match(sub) and name):
+                    names.add(name or sub)
+    if not opened:
+        raise RuntimeError('A Programok listája (Uninstall registry) nem olvasható.')
+    return sorted(names)
+
+
+def remove_office(run_fn, log, progress=None, installed=installed_office):
+    """Letölti a Get Help parancssori változatát, és minden Office-verziót eltávolít vele.
+    Visszatérés: (ok, szöveg). A verdikt a VISSZAOLVASÁS (4. elv): ✅ csak akkor, ha utána
+    a Programok listájában nincs Office, akármit írt is az eszköz."""
+    def say(msg):
+        logging.info(f"[OFFICEDEL] {msg}")
+        log(msg)
+
+    before = installed()
+    say('A gépen lévő Office: ' + (', '.join(before) if before else 'a Programok listájában nincs'))
+
+    root = os.path.join(_app_data_dir(), 'gethelpcmd')
+    zip_path = os.path.join(_app_data_dir(), 'gethelpcmd.zip')
+    logging.warning(f"[OFFICEDEL] A régi kibontás törlése, ha van: {root}")
+    shutil.rmtree(root, ignore_errors=True)
+    say('📥 A Microsoft eltávolítójának letöltése (Get Help parancssori változat)...')
+    download_with_cert_fallback(run_fn, GETHELP_URL, zip_path, timeout=120, log_tag='OFFICEDEL',
+                                progress_cb=(lambda d, t: progress('download', d, t)) if progress else None)
+    if not zipfile.is_zipfile(zip_path):
+        raise RuntimeError('A letöltött fájl nem zip - a Microsoft linkje mást adott.')
+    with zipfile.ZipFile(zip_path) as z:
+        z.extractall(root)
+    exe = next((os.path.join(d, f) for d, _, fs in os.walk(root) for f in fs
+                if f.lower() == 'gethelpcmd.exe'), None)
+    if not exe:
+        raise RuntimeError(f'A letöltött csomagban nincs GetHelpCmd.exe ({root}).')
+
+    say('🗑️ Az Office eltávolítása fut (kérdés nélkül, akár 10-30 perc)...')
+    res = run_fn([exe] + GETHELP_ARGS, timeout=GETHELP_TIMEOUT, cwd=os.path.dirname(exe),
+                 ok_codes=(0, 68))
+    code = res.returncode
+    out = ((res.stdout or '') + (res.stderr or '')).strip()
+    logging.info(f"[OFFICEDEL] GetHelpCmd kód={code}, kimenet: {out[:4000]}")
+    meaning = GETHELP_CODES.get(code, 'ismeretlen kód')
+    say(f'Az eltávolító kódja: {code} ({meaning})')
+
+    left = installed()
+    if left:
+        return False, ('❌ Az Office NEM került le teljesen. Még fent van: ' + ', '.join(left)
+                       + f'\nAz eltávolító ezt mondta: {meaning}.')
+    if not before and code == 68:
+        return True, 'ℹ️ Ezen a gépen nincs Office, nem volt mit eltávolítani.'
+    note = '' if code in (0, 68) else f'\n⚠️ Az eltávolító kódja viszont {code} ({meaning}).'
+    return True, '✅ Az Office eltávolítva. Indítsd újra a gépet, hogy a maradék is eltűnjön.' + note

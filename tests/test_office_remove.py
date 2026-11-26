@@ -1,55 +1,89 @@
-"""Office teljes eltávolítása (2026-11-26): a Microsoft SetupProd_OffScrub.exe-je, az exébe
-csomagolva, a `remove_office` gombbal indítva (app/gui/winact.py)."""
+"""Office teljes eltávolítása (2026-11-26): a Microsoft Get Help parancssori változata
+(GetHelpCmd.exe -S OfficeScrubScenario), `winact_core.remove_office`. Hálózat és valódi
+registry nélkül: a letöltés egy helyben gyártott zip, a Programok listája csonk."""
 import os
 import shutil
 import tempfile
 import unittest
+import zipfile
 from unittest import mock
 
-from tests import ROOT
-from app.gui import winact
-from app.gui.winact import GuiWinActMixin
-
-
-class F(GuiWinActMixin):
-    target_os_path = None
+from app import winact_core as wc
+from app.common import CommandResult
 
 
 class OfficeRemoveTest(unittest.TestCase):
-    def test_az_exe_bekerul_a_buildbe(self):
-        # Nélküle a kiadott exében a gomb csak „nem található” hibát adna.
-        self.assertTrue(os.path.isfile(os.path.join(ROOT, winact.OFFSCRUB_EXE)))
-        with open(os.path.join(ROOT, 'DriverVarazslo.spec'), encoding='utf-8') as f:
-            self.assertIn(f"('{winact.OFFSCRUB_EXE}', '.')", f.read())
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='dv_officedel_')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.calls = []
 
-    def _run(self, rc):
-        tmp = tempfile.mkdtemp(prefix='dv_officedel_')
-        self.addCleanup(shutil.rmtree, tmp, True)
-        popen = mock.MagicMock()
-        popen.return_value.wait.return_value = rc
-        with mock.patch.object(winact, '_app_data_dir', lambda: tmp), \
-                mock.patch.object(winact.subprocess, 'Popen', popen):
-            res = F().remove_office()
-        return tmp, popen, res
+        def fake_download(run_fn, url, dest, **k):
+            self.calls.append(('dl', url))
+            with zipfile.ZipFile(dest, 'w') as z:
+                z.writestr('GetHelpCmd/GetHelpCmd.exe', b'MZ')
 
-    def test_kimasol_es_starttal_sztringkent_indit(self):
-        tmp, popen, res = self._run(0)
-        dst = os.path.join(tmp, winact.OFFSCRUB_EXE)
-        self.assertTrue(res['success'])
-        self.assertTrue(os.path.isfile(dst))
-        # `cmd /c start` sztringként: a program bezárása (cleanup_zombies) ne lője ki.
-        self.assertEqual(popen.call_args[0][0], f'cmd /c start "" "{dst}"')
+        self.patches = [mock.patch.object(wc, '_app_data_dir', lambda: self.tmp),
+                        mock.patch.object(wc, 'download_with_cert_fallback', fake_download)]
+        for p in self.patches:
+            p.start()
+            self.addCleanup(p.stop)
 
-    def test_bukott_inditas_nem_siker(self):
-        _, _, res = self._run(1)
-        self.assertFalse(res['success'])
+    def _go(self, code, before, after):
+        states = iter([before, after])
 
-    def test_offline_modban_nem_indit(self):
-        f = F()
-        f.target_os_path = 'D:\\'
-        with mock.patch.object(winact.subprocess, 'Popen') as popen:
-            self.assertFalse(f.remove_office()['success'])
-        popen.assert_not_called()
+        def run(cmd, **k):
+            self.calls.append(('run', cmd))
+            return CommandResult(code, 'kimenet')
+        return wc.remove_office(run, lambda m: None, installed=lambda: next(states))
+
+    def test_a_microsoft_eszkozet_minden_verziora_futtatja(self):
+        ok, _ = self._go(0, ['Microsoft Office Professional Plus 2019 - hu-hu'], [])
+        self.assertTrue(ok)
+        self.assertEqual(self.calls[0], ('dl', wc.GETHELP_URL))
+        cmd = self.calls[1][1]
+        self.assertTrue(cmd[0].lower().endswith('gethelpcmd.exe'))
+        self.assertEqual(cmd[1:], ['-S', 'OfficeScrubScenario', '-AcceptEula', '-OfficeVersion', 'All'])
+
+    def test_ha_fent_maradt_nem_kesz_akkor_sem_ha_0_a_kod(self):
+        # 4. elv: a verdikt a visszaolvasás, nem az eszköz kódja.
+        ok, text = self._go(0, ['Microsoft Publisher 2019 - en-us'], ['Microsoft Publisher 2019 - en-us'])
+        self.assertFalse(ok)
+        self.assertIn('Publisher', text)
+
+    def test_nyitott_office_kodjat_kimondja(self):
+        ok, text = self._go(6, ['Microsoft 365'], ['Microsoft 365'])
+        self.assertFalse(ok)
+        self.assertIn('nyitva van', text)
+
+    def test_nincs_office(self):
+        ok, text = self._go(68, [], [])
+        self.assertTrue(ok)
+        self.assertIn('nincs Office', text)
+
+    def test_nem_zip_letoltes_hiba(self):
+        def bad_download(run_fn, url, dest, **k):
+            with open(dest, 'w') as f:
+                f.write('<html>')
+        with mock.patch.object(wc, 'download_with_cert_fallback', bad_download):
+            with self.assertRaises(RuntimeError):
+                self._go(0, ['Microsoft 365'], [])
+
+
+class InstalledOfficeTest(unittest.TestCase):
+    def test_a_fejlesztoi_gep_valodi_bejegyzesei(self):
+        # 2026-11-26, a fejlesztői gép Uninstall-kulcsából szó szerint (Click-to-Run).
+        uninst = ('"C:\\Program Files\\Common Files\\Microsoft Shared\\ClickToRun\\OfficeClickToRun.exe" '
+                  'scenario=install scenariosubtype=ARP sourcetype=None productstoremove=Proplus2019Retail'
+                  '.16_hu-hu_x-none culture=hu-hu version.16=16.0')
+        self.assertIn('officeclicktorun.exe', uninst.lower())
+        self.assertTrue(wc._OFFICE_MSI_KEY.match('{90160000-0011-0000-0000-0000000FF1CE}'))
+        self.assertTrue(wc._OFFICE_MSI_KEY.match('{90160000-008C-0000-1000-0000000FF1CE}'))
+        self.assertFalse(wc._OFFICE_MSI_KEY.match('{12345678-0011-0000-0000-0000000FF1CE}'))
+
+    def test_eles_olvasas_nem_dob(self):
+        # Csak olvas; a fejlesztői gépen lista jön vissza (üres is lehet).
+        self.assertIsInstance(wc.installed_office(), list)
 
 
 if __name__ == '__main__':

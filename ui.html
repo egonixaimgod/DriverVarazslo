@@ -2361,11 +2361,11 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
                 <button class="btn btn-primary" onclick="downloadBlockScript()" id="btn-blockscript">⬇️ block.bat Letöltése</button>
               </div>
             </div>
-            <!-- OFFICE ELTÁVOLÍTÁSA (2026-11-26, explicit user decision): a Microsoft
-                 SetupProd_OffScrub.exe-je, az exébe csomagolva; remove_office (app/gui/winact.py). -->
+            <!-- OFFICE ELTÁVOLÍTÁSA (2026-11-26, explicit user decision): a Microsoft Get Help
+                 parancssori változata (GetHelpCmd, OfficeScrubScenario); remove_office (app/winact_core.py). -->
             <div class="card glass">
               <div class="card-title">🗑️ Office teljes eltávolítása</div>
-              <div class="card-desc">Elindítja a <b>Microsoft saját Office-eltávolítóját</b> (SetupProd_OffScrub), ami az Office-t maradék nélkül leszedi, ott is, ahol a sima eltávolítás elakad. Az eszköz a saját ablakában fut: <b>ott kell végignyomkodni</b>, a végén ő írja ki, hogy kész, és újraindítást kér. Internet kell hozzá (ez csak egy indító, a részeit a Microsofttól tölti le).</div>
+              <div class="card-desc">Letölti a <b>Microsoft saját Office-eltávolítóját</b> (Get Help parancssori változat), és vele <b>minden Office-verziót</b> leszed a gépről — kérdés nélkül, magától végigmegy (10–30 perc). A végén a program visszaellenőrzi a telepített programok listáját, és csak akkor írja ki, hogy kész, ha tényleg nincs fent Office. Előtte <b>zárd be a Word/Excel/Outlook/Teams ablakokat</b>. Internet kell hozzá.</div>
               <div class="winact-btnrow">
                 <button class="btn btn-danger" onclick="removeOffice()" id="btn-officedel">🗑️ Office Eltávolítása</button>
               </div>
@@ -7123,20 +7123,8 @@ async function generateSystemReport() {
 
 /* ========== NET BLOKKOLÓ SCRIPT (block.ps1) ========== */
 async function removeOffice() {
-  const btn = document.getElementById('btn-officedel');
-  btn.disabled = true;
-  try {
-    const res = await api().remove_office();
-    if (res && res.success) {
-      toast('Az Office-eltávolító elindult — a saját ablakában nyomkodd végig.', 'success');
-    } else {
-      toast('Nem indult el: ' + ((res && res.error) || 'ismeretlen hiba'), 'error');
-    }
-  } catch (e) {
-    toast('Nem indult el: ' + e, 'error');
-  } finally {
-    btn.disabled = false;
-  }
+  const ok = await showConfirm('Office eltávolítása', 'MINDEN Office-verzió lekerül erről a gépről (a licenc is).\n\nZárd be előtte a Word/Excel/Outlook/Teams ablakokat. Indulhat?');
+  if (ok) api().remove_office();
 }
 
 async function downloadBlockScript() {

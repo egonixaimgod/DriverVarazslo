@@ -1142,7 +1142,7 @@ def _menu_winact(api):
             if oplan.get('ready') else 'jelenleg nem lehetséges'),
         ('3', 'Beállított KMS-kiszolgáló törlése', None),
         ('4', 'Windows aktiválás-beállítások megnyitása', None),
-        ('5', 'Office teljes eltávolítása', 'A Microsoft eltávolítója, a saját ablakában kell végignyomkodni'),
+        ('5', 'Office teljes eltávolítása', 'Minden verzió, a Microsoft eltávolítójával, kérdés nélkül'),
     ], back_label='Vissza a főmenübe')
     if c == '1':
         if not plan.get('ready'):
@@ -1185,12 +1185,8 @@ def _menu_winact(api):
     elif c == '4':
         api.open_activation_tool('settings')
     elif c == '5':
-        res = api.remove_office() or {}
-        if res.get('success'):
-            ui.ok('Az Office-eltávolító elindult — a saját ablakában nyomkodd végig.')
-        else:
-            ui.err(f"Nem indult el: {res.get('error') or 'ismeretlen hiba'}")
-        ui.pause()
+        if ui.confirm('MINDEN Office-verzió lekerül erről a gépről. Zárd be az Office-ablakokat. Indulhat?', False):
+            _run_screen(api, 'Office eltávolítása', lambda: api.remove_office())
 
 
 def _menu_display(api):
