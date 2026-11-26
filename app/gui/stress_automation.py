@@ -1044,7 +1044,7 @@ class GuiStressAutomationMixin:
                          + f", cél=({x},{y},{ww}x{hh}), látható keret={got}, {attempts}. próba, hátra={send_back}")
                 if ok:
                     logging.info(f"[STRESSTOOLS] Ablak elrendezve: {display_name} ({where})")
-                    self.emit('task_progress', {'task': task_id, 'log': f'🪟 {display_name} elrendezve.'})
+                    self.emit('task_progress', {'task': task_id, 'log': f'📐 {display_name} elrendezve.'})
                 else:
                     logging.warning(f"[STRESSTOOLS] Az ablak 3 próba után sem került a helyére, az ellenőrző kör újrapróbálja: {display_name} ({where})")
             except Exception as e:
@@ -1066,7 +1066,7 @@ class GuiStressAutomationMixin:
             # A FurMarkot a helyén is újra legalulra küldjük: a hely jó lehet, a z-sorrend nem.
             if in_place and not send_back:
                 if not first_ok:
-                    self.emit('task_progress', {'task': task_id, 'log': f'🪟 {display_name} elrendezve.'})
+                    self.emit('task_progress', {'task': task_id, 'log': f'📐 {display_name} elrendezve.'})
                 continue
             try:
                 ok, attempts, got = self._place_window(user32, hwnd, x, y, ww, hh, send_back)
@@ -1079,7 +1079,7 @@ class GuiStressAutomationMixin:
                 else:
                     logging.info(f"[STRESSTOOLS] {display_name}: az ablak elmozdult ({vis}), az ellenőrző kör visszatette ({got}, {attempts}. próba).")
                 if not first_ok:
-                    self.emit('task_progress', {'task': task_id, 'log': f'🪟 {display_name} elrendezve.'})
+                    self.emit('task_progress', {'task': task_id, 'log': f'📐 {display_name} elrendezve.'})
             else:
                 logging.warning(f"[STRESSTOOLS] {display_name}: az ablak az ellenőrző kör után sincs a helyén (cél=({x},{y}), látható keret={got}).")
                 self.emit('task_progress', {'task': task_id, 'log': f'⚠️ {display_name}: az ablakot nem sikerült a helyére tenni.'})

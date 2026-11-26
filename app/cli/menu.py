@@ -1186,8 +1186,8 @@ def _menu_winact(api):
         api.open_activation_tool('settings')
     elif c == '5':
         bd = ui.confirm('Előtte mentse el a dokumentumokat (C:\\DriverVarazslo\\office_dokumentum_mentes)?', True)
-        ks = ui.confirm('Maradjanak a fiókok és beállítások (Outlook-fiókok, programbeállítások)?', False)
-        ka = ui.confirm('Maradjon az aktiválás (termékkulcs, licenc, bejelentkezés)?', False)
+        ks = ui.confirm('Maradjanak a fiókok és beállítások (Outlook-fiókok, programbeállítások)?', True)
+        ka = ui.confirm('Maradjon az aktiválás (termékkulcs, licenc, bejelentkezés)?', True)
         rh = ui.confirm('A Windows „Microsoft 365 (Office)” alkalmazását is törölje (csak egy indító)?', False)
         if ui.confirm('MINDEN Office-verzió (a program) és a maradéka lekerül erről a gépről. A felhasználó '
                       'FÁJLJAI (dokumentumok, PDF, sablonok, aláírások, levelek) MIND MEGMARADNAK. '

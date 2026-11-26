@@ -93,5 +93,15 @@ check('seconds', snap(), { pct: '56%', step: null });
 api.onTaskComplete({ task: 'x', status: '✅ Kész' });
 check('ok-end', snap(), { pct: '100%', step: null, time: true });
 
+// 5) 2026-11-26 („kész van, de a kör pörög tovább”): a lezárás UTÁN jött kései sor
+//    (pl. a `_reboot_or_cancel` „Megszakítva” sora, vagy egy szakasz-nyitó) nem nyitja újra a kört.
+api.updateProgressModal({ log: '🔧 Kései lépés-sor a lezárás után' });
+api.updateProgressModal({ log: '⏳ Még egy', indeterminate: true });
+check('late-after-end', snap(), { pct: '100%', now: '✅ Kész' });
+// Egy új feladat ablaka viszont újra él.
+api.showProgressModal('Új feladat', '');
+api.updateProgressModal({ log: '🔧 Indul...', indeterminate: true });
+check('new-task-live', snap(), { pct: '•••', now: '🔧 Indul...' });
+
 console.log(bad ? ('HIBA: ' + bad) : 'MIND RENDBEN');
 process.exit(bad ? 1 : 0);

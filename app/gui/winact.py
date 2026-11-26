@@ -295,7 +295,8 @@ class GuiWinActMixin:
                 f'tartalmaz - azt kézzel kell elindítani ebből a mappából:\n   {ext_dir}')
 
     # ------------------------------------------------------- Office eltávolítás
-    def remove_office(self, keep_settings=False, keep_activation=False, remove_hub=False, backup_docs=True):
+    def remove_office(self, keep_settings=True, keep_activation=True, remove_hub=False, backup_docs=True):
+        # Alapállapot (explicit user decision, 2026-11-26): mentés, fiókok, aktiválás BE; M365-alkalmazás KI.
         """Minden Office-verzió eltávolítása, maradék nélkül, kérdés nélkül (2026-11-26, explicit
         user decision). A három kapcsoló a kártya jelölőnégyzete (fiókok/beállítások, aktiválás,
         a „Microsoft 365 (Office)” alkalmazás). Felhasználói fájlhoz nem nyúl.

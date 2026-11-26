@@ -552,7 +552,7 @@ def battery_section_html(batteries):
             return '<span class="badge health-Warning">nem olvasható</span>'
         pct = round(b['full'] / b['design'] * 100)
         cls = "health-Healthy" if pct > 80 else "health-Warning" if pct > 50 else "health-Unhealthy"
-        icon = "🔋" if pct >= 20 else "🪫"
+        icon = "🔋" if pct >= 20 else "⚠️"
         return (f'<span style="font-size:18px; vertical-align:middle;">{icon}</span> '
                 f'<span class="badge {cls}" style="font-size:13px; padding:4px 8px;">{pct}%</span>')
 
@@ -948,7 +948,7 @@ különben a scrollHeight nem számolja, és az egyoldalas mérés ennyivel alul
         ("🧩", "Memória", f"{ram_head} ({ram_detail})"),
         ("💾", "Háttértár", ", ".join(storage_summary_list) if storage_summary_list
          else ("Nincs más háttértár" if report['excluded_disks'] else "Nincs adat")),
-        ("🪟", "Operációs rendszer", f"{g(os_info, 'Caption', 'Ismeretlen')} ({g(os_info, 'OSArchitecture', 'Ismeretlen')})"),
+        ("💻", "Operációs rendszer", f"{g(os_info, 'Caption', 'Ismeretlen')} ({g(os_info, 'OSArchitecture', 'Ismeretlen')})"),
     ]
     summary_items = "".join(
         f'<li><span class="si">{icon}</span><b>{e(label)}:</b> {e(value)}</li>'

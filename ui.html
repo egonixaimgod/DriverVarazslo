@@ -253,17 +253,31 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
    be van pipálva, de még nem rejt el semmit - ezt látnia kell a technikusnak. */
 .toggle-busy{opacity:.6}
 .toggle-busy::after{content:' ⏳ felderítés...';font-size:11px;color:var(--text3);white-space:nowrap}
-/* A BIOS-ba égetett gyári kulcs - szándékosan a nézet leghangsúlyosabb eleme: ha van,
-   az dönti el az egész aktiválást, és a technikusnak első pillantásra látnia kell. */
-.winact-oem{margin-bottom:18px;padding:20px 24px;border-radius:14px;
-  background:linear-gradient(135deg,rgba(60,200,120,0.16),rgba(60,200,120,0.06));
-  border:2px solid rgba(80,220,140,0.45)}
-.winact-oem-title{font-size:19px;font-weight:800;color:#5fe0a0;letter-spacing:.3px;margin-bottom:12px;
-  display:flex;align-items:center;gap:10px}
-.winact-oem-key{font-family:ui-monospace,Consolas,monospace;font-size:26px;font-weight:700;
-  letter-spacing:3px;color:#eaffe7;background:rgba(0,0,0,0.28);padding:12px 18px;border-radius:10px;
-  display:inline-block;user-select:all;word-break:break-all;line-height:1.4}
-.winact-oem-sub{margin-top:12px;font-size:13px;color:var(--text2);line-height:1.65}
+/* A BIOS-ba égetett gyári kulcs: zöld kiemelés, de a többi doboz méretében (2026-11-26,
+   explicit user decision: „nem kell ilyen kurvanagyba … legyen olyan mint a többi”; előtte
+   26 px-es kulcs és 19 px-es cím, a szakasz felét elvitte). */
+.winact-oem{margin-bottom:14px;padding:12px 16px;border-radius:10px;
+  background:rgba(60,200,120,0.08);border:1px solid rgba(80,220,140,0.45)}
+.winact-oem-title{font-size:13px;font-weight:700;color:#5fe0a0;margin-bottom:8px;
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.winact-oem-key{font-family:ui-monospace,Consolas,monospace;font-size:15px;font-weight:700;
+  letter-spacing:1.5px;color:#eaffe7;background:rgba(0,0,0,0.28);padding:3px 10px;border-radius:6px;
+  user-select:all;word-break:break-all}
+.winact-oem-sub{font-size:12px;color:var(--text2);line-height:1.55}
+.os-act-grid .btn-big{padding:10px 22px;font-size:14px;gap:8px}
+/* Op. rendszer 3. szakasz (2026-11-26): 3 egyforma kártya + az Office teljes szélességben. */
+.bk-sec .cards.os-tools{grid-template-columns:repeat(3,minmax(0,1fr))}
+.os-tools .card .winact-btnrow{margin-top:auto}
+.os-tools .card .wu-status{margin:auto 0 0}
+.os-tools .card .wu-status+.winact-btnrow{margin-top:0}
+.os-tools .os-wide{grid-column:1/-1}
+.os-wide-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:14px 28px;align-items:start}
+.os-safe{margin-top:10px;padding:8px 12px;border-radius:8px;background:rgba(60,200,120,0.08);border:1px solid rgba(80,220,140,0.3);color:var(--text2)}
+.os-toggles{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px}
+.os-toggles .toggle{align-items:flex-start;font-size:12.5px;color:var(--text)}
+.os-toggles .toggle small{display:block;color:var(--text3);font-size:11.5px;margin-top:2px;line-height:1.4}
+.os-wide-foot{justify-content:flex-end}
+@media (max-width:1300px){.bk-sec .cards.os-tools{grid-template-columns:minmax(0,1fr)}.os-wide-body,.os-toggles{grid-template-columns:1fr}}
 .winact-none{margin-bottom:18px;padding:14px 18px;border-radius:12px;
   background:rgba(160,160,180,0.10);border:1px solid var(--glass-border);
   font-size:13px;color:var(--text2);line-height:1.6}
@@ -1077,6 +1091,13 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .stress-dl-box{padding:14px 18px;margin-bottom:16px;flex-direction:column;gap:8px}
 .stress-dl-label{font-size:12.5px;color:var(--text2);font-weight:600}
 .tool-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:12px}
+/* 2026-11-26 (explicit user decision: „ocd-zése”): a 22 program témánként, al-dobozokban
+   (A–E); minden dobozban ugyanaz a kártyaszélesség, hogy az oszlopok egymás alatt legyenek. */
+.tool-groups{display:grid;gap:14px}
+.tool-groups .tool-grid{grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
+.bench-tools{grid-template-columns:repeat(3,minmax(0,1fr))}
+.tc-list.tc-list-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:1300px){.bench-tools,.tc-list.tc-list-3{grid-template-columns:minmax(0,1fr)}}
 /* --- Rendszer karbantartás (2026-09-22): kategória-sor mérettel, összesítő sáv --- */
 /* 2026-11-23: szakaszokban (`.bk-sec`), a sorok két hasábban */
 .tc-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:8px}
@@ -1250,6 +1271,8 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 .tool-card{position:relative;display:flex;flex-direction:column;gap:9px;padding:16px;border-radius:var(--r);border:1px solid var(--glass-border);background:rgba(38,22,66,0.5);transition:all var(--t)}
 .tool-card:hover{transform:translateY(-2px);border-color:var(--glass-border-hover);box-shadow:0 8px 26px rgba(0,0,0,0.3),0 0 18px rgba(180,100,255,0.12);background:rgba(50,30,85,0.55)}
 .tool-head{display:flex;align-items:center;gap:10px}
+.st-head{gap:12px}
+.st-head .tool-icon{width:44px;height:44px}
 .tool-icon{width:40px;height:40px;flex-shrink:0;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:21px;background:rgba(180,100,255,0.14);border:1px solid rgba(180,100,255,0.28)}
 .tool-title{min-width:0}
 .tool-name{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1709,7 +1732,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             <div class="autofix-hero-title">🚀 1 Kattintásos Driver Fix</div>
             <div class="autofix-hero-sub">A teljes driver-rendberakás egyetlen gombbal: visszaállítási pont, a Windows Update driver-frissítéseinek letiltása, szellemeszközök és MINDEN third-party driver törlése — a hálózati drivert is beleértve (csak a nyomtató-driverek hagyhatók ki a pipával) —, majd a legfrissebb driverek automatikus telepítése a Windows Update-ről és a Microsoft Update Catalogból, újraindítás-lánccal, felügyelet nélkül. Ha a fix után mégsem lenne internet, a törlés előtt lementett hálózati driver automatikusan visszakerül, hogy a lánc ne ragadjon meg. A végén a DriverStore-t is kitakarítja.</div>
             <div class="stress-hero-chips">
-              <span class="autofix-chip">🛟 Visszaállítási pont</span>
+              <span class="autofix-chip">♻️ Visszaállítási pont</span>
               <span class="autofix-chip">👻 Szellemeszköz-törlés</span>
               <span class="autofix-chip">🖨️ Nyomtató-védelem</span>
               <span class="autofix-chip">🌐 WU + Catalog telepítés</span>
@@ -2285,7 +2308,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           <div class="bk-restore-grid os-act-grid">
           <div class="bk-step">
           <div class="bk-step-t"><span class="bk-num">A</span> 💻 Windows</div>
-          <p class="bk-p">Megmutatja, aktiválva van-e a gép, milyen licenccel (OEM / Retail / Volume), és kiolvassa a <b>gyári kulcsot a BIOS-ból</b> — újratelepítés után jellemzően ez a válasz arra, hogy miért nem aktivált magától. Az aktiválás három lépése (kulcs telepítése → KMS-kiszolgáló → aktiválás) egy gombbal lefut, a végén pedig a program <b>leellenőrzi a rendszer licenc-állapotát</b>, és csak akkor írja ki, hogy kész, ha tényleg aktív.</p>
+          <p class="bk-p">Licenc-állapot és a <b>BIOS-ba égetett gyári kulcs</b>. Az aktiválás (kulcs → KMS → aktiválás) egy gombbal lefut, a végén <b>visszaellenőrzi</b>, tényleg aktív-e.</p>
           <div id="winact-windows">Állapot lekérdezése...</div>
           <!-- A "Mit fog csinálni a gomb" kártya TÖRÖLVE (2026-09-07, explicit user
                decision: "kurva felesleges az egész"). A `winact-plan` doboz csak AKADÁLY
@@ -2335,10 +2358,13 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           <div class="bk-sec-head"><span class="bk-sec-n">3</span><div>
             <div class="bk-sec-t">🧰 További rendszer-eszközök</div>
             <div class="bk-sec-d">A BitLocker kikapcsolása, a teljesítmény-mód energiaséma, a Net Blokkoló script és az Office teljes eltávolítása.</div></div></div>
-          <div class="cards bk-cards">
+          <!-- 2026-11-26 (explicit user decision: „üres sorok, nagy helyek … semmi se ocd-s”):
+               három egyforma, rövid kártya egy sorban, alattuk az Office teljes szélességben
+               (a négy kapcsolója 2×2-ben), hogy egyik kártya se nyújtsa meg a többit. -->
+          <div class="cards bk-cards os-tools">
             <div class="card glass">
-              <div class="card-title">🔒 BitLocker (rendszermeghajtó titkosítás)</div>
-              <div class="card-desc">A rendszermeghajtó BitLocker-titkosításának állapota és végleges kikapcsolása (dekódolás). A dekódolás a meghajtó méretétől és sebességétől függően akár <b>órákig</b> is eltarthat a háttérben — a gép közben használható, csak lassabb lehet.</div>
+              <div class="card-title">🔒 BitLocker</div>
+              <div class="card-desc">A rendszermeghajtó titkosításának állapota és végleges kikapcsolása. A dekódolás akár <b>órákig</b> tarthat a háttérben, a gép közben használható.</div>
               <div class="wu-status unknown" id="bl-status">Állapot lekérdezése...</div>
               <div class="winact-btnrow">
                 <button class="btn btn-danger" onclick="disableBitlocker()" id="btn-bitlocker">🔓 BitLocker Kikapcsolása</button>
@@ -2346,8 +2372,8 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
               </div>
             </div>
             <div class="card glass">
-              <div class="card-title">⚡ Teljesítmény mód (energiaséma)</div>
-              <div class="card-desc">Ugyanazt állítja be, mint az <b>1 kattintásos fix a végén</b>: a <b>Teljesítménycentrikus</b> energiasémát a ReviOS értékeivel (a processzor minimuma 100%, nincs magparkolás és mély energiatakarékos állapot, a PCIe/USB energiagazdálkodás ki, a lemez nem áll le) — hálózaton és akkumulátoron is. Az alvás és a kijelző kikapcsolásának idejéhez nem nyúl. Laptopon ezzel rövidebb lesz az akkus üzemidő és többet szólhat a ventilátor. Visszaállítás: Gépház › Rendszer › Energiaellátás.</div>
+              <div class="card-title">⚡ Teljesítmény mód</div>
+              <div class="card-desc">Ugyanaz, mint az <b>1 kattintásos fix végén</b>: Teljesítménycentrikus séma a ReviOS értékeivel, hálózaton és akkun is. Az alváshoz nem nyúl. Visszaállítás: Gépház › Rendszer › Energiaellátás.</div>
               <div class="wu-status unknown" id="pp-status">Állapot lekérdezése...</div>
               <div class="winact-btnrow">
                 <button class="btn btn-primary" onclick="applyPerformanceMode()" id="btn-perfmode">⚡ Teljesítmény Mód Beállítása</button>
@@ -2355,22 +2381,28 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
               </div>
             </div>
             <div class="card glass">
-              <div class="card-title">🚫 Net Blokkoló Script (block.bat)</div>
-              <div class="card-desc">Letölti a <code>block.bat</code> scriptet a <code>C:\DriverVarazslo</code> mappába. A script — ha később futtatod — a saját mappájában (és az összes almappájában) található minden <code>.exe</code> kimenő internet-elérését letiltja a Windows tűzfalban. A gomb <b>csak letölti</b> a fájlt, nem futtatja: másold abba a mappába, amit blokkolni akarsz, és dupla kattintással indítsd — az admin jogot magától kéri (UAC).</div>
+              <div class="card-title">🚫 Net Blokkoló (block.bat)</div>
+              <div class="card-desc">Letölti a <code>block.bat</code>-ot a <code>C:\DriverVarazslo</code> mappába, de <b>nem futtatja</b>. Másold abba a mappába, amit blokkolni akarsz: dupla kattintásra az összes ottani <code>.exe</code> internet-elérését letiltja a tűzfalban.</div>
               <div class="winact-btnrow">
                 <button class="btn btn-primary" onclick="downloadBlockScript()" id="btn-blockscript">⬇️ block.bat Letöltése</button>
               </div>
             </div>
             <!-- OFFICE ELTÁVOLÍTÁSA (2026-11-26, explicit user decision): a Microsoft Get Help
                  parancssori változata (GetHelpCmd, OfficeScrubScenario); remove_office (app/winact_core.py). -->
-            <div class="card glass">
+            <div class="card glass os-wide">
               <div class="card-title">🗑️ Office teljes eltávolítása</div>
-              <div class="card-desc">Letölti a <b>Microsoft saját Office-eltávolítóját</b>, és vele <b>minden Office-verziót</b> leszed, utána a Microsoft kézi eltávolítási lépései szerint a <b>program maradékát is</b> (programmappák, registry, szolgáltatás, ütemezett feladatok, Office-ikonok az asztalon, tálcán, Start menüben). Kérdés nélkül megy végig (10–30 perc), a végén mindent visszaellenőriz. Előtte <b>zárd be a Word/Excel/Outlook/Teams ablakokat</b>. Internet kell hozzá.<br>🛡️ <b>Csak a programot törli. A felhasználó fájljaihoz SOHA nem nyúl:</b> Word-, Excel-, PowerPoint-dokumentumok (díjbekérők, számlák, táblázatok…), PDF-ek, saját sablonok, levélaláírások, makrók, Outlook-levelek (.pst/.ost), nem mentett és OneDrive-ra még fel nem töltött dokumentumok — mind megmaradnak.</div>
-              <label class="toggle"><input type="checkbox" id="officedel-backup-docs" checked><span class="toggle-track"></span>📦 Előtte mentse el a dokumentumokat ide: C:\DriverVarazslo\office_dokumentum_mentes (Word, Excel, PowerPoint, PDF, .pst…; ha nem sikerül, az Office-hoz nem nyúl)</label>
-              <label class="toggle"><input type="checkbox" id="officedel-keep-settings"><span class="toggle-track"></span>👤 Maradjanak a fiókok és beállítások (Outlook-fiókok, programbeállítások)</label>
-              <label class="toggle"><input type="checkbox" id="officedel-keep-activation"><span class="toggle-track"></span>🔑 Maradjon az aktiválás (termékkulcs, licenc, bejelentkezés)</label>
-              <label class="toggle"><input type="checkbox" id="officedel-remove-hub"><span class="toggle-track"></span>📱 A Windows „Microsoft 365 (Office)” alkalmazását is törölje (csak egy indító, az Office-t nem érinti)</label>
-              <div class="winact-btnrow">
+              <div class="os-wide-body">
+                <div class="card-desc">A <b>Microsoft saját eltávolítójával</b> minden Office-verziót leszed, utána a maradékot is (mappák, registry, szolgáltatás, ütemezett feladatok, Office-ikonok). Kérdés nélkül megy végig (10–30 perc), a végén visszaellenőriz. Előtte zárd be az Office-ablakokat; internet kell hozzá.
+                  <div class="os-safe">🛡️ <b>Csak a programot törli.</b> A felhasználó fájljai (Word, Excel, PowerPoint, PDF, sablonok, aláírások, Outlook-levelek .pst/.ost) <b>mind megmaradnak</b>.</div>
+                </div>
+                <div class="os-toggles">
+                  <label class="toggle"><input type="checkbox" id="officedel-backup-docs" checked><span class="toggle-track"></span><span>📦 Előtte mentse a dokumentumokat<small>C:\DriverVarazslo\office_dokumentum_mentes — ha nem sikerül, az Office-hoz nem nyúl</small></span></label>
+                  <label class="toggle"><input type="checkbox" id="officedel-keep-settings" checked><span class="toggle-track"></span><span>👤 Maradjanak a fiókok és beállítások<small>Outlook-fiókok, programbeállítások</small></span></label>
+                  <label class="toggle"><input type="checkbox" id="officedel-keep-activation" checked><span class="toggle-track"></span><span>🔑 Maradjon az aktiválás<small>termékkulcs, licenc, bejelentkezés</small></span></label>
+                  <label class="toggle"><input type="checkbox" id="officedel-remove-hub"><span class="toggle-track"></span><span>📱 A „Microsoft 365 (Office)” appot is törölje<small>csak egy indító, az Office-t nem érinti</small></span></label>
+                </div>
+              </div>
+              <div class="winact-btnrow os-wide-foot">
                 <button class="btn btn-danger" onclick="removeOffice()" id="btn-officedel">🗑️ Office Eltávolítása</button>
               </div>
             </div>
@@ -2579,7 +2611,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           <div class="bk-sec-head"><span class="bk-sec-n">2</span><div>
             <div class="bk-sec-t">➕ Extra takarítás — opcionális</div>
             <div class="bk-sec-d">Alapból kikapcsolva, csak ha tudod, hogy kell. A sorok fölé víve az egeret kiírja, mi törlődik pontosan.</div></div></div>
-          <div class="tc-list">
+          <div class="tc-list tc-list-3">
             <div class="tc-row" title="A Chrome, Edge, Brave és Firefox GYORSÍTÓTÁRA minden profilban (Cache, Code Cache, GPUCache, cache2). Sütik, előzmények, jelszavak, könyvjelzők NEM törlődnek. Ha a böngésző épp fut, a zárolt fájlok kimaradnak - érdemes előtte bezárni.">
               <label class="toggle"><input type="checkbox" id="tc-browser-cache" onchange="tcUpdateTotal()"><span class="toggle-track"></span>🌐 Böngésző-gyorsítótárak (Chrome, Edge, Brave, Firefox)</label>
               <span class="tc-size" id="tcs-browser_cache">…</span></div>
@@ -2637,9 +2669,9 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             <div class="vh-title">🚀 1 Kattintásos Driver Fix</div>
             <div class="vh-sub">A teljes driver-rendberakás felügyelet nélkül: visszaállítási pont, a Gyors Rendszerindítás (Fast Startup) és a WU driver-frissítések letiltása, szellemeszközök és MINDEN third-party driver törlése — a hálózati (LAN/Wi-Fi) drivert is beleértve, azt mindig frissre cseréli; egyedül a nyomtató-driverek hagyhatók ki a pipával —, majd a legfrissebb driverek automatikus telepítése a Windows Update-ről és a Microsoft Update Catalogból, újraindítás-lánccal, ami magától folytatja, amíg van új driver. Ha a fix után nem lenne internet, a törlés előtt lementett hálózati driver automatikusan visszakerül. A végén a DriverStore-t is kitakarítja, és összefoglalót ad.</div>
             <div class="vh-chips">
-              <span class="hero-chip">🛟 Visszaállítási pont</span>
+              <span class="hero-chip">♻️ Visszaállítási pont</span>
               <span class="hero-chip">🖨️ Nyomtató-védelem</span>
-              <span class="hero-chip">🛜 NIC mentőháló</span>
+              <span class="hero-chip">🌐 NIC mentőháló</span>
               <span class="hero-chip">🔁 Újraindítás-lánc</span>
               <span class="hero-chip">📊 Záró összefoglaló</span>
             </div>
@@ -2649,11 +2681,50 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
           </div>
         </div>
 
-        <div class="panel glass">
-          <div style="background: rgba(255, 100, 90, 0.1); border: 1px solid rgba(255, 100, 90, 0.4); padding: 15px; border-radius: 8px;">
-            <div style="color: var(--red); font-weight: bold; margin-bottom: 8px;">⚠️ FIGYELEM: WINDOWS DEFENDER</div>
-            <p style="color: var(--text2); font-size: 13px; margin-bottom: 12px; line-height: 1.5;">A Windows Defender "vírusnak" nézheti és futás közben gondolkodás nélkül letörölheti a Varázslót a háttérben futó scriptek és a mély rendszer-módosítások miatt. <strong>Kérlek, feltétlenül kapcsold ki a "Valós idejű védelmet", mielőtt rányomsz a Fix indítására!</strong></p>
-            <button class="btn btn-sm" style="background: rgba(255, 100, 90, 0.2); border-color: rgba(255, 100, 90, 0.5); color: #fff;" onclick="api().open_defender()">🛡️ Windows Defender Megnyitása</button>
+        <!-- 2026-11-26 (explicit user decision: „itt nincs semmi … legyen már vmi”): a hero alatt
+             a Mentés nézet szakasz-mintája; csak leírás, a fix működéséhez nem nyúl. -->
+        <div class="panel glass bk-sec sec-orange">
+          <div class="bk-sec-head"><span class="bk-sec-n">1</span><div>
+            <div class="bk-sec-t">⚠️ Mielőtt elindítod</div>
+            <div class="bk-sec-d">Három dolog, ami nélkül a fix félúton elakadhat.</div></div></div>
+          <div class="cards bk-cards">
+            <div class="card">
+              <div class="card-title">🛡️ Windows Defender</div>
+              <div class="card-desc">A Defender „vírusnak” nézheti a háttérben futó szkripteket, és futás közben törölheti a Varázslót. <b>Kapcsold ki a „Valós idejű védelmet”</b>, mielőtt elindítod.</div>
+              <div class="winact-btnrow"><button class="btn btn-danger btn-sm" onclick="api().open_defender()">🛡️ Windows Defender megnyitása</button></div>
+            </div>
+            <div class="card">
+              <div class="card-title">🌐 Internet</div>
+              <div class="card-desc">A driverek a Windows Update-ről és a Microsoft Update Catalogból jönnek, ezért <b>végig kell net</b>. A hálózati driver törlés előtt mentésre kerül, és ha utána nincs internet, magától visszakerül.</div>
+            </div>
+            <div class="card">
+              <div class="card-title">⏱️ Idő: 20–60 perc</div>
+              <div class="card-desc">A kattintás után <b>nem kell a gép előtt ülni</b>: többször újraindul, és bejelentkezés után magától folytatja. A végén összefoglaló vár, a teendőkkel együtt.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel glass bk-sec">
+          <div class="bk-sec-head"><span class="bk-sec-n">2</span><div>
+            <div class="bk-sec-t">🧭 Mit csinál, lépésről lépésre</div>
+            <div class="bk-sec-d">Indítás előtt egy ablakban kiválaszthatod, mit hagyjon meg (pl. a nyomtató-drivereket).</div></div></div>
+          <div class="cards bk-cards">
+            <div class="card">
+              <div class="card-title">① Előkészítés</div>
+              <div class="card-desc">Visszaállítási pont, a Gyors rendszerindítás és a WU driver-frissítések letiltása, a rendszeróra ellenőrzése.</div>
+            </div>
+            <div class="card">
+              <div class="card-title">② Törlés</div>
+              <div class="card-desc">Előtte teljes driver-mentés (<code>C:\DriverVarazslo\driver_backup</code>), utána a szellemeszközök és <b>minden third-party driver</b> törlése, kivéve amit meghagytál.</div>
+            </div>
+            <div class="card">
+              <div class="card-title">③ Újradriverezés</div>
+              <div class="card-desc">A legfrissebb driverek a Windows Update-ről és a Catalogból, újraindítás-lánccal, amíg van új driver.</div>
+            </div>
+            <div class="card">
+              <div class="card-title">④ Lezárás</div>
+              <div class="card-desc">DriverStore-takarítás, a WU szüneteltetése, és a záró jelentés: ami nem kapott drivert, az eszköznévvel és teendővel.</div>
+            </div>
           </div>
         </div>
       </div>
@@ -2676,6 +2747,76 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             <button class="btn-stress" onclick="startStressTests()" id="btn-stresstest">🔥 CPU + MEMÓRIA + GPU TESZT</button>
             <button class="btn-stress btn-ramtest" onclick="startRamTest()" id="btn-ramtest">🧪 RAM TEST</button>
             <button class="btn btn-danger btn-sm" onclick="stopStressTests()" style="justify-content:center" title="Az összes futó teszt-/monitor program azonnali bezárása">🛑 Összes teszt bezárása</button>
+          </div>
+        </div>
+
+        <!-- 2026-11-26 (explicit user decision: „ott van egy egész oldal és üres”): a Mentés nézet
+             szakasz-mintája; csak leírás, a tesztek működéséhez nem nyúl. -->
+        <div class="panel glass bk-sec sec-red">
+          <div class="bk-sec-head"><span class="bk-sec-n">1</span><div>
+            <div class="bk-sec-t">🔥 CPU + memória + GPU teszt: mit nézz</div>
+            <div class="bk-sec-d">A négy program egyszerre fut, a képernyő negyedeiben. Ezekre figyelj közben.</div></div></div>
+          <div class="cards bk-cards">
+            <div class="card">
+              <div class="card-title st-head"><div class="tool-icon"><img data-tool-icon="furmark" width="32" height="32" alt=""></div><span>FurMark · GPU</span></div>
+              <div class="card-desc">A videókártyát terheli. <b>Hiba jele:</b> villódzó, színes pöttyök (artefaktok) a képen, a kép kifagy vagy elsötétül, a driver újraindul.</div>
+            </div>
+            <div class="card">
+              <div class="card-title st-head"><div class="tool-icon"><img data-tool-icon="prime95" width="32" height="32" alt=""></div><span>Prime95 · CPU</span></div>
+              <div class="card-desc">Small FFTs: a processzort a legmelegebbre hajtja. <b>Hiba jele:</b> egy worker hibával leáll, vagy a gép újraindul / kékhalál jön.</div>
+            </div>
+            <div class="card">
+              <div class="card-title st-head"><div class="tool-icon"><img data-tool-icon="linpack" width="32" height="32" alt=""></div><span>Linpack · CPU + RAM</span></div>
+              <div class="card-desc">Számításokat ismétel, és összeveti az eredményeket. <b>Hiba jele:</b> eltérő eredmény (residual) két futás között.</div>
+            </div>
+            <div class="card">
+              <div class="card-title st-head"><div class="tool-icon"><img data-tool-icon="hwinfo" width="32" height="32" alt=""></div><span>HWiNFO64 · szenzorok</span></div>
+              <div class="card-desc">Itt látod a hőmérsékletet, az órajelet és a fogyasztást. <b>Figyeld:</b> visszaesik-e az órajel (throttling), és jelez-e hibát a WHEA-számláló.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel glass bk-sec sec-green">
+          <div class="bk-sec-head"><span class="bk-sec-n">2</span><div>
+            <div class="bk-sec-t">🧪 RAM TEST: mi történik</div>
+            <div class="bk-sec-d">Felügyelet nélkül fut végig, a végén kiírja az eredményt és a teendőt.</div></div></div>
+          <div class="cards bk-cards">
+            <div class="card">
+              <div class="card-title st-head"><div class="tool-icon"><img data-tool-icon="tm5" width="32" height="32" alt=""></div><span>TestMem5</span></div>
+              <div class="card-desc">Gyors memóriateszt: a durva hibákat hamar megtalálja.</div>
+            </div>
+            <div class="card">
+              <div class="card-title st-head"><div class="tool-icon">🧮</div><span>y-cruncher</span></div>
+              <div class="card-desc">Számításokkal terheli a memóriát és a memóriavezérlőt.</div>
+            </div>
+            <div class="card">
+              <div class="card-title st-head"><div class="tool-icon"><img data-tool-icon="hcimemtest" width="32" height="32" alt=""></div><span>HCI MemTest</span></div>
+              <div class="card-desc">Hosszabb, alapos teszt a ritka, ritkán előjövő hibákra.</div>
+            </div>
+            <div class="card">
+              <div class="card-title st-head"><div class="tool-icon">📋</div><span>Kiértékelés</span></div>
+              <div class="card-desc">Közben a Windows hibanaplóját (WHEA) is figyeli. <b>✅ csak akkor jön, ha minden teszt tiszta</b> és WHEA-hiba sincs.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel glass bk-sec sec-orange">
+          <div class="bk-sec-head"><span class="bk-sec-n">3</span><div>
+            <div class="bk-sec-t">💡 Jó tudni</div>
+            <div class="bk-sec-d">A teszt alatt a képernyő nem kapcsol ki, és a gép nem alszik el.</div></div></div>
+          <div class="cards bk-cards">
+            <div class="card">
+              <div class="card-title st-head"><div class="tool-icon">🔌</div><span>Laptopnál</span></div>
+              <div class="card-desc">Legyen töltőn: akkuról a gép visszafogja magát, és az eredmény nem mond semmit.</div>
+            </div>
+            <div class="card">
+              <div class="card-title st-head"><div class="tool-icon">🛑</div><span>Leállítás</span></div>
+              <div class="card-desc">A folyamatablak piros gombja vagy a fenti <b>„Összes teszt bezárása”</b> minden teszt-programot egyszerre bezár.</div>
+            </div>
+            <div class="card">
+              <div class="card-title st-head"><div class="tool-icon">📥</div><span>Első indítás</span></div>
+              <div class="card-desc">A programok az első indításkor töltődnek le, utána a gépen maradnak.</div>
+            </div>
           </div>
         </div>
 
@@ -2714,7 +2855,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
             <span class="count-badge" id="svc-badge"></span>
           </div>
           <p style="margin-bottom:14px;color:var(--text3)">A <b style="color:var(--text2)">FurMark, a Prime95 és a Linpack</b> egyenként is <b style="color:var(--text2)">pontosan a stressz-teszt beállításaival</b> indul (automatikusan, a portable csomagból). A többi programnál <b style="color:var(--text2)">nincs automatizálás</b>: a saját beállító képernyőjével nyílik meg, minden opciót te állítasz be. A <b style="color:var(--text2)">▶ Indítás</b> portable módban, a letöltött csomagból futtat (telepítés nélkül); ha egy program telepítve van, a telepített példány indul. Első használatkor csak az adott program töltődik le — a folyamatot a fenti sáv mutatja.</p>
-          <div class="tool-grid" id="tool-grid"></div>
+          <div class="tool-groups" id="tool-grid"></div>
           <div class="toolbar" style="margin-top:16px;margin-bottom:0">
             <button class="btn btn-primary" onclick="installServiceTools()" id="btn-tools-install">📥 Kijelöltek telepítése</button>
             <button class="btn btn-danger" onclick="uninstallServiceTools()" id="btn-tools-uninstall">🗑️ Kijelöltek törlése</button>
@@ -2847,7 +2988,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
         <div class="panel glass">
           <div class="panel-title"><span class="emoji">🎮</span> Benchmark programok — egyenkénti indítás</div>
           <p style="margin-bottom:14px;color:var(--text3)">A programokat külön, <b style="color:var(--text2)">kézi módban</b> is elindíthatod (portable, telepítés nélkül, automatizálás nélkül) — ha csak nézelődni vagy kísérletezni akarsz. A ranglistára az <b style="color:var(--text2)">🏁 Benchmark futtatása</b> automata méréssel lehet felkerülni.</p>
-          <div class="tool-grid">
+          <div class="tool-grid bench-tools">
             <div class="tool-card">
               <div class="tool-head">
                 <div class="tool-icon">🧠</div>
@@ -3544,6 +3685,7 @@ window.handlePyEvent = function(payload) {
       appendLog('❌ HIBA: ' + (data.error || 'Ismeretlen hiba'));
       document.getElementById('mp-status').textContent = '❌ Hiba történt!';
       mpSetHead({now: '❌ Hiba történt!', pct: 100, pctText: '❌', eta: '', step: ''});
+      mpProg.done = true;
       mpDedup();
       document.getElementById('mp-close-btn').style.display = 'inline-flex';
       document.getElementById('mp-cancel-btn').style.display = 'none';
@@ -7226,15 +7368,13 @@ function renderActivationStatus(data) {
   if (w.kms_host) rows.push(['Beállított KMS-kiszolgáló', '<span class="winact-key">' + esc(w.kms_host) + '</span>']);
 
   // A BIOS-kulcs a nézet legfontosabb információja: ha van, az dönti el az egész
-  // aktiválást. Ezért NAGY, kiemelt dobozban, a többi adat FÖLÖTT.
+  // aktiválást. Ezért zöld, kiemelt dobozban, a többi adat FÖLÖTT (2026-11-26 óta kompakt).
   const oemBox = w.oem_key
     ? '<div class="winact-oem">'
-      + '<div class="winact-oem-title">🔑 VAN GYÁRI KULCS A GÉPBEN!</div>'
-      + '<div class="winact-oem-key">' + esc(w.oem_key) + '</div>'
-      + '<div class="winact-oem-sub">Ez a kulcs a gép <b>alaplapjába (BIOS/UEFI) van égetve</b>, '
-      + 'és <b>mindig működni fog</b> — újratelepítés után is, internet nélkül is megmarad. '
-      + 'Az „Aktiválás” gomb magától <b>ezt</b> fogja használni.<br>'
-      + '<b>NE cseréld le másik kulcsra</b> — bármi más csak rosszabb lehet nála.</div>'
+      + '<div class="winact-oem-title">🔑 Gyári kulcs a BIOS-ban'
+      + '<span class="winact-oem-key">' + esc(w.oem_key) + '</span></div>'
+      + '<div class="winact-oem-sub">Az alaplapba van égetve, újratelepítés után is működik; '
+      + 'az aktiválás gomb ezt használja. <b>Ne cseréld le másik kulcsra.</b></div>'
       + '</div>'
     : '<div class="winact-none">ℹ️ <b>Ebben a gépben nincs gyári kulcs a BIOS-ban</b> '
       + '(nem gyári Windowsos gép, vagy összerakott konfiguráció).</div>';
@@ -7841,6 +7981,15 @@ const SERVICE_TOOLS = [
   {key:'wlu',         icon:'🔓', name:'Windows Login Unlocker',    cat:'Jelszó',    cls:'info', drive:true, desc:'Windows-fiók jelszavának törlése egy MÁSIK (nem futó) Windowson — a Sergei pendrive-ról bootolva.'},
 ];
 
+// A Szervízprogramok nézet csoportjai (2026-11-26); a sorrend a megjelenítésé.
+const TOOL_GROUPS = [
+  ['🔥 Stressz és terhelés', ['furmark', 'prime95', 'linpack', 'occt']],
+  ['🧪 Memóriateszt', ['tm5', 'ycruncher', 'hcimemtest']],
+  ['📟 Diagnosztika és infó', ['hwinfo', 'hdsentinel', 'aida64', 'cpuz', 'gpuz', 'zentimings']],
+  ['💽 Lemez, fájlok, Windows', ['macrium', 'partitionwizard', 'treesize', 'dismpp', 'teracopy', 'totalcmd']],
+  ['🧰 Egyéb eszközök', ['ismylcdok', 'teamviewer', 'wlu']],
+];
+
 // A programok SAJÁT ikonjai (2026-10-30, explicit user decision: az emojik helyett), az
 // exéjükből kinyerve (48 px PNG). Aminek nincs ikonja (y-cruncher), ott marad az emoji.
 const TOOL_ICON_IMG = {
@@ -7866,11 +8015,16 @@ const TOOL_ICON_IMG = {
   wlu: 'data:image/png;base64,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',
   zentimings: 'data:image/png;base64,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',
 };
+// A Stress Teszt leíró kártyáinak program-ikonjai (2026-11-26): ugyanabból a táblából.
+document.querySelectorAll('img[data-tool-icon]').forEach(img => {
+  const src = TOOL_ICON_IMG[img.dataset.toolIcon];
+  if (src) img.src = src; else img.replaceWith('🧩');
+});
 
 function renderToolGrid() {
   const grid = document.getElementById('tool-grid');
   if (!grid) return;
-  grid.innerHTML = SERVICE_TOOLS.map(t => `
+  const card = t => `
     <div class="tool-card" id="tool-card-${t.key}">
       <div class="tool-head">
         <div class="tool-icon">${TOOL_ICON_IMG[t.key] ? `<img src="${TOOL_ICON_IMG[t.key]}" width="32" height="32" alt="">` : t.icon}</div>
@@ -7884,7 +8038,16 @@ function renderToolGrid() {
         <button class="btn btn-sm" id="tool-start-${t.key}" onclick="startStressTool('${t.key}')" title="${t.name} indítása, automatizálás nélkül">▶ Indítás</button>
         <label class="tool-install-pick" title="Jelöld be, majd nyomd meg lent a Telepítés vagy a Törlés gombot"><input type="checkbox" id="ti-${t.key}"> kijelöl</label>
       </div>
-    </div>`).join('');
+    </div>`;
+  // Témánként csoportosítva; amit egy új program kulcsa egyik csoportba sem sorol, az a
+  // végére kerül („Egyéb”), hogy SOHA ne tűnjön el a listából.
+  const placed = new Set(TOOL_GROUPS.flatMap(g => g[1]));
+  const groups = TOOL_GROUPS.map(g => [g[0], g[1].map(k => SERVICE_TOOLS.find(t => t.key === k)).filter(Boolean)]);
+  const rest = SERVICE_TOOLS.filter(t => !placed.has(t.key));
+  if (rest.length) groups.push(['🧩 Egyéb', rest]);
+  grid.innerHTML = groups.map((g, i) => `
+    <div class="bk-step"><div class="bk-step-t"><span class="bk-num">${String.fromCharCode(65 + i)}</span> ${g[0]}</div>
+      <div class="tool-grid">${g[1].map(card).join('')}</div></div>`).join('');
   const badge = document.getElementById('svc-badge');
   if (badge) badge.textContent = SERVICE_TOOLS.length + ' program';
 }
@@ -8589,6 +8752,10 @@ function updateProgressModal(data) {
   if (data.status) document.getElementById('mp-status').textContent = data.status;
   if (data.counter) document.getElementById('mp-counter').textContent = data.counter;
   if (data.log) appendLog(data.log);
+  // LEZÁRT ABLAK (2026-11-26, felhasználói bejelentés: „kész van, de a kör pörög tovább”): a
+  // task_complete/task_error UTÁN érkező kései sor (pl. a `_reboot_or_cancel` „Megszakítva”
+  // sora) csak a naplóba megy; a kört és a fejlécet nem nyithatja újra „•••”-ra.
+  if (mpProg.done) return;
   if (data.indeterminate) {
     document.getElementById('mp-progress').classList.add('progress-indeterminate');
     document.getElementById('mp-progress-fill').style.width = '30%';
@@ -8802,7 +8969,7 @@ function onTaskComplete(data) {
   document.getElementById('mp-progress').classList.remove('progress-indeterminate');
   document.getElementById('mp-progress-fill').style.width = '100%';
   // A fejlec is zarjon le: 100%, "Kesz", es a hatralevo ido chip eltunik.
-  mpProg.total = mpProg.total || 1; mpProg.cur = mpProg.total;
+  mpProg.total = mpProg.total || 1; mpProg.cur = mpProg.total; mpProg.done = true;
   // Sikertelen zárásnál a kör NEM mond 100%-ot (2026-11-11: "100%" állt az "❌ Egyetlen
   // program telepítése sem sikerült" mellett); a letöltés-számláló chipje is eltűnik.
   const endStatus = (data && data.status) ? String(data.status) : '✅ Kész';

@@ -654,7 +654,7 @@ class GuiStressMixin:
                             if self._check_cancel():
                                 break
                             time.sleep(1)
-                        self.emit('task_progress', {'task': 'stress', 'log': '🪟 Ablakok elrendezése...'})
+                        self.emit('task_progress', {'task': 'stress', 'log': '📐 Ablakok elrendezése...'})
                         self._position_stress_windows(pid_map, task_id='stress')
 
                 # Záró összegzés: az elindult, de végig nem automatizált programokat név

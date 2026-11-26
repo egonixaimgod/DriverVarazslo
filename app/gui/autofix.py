@@ -573,7 +573,7 @@ class GuiAutofixMixin:
             saved = export_wlan_profiles(self._run)
             if saved:
                 logging.info(f"[WLAN-BACKUP] {len(saved)} Wi-Fi profil elmentve: {[s['ssid'] for s in saved]}")
-                self.emit('task_progress', {'task': task_id, 'log': f'🛟 {len(saved)} Wi-Fi hálózat (jelszóval együtt) megjegyezve a lánc idejére - a mentés a végén törlődik.\n'})
+                self.emit('task_progress', {'task': task_id, 'log': f'🌐 {len(saved)} Wi-Fi hálózat (jelszóval együtt) megjegyezve a lánc idejére - a mentés a végén törlődik.\n'})
             # A lánc 3-4 felügyelet nélküli újraindítást csinál: ha az ügyfél profilja
             # KÉZI csatlakozásra van állítva, a gép minden boot után hálózat nélkül jön
             # fel, és a lánc megáll - hiába van meg a jelszó. Ezért az aktív hálózatot
@@ -585,7 +585,7 @@ class GuiAutofixMixin:
         total = len(drivers)
         logging.info(f"[AUTOFIX-DELETE] Ténylegesen törlendő csomagok: {total} db.")
         if total > 0:
-            # 🛟 Hálózati mentőöv: a Net-driverek exportja törlés előtt - ha a lánc
+            # 🌐 Hálózati mentőöv: a Net-driverek exportja törlés előtt - ha a lánc
             # folytatásánál nem lenne internet (a WU/beépített driver nem fedi le a
             # hálózati kártyát), ebből állítjuk vissza őket.
             # A VÉDETT Wi-Fi csomagot is exportáljuk, pedig nem töröljük: ez a
@@ -598,7 +598,7 @@ class GuiAutofixMixin:
             export_guard = {}
             backed_up = _export_net_driver_backup(self._run, drivers + wifi_protected_pkgs, guard=export_guard)
             if backed_up:
-                self.emit('task_progress', {'task': task_id, 'log': f'🛟 {backed_up} db hálózati driver biztonsági mentése kész (vész-visszaállításhoz).\n'})
+                self.emit('task_progress', {'task': task_id, 'log': f'🌐 {backed_up} db hálózati driver biztonsági mentése kész (vész-visszaállításhoz).\n'})
 
             # 💾 TELJES MENTÉS A TÖRLÉS ELŐTT (2026-09-17, explicit user decision).
             # NEM automatikus visszaállításra: a fix ugyanúgy nulláról driverez újra
@@ -3738,7 +3738,7 @@ class GuiAutofixMixin:
                     self._finish_deferred_inf_cleanup()
                     if getattr(self, '_cancel_flag', False): raise Exception("Magyar_Megszakit_Flag")
 
-                    # 🛟 Hálózati mentőöv: ha a driver-törlés után a gép internet nélkül
+                    # 🌐 Hálózati mentőöv: ha a driver-törlés után a gép internet nélkül
                     # maradt (a WU/beépített driver nem fedte le a hálózati kártyát -
                     # terepen látott eset friss AM5-ös Realtek 2.5GbE-vel), a törlés előtt
                     # elmentett Net-drivereket visszatöltjük, különben a lánc WU-keresése
@@ -3755,7 +3755,7 @@ class GuiAutofixMixin:
                     if not net_ok and getattr(self, '_autofix_wifi_mode', False):
                         net_ok = self._autofix_recover_wifi('autofix')
                     if not net_ok:
-                        self.emit('task_progress', {'task': 'autofix', 'log': '🛟 Nincs internet a driver-törlés után! Mentett hálózati driverek visszaállítása...'})
+                        self.emit('task_progress', {'task': 'autofix', 'log': '🌐 Nincs internet a driver-törlés után! Mentett hálózati driverek visszaállítása...'})
                         if _restore_net_driver_backup(self._run):
                             self._run(['pnputil', '/scan-devices'])
                             net_ok = self._wait_for_internet(self._net_wait_seconds(), 'autofix', 'a hálózati driver visszaállítása után')

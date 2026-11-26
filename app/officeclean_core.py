@@ -353,11 +353,15 @@ BACKUP_DIR_NAME = 'office_dokumentum_mentes'
 BACKUP_FREE_MARGIN = 2 * 1024 ** 3          # ennyi szabad hely maradjon a mentés után
 # Csak a felhőben lévő OneDrive-fájl (Files On-Demand): megnyitása letöltést indítana.
 _CLOUD_ONLY_ATTRS = 0x400000 | 0x40000 | 0x1000   # RECALL_ON_DATA_ACCESS | RECALL_ON_OPEN | OFFLINE
-# Az AppData-ban csak a Microsoft-mappákban keresünk (ott vannak az Office felhasználói fájljai:
-# sablon, aláírás, nem mentett, Outlook); a többi (fejlesztői eszközök, böngésző) csak lassít.
+# A TELJES PROFILT nézzük (2026-11-26, terep: egy 8. generációs gépen 5 perc; a felhasználó a
+# szűkítést - csak Asztal/Dokumentumok/Letöltések/OneDrive - kipróbálás után visszavonta: *„jó volt
+# így ahogy volt”*). Az AppData-ban csak a Microsoft-mappákban keresünk (ott vannak az Office
+# felhasználói fájljai: sablon, aláírás, nem mentett, Outlook); a többi (fejlesztői eszközök,
+# böngésző) csak lassít.
 _BACKUP_APPDATA_OK = (os.path.join('appdata', 'roaming', 'microsoft'),
                       os.path.join('appdata', 'local', 'microsoft'))
 _BACKUP_SKIP = (os.path.join('appdata', 'local', 'microsoft', 'windows', 'inetcache'),)
+BACKUP_PROGRESS_SECS = 10
 
 
 def _backup_walk_ok(sub):
@@ -369,19 +373,21 @@ def _backup_walk_ok(sub):
     return any(sub.startswith(ok) or ok.startswith(sub + os.sep) for ok in _BACKUP_APPDATA_OK)
 
 
-def find_documents(roots):
-    """[(útvonal, méret)] a `roots` alatt + a csak felhős fájlok száma. Linket nem követ."""
-    found, cloud = [], 0
+def find_documents(roots, progress=None):
+    """[(útvonal, méret)] a `roots` (profilok) alatt + a csak felhős fájlok száma. Linket nem
+    követ. `progress(mappák, találatok)` legfeljebb BACKUP_PROGRESS_SECS-onként."""
+    found, cloud, ndirs = [], 0, 0
+    last = time.monotonic()
     for root in roots:
         lroot = _long_path(root)
         for cur, dirs, files in os.walk(lroot):
+            ndirs += 1
+            if progress and time.monotonic() - last >= BACKUP_PROGRESS_SECS:
+                last = time.monotonic()
+                progress(ndirs, len(found))
             rel = os.path.relpath(cur, lroot).lower()
-            keep = []
-            for d in dirs:
-                sub = os.path.join(rel, d.lower()) if rel != '.' else d.lower()
-                if not _is_link(os.path.join(cur, d)) and _backup_walk_ok(sub):
-                    keep.append(d)
-            dirs[:] = keep
+            dirs[:] = [d for d in dirs if not _is_link(os.path.join(cur, d)) and _backup_walk_ok(
+                os.path.join(rel, d.lower()) if rel != '.' else d.lower())]
             for f in files:
                 if os.path.splitext(f)[1].lower() not in BACKUP_EXT:
                     continue
@@ -406,7 +412,7 @@ def backup_documents(log, roots, dest_parent):
 
     say('📦 0/3: a felhasználók dokumentumainak keresése a mentéshez...')
     t0 = time.monotonic()
-    found, cloud = find_documents(roots)
+    found, cloud = find_documents(roots, lambda d, n: say(f'   keresés... {d} mappa átnézve, {n} dokumentum'))
     total = sum(s for _, s in found)
     say(f'   {len(found)} dokumentum, {total / 1024 ** 2:.0f} MB ({time.monotonic() - t0:.0f} mp)'
         + (f'; {cloud} csak a OneDrive-felhőben van, azt nem töltöm le (ott biztonságban van)' if cloud else ''))

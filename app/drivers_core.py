@@ -463,7 +463,8 @@ def set_service_state(run, service, start):
     ezért mennek `ok_codes`-ban, különben minden futás hamis WARNING-ot írna."""
     verb = 'start' if start else 'stop'
     codes = (0, 2182) if start else (0, 2, 2184)
-    res = run(['net', verb, service], ok_codes=codes, timeout=90)
+    # A `net` kimenete OEM kódlapú (cp852): enélkül a napló „Nyomtat si v r˘lista”-t írt.
+    res = run(['net', verb, service], ok_codes=codes, timeout=90, encoding='oem')
     ok = res.returncode in codes
     logging.log(logging.INFO if ok else logging.WARNING,
                 f"[DRIVERS] A(z) {service} szolgáltatás {'indítása' if start else 'leállítása'}: "
