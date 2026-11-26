@@ -183,7 +183,7 @@ def _drivers_usage_info(api, drivers):
     if usage:
         ui.ok(f"{c.get('active', 0)} csomagot használ MOST a gép · "
               f"{c.get('standby', 0)} nincs bedugva · {c.get('idle', 0)} nem fut · "
-              f"{c.get('unused', 0)} nem használt")
+              f"{c.get('program', 0)} programhoz tartozik · {c.get('unused', 0)} nem használt")
     if info.get('machine_error'):
         ui.dim(f"A gép felépítése nem rajzolható ki: {info['machine_error']}")
     return info
@@ -201,6 +201,7 @@ _USAGE_MARK = {
     'active':  (ui.RED, '🔴 HASZNÁLJA', '[!] HASZNALJA'),
     'standby': (ui.YELLOW, '🟡 nincs bedugva', '[~] nincs bedugva'),
     'idle':    (ui.YELLOW, '🟡 nem fut', '[~] nem fut'),
+    'program': (ui.YELLOW, '🟡 programé', '[~] programe'),
     'unused':  (ui.DIM, '⚪ nem használt', '[ ] nem hasznalt'),
     'unknown': (ui.DIM, '❔ ismeretlen', '[?] ismeretlen'),
 }
@@ -256,6 +257,7 @@ def _drivers_usage_screen(api):
     groups = [('active', 'HASZNÁLATBAN — a gép MOST használja', ui.RED),
               ('standby', 'NINCS BEDUGVA — van hozzá eszköz/nyomtató, de most nincs csatlakoztatva', ui.YELLOW),
               ('idle', 'NEM FUT — szoftveres driver, a szolgáltatása le van állítva', ui.YELLOW),
+              ('program', 'PROGRAMHOZ TARTOZIK — eszköz nélkül, de egy fent lévő program tette fel', ui.YELLOW),
               ('unused', 'NEM HASZNÁLT — semmi nem hivatkozik rá', ui.DIM)]
     for state, title, color in groups:
         items = [d for d in drivers
@@ -316,7 +318,7 @@ def _machine_screen(machine, drivers, usage):
             if devs:
                 lines.append('Windows beépített driverrel működik: ' + ', '.join(
                     f"{dv['name']} ({dv.get('inf') or '?'})" for dv in devs[:3]))
-        order = {'active': 0, 'standby': 1, 'idle': 2, 'unknown': 3, 'unused': 4}
+        order = {'active': 0, 'standby': 1, 'idle': 2, 'program': 3, 'unknown': 4, 'unused': 5}
         items.sort(key=lambda d: (order.get(((usage.get((d.get('published') or '').lower()) or {}).get('state')), 9),
                                   (d.get('published') or '').lower()))
         for d in items:
@@ -428,7 +430,7 @@ def _delete_drivers_flow(api):
     usage = info.get('usage') or {}
     machine = info.get('machine')
     if usage:
-        order = {'active': 0, 'standby': 1, 'idle': 2, 'unknown': 3, 'unused': 4}
+        order = {'active': 0, 'standby': 1, 'idle': 2, 'program': 3, 'unknown': 4, 'unused': 5}
         # Ha megvan a gép-térkép, elöl az alkatrész-sorrend (ugyanaz, mint a GUI
         # alapértelmezett csoportosítása), azon belül a használat.
         mpk = (machine or {}).get('packages') or {}
@@ -844,7 +846,8 @@ def _autofix_keep_packages(api, skip_printer, wifi_mode, rebuild_wifi):
             if (mm_pk.get((d.get('published') or '').lower()) or {}).get('slot') == 'software']
     if soft:
         ui.panel(f"SZOFTVERES DRIVEREK  [{len(soft)} db] - alkalmazásokhoz (távelérés, VPN, vírusirtó, "
-                 f"virtuális eszközök, RGB-programok); a Windows Update NEM hozza vissza őket",
+                 f"virtuális eszközök, RGB-programok, a programok perifériái, pl. kártyaolvasó); "
+                 f"a Windows Update NEM hozza vissza őket",
                  [f"{d.get('original') or d.get('published')}  ·  "
                   f"{(mm_pk.get((d.get('published') or '').lower()) or {}).get('what') or d.get('provider') or '?'}"
                   for d, _f in soft], color=ui.CYAN)

@@ -114,11 +114,13 @@ import logging
 USAGE_ACTIVE = 'active'      # 🔴 most is használja a gép
 USAGE_STANDBY = 'standby'    # 🟡 eszközhöz/nyomtatóhoz tartozik, ami most nincs bedugva
 USAGE_IDLE = 'idle'          # 🟡 hardver nélküli (szoftveres) driver, a szolgáltatása nem fut
+USAGE_PROGRAM = 'program'    # 🟡 eszköz nélküli, de egy MOST IS FENT LÉVŐ program tette fel (2026-11-26)
 USAGE_UNUSED = 'unused'      # ⚪ semmilyen jel - szabadon törölhető
 USAGE_UNKNOWN = 'unknown'    # a felderítés nem futott le (offline mód, hiba)
 
 # A rendezéshez: az "aktív" kerül felülre. A felület is ezt használja.
-USAGE_ORDER = {USAGE_ACTIVE: 0, USAGE_STANDBY: 1, USAGE_IDLE: 2, USAGE_UNUSED: 3, USAGE_UNKNOWN: 4}
+USAGE_ORDER = {USAGE_ACTIVE: 0, USAGE_STANDBY: 1, USAGE_IDLE: 2, USAGE_PROGRAM: 3, USAGE_UNUSED: 4,
+               USAGE_UNKNOWN: 5}
 
 # A 'standby' belső kulcs maradt (a felület és a CLI erre csoportosít), a felirata
 # 2026-10-30 óta "Nincs bedugva" (explicit user decision: a "Készenlétben" nem mondta
@@ -128,6 +130,10 @@ USAGE_LABELS = {
     USAGE_ACTIVE: 'Használatban',
     USAGE_STANDBY: 'Nincs bedugva',
     USAGE_IDLE: 'Nem fut',
+    # 2026-11-26 (explicit user decision, terepi eset: az eSzignó kártyaolvasó-drivere
+    # „Nem használt” volt, mert épp nem volt bedugva az olvasó): ami egy fent lévő programhoz
+    # tartozik, az nem „felesleges”. Bizonyíték: app/drvowner_core.py.
+    USAGE_PROGRAM: 'Programhoz tartozik',
     USAGE_UNUSED: 'Nem használt',
     USAGE_UNKNOWN: 'Ismeretlen',
 }
@@ -594,7 +600,7 @@ def _norm_inf(name):
     return (name or '').strip().lower()
 
 
-def build_usage(raw, inf_facts, published_names=None, originals=None, folders=None):
+def build_usage(raw, inf_facts, published_names=None, originals=None, folders=None, owners=None):
     """A nyers rendszerállapotból csomagonkénti besorolás. TISZTA függvény.
 
     `raw`: a DRIVER_USAGE_PS kimenete dict-ként (devices/services/filters).
@@ -806,6 +812,16 @@ def build_usage(raw, inf_facts, published_names=None, originals=None, folders=No
             state = USAGE_UNUSED
             reasons.append('Semmi nem hivatkozik rá: nincs hozzá eszköz a gépben, '
                            'és nem fut hozzá szolgáltatás.')
+        # EGY FENT LÉVŐ PROGRAMHOZ TARTOZIK (2026-11-26): eszköz nélkül sem „nem használt” -
+        # a programja bármikor használhatja (pl. a kártyaolvasó csak akkor van bedugva, ha
+        # aláírnak vele). Csak a jel nélküli (és a nem eldönthető) állapotot írja át; a
+        # bizonyíték minden állapotnál a buborékba kerül. NEM SZŰRŐ: a törlés mindenre megy.
+        owner = (owners or {}).get(pub)
+        if owner:
+            reasons.append(f"Egy most is telepített program tette fel: {owner['program']} "
+                           f"({owner['evidence']}).")
+            if state in (USAGE_UNUSED, USAGE_UNKNOWN):
+                state = USAGE_PROGRAM
 
         out[pub] = {
             'state': state,
@@ -816,10 +832,12 @@ def build_usage(raw, inf_facts, published_names=None, originals=None, folders=No
             'filter_services': filt,
             'printers': list(printer_use or []),
             'in_spooler': in_spooler,
+            'program': owner['program'] if owner else None,
             'reasons': reasons,
             'summary': (f'kiegészítő: {ext_on[0]}' if (ext_on and not (present or running or printer_use))
                         else f'kiegészítő (kihúzva): {ext_off[0]}'
                         if (ext_off and state == USAGE_STANDBY and not (absent or stopped or filt or in_spooler))
+                        else f"programé: {owner['program']}" if state == USAGE_PROGRAM
                         else 'nem ellenőrizhető (az INF nem olvasható)' if state == USAGE_UNKNOWN
                         else _summary(state, present, running, absent, stopped, filt,
                                       printer_use, in_spooler)),
@@ -862,7 +880,8 @@ def _summary(state, present, running, absent, stopped, filt,
 
 def summarize_counts(usage):
     """Állapotonkénti darabszám - a felület fejlécéhez és a naplóhoz. Tiszta függvény."""
-    counts = {USAGE_ACTIVE: 0, USAGE_STANDBY: 0, USAGE_IDLE: 0, USAGE_UNUSED: 0, USAGE_UNKNOWN: 0}
+    counts = {USAGE_ACTIVE: 0, USAGE_STANDBY: 0, USAGE_IDLE: 0, USAGE_PROGRAM: 0, USAGE_UNUSED: 0,
+              USAGE_UNKNOWN: 0}
     for entry in (usage or {}).values():
         st = (entry or {}).get('state', USAGE_UNKNOWN)
         counts[st] = counts.get(st, 0) + 1
@@ -1035,12 +1054,25 @@ def collect_usage_context(run_fn, packages=None, inf_dir=None, node_fn=None, cla
             folders = win32.driver_store_folders(names)
         except Exception as e:
             logging.debug(f"[USAGE] A DriverStore-mappák feloldása nem sikerült: {e}")
-    usage = build_usage(raw, facts, names, originals, folders)
+    # PROGRAM-HOVATARTOZÁS (2026-11-26, app/drvowner_core.py): csak élő rendszeren (offline
+    # célnál a futó gép programjai semmit nem mondanak a másik Windowsról). `None` = nem
+    # állapítható meg -> a besorolás a régi marad (a hiány nem bizonyíték).
+    owners = None
+    if inf_dir is None:
+        try:
+            from app import drvowner_core
+            owners = drvowner_core.collect_package_owners(
+                [{'published': n, 'original': originals.get(n) or '', 'folder': folders.get(n, '')}
+                 for n in names])
+        except Exception as e:
+            logging.warning(f"[USAGE] A program-hovatartozás felderítése nem sikerült: {e}", exc_info=True)
+    usage = build_usage(raw, facts, names, originals, folders, owners)
     counts = summarize_counts(usage)
     logging.info(
         f"[USAGE] {len(usage)} csomag besorolva: "
         f"{counts[USAGE_ACTIVE]} használatban, {counts[USAGE_STANDBY]} nincs bedugva, "
-        f"{counts[USAGE_IDLE]} nem fut, {counts[USAGE_UNUSED]} nem használt "
+        f"{counts[USAGE_IDLE]} nem fut, {counts[USAGE_PROGRAM]} programhoz tartozik, "
+        f"{counts[USAGE_UNUSED]} nem használt "
         f"(forrás: {'eszközfa' if raw.get('nodes') is not None else 'PowerShell-tartalék'}, "
         f"{len(raw.get('devices') or [])} kötött eszköz-példány, "
         f"{len(raw.get('services') or [])} kernel-szolgáltatás, "
@@ -1065,7 +1097,7 @@ def collect_usage_context(run_fn, packages=None, inf_dir=None, node_fn=None, cla
     # nem használja a gép?" kérdés pontosan ezen múlik. Állapotonként EGY sor (nem
     # csomagonként), az eredeti INF-névvel, mert az `oemNN.inf` szám önmagában semmit
     # nem mond.
-    for st in (USAGE_STANDBY, USAGE_IDLE, USAGE_UNUSED):
+    for st in (USAGE_STANDBY, USAGE_IDLE, USAGE_PROGRAM, USAGE_UNUSED):
         names = [f"{pub} ({originals.get(pub) or '?'})" for pub, e in sorted(usage.items())
                  if e['state'] == st]
         if names:

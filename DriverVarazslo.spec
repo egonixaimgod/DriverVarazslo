@@ -30,7 +30,14 @@ a = Analysis(
     # valaha `ssl=True` kellene, ezt a listát kell kiüríteni.
     #
     # AZ AUTO-UPDATER MINDEN FIELDED GÉPRE LETÖLTI AZ EXÉT, tehát a 3,4 MB nem elméleti.
-    excludes=['cryptography', 'bcrypt', 'paramiko', 'nacl'],
+    #
+    # NUMPY + CHARDET (2026-11-26, mérve): a build gép Python 3.12-ről 3.14-re váltott (Build 433),
+    # és az exe 24,4 MB-ról 39,4 MB-ra nőtt. A CArchive-TOC összevetése (Build 432 vs 437): új
+    # `numpy` (~9 MB: openblas DLL, _multiarray_umath, random, fft) és `chardet` (models.bin).
+    # A kódunk EGYIKET SEM importálja: a numpy-t a Pillow tölti be opcionálisan (try/except), a
+    # chardet-et a `pygments.lexer` (a `rich` függősége, csak az `encoding='chardet'` ágon).
+    # Ugyanaz a helyzet, mint fent: a méret attól függött, mi van épp a build gépen telepítve.
+    excludes=['cryptography', 'bcrypt', 'paramiko', 'nacl', 'numpy', 'chardet'],
     noarchive=False,
     optimize=0,
 )

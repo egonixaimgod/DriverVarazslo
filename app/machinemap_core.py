@@ -102,6 +102,16 @@ EXT_LABEL = {
     F_PHONE: 'Telefon / mobileszköz', F_OTHER: 'Külső eszköz', F_LIGHT: 'RGB-világítás vezérlő',
 }
 
+# A GÉP SAJÁT HARDVERE (2026-11-26, explicit user decision: *„azok a driverek amikhez
+# tartozik hardver azokat minden esetben töröljük és újrarakjuk”*): ezek a rendeltetések
+# akkor sem kerülnek a programhoz tartozó (szoftveres) driverek közé, ha egy telepítő tette
+# fel őket (pl. egy gyártói chipset-/hang-/grafika-telepítő a Program Files-ból). Ami
+# kimarad belőle (biztonsági eszköz/kártyaolvasó, beviteli, telefon, nyomtató, egyéb),
+# az egy program perifériája lehet - az eSzignó Gemalto-olvasója `SmartCardReader` =
+# F_SECURITY volt (terep: Lenovo 20W1, gemccid.inf).
+PLATFORM_FUNCS = frozenset({F_GPU, F_CPU, F_AUDIO, F_NET, F_BT, F_STORAGE, F_USB, F_CHIPSET,
+                            F_FIRMWARE, F_CAMERA, F_BIO, F_CARD, F_SENSOR, F_BATTERY, F_MONITOR})
+
 # Az alaplap-alcsoportok sorrendje - a technikus így gondolkodik a gépről.
 BOARD_ORDER = [F_MONITOR, F_AUDIO, F_NET, F_BT, F_STORAGE, F_USB, F_CHIPSET, F_SECURITY, F_FIRMWARE,
                F_INPUT, F_CAMERA, F_BIO, F_CARD, F_SENSOR, F_BATTERY, F_OTHER]
@@ -904,6 +914,14 @@ def build_machine_map(nodes, packages, facts, usage=None, identity=None, role=No
                    f"Hely: {node_slots[first['id'].lower()][1]}.")
             kind = 'device' if present else 'absent-device'
             what = ', '.join(names[:2]) + (f' (+{len(names) - 2})' if len(names) > 2 else '')
+            # KIHÚZOTT KÜLSŐ ESZKÖZ, AMIT EGY FENT LÉVŐ PROGRAM HOZOTT (2026-11-26): a
+            # programhoz tartozó driverek közé kerül (a fix „Szoftveres driverek megtartása”
+            # pipája ezt a kategóriát védi). Jelenlévő eszköznél és a gép saját (belső)
+            # eszközénél NEM: az hardver, törlődik és újra felkerül.
+            if not present and u.get('program') and slot.startswith('ext:'):
+                why = (f"A(z) „{u['program']}” program tette fel, egy most nem csatlakoztatott "
+                       f"külső eszközhöz ({', '.join(names[:2])}). " + why)
+                slot, kind = 'software', 'program'
             # SZÁNDÉKOSAN NINCS felülbírálás: egy szoftveres eszközön ülő nyomtató-segéd
             # (pl. egy szkenner ROOT\IMAGE csomópontja) ott marad, ahol az eszközfa
             # mutatja. Az első változat áttette a nyomtatók közé "nincs hozzá eszköz"
@@ -929,6 +947,14 @@ def build_machine_map(nodes, packages, facts, usage=None, identity=None, role=No
                 kind = 'service' if (u.get('services')) else 'inf'
                 why = (f"Nincs hozzá eszköz; szoftveres driver - {fwhy}"
                        + (f". Fut: {', '.join(running)}" if running else ''))
+            elif u.get('program') and f not in PLATFORM_FUNCS:
+                # EGY FENT LÉVŐ PROGRAM PERIFÉRIÁJÁNAK DRIVERE, eszköz nélkül (2026-11-26,
+                # terep: az eSzignó kártyaolvasója, gemccid.inf): nem „nincs hozzá eszköz”
+                # szemét, hanem a program része.
+                slot = 'software'
+                kind = 'program'
+                why = (f"A(z) „{u['program']}” program tette fel (most nincs hozzá csatlakoztatott "
+                       f"eszköz). Rendeltetés az INF alapján: {fwhy}.")
             else:
                 slot = 'nodev:' + f
                 kind = 'inf'
@@ -1031,7 +1057,7 @@ def build_machine_map(nodes, packages, facts, usage=None, identity=None, role=No
                     if m.get('present') and (m.get('inf') or '').lower().startswith('oem')]
     if slot_pkgs.get('software') or soft_members:
         _add('software', 'software', '🧰', 'Szoftveres driverek',
-             'alkalmazások driverei: vírusirtó, VPN, távelérés, virtuális eszközök', 'software', soft_members)
+             'alkalmazások driverei: vírusirtó, VPN, távelérés, virtuális eszközök, a programok perifériái (pl. kártyaolvasó)', 'software', soft_members)
     # Nincs jelen / nincs hozzá eszköz
     # A kártya címe a rendeltetés RÖVID címkéje (a szekció címe már kimondja, hogy nincs
     # hozzá eszköz - kártyánként megismételve zaj volt), a `name` a táblázat

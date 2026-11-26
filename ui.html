@@ -117,7 +117,7 @@ button:focus-visible,a:focus-visible,input[type="checkbox"]:focus-visible,[tabin
 .sys-opt:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .sys-opt .sys-ico{font-size:18px;line-height:1}
 .sys-opt b{display:block;font-size:13px;color:var(--text);white-space:nowrap}
-.sys-opt small{display:block;font-size:11px;color:var(--text3);white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.sys-opt small{display:block;font-size:11px;color:var(--text2);white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
 .sys-opt.sel{background:rgba(46,204,113,0.14);border-color:rgba(46,204,113,0.6)}
 .sys-opt.sel.off{background:rgba(255,179,71,0.18);border-color:rgba(255,179,71,0.75)}
 .sys-opt.sel.off b{color:var(--orange)}
@@ -481,7 +481,7 @@ td input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;curs
    hozzá eszköz, de épp nem aktív - ez tényleg egy "figyelj rá" állapot), a "nem használt"
    pedig semleges/fehér: az a mazsolázható rész, nem hiba. */
 .usage-active{background:rgba(110,230,160,0.14);border:1px solid rgba(46,224,138,0.42);color:#a7f0cb}
-.usage-standby,.usage-idle{background:rgba(255,180,80,0.14);border:1px solid rgba(255,180,80,0.38);color:#ffd08a}
+.usage-standby,.usage-idle,.usage-program{background:rgba(255,180,80,0.14);border:1px solid rgba(255,180,80,0.38);color:#ffd08a}
 .usage-unused{background:rgba(255,255,255,0.05);border:1px solid var(--glass-border);color:var(--text3)}
 .usage-unknown{background:rgba(255,255,255,0.04);border:1px dashed var(--glass-border);color:var(--text3)}
 /* ===== A DRIVER-TÁBLÁZATOK KATEGÓRIA-DIZÁJNJA (2026-10-01, explicit user decision) =========
@@ -511,7 +511,7 @@ tr.g-software{--gc:45,212,191}
 tr.g-absent{--gc:255,180,80}
 tr.g-nodev,tr.g-none,tr.g-unused,tr.g-unknown{--gc:160,160,190}
 tr.g-active{--gc:46,224,138}
-tr.g-standby,tr.g-idle{--gc:255,180,80}
+tr.g-standby,tr.g-idle,tr.g-program{--gc:255,180,80}
 /* 5) RAGADÓS KATEGÓRIA-SÁV: görgetéskor a sáv az oszlopfejléc ALÁ tapad (`--thh` = a
    fejléc mért magassága, a render állítja be), amíg a következő kategória át nem veszi a
    helyét - egy 24 soros nyomtató-kategória közepén is látszik, hol tartasz (a headless
@@ -3371,10 +3371,10 @@ th,.mm-pop-sec,.bk-sub-t,.tc-sum-l,.cm-now-l,.cm-ctl-t,.cm-slot-t,.cm-det-t,.cm-
            vírusirtó, virtuális eszközök, RGB-/periféria-szoftver) egy kattintással megmarad.
            Alapból KI, és minden nyitáskor visszaáll: a fix alapelve, hogy mindent töröl. A
            kivétel a keep_packages-ben utazik (reason='software'), mint a kézi kivétel. -->
-      <label class="toggle" id="mc-keep-software-row" style="display:none;margin-top:10px" title="Bekapcsolva a „Szoftveres driverek” kategória minden csomagja MEGMARAD (a jobb oldali listán zárolva, MEGMARAD címkével). Ezek egy-egy alkalmazáshoz tartoznak: távelérés (pl. TeamViewer), VPN, vírusirtó, virtuális eszközök, RGB- és periféria-vezérlő programok. Nincs mögöttük a gépbe épített hardver, ezért a Windows Update és a katalógus nem hozza vissza őket – törlés után csak az alkalmazás újratelepítése pótolja. Nyomtatóhoz tartozó csomagról továbbra is a nyomtató-kapcsoló dönt.">
+      <label class="toggle" id="mc-keep-software-row" style="display:none;margin-top:10px" title="Bekapcsolva a „Szoftveres driverek” kategória minden csomagja MEGMARAD (a jobb oldali listán zárolva, MEGMARAD címkével). Ezek egy-egy alkalmazáshoz tartoznak: távelérés (pl. TeamViewer), VPN, vírusirtó, virtuális eszközök, RGB- és periféria-vezérlő programok. Ide tartoznak a telepített programok által feltett, most nem csatlakoztatott eszközök driverei is (pl. az eSzignó kártyaolvasója); a gép saját hardverének drivere (chipset, grafika, hang, hálózat…) NEM. Nincs mögöttük a gépbe épített hardver, ezért a Windows Update és a katalógus nem hozza vissza őket – törlés után csak az alkalmazás újratelepítése pótolja. Nyomtatóhoz tartozó csomagról továbbra is a nyomtató-kapcsoló dönt.">
         <input type="checkbox" id="mc-keep-software">
         <span class="toggle-track"></span>
-        🧰 Szoftveres driverek megtartása (TeamViewer, VPN, vírusirtó, RGB-programok…)
+        🧰 Szoftveres driverek megtartása (TeamViewer, VPN, vírusirtó, a programok kártyaolvasói…)
       </label>
       <!-- TÁROLÓ ÉS FIRMWARE: itt korábban két kapcsoló volt, mindkettő alapból KI.
            2026-09-02, explicit user decision: teljesen eltűntek, mert a bekapcsolásukból
@@ -3508,6 +3508,10 @@ const USAGE_META = {
   // nélküli, leállított szolgáltatású driver külön ('idle'), mert arra a "nincs bedugva" hamis.
   standby:  {icon: '🟡', label: 'Nincs bedugva', cls: 'usage-standby',
              hint: 'van hozzá eszköz vagy nyomtató, de most nincs csatlakoztatva — a törlés csak a következő bedugáskor derülne ki'},
+  // 2026-11-26 (explicit user decision, terepi eset: az eSzignó kártyaolvasó-drivere „Nem
+  // használt” volt): egy fent lévő program tette fel - eszköz nélkül sem felesleges.
+  program:  {icon: '🟡', label: 'Programhoz tartozik', cls: 'usage-program',
+             hint: 'egy most is telepített program tette fel (pl. egy kártyaolvasó vagy hardverkulcs drivere) — a program bármikor használhatja, akkor is, ha az eszköz most nincs bedugva'},
   idle:     {icon: '🟡', label: 'Nem fut', cls: 'usage-idle',
              hint: 'szoftveres driver (nincs hozzá hardver), a szolgáltatása most le van állítva — pl. kikapcsolt VPN vagy vírusirtó'},
   unused:   {icon: '⚪', label: 'Nem használt', cls: 'usage-unused',
@@ -3515,7 +3519,7 @@ const USAGE_META = {
   unknown:  {icon: '❔', label: 'Ismeretlen', cls: 'usage-unknown',
              hint: 'a felderítés nem futott le — ebből NE vonj le következtetést'}
 };
-const USAGE_ORDER = {active: 0, standby: 1, idle: 2, unknown: 3, unused: 4};
+const USAGE_ORDER = {active: 0, standby: 1, idle: 2, program: 3, unknown: 4, unused: 5};
 /* Egy csomag használat-állapota. Felderítés nélkül MINDIG 'unknown' - sosem 'unused',
    mert az azt állítaná, hogy bizonyítottan nem használja semmi. */
 function drvUsageOf(d) {
@@ -5427,7 +5431,7 @@ function renderDriverUsageBar() {
   //    getDriverIndicesBeforeTab: a fülek és a csoport-fejlécek különben más-más
   //    listáról beszélnének ugyanazon a képernyőn.
   const visible = getDriverIndicesBeforeTab();
-  const counts = {active: 0, standby: 0, idle: 0, unused: 0, unknown: 0};
+  const counts = {active: 0, standby: 0, idle: 0, program: 0, unused: 0, unknown: 0};
   visible.forEach(i => { counts[drvUsageOf(drivers[i])]++; });
   if (btn) btn.style.display = counts.unused ? '' : 'none';
   /* NORMÁL ÁLLAPOTBAN AZ ÖSSZEGZŐ SOR REJTVE (2026-10-01, explicit user decision: *"ez a 21
@@ -5450,6 +5454,7 @@ function renderDriverUsageBar() {
     {key: 'active', cls: 'tab-ok', always: true},
     {key: 'standby', cls: 'tab-todo'},
     {key: 'idle', cls: 'tab-todo'},
+    {key: 'program', cls: 'tab-todo'},
     {key: 'unused', cls: ''},
     {key: 'unknown', cls: ''}
   ];
@@ -6184,6 +6189,7 @@ async function deleteSelected() {
   const act = sel.filter(d => drvUsageOf(d) === 'active');
   const sby = sel.filter(d => drvUsageOf(d) === 'standby');
   const idl = sel.filter(d => drvUsageOf(d) === 'idle');
+  const prg = sel.filter(d => drvUsageOf(d) === 'program');
   if (act.length) {
     msg += '\n\n🔴 EBBŐL ' + act.length + ' OLYAN, AMIT A GÉP MOST IS HASZNÁL:';
     act.slice(0, 8).forEach(d => {
@@ -6196,6 +6202,17 @@ async function deleteSelected() {
   if (sby.length) {
     msg += '\n\n🟡 ' + sby.length + ' olyan, amihez tartozik eszköz vagy nyomtató, de most nincs bedugva '
         + '(pl. kihúzott nyomtató/telefon) — a hiány csak a következő csatlakoztatáskor derülne ki.';
+  }
+  // PROGRAMHOZ TARTOZÓ CSOMAGOK (2026-11-26): nem tiltás (1. elv), csak kimondjuk, melyik
+  // program veszíti el a driverét (az eSzignó-eset: utána nem látta volna a kártyát).
+  if (prg.length) {
+    msg += '\n\n🟡 ' + prg.length + ' olyan, amit egy most is telepített program tett fel:';
+    prg.slice(0, 8).forEach(d => {
+      const e = drvUsageEntry(d);
+      msg += '\n   • ' + (d.original || d.published) + (e && e.program ? '  →  ' + e.program : '');
+    });
+    if (prg.length > 8) msg += '\n   • ... és további ' + (prg.length - 8) + ' db';
+    msg += '\nA program a törlés után nem éri el az eszközét (pl. egy kártyaolvasót), amíg újra nem telepíted.';
   }
   // A RENDSZERLEMEZ LÁNCÁN LÉVŐ CSOMAGOK (2026-11-04): nem tiltás (1. elv), csak a kockázat.
   const bootCrit = sel.filter(d => (drvBootOf(d) || {}).protect);
@@ -9317,7 +9334,9 @@ function delRowForce(d) {
   if (d.group === 'normal' && document.getElementById('mc-keep-software').checked) {
     const mi = delMachineInfo(d);
     if (mi && mi.slot === 'software')
-      return { on: false, keep: true, why: 'Szoftveres driverek megtartása bekapcsolva – alkalmazáshoz tartozó driver, a fix nem törli' };
+      return { on: false, keep: true, why: (mi.what_kind === 'program'
+        ? 'Szoftveres driverek megtartása bekapcsolva – egy telepített program tette fel, a fix nem törli'
+        : 'Szoftveres driverek megtartása bekapcsolva – alkalmazáshoz tartozó driver, a fix nem törli') };
   }
   return null;
 }
@@ -9396,9 +9415,9 @@ function delVisibleIndices(base) {
 function renderDeleteTabs(base) {
   const el = document.getElementById('mc-del-tabs');
   if (!el) return;
-  const counts = {active: 0, standby: 0, idle: 0, unused: 0, unknown: 0};
+  const counts = {active: 0, standby: 0, idle: 0, program: 0, unused: 0, unknown: 0};
   base.forEach(i => { const s = delPreview[i].usage || 'unknown'; counts[s] = (counts[s] || 0) + 1; });
-  if (!(counts.active + counts.standby + counts.idle + counts.unused)) {
+  if (!(counts.active + counts.standby + counts.idle + counts.program + counts.unused)) {
     el.style.display = 'none';
     delTab = 'all';
     return;
@@ -9409,6 +9428,7 @@ function renderDeleteTabs(base) {
     {key: 'active', cls: 'tab-ok', always: true},
     {key: 'standby', cls: 'tab-todo'},
     {key: 'idle', cls: 'tab-todo'},
+    {key: 'program', cls: 'tab-todo'},
     {key: 'unused', cls: ''},
     {key: 'unknown', cls: ''}
   ];

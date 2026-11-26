@@ -1,6 +1,7 @@
 ---
 paths:
   - "app/driverusage_core.py"
+  - "app/drvowner_core.py"
   - "app/machinemap_core.py"
   - "app/dupdrivers_core.py"
   - "app/gui/dupdrivers.py"
@@ -9,6 +10,7 @@ paths:
   - "tests/test_cleanup_usage.py"
   - "tests/test_usage_labels_mapclass.py"
   - "tests/test_machinemap_field_1113.py"
+  - "tests/test_drvowner.py"
 ---
 
 *A CLAUDE.md 14. fejezete, 2026-11-13 óta külön fájlban, szó szerint. A Claude Code magától betölti, ha a fenti útvonalak egyikéhez nyúlsz. A CLAUDE.md (elvek, 1–11. és 18. fejezet) itt is érvényes; a bizonyíték: `docs/terep/torles-hasznalat-gepterkep.md`.*
@@ -18,6 +20,14 @@ paths:
 ### Mit használ a gép (`app/driverusage_core.py`, EGY mag a Driverek nézetnek és a fix előnézetének)
 
 **Jelek:** jelenlévő eszköz kötése (eszközfa, `win32.enumerate_device_nodes`) / **futó kernel-szolgáltatás** (a `.sys` + a DriverStore-mappa HASH-es neve dönt, nem a szolgáltatásnév: két csomag ugyanazt a `.sys`-t hordhatja) / nem jelenlévő (ghost) eszköz / filter-regisztráció / **a spoolerben regisztrált nyomtató-driver** (az eredeti INF-név alapján; nyomtatóval → `active`, csak regisztrálva → `standby`) / **Extension INF** (HWID-párosítás az eszközfára; terepen még nem mérve). **Állapotok:** `active` / `standby` („Nincs bedugva”) / `idle` („Nem fut”) / `unused` / **`unknown`** (a felderítés nem futott le vagy offline mód van: erre nem szabad törlést alapozni; ha a szolgáltatás-lekérdezés bukik → `None`). **2026-10-30 (explicit user decision: a „Készenlétben” nem mondta meg az okot):** `standby` = kihúzott eszköz, nyomtató nélküli nyomtató-driver, kihúzott eszköz Extension INF-je, VAGY hardvert megnevező INF leállított szolgáltatással/szűrővel (a szolgáltatás bedugáskor indul); `idle` = HWID nélküli (szoftveres) INF leállított szolgáltatással/szűrővel. A belső `standby` kulcs maradt. A ninja-eset (távoli asztal drivere eszköz nélkül) és az ESET 4 drivere miatt kell. **„Mikor használta utoljára" NEM létezik** (`LastArrivalDate` = boot, a registryben nincs, a fájlrendszer last-access ki van kapcsolva): ne próbáld újra. **Ez besorolás, nem szűrő**: semmit nem rejt el, semmit nem tilt. **Olvashatatlan publikált INF + nincs pozitív jel = `unknown`, nem `unused`** (2026-10-12: az INF nélkül a szolgáltatás-jel nem ellenőrizhető, egy csak szolgáltatással dolgozó driver „nem használt”-nak látszott, és a „Csak a nem használtak” gomb kijelölte volna). A felület a használat- és nyomtató-választ csak arra a listára teszi rá, amire a kérés indult (`forList`).
+
+### Programhoz tartozó driverek (`app/drvowner_core.py`, 2026-11-26, explicit user decision)
+
+*„ezeket a drivereket amikhez tartozik vmi szoftver jelenleg a gépen … ne töröljük … azok a driverek amikhez tartozik hardver azokat minden esetben töröljük és újrarakjuk”*. Terep: egy ASUS-on az eSzignó kártyaolvasó-drivere „Nem használt” volt (az olvasó nem volt bedugva, a szellemeszköze sem volt meg), és a fix pipája sem védte volna; a naplókban ugyanez: Lenovo 20W1, `gemccid.inf` → `nodev:security`, a 193 „nem használt” között.
+- **Bizonyíték 1:** a `setupapi.dev*.log` (archívumokkal) „Registered driver package '<mappa>' with 'oemNN.inf'” szakasza: a forrás-INF (`Import Driver Package:`) és az indító folyamat (`cmd:`). **A kulcs a DriverStore-mappa**, nem az `oemNN` (a szám újrahasznosul). **Nem program:** `SoftwareDistribution` (WU), `DV_Temp` / `DriverVarazslo.exe` (a saját telepítésünk), `DriverStore`/`Windows\INF` (újratelepítés), `AppData\Local\Temp` / `Windows\Temp` (kibontott telepítő). **Program:** a forrás vagy az exe egy telepített program MOST LÉTEZŐ mappájában van (Uninstall: `InstallLocation`, ennek híján a `DisplayIcon`/`UninstallString` exéjének mappája, csak Program Files/ProgramData/`%LOCALAPPDATA%\Programs` ALATT), vagy egy Program Files alatti, ma is létező mappában, vagy egy Store-alkalmazás (WindowsApps) bármelyik ma is fent lévő verziójában. **A WindowsApps admin nélkül nem listázható → `unknown`, nem „már nincs fent”** (mérve: az első változat a `glob` üres válaszát hitte el).
+- **Bizonyíték 2 (tartalék):** az eredeti INF-név egy telepített program mappájában (korlátos keresés: programonként 6000, összesen 80 000 bejegyzés, 4 mp; a korlát elfogyását kimondja). A WU/saját forrást nem írja felül.
+- **Hatás:** a jel nélküli (`unused`/`unknown`) csomag `program` állapotot kap („Programhoz tartozik”, sárga, saját fül; a „Csak a nem használtak” NEM jelöli ki; a törlés-megerősítő név szerint kimondja). A gép-térképen a programé ÉS eszköz nélküli, vagy csak KIHÚZOTT KÜLSŐ eszközhöz kötött csomag a `software` kategóriába kerül (`what_kind='program'`) — **így a fix „Szoftveres driverek megtartása” pipája (GUI + CLI) magától védi**. **A gép saját hardvere kivétel** (`machinemap_core.PLATFORM_FUNCS`: GPU, CPU, hang, hálózat, BT, tároló, USB, chipset, firmware, kamera, ujjlenyomat, memóriakártya-olvasó, szenzor, akku, monitor), és a jelenlévő eszközt hajtó csomag is (hardver: törlődik, újra felkerül). Csak élő rendszeren (offline célnál nem). `None` (nem olvasható napló) = a besorolás a régi. **Nem szűrő**: a kézi törlés mindenre megy.
+- Élőben mérve (fejlesztői gép, 23 csomag, 0,8 mp): HidHide, ViGEm Bus Driver, PlayStation VR2 App, Xbox Service → program; a WU-s NVIDIA/Razer/Realtek és a saját 7 telepítésünk → nem. Bizonyíték: `docs/terep/torles-hasznalat-gepterkep.md` (grep: `Programhoz tartozó driverek`). Tesztek: `tests/test_drvowner.py`.
 
 ### A nyomtató-felismerés a DRIVERBŐL dönt, nem abból, hogy be van-e dugva (2026-09-17)
 

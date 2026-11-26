@@ -8,6 +8,41 @@ echo    DriverVarazslo Build
 echo ==========================================
 echo.
 
+REM --- Fut-e meg a program? (2026-11-26, a kiado szkript mintajara.) Ha igen, a
+REM     dist\DriverVarazslo.exe zarolva van, es a PyInstaller a build VEGEN
+REM     "PermissionError: [WinError 5] Access is denied"-del all meg (terepen igy tortent).
+REM     A build szam emelese ELOTT nezzuk, hogy egy be nem zart program miatt ne vesszen
+REM     el szam. goto-val, mert ebben a szkriptben nincs delayed expansion (a "[!]" es a
+REM     "KESZ!" feliratokbol eltunne a felkialtojel). A program UAC-vel rendszergazdakent
+REM     fut: ha a sima taskkill nem eleg, emelt joggal (UAC ablak) probaljuk ujra, es
+REM     mindig visszaolvasunk. A ping = varakozas (a `timeout` ^< nul alatt nem mukodik).
+tasklist /fi "imagename eq DriverVarazslo.exe" 2>nul | find /i "DriverVarazslo.exe" >nul
+if errorlevel 1 goto :nincs_futo
+echo [FIGYELEM] A DriverVarazslo.exe fut, ezert a dist mappa nem irhato felul.
+set "VALASZ="
+set /p VALASZ="Bezarjam most? [i/n] "
+if /i not "%VALASZ%"=="i" goto :nem_zarjuk
+taskkill /f /t /im "DriverVarazslo.exe" >nul 2>&1
+ping -n 3 127.0.0.1 >nul
+tasklist /fi "imagename eq DriverVarazslo.exe" 2>nul | find /i "DriverVarazslo.exe" >nul
+if errorlevel 1 goto :bezarva
+echo      A program rendszergazdakent fut - a bezarashoz UAC ablak jon, nyomj Igent.
+powershell -NoProfile -Command "Start-Process taskkill -ArgumentList '/f','/t','/im','DriverVarazslo.exe' -Verb RunAs -Wait -WindowStyle Hidden" >nul 2>&1
+ping -n 3 127.0.0.1 >nul
+tasklist /fi "imagename eq DriverVarazslo.exe" 2>nul | find /i "DriverVarazslo.exe" >nul
+if errorlevel 1 goto :bezarva
+echo [!] A DriverVarazslo.exe NEM zarult be (UAC elutasitva?). Zard be kezzel, es inditsd ujra ezt a szkriptet.
+pause
+exit /b 1
+:nem_zarjuk
+echo Zard be a programot, es inditsd ujra ezt a szkriptet.
+pause
+exit /b 1
+:bezarva
+echo      Bezarva.
+echo.
+:nincs_futo
+
 REM --- Build szam novelese (+1). UGYANAZ a bump_build.py, mint a kiado szkriptben: a helyi,
 REM     a GitHubon publikalt es a kiadas-cimkekbol olvasott szam kozul a legnagyobbat emeli,
 REM     tehat a szam SOHA nem csokkenhet (az auto-updater csak nagyobb szamra frissit). ---
