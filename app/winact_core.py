@@ -896,17 +896,22 @@ def launch_activator_bat(path):
 # A letöltés a Microsoft közvetlen linkje (2026-11-26: 2,6 MB-os zip a download.microsoft.com-ról).
 # ======================================================================
 GETHELP_URL = 'https://aka.ms/SaRA_EnterpriseVersionFiles'
-GETHELP_ARGS = ['-S', 'OfficeScrubScenario', '-AcceptEula', '-OfficeVersion', 'All']
+# 2026-11-26, terep (Lenovo 20Q1, Build 426): a Learn-oldal `-OfficeVersion All` kapcsolóját a
+# mostani GetHelpCmd NEM ismeri ("Error: Invalid command line arguments" + súgó, 0,6 mp), és
+# ilyenkor is 0-val lép ki. A saját súgója szerinti alak csak ez:
+GETHELP_ARGS = ['-S', 'OfficeScrubScenario', '-AcceptEula']
 GETHELP_TIMEOUT = 3600
-# A Learn-oldal kódjai (get-help-office-uninstall).
+GETHELP_MAX_RUNS = 4
+# A Windows saját eltávolítója (tartalék kör): egy-egy termék, kérdés nélkül.
+NATIVE_UNINSTALL_TIMEOUT = 1800
+# A Learn-oldal kódjai (get-help-office-uninstall). Csak tájékoztat: a kilépési kód a terepen
+# hibánál is 0 volt, a verdikt a visszaolvasás.
 GETHELP_CODES = {
-    0: 'sikeresen lefutott',
+    0: 'lefutott',
     6: 'egy Office-program (Word, Excel, Outlook, Teams…) nyitva van: zárd be, és nyomd meg újra',
     8: 'több Office-verziót talált',
     9: 'nem sikerült eltávolítani az Office-t',
     10: 'rendszergazdai jog kell hozzá',
-    66: 'a megadott Office-verzió nincs a gépen',
-    67: 'érvénytelen Office-verzió',
     68: 'nem talált Office-t a gépen',
 }
 _UNINSTALL_ROOTS = (r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
@@ -914,12 +919,23 @@ _UNINSTALL_ROOTS = (r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
 _OFFICE_MSI_KEY = re.compile(r'^\{9[0-9A-F]{7}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-0000000FF1CE\}$', re.I)
 
 
+def office_entry(key_name, display_name, uninstall_string):
+    """Egy Programok-bejegyzésből: (név, csendes eltávolító parancs), vagy None, ha nem Office.
+    Click-to-Run: a saját `OfficeClickToRun.exe … scenariosubtype=ARP` sora + `DisplayLevel=False`;
+    MSI (`{9…0FF1CE}` kulcs): `msiexec /x`."""
+    if 'officeclicktorun.exe' in (uninstall_string or '').lower():
+        return (display_name or key_name, f'{uninstall_string} DisplayLevel=False')
+    if _OFFICE_MSI_KEY.match(key_name) and display_name:
+        return (display_name, f'msiexec /x {key_name} /qn /norestart')
+    return None
+
+
 def installed_office():
-    """A Programok listájában lévő Office-termékek nevei (rendezve). A visszaolvasás ebből
-    dönt: Click-to-Run (az eltávolítója az OfficeClickToRun.exe) és MSI (`{9…0FF1CE}` kulcs).
-    Ha a lista egyáltalán nem olvasható, kivételt dob (nemtudás nem „nincs Office”)."""
+    """A Programok listájában lévő Office-termékek: [(név, csendes eltávolító)], a Click-to-Run
+    elöl (az viszi a hozzá tartozó MSI-komponenseket is). Ha a lista egyáltalán nem olvasható,
+    kivételt dob (nemtudás nem „nincs Office”)."""
     import winreg
-    names, opened = set(), 0
+    found, opened = {}, 0
     for root in _UNINSTALL_ROOTS:
         try:
             key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, root)
@@ -941,25 +957,29 @@ def installed_office():
                                 return str(winreg.QueryValueEx(k, n)[0])
                             except OSError:
                                 return ''
-                        uninst, name = val('UninstallString'), val('DisplayName')
+                        entry = office_entry(sub, val('DisplayName'), val('UninstallString'))
                 except OSError:
                     continue
-                if 'officeclicktorun.exe' in uninst.lower() or (_OFFICE_MSI_KEY.match(sub) and name):
-                    names.add(name or sub)
+                if entry:
+                    found.setdefault(entry[0], entry[1])
     if not opened:
         raise RuntimeError('A Programok listája (Uninstall registry) nem olvasható.')
-    return sorted(names)
+    return sorted(found.items(), key=lambda e: ('msiexec' in e[1], e[0]))
 
 
 def remove_office(run_fn, log, progress=None, installed=installed_office):
-    """Letölti a Get Help parancssori változatát, és minden Office-verziót eltávolít vele.
+    """Minden Office eltávolítása: 1) a Microsoft Get Help parancssori változata (letöltve),
+    2) ami utána még fent van, arra a Windows saját eltávolítója, termékenként, csendben.
     Visszatérés: (ok, szöveg). A verdikt a VISSZAOLVASÁS (4. elv): ✅ csak akkor, ha utána
-    a Programok listájában nincs Office, akármit írt is az eszköz."""
+    a Programok listájában nincs Office."""
     def say(msg):
         logging.info(f"[OFFICEDEL] {msg}")
         log(msg)
 
-    before = installed()
+    def names():
+        return [n for n, _ in installed()]
+
+    before = names()
     say('A gépen lévő Office: ' + (', '.join(before) if before else 'a Programok listájában nincs'))
 
     root = os.path.join(_app_data_dir(), 'gethelpcmd')
@@ -978,20 +998,43 @@ def remove_office(run_fn, log, progress=None, installed=installed_office):
     if not exe:
         raise RuntimeError(f'A letöltött csomagban nincs GetHelpCmd.exe ({root}).')
 
-    say('🗑️ Az Office eltávolítása fut (kérdés nélkül, akár 10-30 perc)...')
-    res = run_fn([exe] + GETHELP_ARGS, timeout=GETHELP_TIMEOUT, cwd=os.path.dirname(exe),
-                 ok_codes=(0, 68))
-    code = res.returncode
-    out = ((res.stdout or '') + (res.stderr or '')).strip()
-    logging.info(f"[OFFICEDEL] GetHelpCmd kód={code}, kimenet: {out[:4000]}")
-    meaning = GETHELP_CODES.get(code, 'ismeretlen kód')
-    say(f'Az eltávolító kódja: {code} ({meaning})')
+    # Kapcsoló nélkül egy futás a talált verziót viszi (több verziónál a Learn szerint 08-cal
+    # kiszállhat): újrafuttatjuk, amíg fogy az Office, legfeljebb GETHELP_MAX_RUNS-szor.
+    code, remaining = 0, before
+    for n in range(1, GETHELP_MAX_RUNS + 1):
+        if not remaining:
+            break
+        say(f'🗑️ 1/2: a Microsoft eltávolítója fut ({n}. kör, kérdés nélkül, akár 10-30 perc)...')
+        res = run_fn([exe] + GETHELP_ARGS, timeout=GETHELP_TIMEOUT, cwd=os.path.dirname(exe),
+                     ok_codes=(0, 68))
+        code = res.returncode
+        out = ((res.stdout or '') + (res.stderr or '')).strip()
+        logging.info(f"[OFFICEDEL] GetHelpCmd {n}. kör kód={code}, kimenet: {out[:4000]}")
+        err = next((ln.strip() for ln in out.splitlines() if ln.strip().lower().startswith('error')), '')
+        now = names()
+        say(f'A Microsoft eltávolítója végzett (kód: {code}, {GETHELP_CODES.get(code, "ismeretlen kód")})'
+            + (f' - hibát írt: {err}' if err else '') + f'; még fent: {len(now)} tétel')
+        if len(now) >= len(remaining):
+            break  # nem haladt: a többi a tartalék körre marad
+        remaining = now
 
     left = installed()
     if left:
-        return False, ('❌ Az Office NEM került le teljesen. Még fent van: ' + ', '.join(left)
-                       + f'\nAz eltávolító ezt mondta: {meaning}.')
-    if not before and code == 68:
+        say(f'🔁 2/2: még fent van {len(left)} Office-tétel - a Windows saját eltávolítója, egyenként...')
+        for name, cmd in left:
+            if name not in names():
+                logging.info(f"[OFFICEDEL] {name}: már lekerült (egy korábbi tétel vitte)")
+                continue
+            say(f'   🗑️ {name}')
+            logging.warning(f"[OFFICEDEL] ELTÁVOLÍTÁS: {name} | {cmd}")
+            r = run_fn(cmd, timeout=NATIVE_UNINSTALL_TIMEOUT, ok_codes=(0, 1605, 1641, 3010))
+            logging.info(f"[OFFICEDEL] {name}: kód={r.returncode}")
+        left = installed()
+
+    if left:
+        return False, ('❌ Az Office NEM került le teljesen. Még fent van: '
+                       + ', '.join(n for n, _ in left)
+                       + ('\n' + GETHELP_CODES[6] if code == 6 else ''))
+    if not before:
         return True, 'ℹ️ Ezen a gépen nincs Office, nem volt mit eltávolítani.'
-    note = '' if code in (0, 68) else f'\n⚠️ Az eltávolító kódja viszont {code} ({meaning}).'
-    return True, '✅ Az Office eltávolítva. Indítsd újra a gépet, hogy a maradék is eltűnjön.' + note
+    return True, '✅ Az Office eltávolítva (' + ', '.join(before) + '). Indítsd újra a gépet.'
