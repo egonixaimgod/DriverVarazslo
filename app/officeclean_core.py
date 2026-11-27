@@ -240,9 +240,28 @@ def delete_dir(path, keep=(), errors=None):
     return errors
 
 
-def delete_key(root, path, keep=(), errors=None):
-    """Registry-ág törlése (64 bites nézet); a `keep` alágak megmaradnak. Hibánál gyűjt."""
+def _denied(e):
+    return getattr(e, 'winerror', None) == 5
+
+
+def _drop_values(root, p, acc):
+    with winreg.OpenKey(root, p, 0, acc) as k:
+        while True:
+            try:
+                winreg.DeleteValue(k, winreg.EnumValue(k, 0)[0])
+            except OSError:
+                break
+
+
+def delete_key(root, path, keep=(), errors=None, denied=None):
+    """Registry-ág törlése (64 bites nézet); a `keep` alágak megmaradnak. Hibánál gyűjt.
+
+    `denied`: ide kerülnek a „hozzáférés megtagadva” (WinError 5) kulcsok (2026-11-27, terep:
+    a `SOFTWARE\\Microsoft\\Office\\Common\\Smart Tag\\Actions\\{B7EFF951-…}` SYSTEM-tulajdonú,
+    rendszergazdaként sem törölhető, két gépen is). Egy szülő, ami csak egy ilyen gyerek miatt
+    marad, a saját értékeit attól még elveszíti."""
     errors = errors if errors is not None else []
+    denied = denied if denied is not None else []
     acc = winreg.KEY_ALL_ACCESS | winreg.KEY_WOW64_64KEY
     try:
         winreg.CloseKey(winreg.OpenKey(root, path, 0, acc))
@@ -264,6 +283,8 @@ def delete_key(root, path, keep=(), errors=None):
                         break
         except OSError as e:
             errors.append(f'{p}: {e.strerror or e}')
+            if _denied(e):
+                denied.append(p)
             return
         kept_any = False
         for s in subs:
@@ -277,16 +298,17 @@ def delete_key(root, path, keep=(), errors=None):
                 rm(f'{p}\\{s}', srel)
         try:
             if kept_any:  # az ős megmarad, csak az értékei mennek
-                with winreg.OpenKey(root, p, 0, acc) as k:
-                    while True:
-                        try:
-                            winreg.DeleteValue(k, winreg.EnumValue(k, 0)[0])
-                        except OSError:
-                            break
+                _drop_values(root, p, acc)
             else:
                 winreg.DeleteKeyEx(root, p, winreg.KEY_WOW64_64KEY, 0)
         except OSError as e:
             errors.append(f'{p}: {e.strerror or e}')
+            if _denied(e):
+                denied.append(p)
+                try:
+                    _drop_values(root, p, acc)
+                except OSError as e2:  # maga a kulcs sem nyitható írásra: a visszaolvasás dönt
+                    logging.debug(f"[OFFICECLEAN] {p}: az értékei sem törölhetők: {e2}")
     rm(path, '')
     return errors
 
@@ -486,9 +508,12 @@ def _hive_loaded(sid):
 
 
 # ---------------------------------------------------------------- a teljes takarítás
-def deep_clean(run, log, keep_settings=False, keep_activation=False, remove_hub=False):
+def deep_clean(run, log, keep_settings=False, keep_activation=False, remove_hub=False, protected=None):
     """Az Office maradékainak törlése. Visszatérés: a megmaradt / nem ellenőrizhető tételek
-    listája (üres = minden célpont eltűnt)."""
+    listája (üres = minden célpont eltűnt). `protected` (lista): ide kerülnek a rendszergazdaként
+    sem törölhető (WinError 5) registry-kulcsok, ha MÁS nem maradt mellettük - ezek nem bukás,
+    de a hívó név szerint kimondja őket (2026-11-27, explicit user decision)."""
+    protected = protected if protected is not None else []
     def say(m):
         logging.info(f"[OFFICECLEAN] {m}")
         log(m)
@@ -589,18 +614,42 @@ def deep_clean(run, log, keep_settings=False, keep_activation=False, remove_hub=
     if any('\\user pinned\\taskbar\\' in p.lower() and not os.path.exists(p) for p, _ in dirs):
         logging.warning("[OFFICECLEAN] Az Intéző újraindítása (törölt tálcaikonok)")
         run(['taskkill', '/F', '/IM', 'explorer.exe'], timeout=30, ok_codes=(0, 128))
+    denied = []
     for root, path, keep in keys:
-        delete_key(root, path, keep, errors)
+        delete_key(root, path, keep, errors, denied)
 
     # VISSZAOLVASÁS: a verdikt ez (a törlés közbeni hibák csak a naplóba mennek).
     left = [f'mappa: {p}' for p, k in dirs if _dir_left(p, k)]
-    left += [f'registry: {p}' for root, p, k in keys if _key_left(root, p, k)]
+    left += _keys_left(keys, denied, protected)
     for hive in loaded:
         run(['reg', 'unload', f'HKU\\{hive}'], timeout=60)
     for e in errors:
         logging.warning(f"[OFFICECLEAN] {e}")
     left += problems
-    say('Maradék: ' + (f'{len(left)} tétel' if left else 'nincs'))
+    say('Maradék: ' + (f'{len(left)} tétel' if left else 'nincs')
+        + (f'; védett (rendszergazdaként sem törölhető) registry-kulcs: {len(protected)}' if protected else ''))
+    return left
+
+
+def _keys_left(keys, denied, protected):
+    """A registry-célok visszaolvasása. Egy cél akkor is tiszta, ha CSAK a megtagadott
+    hozzáférésű (WinError 5) kulcsok és azok üres szülői maradtak; ezek a `protected`-be
+    kerülnek. A legmélyebb megtagadott kulcs számít (a szülőit a gyereke tartja meg)."""
+    leaves = [d for d in denied
+              if not any(o.lower().startswith(d.lower() + '\\') for o in denied)]
+    left = []
+    for root, p, k in keys:
+        if not _key_left(root, p, k):
+            continue
+        mine = [d for d in leaves if d.lower() == p.lower() or d.lower().startswith(p.lower() + '\\')]
+        rels = tuple(d[len(p) + 1:] for d in mine if len(d) > len(p))
+        if mine and (len(rels) < len(mine) or not _key_left(root, p, tuple(k) + rels)):
+            for d in mine:
+                logging.warning(f"[OFFICECLEAN] VÉDETT KULCS MARADT (hozzáférés megtagadva, "
+                                f"rendszergazdaként sem törölhető): {d}")
+                protected.append(d)
+            continue
+        left.append(f'registry: {p}')
     return left
 
 

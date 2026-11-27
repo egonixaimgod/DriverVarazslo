@@ -74,7 +74,8 @@ class OfficeRemoveTest(unittest.TestCase):
         ok, text = self._go(FakeMachine(['Microsoft 365'], gethelp_removes=1),
                             keep_settings=True, keep_activation=False)
         self.assertTrue(ok)
-        self.assertEqual(self.clean_calls, [{'keep_settings': True, 'keep_activation': False, 'remove_hub': False}])
+        self.assertEqual(self.clean_calls, [{'keep_settings': True, 'keep_activation': False, 'remove_hub': False,
+                                             'protected': []}])
         self.assertIn('fiókok/beállítások megmaradtak', text)
 
     def test_maradek_nem_kesz(self):
@@ -118,8 +119,58 @@ class OfficeRemoveTest(unittest.TestCase):
         m = FakeMachine(LENOVO, gethelp_removes=0, gethelp_out=USAGE)
         ok, text = self._go(m)
         self.assertTrue(ok, text)
-        self.assertEqual(sum(isinstance(c, list) for c in m.calls), 1)  # nem haladt: nincs 2. kör
+        # „Invalid command line arguments”-re a kör egyszer -LogFolder nélkül is lefut (2026-11-27:
+        # a kapcsoló nincs mérve); utána nem haladt: nincs 2. kör.
+        gh = [c for c in m.calls if isinstance(c, list)]
+        self.assertEqual(len(gh), 2)
+        self.assertIn('-LogFolder', gh[0])
+        self.assertNotIn('-LogFolder', gh[1])
         self.assertTrue(any('DisplayLevel=False' in c for c in m.calls if isinstance(c, str)))
+
+    def test_elhasalt_gethelp_nem_var_es_ablakot_zar(self):
+        # 2026-11-27, terep (fejlesztői gép + Lenovo Build 428): a GetHelp „background”-ot ír,
+        # de a naplója szerint nem talált Office-t -> nincs 5 perces várakozás, jön a tartalék.
+        import os
+        m = FakeMachine(['Microsoft Office LTSC Professional Plus 2024 - hu-hu'],
+                        gethelp_out='Uninstall office is running in the background.')
+        orig = m.run
+
+        def run(cmd, **k):
+            if isinstance(cmd, list) and 'OfficeScrubScenario' in cmd:
+                d = cmd[cmd.index('-LogFolder') + 1]
+                with open(os.path.join(d, 'GetHelp.log'), 'w', encoding='utf-8') as f:
+                    f.write('Running Office Uninstall. This may take a few minutes...\n'
+                            'Office Uninstall failed.  There are no supported Office products installed.\n')
+            return orig(cmd, **k)
+        m.run = run
+        with mock.patch.object(wc, '_wait_background_uninstall',
+                               side_effect=AssertionError('nem szabad várni')):
+            ok, text = self._go(m)
+        self.assertTrue(ok, text)
+        self.assertTrue(any(isinstance(c, list) and 'powershell' in c and 'GetHelpElevated' in c[-1]
+                            for c in m.calls))                    # a beragadt ablak bezárva
+        self.assertTrue(any('DisplayLevel=False' in c for c in m.calls if isinstance(c, str)))
+
+    def test_vedett_kulcs_nem_bukas_de_kimondja(self):
+        def clean(run, log, protected=None, **k):
+            protected.append(r'SOFTWARE\Microsoft\Office\Common\Smart Tag\Actions\{B7EFF951-E52F-45CC-9EF7-57124F2177CC}')
+            return []
+        m = FakeMachine(['Microsoft Office LTSC Professional Plus 2024 - hu-hu'], gethelp_removes=1)
+        orig = m.installed
+        m.installed = lambda: [(n, f'{c} REM {n}') for n, c in orig()]
+        ok, text = wc.remove_office(m.run, lambda s: None, installed=m.installed, deep_clean=clean)
+        self.assertTrue(ok, text)
+        self.assertIn('⚠️', text)
+        self.assertIn('Smart Tag', text)
+        self.assertNotIn('maradék nélkül', text)
+
+    def test_gethelp_hibasor_a_kepernyorol(self):
+        # A felhasználó képernyőképéről, szó szerint.
+        self.assertEqual(wc.gethelp_failure_line(['Running Office Uninstall. This may take a few minutes...',
+                                                  'Office Uninstall failed.  There are no supported Office '
+                                                  'products installed.\nPress any key to exit...']),
+                         'Office Uninstall failed.  There are no supported Office products installed.')
+        self.assertEqual(wc.gethelp_failure_line(['Scenario completed successfully.']), '')
 
     def test_gethelp_ujrafut_amig_fogy(self):
         m = FakeMachine(['A 2024', 'B 2016', 'C 2013'], gethelp_removes=1)
@@ -169,6 +220,13 @@ class BackgroundWaitTest(unittest.TestCase):
         left = wc._wait_background_uninstall(lambda m: None, lambda: next(states), ['A', 'B'],
                                              sleep=sleep, clock=clock)
         self.assertEqual(left, [])
+
+    def test_hibas_gethelp_nem_var_5_percet(self):
+        t, clock, sleep = self._clock()
+        left = wc._wait_background_uninstall(lambda m: None, lambda: ['A'], ['A'], sleep=sleep, clock=clock,
+                                             failed=lambda: 'There are no supported Office products installed.')
+        self.assertEqual(left, ['A'])
+        self.assertEqual(t[0], wc.BACKGROUND_POLL_SECS)      # egy kör után vége
 
     def test_ha_nem_valtozik_feladja(self):
         t, clock, sleep = self._clock()

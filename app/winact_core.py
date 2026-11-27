@@ -908,6 +908,47 @@ BACKGROUND_IDLE_SECS = 300
 BACKGROUND_MAX_SECS = 1800
 # A Windows saját eltávolítója (tartalék kör): egy-egy termék, kérdés nélkül.
 NATIVE_UNINSTALL_TIMEOUT = 1800
+# HA A GETHELP ELHASAL (2026-11-27, terep: a fejlesztői gép és a Lenovo 20Q1 Build 428): a
+# „háttérben” futó szkriptje egy KÜLÖN, emelt PowerShell-ablakban hibával indult
+# (`.\Env-Utils.ps1 is not recognized`), kiírta, hogy „There are no supported Office products
+# installed”, és „Press any key to exit…”-tel nyitva maradt; a program 300 mp-ig hiába várt rá.
+# Ez a szöveg a mi kimenetünkben nincs benne, ezért a GetHelp naplóit nézzük: a saját
+# `-LogFolder`-ét (a súgója szerinti kapcsoló) és az emelt szkript mappáját. A pontos
+# naplóformátum NINCS mérve: amit találunk, a naplónkba írjuk.
+GETHELP_LOG_DIR = 'gethelp_naplo'
+GETHELP_FAIL_RE = re.compile(r'no supported office products', re.I)
+GETHELP_ELEVATED_DIR = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'SystemTemp', 'GetHelpElevated')
+
+
+def gethelp_failure_line(texts):
+    """A GetHelp naplószövegeiből az „Office-t nem talált” sor, vagy ''. TISZTA függvény."""
+    for t in texts:
+        for ln in (t or '').splitlines():
+            if GETHELP_FAIL_RE.search(ln):
+                return ln.strip()
+    return ''
+
+
+def _recent_texts(dirs, since, max_files=200, tail=65536):
+    """A mappákban `since` (time.time) után módosított szöveges naplók vége: [(útvonal, szöveg)]."""
+    out = []
+    for d in dirs:
+        for cur, _, files in os.walk(d):
+            for f in files:
+                p = os.path.join(cur, f)
+                try:
+                    if not f.lower().endswith(('.log', '.txt', '.json', '.xml')) or os.path.getmtime(p) < since:
+                        continue
+                    with open(p, 'rb') as fh:
+                        fh.seek(max(0, os.path.getsize(p) - tail) & ~1)   # páros: UTF-16-nál ne csússzon el
+                        raw = fh.read()
+                    wide = raw.count(b'\x00') > len(raw) // 4               # UTF-16 (PowerShell-napló)
+                    out.append((p, raw.decode('utf-16-le' if wide else 'utf-8', errors='replace')))
+                except OSError as e:
+                    logging.debug(f"[OFFICEDEL] GetHelp-napló nem olvasható: {p}: {e}")
+                if len(out) >= max_files:
+                    return out
+    return out
 # A Learn-oldal kódjai (get-help-office-uninstall). Csak tájékoztat: a kilépési kód a terepen
 # hibánál is 0 volt, a verdikt a visszaolvasás.
 GETHELP_CODES = {
@@ -1006,10 +1047,16 @@ def remove_office(run_fn, log, progress=None, installed=installed_office, keep_s
     code = 0
     if before:
         code = _uninstall_office(run_fn, say, progress, installed, names, before)
+    protected = []
     leftovers = deep_clean(run_fn, log, keep_settings=keep_settings, keep_activation=keep_activation,
-                           remove_hub=remove_hub)
+                           remove_hub=remove_hub, protected=protected)
     left = [n for n, _ in installed()]
     saved = f'\n📦 A dokumentumok mentése: {backup_text}' if backup_docs else ''
+    # A rendszergazdaként sem törölhető kulcs nem bukás, de név szerint kimondjuk (2026-11-27,
+    # explicit user decision; terep: a Smart Tag kulcs két gépen is hamis ❌-t adott).
+    if protected:
+        saved = ('\n⚠️ Megmaradt ' + str(len(protected)) + ' védett registry-kulcs: a Windows zárolja, '
+                 'rendszergazdaként sem törölhető:\n   • ' + '\n   • '.join(protected)) + saved
 
     if left or leftovers:
         return False, ('❌ Az Office NEM tűnt el teljesen. Még fent van:\n   • '
@@ -1018,21 +1065,26 @@ def remove_office(run_fn, log, progress=None, installed=installed_office, keep_s
                        + '\nHa zárolt fájl maradt: indítsd újra a gépet, és nyomd meg újra.' + saved)
     if not before:
         return True, 'ℹ️ Ezen a gépen nem volt telepített Office; a maradékait (ha voltak) letöröltem.' + saved
-    return True, ('✅ Az Office eltávolítva, maradék nélkül (' + ', '.join(before) + ').'
+    return True, ('✅ Az Office eltávolítva' + ('' if protected else ', maradék nélkül')
+                  + ' (' + ', '.join(before) + ').'
                   + (' A fiókok/beállítások megmaradtak.' if keep_settings else '')
                   + (' Az aktiválás megmaradt.' if keep_activation else '')
                   + ' Indítsd újra a gépet.' + saved)
 
 
-def _wait_background_uninstall(say, names, now, sleep=None, clock=None):
+def _wait_background_uninstall(say, names, now, sleep=None, clock=None, failed=None):
     """A Microsoft háttérben futó eltávolításának kivárása: amíg fogy az Office, vagy
-    BACKGROUND_IDLE_SECS-ig nem változik a lista (legfeljebb BACKGROUND_MAX_SECS)."""
+    BACKGROUND_IDLE_SECS-ig nem változik a lista (legfeljebb BACKGROUND_MAX_SECS). A `failed`
+    (ha van) minden körben megnézi, írt-e a GetHelp „nem talált Office-t” hibát: akkor nem várunk."""
     import time
     sleep, clock = sleep or time.sleep, clock or time.monotonic
     say('⏳ A Microsoft eltávolítója a háttérben dolgozik - megvárom...')
     start = last_change = clock()
     while now and clock() - start < BACKGROUND_MAX_SECS and clock() - last_change < BACKGROUND_IDLE_SECS:
         sleep(BACKGROUND_POLL_SECS)
+        if failed and failed():
+            logging.info(f"[OFFICEDEL] A GetHelp hibát írt a naplójába - a várakozás vége {clock() - start:.0f} mp után.")
+            return names()
         cur = names()
         if cur != now:
             last_change = clock()
@@ -1040,6 +1092,18 @@ def _wait_background_uninstall(say, names, now, sleep=None, clock=None):
         now = cur
     logging.info(f"[OFFICEDEL] Háttér-várakozás vége {clock() - start:.0f} mp után, fent: {now}")
     return now
+
+
+def _close_gethelp_window(run_fn):
+    """Az elhasalt GetHelp „Press any key to exit…”-tel nyitva maradt emelt PowerShell-ablaka
+    (2026-11-27, terep). CSAK az a PowerShell, aminek a parancssorában ott a `GetHelpElevated`."""
+    logging.warning("[OFFICEDEL] A beragadt GetHelp-ablak bezárása (powershell, parancssorában: GetHelpElevated)")
+    r = run_fn(['powershell', '-NoProfile', '-Command',
+                "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" | "
+                "Where-Object { $_.CommandLine -like '*GetHelpElevated*' } | "
+                "ForEach-Object { Stop-Process -Id $_.ProcessId -Force; 'BEZARVA: ' + $_.ProcessId }"],
+               timeout=60)
+    logging.info(f"[OFFICEDEL] GetHelp-ablak: kód={r.returncode}, {((r.stdout or '').strip() or 'nem volt ilyen')[:300]}")
 
 
 def _uninstall_office(run_fn, say, progress, installed, names, before):
@@ -1063,25 +1127,49 @@ def _uninstall_office(run_fn, say, progress, installed, names, before):
 
     # Kapcsoló nélkül egy futás a talált verziót viszi (több verziónál a Learn szerint 08-cal
     # kiszállhat): újrafuttatjuk, amíg fogy az Office, legfeljebb GETHELP_MAX_RUNS-szor.
+    import time
+    log_dir = os.path.join(_app_data_dir(), GETHELP_LOG_DIR)
+    os.makedirs(log_dir, exist_ok=True)
+    log_args = ['-LogFolder', log_dir]
     code, remaining = 0, before
     for n in range(1, GETHELP_MAX_RUNS + 1):
         if not remaining:
             break
         say(f'🗑️ 1/3: a Microsoft eltávolítója fut ({n}. kör, kérdés nélkül, akár 10-30 perc)...')
-        res = run_fn([exe] + GETHELP_ARGS, timeout=GETHELP_TIMEOUT, cwd=os.path.dirname(exe),
+        since = time.time() - 5
+        res = run_fn([exe] + GETHELP_ARGS + log_args, timeout=GETHELP_TIMEOUT, cwd=os.path.dirname(exe),
                      ok_codes=(0, 68))
-        code = res.returncode
         out = ((res.stdout or '') + (res.stderr or '')).strip()
+        if log_args and 'invalid command line' in out.lower():
+            # A -LogFolder nincs mérve: ha ez a GetHelp nem fogadja el, nélküle futtatjuk újra.
+            logging.warning("[OFFICEDEL] A GetHelpCmd nem fogadta el a -LogFolder kapcsolót - nélküle újra.")
+            log_args = []
+            res = run_fn([exe] + GETHELP_ARGS, timeout=GETHELP_TIMEOUT, cwd=os.path.dirname(exe),
+                         ok_codes=(0, 68))
+            out = ((res.stdout or '') + (res.stderr or '')).strip()
+        code = res.returncode
         logging.info(f"[OFFICEDEL] GetHelpCmd {n}. kör kód={code}, kimenet: {out[:4000]}")
         err = next((ln.strip() for ln in out.splitlines() if ln.strip().lower().startswith('error')), '')
         now = names()
         say(f'A Microsoft eltávolítója végzett (kód: {code}, {GETHELP_CODES.get(code, "ismeretlen kód")})'
             + (f' - hibát írt: {err}' if err else '') + f'; még fent: {len(now)} tétel')
-        if 'background' in out.lower() and now:
+        def gethelp_failed(dirs=(log_dir, GETHELP_ELEVATED_DIR), since=since):
+            return gethelp_failure_line(t for _, t in _recent_texts(dirs, since))
+        texts = _recent_texts([log_dir, GETHELP_ELEVATED_DIR], since)
+        logging.info(f"[OFFICEDEL] GetHelp-naplók ({len(texts)} db): "
+                     + '; '.join(f"{p} [..{t[-300:]!r}]" for p, t in texts[:3]))
+        fail = gethelp_failure_line(t for _, t in texts)
+        if not fail and 'background' in out.lower() and now:
             # Terep, Build 427: 12 mp után kilépett ezzel: "Uninstall office is running in the
             # background." - a munka utána fut. Megvárjuk, különben a tartalék kör párhuzamosan
             # futna vele.
-            now = _wait_background_uninstall(say, names, now)
+            now = _wait_background_uninstall(say, names, now, failed=gethelp_failed)
+            fail = gethelp_failed()
+        if fail and now:
+            say(f'⚠️ A Microsoft eltávolítója nem találta meg az Office-t („{fail}”) - nem várok tovább, '
+                f'a Windows saját eltávolítója jön.')
+            _close_gethelp_window(run_fn)
+            break
         if len(now) >= len(remaining):
             break  # nem haladt: a többi a tartalék körre marad
         remaining = now

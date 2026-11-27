@@ -179,6 +179,36 @@ class RegistryTest(unittest.TestCase):
         self.assertTrue(oc._key_left(winreg.HKEY_CURRENT_USER, self.base, ()))
 
 
+    def test_vedett_kulcs_nem_maradek_de_kimondja(self):
+        # 2026-11-27, terep (fejlesztői gép + Lenovo Build 428): a Smart Tag kulcs SYSTEM-tulajdonú,
+        # a törlése „Access is denied” (WinError 5). Itt egy eldobható HKCU-kulcson szimulálva.
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf'{self.base}\Common\Smart Tag\Actions\{{B7EF}}') as k:
+            winreg.SetValueEx(k, 'v', 0, winreg.REG_SZ, 'x')
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, rf'{self.base}\Common', 0, winreg.KEY_ALL_ACCESS) as k:
+            winreg.SetValueEx(k, 'office', 0, winreg.REG_SZ, 'x')       # Office-érték a szülőn: mennie kell
+        real = winreg.DeleteKeyEx
+        prot = rf'{self.base}\Common\Smart Tag\Actions\{{B7EF}}'.lower()
+
+        def deny(root, p, *a):
+            if p.lower() == prot or prot.startswith(p.lower() + '\\'):
+                raise OSError(13, 'Access is denied', None, 5)
+            return real(root, p, *a)
+        keys = [(winreg.HKEY_CURRENT_USER, self.base, ())]
+        denied, protected = [], []
+        with mock.patch.object(oc.winreg, 'DeleteKeyEx', deny):
+            oc.delete_key(winreg.HKEY_CURRENT_USER, self.base, (), [], denied)
+        left = oc._keys_left(keys, denied, protected)
+        self.assertEqual(left, [])
+        self.assertEqual([p.lower() for p in protected], [prot])
+        self.assertFalse(self._exists('Outlook'))
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, rf'{self.base}\Common') as k:
+            self.assertEqual(winreg.QueryInfoKey(k)[1], 0)              # a szülő értéke törölve
+        # Ha a védett kulcs mellett más is maradt, az továbbra is maradék.
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf'{self.base}\Word') as k:
+            winreg.SetValueEx(k, 'v', 0, winreg.REG_SZ, 'x')
+        self.assertEqual(oc._keys_left(keys, denied, []), [f'registry: {self.base}'])
+
+
 class CheckboxTest(unittest.TestCase):
     """A két jelölőnégyzet minden kombinációja: mi törlődik és mi marad."""
 
