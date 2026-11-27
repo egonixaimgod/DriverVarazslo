@@ -1591,7 +1591,7 @@ tr.drv-empty td{padding:16px 14px;color:var(--text3);font-size:12.5px;white-spac
 
 /* Toast */
 .toast-container{position:fixed;top:18px;right:18px;z-index:2000;display:flex;flex-direction:column;gap:10px;pointer-events:none}
-.toast{padding:14px 20px;border-radius:12px;font-size:14px;font-weight:600;pointer-events:auto;animation:toastIn 0.3s ease,toastOut 0.3s ease 3.7s forwards;max-width:420px;box-shadow:0 10px 40px rgba(0,0,0,0.4)}
+.toast{padding:14px 20px;border-radius:12px;font-size:14px;font-weight:600;pointer-events:auto;animation:toastIn 0.3s ease,toastOut 0.3s ease 3.7s forwards;max-width:420px;box-shadow:0 10px 40px rgba(0,0,0,0.4);white-space:pre-line}
 .toast.info{background:rgba(50,220,100,0.95);color:#000}
 .toast.success{background:rgba(212,136,255,0.95);color:#000}
 .toast.warning{background:rgba(255,220,100,0.95);color:#000}
@@ -2502,6 +2502,8 @@ th,.mm-pop-sec,.bk-sub-t,.tc-sum-l,.cm-now-l,.cm-ctl-t,.cm-slot-t,.cm-det-t,.cm-
               </div>
               <div class="winact-btnrow os-wide-foot">
                 <button class="btn btn-danger" onclick="removeOffice()" id="btn-officedel">🗑️ Office Eltávolítása</button>
+                <button class="btn btn-sm" onclick="createOfficeShortcuts()" id="btn-officelnk"
+                        title="A telepített Office-programok (Word, Excel, PowerPoint, Outlook…) parancsikonja a közös asztalra, ugyanazzal a névvel és ikonnal, mint a Start menüben. Ami már kint van, azt nem teszi ki még egyszer.">🖥️ Office-ikonok az asztalra</button>
               </div>
             </div>
           </div>
@@ -7405,6 +7407,20 @@ async function generateSystemReport() {
 }
 
 /* ========== NET BLOKKOLÓ SCRIPT (block.ps1) ========== */
+/* Office-ikonok az asztalra (2026-11-27): egy kattintás, a válasz egy toast. */
+async function createOfficeShortcuts() {
+  const btn = document.getElementById('btn-officelnk');
+  btn.disabled = true;
+  try {
+    const r = await api().create_office_shortcuts();
+    toast((r && r.text) || '❌ Nincs válasz', r && r.ok ? 'success' : 'error');
+  } catch (e) {
+    toast('Hiba: ' + e, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function removeOffice() {
   const keepSettings = document.getElementById('officedel-keep-settings').checked;
   const keepActivation = document.getElementById('officedel-keep-activation').checked;

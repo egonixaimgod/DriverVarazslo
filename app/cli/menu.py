@@ -1146,6 +1146,7 @@ def _menu_winact(api):
         ('3', 'Beállított KMS-kiszolgáló törlése', None),
         ('4', 'Windows aktiválás-beállítások megnyitása', None),
         ('5', 'Office teljes eltávolítása', 'Minden verzió, a Microsoft eltávolítójával, kérdés nélkül'),
+        ('6', 'Office-ikonok az asztalra', 'A telepített Office-programok, a Start menü nevével és ikonjával'),
     ], back_label='Vissza a főmenübe')
     if c == '1':
         if not plan.get('ready'):
@@ -1196,6 +1197,11 @@ def _menu_winact(api):
                       'FÁJLJAI (dokumentumok, PDF, sablonok, aláírások, levelek) MIND MEGMARADNAK. '
                       'Zárd be az Office-ablakokat. Indulhat?', False):
             _run_screen(api, 'Office eltávolítása', lambda: api.remove_office(ks, ka, rh, bd))
+    elif c == '6':
+        r = api.create_office_shortcuts()
+        for line in (r.get('text') or '').split('\n'):
+            (ui.ok if r.get('ok') else ui.warn)(line)
+        ui.pause()
 
 
 def _menu_display(api):

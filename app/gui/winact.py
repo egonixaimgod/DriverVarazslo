@@ -294,6 +294,19 @@ class GuiWinActMixin:
         return ('⚠️ A csomagban EGYETLEN .bat/.cmd fájl sincs. Lehet, hogy .exe-t vagy .ps1-et '
                 f'tartalmaz - azt kézzel kell elindítani ebből a mappából:\n   {ext_dir}')
 
+    # ------------------------------------------------------- Office-ikonok az asztalra
+    def create_office_shortcuts(self):
+        """Az összes telepített Office-program parancsikonja a közös asztalra, a Start menü
+        nevével és ikonjával (2026-11-27, explicit user decision). Mag: winact_core."""
+        if self.target_os_path:
+            return {'ok': False, 'text': '❌ Offline módban nem elérhető!'}
+        try:
+            ok, text = winact_core.office_shortcuts_text(*winact_core.office_desktop_shortcuts())
+        except Exception as e:
+            logging.error(f"[OFFICELNK] Hiba: {e}", exc_info=True)
+            ok, text = False, f'❌ Hiba: {e}'
+        return {'ok': ok, 'text': text}
+
     # ------------------------------------------------------- Office eltávolítás
     def remove_office(self, keep_settings=True, keep_activation=True, remove_hub=False, backup_docs=True):
         # Alapállapot (explicit user decision, 2026-11-26): mentés, fiókok, aktiválás BE; M365-alkalmazás KI.

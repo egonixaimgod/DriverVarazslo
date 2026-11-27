@@ -1012,6 +1012,90 @@ def installed_office():
     return sorted(found.items(), key=lambda e: ('msiexec' in e[1], e[0]))
 
 
+# ======================================================================
+# OFFICE-IKONOK AZ ASZTALRA (2026-11-27, explicit user decision: *„az összes office programot ami
+# fel van telepítve kirakja asztalra parancsikonnak … 1 gombbal … csak Word ahogy ott van a
+# program profin normálisan”*). Az Office telepítője a Start menübe teszi a helyes nevű és
+# ikonú parancsikonokat („Word”, „Outlook (classic)”); ezeket másoljuk VÁLTOZATLANUL a közös
+# asztalra (minden felhasználó látja), így nincs „ - parancsikon” utótag. A CÉL dönt (a
+# `WordCraft.lnk` nem Office), a már kint lévőt nem tesszük ki még egyszer.
+# ======================================================================
+def _lnk_office_exes(path):
+    """Mely Office-programfájlokra mutat egy .lnk (a cél ASCII-ként vagy UTF-16-ként lehet benne)."""
+    from app.officeclean_core import _OFFICE_TARGETS
+    try:
+        with open(path, 'rb') as f:
+            data = f.read(65536).lower()
+    except OSError:
+        return set()
+    return {t for t in _OFFICE_TARGETS if t.encode('ascii') in data or t.encode('utf-16-le') in data}
+
+
+def _lnks(folder, depth=1):
+    out = []
+    try:
+        for e in os.scandir(folder):
+            if e.is_dir(follow_symlinks=False) and depth > 0:
+                out += _lnks(e.path, depth - 1)
+            elif e.name.lower().endswith('.lnk'):
+                out.append(e.path)
+    except OSError as e:  # nincs ilyen mappa (pl. felhasználói Start menü nélkül)
+        logging.debug(f"[OFFICELNK] {folder}: nem olvasható ({e})")
+    return out
+
+
+def office_desktop_shortcuts(start_dirs=None, desktops=None, target=None):
+    """Visszatérés: (kitett nevek, már kint lévő nevek, sikertelen nevek). A verdikt a
+    visszaolvasás (létezik-e a fájl az asztalon)."""
+    pd = os.environ.get('ProgramData', r'C:\ProgramData')
+    ad = os.environ.get('APPDATA', '')
+    home = os.path.expanduser('~')
+    start_dirs = start_dirs or [os.path.join(pd, 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+                                os.path.join(ad, 'Microsoft', 'Windows', 'Start Menu', 'Programs')]
+    target = target or os.path.join(os.environ.get('PUBLIC', r'C:\Users\Public'), 'Desktop')
+    desktops = desktops or [target, os.path.join(home, 'Desktop'), os.path.join(home, 'OneDrive', 'Desktop')]
+    have = set()
+    for d in desktops:
+        for p in _lnks(d, 0):
+            have |= _lnk_office_exes(p)
+    # A gyári programnév IS kell, nem csak a cél (élőben mérve 2026-11-27: a „Microsoft
+    # Office-eszközök” mappa „Project Server Accounts.lnk”-je is a WINPROJ.EXE-re mutat, és a
+    # „Project” helyett az került ki; a `WordCraft.lnk` neve stimmelne, a célja nem).
+    from app.officeclean_core import _OFFICE_LNK
+    picked = {}
+    for sd in start_dirs:
+        for p in _lnks(sd):
+            exes = _lnk_office_exes(p)
+            if len(exes) == 1 and _OFFICE_LNK.match(os.path.basename(p)):
+                picked.setdefault(exes.pop(), p)
+    logging.info(f"[OFFICELNK] Start menü: {sorted(os.path.basename(p) for p in picked.values())}; "
+                 f"az asztalon már ott: {sorted(have)}")
+    made, already, failed = [], [], []
+    for exe, src in sorted(picked.items(), key=lambda kv: os.path.basename(kv[1]).lower()):
+        name = os.path.splitext(os.path.basename(src))[0]
+        if exe in have:
+            already.append(name)
+            continue
+        dst = os.path.join(target, os.path.basename(src))
+        logging.warning(f"[OFFICELNK] PARANCSIKON AZ ASZTALRA: {src} -> {dst}")
+        try:
+            shutil.copy2(src, dst)
+        except OSError as e:
+            logging.warning(f"[OFFICELNK] {name}: nem sikerült: {e}")
+        (made if os.path.isfile(dst) else failed).append(name)
+    logging.info(f"[OFFICELNK] kitéve: {made}; már kint volt: {already}; sikertelen: {failed}")
+    return made, already, failed
+
+
+def office_shortcuts_text(made, already, failed):
+    if not (made or already or failed):
+        return False, 'ℹ️ Nincs telepített Office-program (a Start menüben nincs Office-parancsikon).'
+    lines = ([f'✅ Az asztalra került: {", ".join(made)}'] if made else []) \
+        + ([f'ℹ️ Már az asztalon volt: {", ".join(already)}'] if already else []) \
+        + ([f'❌ Nem sikerült: {", ".join(failed)}'] if failed else [])
+    return not failed, '\n'.join(lines)
+
+
 def remove_office(run_fn, log, progress=None, installed=installed_office, keep_settings=False,
                   keep_activation=False, deep_clean=None, remove_hub=False, backup_docs=False,
                   backup=None):

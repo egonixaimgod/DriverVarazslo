@@ -280,5 +280,52 @@ class OfficeEntryTest(unittest.TestCase):
         self.assertIsInstance(wc.installed_office(), list)
 
 
+class OfficeDesktopShortcuts(unittest.TestCase):
+    """2026-11-27: Office-ikonok az asztalra - a Start menü gyári parancsikonjai, változatlan névvel.
+    A fájlnevek és célok a fejlesztői gép Start menüjéből (élőben mérve)."""
+
+    def setUp(self):
+        import os
+        self.start = tempfile.mkdtemp(prefix='dv_officelnk_start_')
+        self.desk = tempfile.mkdtemp(prefix='dv_officelnk_desk_')
+        self.addCleanup(shutil.rmtree, self.start, True)
+        self.addCleanup(shutil.rmtree, self.desk, True)
+        os.makedirs(os.path.join(self.start, 'Microsoft Office-eszközök'))
+
+    def _lnk(self, folder, name, target):
+        import os
+        with open(os.path.join(folder, name), 'wb') as f:      # a .lnk a célt UTF-16-ként is tárolja
+            f.write(b'L\x00\x00\x00' + ('C:\\Program Files\\Microsoft Office\\root\\Office16\\' + target)
+                    .encode('utf-16-le'))
+
+    def test_csak_a_gyari_programok_valtozatlan_nevvel(self):
+        import os
+        for n, t in (('Word.lnk', 'WINWORD.EXE'), ('Excel.lnk', 'EXCEL.EXE'), ('Outlook (classic).lnk', 'OUTLOOK.EXE'),
+                     ('Project.lnk', 'WINPROJ.EXE'), ('WordCraft.lnk', 'WordCraft.exe')):
+            self._lnk(self.start, n, t)
+        self._lnk(os.path.join(self.start, 'Microsoft Office-eszközök'), 'Project Server Accounts.lnk', 'WINPROJ.EXE')
+        made, already, failed = wc.office_desktop_shortcuts([self.start], [self.desk], self.desk)
+        self.assertEqual(sorted(os.listdir(self.desk)),
+                         ['Excel.lnk', 'Outlook (classic).lnk', 'Project.lnk', 'Word.lnk'])
+        self.assertEqual((already, failed), ([], []))
+        # Másodszorra semmi nem duplázódik.
+        made2, already2, _ = wc.office_desktop_shortcuts([self.start], [self.desk], self.desk)
+        self.assertEqual(made2, [])
+        self.assertEqual(sorted(already2), sorted(made))
+
+    def test_ami_mar_kint_van_mas_neven_azt_sem_teszi_ki(self):
+        import os
+        self._lnk(self.start, 'Word.lnk', 'WINWORD.EXE')
+        self._lnk(self.desk, 'Szövegszerkesztő.lnk', 'WINWORD.EXE')
+        made, already, _ = wc.office_desktop_shortcuts([self.start], [self.desk], self.desk)
+        self.assertEqual((made, already), ([], ['Word']))
+        self.assertNotIn('Word.lnk', os.listdir(self.desk))
+
+    def test_nincs_office(self):
+        ok, text = wc.office_shortcuts_text(*wc.office_desktop_shortcuts([self.start], [self.desk], self.desk))
+        self.assertFalse(ok)
+        self.assertIn('Nincs telepített Office', text)
+
+
 if __name__ == '__main__':
     unittest.main()
