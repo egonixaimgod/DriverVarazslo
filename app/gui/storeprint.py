@@ -253,6 +253,11 @@ class GuiStorePrintMixin:
                 logging.debug(f"[STOREPRINT] Korábbi PDF törlése sikertelen: {e}")
 
         file_url = 'file:///' + html_path.replace('\\', '/')
+        # 2026-11-28 (terep, Lenovo 20S1, Edge 158, Build 441): az emelt jogú headless Edge
+        # mindkét módban 0-s kóddal kilépett, naplót sem írt, PDF nem lett - 2 x 60 mp várás
+        # a semmire, kétszer egymás után. Ezért ELSŐ út a program saját WebView2-je.
+        if getattr(self, '_window', None) is not None and self._webview_html_to_pdf(file_url, pdf_path):
+            return True
         msedge = self._find_msedge_exe()
         chrome = self._find_chrome_exe()
         attempts = []
@@ -325,6 +330,57 @@ class GuiStorePrintMixin:
                     logging.debug(f"[STOREPRINT] Ideiglenes profil törlése sikertelen: {e}")
 
         return False
+
+    def _webview_html_to_pdf(self, file_url, pdf_path):
+        """HTML -> PDF a program SAJÁT WebView2-jével (rejtett pywebview-ablak +
+        CoreWebView2.PrintToPdfAsync). Ugyanaz a Chromium-motor, mint a headless Edge, de
+        a folyamatunkon belül fut: nincs jogosultság-leadó újraindítás, nincs profil-ütközés.
+        Mérve a fejlesztői gépen: <1 mp. Hibánál False (a hívó az Edge-re esik vissza)."""
+        import webview
+        from System import Func, Type
+        self.emit('task_progress', {'task': 'store_print', 'log': '🖨️ PDF előállítása (beépített böngészőmotor)...'})
+        logging.info(f"[STOREPRINT] PDF a saját WebView2-vel: {file_url} -> {pdf_path}")
+        t0 = time.monotonic()
+        win = None
+        try:
+            win = webview.create_window('DriverVarázsló PDF', url=file_url, hidden=True)
+            if not win.events.loaded.wait(30):
+                logging.warning("[STOREPRINT] WebView2: a riport 30 mp alatt sem töltődött be.")
+                return False
+            # A riport egyoldalas igazító szkriptje a betöltéskor fut, a végén data-fit-et ír.
+            fit = None
+            for _ in range(20):
+                fit = win.evaluate_js("document.body ? document.body.getAttribute('data-fit') : null")
+                if fit:
+                    break
+                time.sleep(0.25)
+            logging.info(f"[STOREPRINT] WebView2: betöltve ({time.monotonic() - t0:.1f}s), igazítás: {fit or 'nincs data-fit'}")
+            box = {}
+
+            def start_print():
+                core = win.native.webview.CoreWebView2
+                settings = core.Environment.CreatePrintSettings()
+                settings.ShouldPrintHeaderAndFooter = False
+                settings.ShouldPrintBackgrounds = True
+                box['task'] = core.PrintToPdfAsync(pdf_path, settings)
+
+            win.native.Invoke(Func[Type](start_print))
+            task = box.get('task')
+            if task is None or not task.Wait(60000):
+                logging.warning("[STOREPRINT] WebView2: a PrintToPdfAsync 60 mp alatt sem végzett.")
+                return False
+            size = os.path.getsize(pdf_path) if os.path.exists(pdf_path) else 0
+            logging.info(f"[STOREPRINT] WebView2 PrintToPdf: eredmény={task.Result}, {size} bájt ({time.monotonic() - t0:.1f}s)")
+            return bool(task.Result) and size > 0
+        except Exception as e:
+            logging.warning(f"[STOREPRINT] WebView2 PDF-generálás hiba: {e}", exc_info=True)
+            return False
+        finally:
+            if win is not None:
+                try:
+                    win.destroy()
+                except Exception as e:
+                    logging.warning(f"[STOREPRINT] A rejtett PDF-ablak bezárása sikertelen: {e}")
 
     def _find_sumatra_exe(self, stress_dir):
         """Megkeresi a SumatraPDF.exe-t a stresstools.zip kicsomagolt mappájában - a néma
@@ -405,6 +461,30 @@ class GuiStorePrintMixin:
             logging.info(f"[STOREPRINT] 1/6 kész: elérhető={reachable} ({time.monotonic() - t0:.1f}s)")
             if not reachable:
                 raise Exception(f"A bolti nyomtató ({STORE_PRINTER_IP}) nem érhető el a hálózaton - lehet, hogy nem a bolt hálózatán vagy, vagy a nyomtató ki van kapcsolva.")
+
+            # 1/b) HTML -> PDF a nyomtató felvétele ELŐTT (2026-11-28): ha ez bukik, ne
+            # menjen el 2 perc a nyomtató felvételére és levételére (terep, Build 441).
+            pdf_path = os.path.splitext(report_path)[0] + '_print.pdf'
+            if not self._html_to_pdf(report_path, pdf_path):
+                raise Exception(
+                    "A riport PDF-be alakítása sikertelen (a böngészőmotor nem hozta létre a PDF-et). "
+                    "A riport HTML-je megnyitható és onnan kézzel is nyomtatható: "
+                    f"{report_path}"
+                )
+
+            # A riport SOSEM lehet 2 oldalas (2026-09-25, explicit user decision).
+            # A riport saját JS-e becsüli a kiférést; a verdikt viszont a KÉSZ PDF
+            # oldalszáma (4. elv) - egy átlógó megjegyzés-rész nem mehet ki papírra.
+            pages = report_core.pdf_page_count(pdf_path)
+            logging.info(f"[STOREPRINT] A riport PDF oldalszáma: {pages}")
+            if pages is not None and pages > 1:
+                logging.error(f"[STOREPRINT] A riport {pages} oldalas lett - NEM nyomtatjuk ({pdf_path})")
+                raise Exception(
+                    f"A riport {pages} oldalas lett 1 helyett - NEM nyomtattam ki, mert a riportnak "
+                    f"mindig 1 lapon kell lennie. Rövidítsd a megjegyzést, és generáld újra. "
+                    f"A PDF megnézhető: {pdf_path}")
+            if pages is None:
+                logging.warning("[STOREPRINT] A riport PDF oldalszáma nem állapítható meg - nyomtatás ellenőrzés nélkül.")
 
             # 2) Már fel van-e véve Windows nyomtatóként ehhez az IP-hez?
             find_ps = (
@@ -489,30 +569,6 @@ class GuiStorePrintMixin:
                     printer_name = STORE_PRINTER_NAME
                     we_added_printer = True
                     self.emit('task_progress', {'task': 'store_print', 'log': f'✅ Nyomtató felvéve: {printer_name}'})
-
-                # 3) HTML -> PDF headless Chromium-mal (Edge, tartalék Chrome) - a több
-                # próbálkozásos, profil-ütközés-mentes logika: _html_to_pdf.
-                pdf_path = os.path.splitext(report_path)[0] + '_print.pdf'
-                if not self._html_to_pdf(report_path, pdf_path):
-                    raise Exception(
-                        "A riport PDF-be alakítása sikertelen (a headless böngésző nem hozta létre a PDF-et). "
-                        "Tipp: zárd be a futó Edge/Chrome ablakokat, majd próbáld újra - a riport HTML-je "
-                        f"közben megnyitható és onnan kézzel is nyomtatható: {report_path}"
-                    )
-
-                # 3/b) A riport SOSEM lehet 2 oldalas (2026-09-25, explicit user decision).
-                # A riport saját JS-e becsüli a kiférést; a verdikt viszont a KÉSZ PDF
-                # oldalszáma (4. elv) - egy átlógó megjegyzés-rész nem mehet ki papírra.
-                pages = report_core.pdf_page_count(pdf_path)
-                logging.info(f"[STOREPRINT] A riport PDF oldalszáma: {pages}")
-                if pages is not None and pages > 1:
-                    logging.error(f"[STOREPRINT] A riport {pages} oldalas lett - NEM nyomtatjuk ({pdf_path})")
-                    raise Exception(
-                        f"A riport {pages} oldalas lett 1 helyett - NEM nyomtattam ki, mert a riportnak "
-                        f"mindig 1 lapon kell lennie. Rövidítsd a megjegyzést, és generáld újra. "
-                        f"A PDF megnézhető: {pdf_path}")
-                if pages is None:
-                    logging.warning("[STOREPRINT] A riport PDF oldalszáma nem állapítható meg - nyomtatás ellenőrzés nélkül.")
 
                 # 4) PDF -> néma nyomtatás a bolti nyomtatóra.
                 # A SumatraPDF a stresstools.zip-ben van, amit itt SZÜKSÉG ESETÉN LETÖLTÜNK -
